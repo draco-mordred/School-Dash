@@ -10,6 +10,7 @@ import dotenv from "dotenv"
 import cors from "cors";
 import console from "node:console";
 import { connectDB } from "./config/db"; //import the connectDB function to connect to the database
+import userRoutes from "./routes/user";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -29,6 +30,7 @@ app.use(express.urlencoded({ extended: true })); // Middleware to parse URL-enco
 app.use(cookieParser()); // Middleware to parse cookies
 
 //log http requests to console
+// NODE_ENV missing in .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV variable, you can add it to your .env file like this: NODE_ENV=development
 if (process.env.NODE_ENV === "development") {
     //const morgan = require("morgan"); // HTTP request logger middleware
   app.use(morgan("dev")); // HTTP request logger middleware for development
@@ -49,6 +51,9 @@ app.get("/", (req: Request, res: Response) => {
 // app.get("/", (req: Request, res: Response) => {
 //   res.send("Hello, Express with TypeScript!");
 // });
+
+//Import routes here
+app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
 
 //Global error handling middleware
 app.use((err: Error, req: Request, res: Response, next: Function) => {
