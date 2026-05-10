@@ -1,6 +1,7 @@
 import { type Request, type Response } from "express";
 import User from "../models/user";
 import { generateToken } from "../utils/generateToken";
+import { logActivity } from "../utils/activitieslog";
 
 // @desc    Register a new user
 // @route   POST /api/users/register
@@ -30,6 +31,13 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         });
 
         if (newUser) {
+            if ((req as any).user) {
+                await logActivity({
+                    userId: (req as any).user._id.toString(), 
+                    action: "Created user",
+                    details: `Created user ${newUser.name} (${newUser.email}) with role ${newUser.role}`
+                });
+            }
             res.status(201).json({ 
                 _id: newUser._id,
                 name: newUser.name,
@@ -39,15 +47,14 @@ export const register = async (req: Request, res: Response): Promise<void> => {
                 teacherSubject: newUser.teacherSubject,
                 parentStudents: newUser.parentStudents,
                 isActive: newUser.isActive,
-                message: "User created successfully"
+                message: `User '${newUser.name}' created successfully`
             });
             return;
         }else {            
             res.status(400).json({ status: "Error!", message: "Invalid user data" });
             return;
         }
-
-        res.status(201).json({ status: "Success!", message: "User created successfully", data: newUser });
+        res.status(201).json({ status: "Success!", message: `User '${newUser.name}' created successfully`, data: newUser });
     } catch (error) {
         res.status(500).json({ status: "Error!", message: "Internal server error" });
     }
