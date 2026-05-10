@@ -2,8 +2,11 @@ import express from "express";
 
 const userRoutes = express.Router();
 
-import { registerUser } from "../controllers/user";
+import { login, register } from "../controllers/user";
 
-userRoutes.post("/register", registerUser);
+userRoutes.post("/register", register);
+userRoutes.post("/login", login);
 
 export default userRoutes;
+
+//Next we protect the routes, also add rolebased access
