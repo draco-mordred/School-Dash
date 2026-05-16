@@ -33,7 +33,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
         if (newUser) {
             if ((req as any).user) {
                 await logActivity({
-                    userId: (req as any).user._id.toString(), 
+                    userId: (req as any).user._id.toString(),
                     action: "Created user",
                     details: `Created user ${newUser.name} (${newUser.email}) with role ${newUser.role}`
                 });
@@ -74,6 +74,14 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
             //generate token
             generateToken(user.id.toString(), res)
             res.json(user)
+            //totally forgot this part cannot work since "/login" is not a protected route
+            // if ((req as any).user){
+            //     await logActivity({
+            //         userId: (req as any).user._id.toString(),
+            //         action: "Registered User",
+            //         details: `Registered ${user.name} with email ${user.email}` 
+            //     })
+            // }
         }else{
             res.status(401).json({ message: "Invalid email or password"})
         }
@@ -81,3 +89,6 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
         res.status(500).json({message: "Server error", error})
     }
 }
+
+
+// next we add fetc h all activities(or let's do it now)

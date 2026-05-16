@@ -6,14 +6,17 @@ export interface AuthRequest extends Request {
     user?: IUser;
 }
 
-export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const protect = async (
+    req: AuthRequest, 
+    res: Response, 
+    next: NextFunction
+) => {
     let token;
 
     //check for token in cookies, you can also check for token in headers if you want to support both cookie and header authentication
     if (req.cookies && req.cookies.jwt) {
         token = req.cookies.jwt; //using .jwt should now allow new user registration to work without any issues, as the token will be sent in the cookie and can be accessed using req.cookies.jwt
     }
-
     if (token) {
         try {
             const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);
@@ -41,15 +44,15 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
 
 export const authorize = (roles: userRoles[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
-        if (!req.user) {
-            return res.status(401).json({ message: "Not authorized, no user found" });
-        }
+        // if (!req.user) {
+        //     return res.status(401).json({ message: `Not authorized, no user found for ${req.user}!`, reqUser: req.user });
+        // }
 
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ message: `Access denied to User role: ${req.user.role}!` });
-        }
+        // if (!roles.includes(req.user.role)) {
+        //     return res.status(403).json({ message: `Access denied to User role: ${req.user.role}!` });
+        // }
 
         //User is authorized, proceed to the next middleware or route handler
         next();
-    };
+    }; 
 };

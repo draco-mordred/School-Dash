@@ -15,3 +15,10 @@ To fix the MongoDB connection error, you can enter this line of code in the Inde
     const dns = require("dns");
     dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 // The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/)
+
+
+1. Download Local ComponentsYou will need to download the following from the MongoDB Download Center:MongoDB Community Server: The core database engine that runs locally on your machine.MongoDB Compass: The official graphical user interface (GUI) for managing your data without needing a command line.MongoDB Shell (mongosh): A command-line tool for advanced database operations.
+2. Install on WindowsRun the Installer: Double-click the .msi file and follow the setup wizard.Service Configuration: Choose "Complete" and ensure the "Install MongoDB as a Service" box is checked. This allows the database to start automatically when your computer turns on.Install Compass: During installation, check the box to include MongoDB Compass.
+3. Install on Linux (Offline/Air-gapped)If the machine has no internet access at all, you must transfer the files manually:Get the Tarball: Download the .tgz tarball on a machine with internet.Transfer & Extract: Move the file to the offline system and extract it.Manual Setup: Use sudo systemctl start mongod to start the service once the binaries are in place.
+4. Connect to LocalhostOnce installed, your local database is reachable at a "localhost" address rather than a cloud URL:Default Connection String: mongodb://localhost:27017.Via Compass: Open MongoDB Compass and click "Connect" using the default local string.Via Terminal: Type mongosh to open an interactive shell session.
+5. Syncing Data (Optional)If you need to move data from a remote Atlas database to your offline setup:Export/Import: Use mongoexport from your cloud cluster and mongoimport on your local machine.Offline-First Sync: For apps that need to sync when they eventually get online, consider tools like PowerSync or ObjectBox which integrate with MongoDB to handle background synchronization.

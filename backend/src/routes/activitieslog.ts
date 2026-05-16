@@ -1,6 +1,11 @@
 import express from 'express';
-// import { getActivitiesLog } from '../controllers/activitieslog';
+import { protect, authorize } from '../middleware/auth'
+import { getAllActivities } from '../controllers/activitieslog';
 
-// we eill do this later when getting all activities
+// we will do this later when getting all activities
 
-const router = express.Router();
+const LogsRouter = express.Router();
+
+LogsRouter.get("/", protect, authorize(["admin", "teacher"]), getAllActivities)
+
+export default LogsRouter; 
