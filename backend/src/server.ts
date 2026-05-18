@@ -49,9 +49,6 @@ app.use(
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "Server is healthy!" });
 });
-// app.get("/", (req: Request, res: Response) => {
-//   res.send("Hello, Express with TypeScript!");
-// });
 
 //Import routes here
 app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users

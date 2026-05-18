@@ -6,10 +6,11 @@ export const logActivity = async ({
     action,
     details,
 }: {
-    userId: string;
+    userId: string | mongoose.Types.ObjectId;
     action: string;
     details?: string;
 }) => {
+    // Updateuser isn't working at this point, but lets go on ...
     if (!mongoose.Types.ObjectId.isValid(userId)) {
         console.warn(`Invalid userId: ${userId}`);
         return;
@@ -17,9 +18,9 @@ export const logActivity = async ({
     }
     try {
         await ActivitiesLog.create({
-            user: userId, //used in place of new mongoose.Types.ObjectsId() 
-            // Wrapping it in new mongoose.Types.ObjectId() creates a schema type object instead of an actual ObjectId value
-            // removing the wrapper lets Mongoose handle the conversation.
+            user: typeof userId === "string" 
+              ? new mongoose.Types.ObjectId(userId) 
+              : userId,
             action,
             details,
         });

@@ -75,13 +75,13 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
             generateToken(user.id.toString(), res)
             res.json(user)
             //totally forgot this part cannot work since "/login" is not a protected route
-            // if ((req as any).user){
-            //     await logActivity({
-            //         userId: (req as any).user._id.toString(),
-            //         action: "Registered User",
-            //         details: `Registered ${user.name} with email ${user.email}` 
-            //     })
-            // }
+            if ((req as any).user){
+                await logActivity({
+                    userId: (req as any).user._id.toString(),
+                    action: "Registered User",
+                    details: `Registered ${user.name} with email ${user.email}` 
+                })
+            }
         }else{
             res.status(401).json({ message: "Invalid email or password"})
         }
@@ -90,5 +90,123 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
     }
 }
 
+// next we add fetch all activities(or let's do it now)
+// done!
 
-// next we add fetc h all activities(or let's do it now)
+// @desc    Update user (Admin)
+// @route   PUT /api/users/:id
+// @access  Private/Admin
+
+export const updateUser = async (req: Request, res: Response) : Promise<void> => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (user){
+            user.name = req.body.name || user.name;
+            user.email = req.body.email || user.email;
+            user.role = req.body.role || user.role;
+            user.isActive = req.body.isActive !== undefined ? req.body.isActive : user.isActive;
+            user.studentClasses = req.body.studentClasses || user.studentClasses;
+            user.teacherSubject = req.body.teacherSubject || user.teacherSubject;
+            user.parentStudents = req.body.parentStudents || user.parentStudents;
+
+            if(req.body.password){
+                user.password = req.body.password;
+            }
+            const updatedUser = await user.save();
+            // const userId = (req as any).user._id.toString();
+            if ((req as any).user) {
+                //not responding at this point ... will continue the video for now ---to fix return to video at time: 1:30:45 / 7:05:54 ...
+                await logActivity({
+                    userId: (req as any).user._id.toString(),
+                    action: "Updated user",
+                    details: `Updated user with email ${updatedUser.email}`
+                });
+            }
+            // res.status(200).json({ status: "Success!", message: `User '${updatedUser.name}' updated successfully`, data: updatedUser });
+            res.json({
+                _id: updatedUser._id,
+                name: updatedUser.name,
+                email: updatedUser.email,
+                role: updatedUser.role,
+                isActive: updatedUser.isActive,
+                studentClasses: updatedUser.studentClasses,
+                parentStudents: updatedUser.parentStudents,
+                teacherSubject: updatedUser.teacherSubject,
+                message: `User ${updatedUser.email} updated successfully.`,
+            })
+        } else {
+            res.status(404).json({ status: "Error!", message: "User not found" });
+        }
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// for some reason, thr server fails when not connected online ... let's go on for now and see if it'll come back later on ...
+
+// next we do Delete user
+// @desc    Delete user (Admin)
+// @route   DELETE /api/users/:id
+// @access  Private/Admin
+
+export const deleteUser = async (req: Request, res: Response) : Promise<void> => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (user){
+            await User.deleteOne({ _id: user._id });
+            if ((req as any).user) {
+                await logActivity({
+                    userId: (req as any).user._id.toString(),
+                    action: "Deleted user",
+                    details: `Deleted user with email ${user.email}`
+                });
+            }
+            res.json({ message: `User ${user.email} deleted successfully.` });
+        } else {
+            res.status(404).json({ status: "Error!", message: "User not found" });
+            return;
+        }
+    }catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// @desc    Get user profile (via cookie)
+// @route   GET /api/users/profile
+// @access  Private 
+
+export const getUserProfile = async (req: Request, res: Response) : Promise<void> => {
+    try {
+        const user = await User.findById((req as any).user._id);
+        if (user){  
+            res.json({
+                user: {
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                }
+            })
+        } else {
+            res.status(404).json({ status: "Error!", message: "Not authorized" });
+        }
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// desc   Logout users / clear cookie
+// route   POST /api/users/logout
+// access  Public
+
+export const logoutUser = async (req: Request, res: Response) => {
+    try {
+        res.cookie("jwt", "", {
+            httpOnly: true,
+            expires: new Date(0) // Set the cookie to expire immediately
+        });
+        res.json({ message: "Logged out successfully" });
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}

@@ -44,13 +44,13 @@ export const protect = async (
 
 export const authorize = (roles: userRoles[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
-        // if (!req.user) {
-        //     return res.status(401).json({ message: `Not authorized, no user found for ${req.user}!`, reqUser: req.user });
-        // }
+        if (!req.user) {
+            return res.status(401).json({ message: `Not authorized, no user found!` });
+        }
 
-        // if (!roles.includes(req.user.role)) {
-        //     return res.status(403).json({ message: `Access denied to User role: ${req.user.role}!` });
-        // }
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed. Allowed roles: ${roles.join(", ")}` });
+        }
 
         //User is authorized, proceed to the next middleware or route handler
         next();
