@@ -3,6 +3,15 @@ import User from "../models/user";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
 
+// Define an interface extending Express Request to handle authenticated user data cleanly
+interface AuthenticatedRequest extends Request {
+    user?: {
+        _id: { toString: () => string };
+        name: string;
+        email: string;
+    };
+}
+
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Private (Admin and Teacher only) 
@@ -11,7 +20,6 @@ import { logActivity } from "../utils/activitieslog";
 export const register = async (req: Request, res: Response): Promise<void> => {
     try {
         const { name, email, password, role, studentClasses, teacherSubject, parentStudents, isActive } = req.body;
-
         // Check if the user already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -29,9 +37,8 @@ export const register = async (req: Request, res: Response): Promise<void> => {
             parentStudents,
             isActive
         });
-
         if (newUser) {
-            if ((req as any).user) {
+            if ((req as AuthenticatedRequest).user) {
                 await logActivity({
                     userId: (req as any).user._id.toString(),
                     action: "Created user",
@@ -68,7 +75,6 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
     try {
         const {email, password} = req.body;
         const user = await User.findOne({ email })
-
         // check if user exists and password matches
         if (user && (await user.matchPassword(password))){
             //generate token
@@ -76,14 +82,29 @@ export const login = async (req: Request, res: Response): Promise<void> =>{
             res.json(user)
             //totally forgot this part cannot work since "/login" is not a protected route
             if ((req as any).user){
+                // FIX: Use the newly authenticated user object for the log activity, NOT req.user
                 await logActivity({
-                    userId: (req as any).user._id.toString(),
-                    action: "Registered User",
-                    details: `Registered ${user.name} with email ${user.email}` 
-                })
+                    userId: user._id.toString(),
+                    action: "Login User",
+                    details: `${user.name} logged in successfully.`
+                });
+
+                res.status(201).json({
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    studentClasses: user.studentClasses,
+                    teacherSubject: user.teacherSubject,
+                    parentStudents: user.parentStudents,
+                    isActive: user.isActive,
+                    message: `User '${user.name}' logged in successfully`
+                });
+                return;
             }
         }else{
-            res.status(401).json({ message: "Invalid email or password"})
+            res.status(401).json({ message: "Invalid email or password"});
+            return;
         }
     } catch (error) {
         res.status(500).json({message: "Server error", error})
@@ -138,7 +159,7 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             res.status(404).json({ status: "Error!", message: "User not found" });
         }
     } catch (error) {
-        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+        res.status(500).json({ message: `Server error: ${error}` });
     }
 }
 

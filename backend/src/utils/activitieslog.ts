@@ -17,13 +17,13 @@ export const logActivity = async ({
         // act as a guard to check if 'userId' is valid
     }
     try {
-        await ActivitiesLog.create({
-            user: typeof userId === "string" 
-              ? new mongoose.Types.ObjectId(userId) 
-              : userId,
-            action,
-            details,
-        });
+        // await ActivitiesLog.create({
+        //     user: typeof userId === "string" 
+        //       ? new mongoose.Types.ObjectId(userId) 
+        //       : userId,
+        //     action,
+        //     details,
+        // });
     } catch (error) {
         console.error(`${error} disrupted activity log.`);
         // res.status(500).json({ message: `Internal server error from ${error}`});
