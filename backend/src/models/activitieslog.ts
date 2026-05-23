@@ -8,7 +8,8 @@ export interface IActivityLog extends Document{
 }
 
 //types don't need to be defined in the Schema more so herer where we define use as a String instead of objectID
-const ActivityLogSchema: Schema<IActivityLog> = new Schema(
+// const ActivityLogSchema: Schema<IActivityLog> = new Schema(
+const ActivityLogSchema = new Schema(
     {
         user: { type: Schema.Types.ObjectId, required: true, ref: 'User' },
         action: { type: String, required: true},

@@ -6,14 +6,25 @@ export enum UserRole {
     ADMIN = "admin",
     TEACHER = "teacher",
     STUDENT = "student",
-    PARENT = "parent"
+    PARENT = "parent",
 }
 
-export type userRoles = "admin" | "teacher" | "student" | "parent";
+export enum UserIDs {
+    ADMINID = "UJ0000AD0000", // Unique ID for admin
+    STUDENTID = "UJ0000ST0000", // Unique ID for students
+    TEACHERID = "UJ0000TE0000", // Unique ID for teachers
+    PARENTID = "UJ0000PA0000" // Unique ID for parents
+}
+
+export type userRoles = "admin" | "teacher" | "student" | "parent" ; // Define a type for user roles, including the unique admin and student IDs
+
+export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID";
 
 export interface IUser extends Document {
     name: string;
     email: string;
+    // idNumber?: userIDs;
+    idNumber: string; // field for ID number
     password: string;
     role: userRoles;
     isActive: boolean;
@@ -36,6 +47,13 @@ const UserSchema: Schema<IUser> = new Schema({
         type: String,
         required: true,
         unique: true
+    },
+    idNumber: {
+        type: String,
+        // unique: false,
+        //enum: Object.values(UserIDs), // Ensure the idNumber can only be one of the specified values in UserIDs
+        default: UserIDs.STUDENTID, // Default to STUDENTID if not provided, but can be overridden when creating an admin user with ADMINID
+        // required: true, // Make idNumber required to ensure every user has a unique ID, but you can remove this if you want to allow users without an ID number (e.g., for testing purposes)
     },
     password: {
         type: String,

@@ -5,7 +5,6 @@ import cookieParser from "cookie-parser";
 import express, { type Application, type Request, type Response } from "express";
 import helmet from "helmet";
 import morgan from "morgan";
-
 import dotenv from "dotenv"
 import cors from "cors";
 import console from "node:console";
@@ -33,7 +32,6 @@ app.use(cookieParser()); // Middleware to parse cookies
 //log http requests to console
 // NODE_ENV missing in .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV variable, you can add it to your .env file like this: NODE_ENV=development
 if (process.env.NODE_ENV === "development") {
-    //const morgan = require("morgan"); // HTTP request logger middleware
   app.use(morgan("dev")); // HTTP request logger middleware for development
 }
 

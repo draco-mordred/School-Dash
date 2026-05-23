@@ -1,7 +1,8 @@
 import express from "express";
 const userRoutes = express.Router(); 
-import { login, 
-    register, 
+import { 
+    login, 
+    registerUser, 
     updateUser, 
     deleteUser, 
     logoutUser, 
@@ -13,9 +14,9 @@ import { protect, authorize } from "../middleware/auth";
 userRoutes.post(
     "/register",
     protect, 
-    authorize(["admin", "teacher"]),
+    authorize(["admin", "teacher"]), // Only allow admin, teacher, student, and parent roles to access the register route
     // authorize(["admin", "teacher", 'student', 'parent']), // Only allow admin, teacher, student, and parent roles to access the register route  
-    register
+    registerUser
 );
 userRoutes.post("/login", login); 
 userRoutes.post("/logout", logoutUser); 
@@ -25,14 +26,14 @@ userRoutes.get("/profile", protect, getUserProfile); // Get user profile via coo
 userRoutes.patch(
     "/update/:id",
     protect,
-    authorize(["admin", "teacher", 'student', 'parent']),
+    authorize(["admin", "teacher"]),
     updateUser
 );
 
 userRoutes.delete(
     "/delete/:id",
     protect,
-    authorize(["admin", "teacher", 'student', 'parent']),
+    authorize(["admin", "teacher"]),
     deleteUser
 );
  

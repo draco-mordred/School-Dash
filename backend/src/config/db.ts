@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 //Connect db here
 export const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URL as string);
+    const conn = await mongoose.connect(process.env.MEDLOG_MONGO_URL as string);
     console.log(`MongoDB Connected Online @: ${conn.connection.host}`);
   } catch (error) {
     try {

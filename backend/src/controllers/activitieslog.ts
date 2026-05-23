@@ -1,7 +1,7 @@
 import { type Request, type Response} from 'express';
 import ActivityLog from "../models/activitieslog";
 
-// @desc    Get System Activity Log (inuding pagunation)
+// @desc    Get System Activity Log (inuding pagunation and filters)
 // @route   Get /api/activity
 // @access  Private/Admin 
 

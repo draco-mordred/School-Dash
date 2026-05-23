@@ -1,11 +1,11 @@
 import { type Request, type Response, type NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import User, { type IUser, type userRoles } from "../models/user";
-
 export interface AuthRequest extends Request {
     user?: IUser;
 }
 
+// protect routes middleware
 export const protect = async (
     req: AuthRequest, 
     res: Response, 
@@ -40,6 +40,7 @@ export const protect = async (
  * usage: router.post('/', protect, authorize("admin", "teacher"), someControllerFunction);
  * }
  */
+
 export const authorize = (roles: userRoles[]) => {
     return (req: AuthRequest, res: Response, next: NextFunction) => {
         if (!req.user) {
@@ -47,7 +48,7 @@ export const authorize = (roles: userRoles[]) => {
         }
 
         if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed. Allowed roles: ${roles.join(", ")}` });
+            return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed to acces this route. Allowed roles: ${roles.join(", ")}` });
         }
         //User is authorized, proceed to the next middleware or route handler
         next();
