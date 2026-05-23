@@ -204,8 +204,8 @@ export const login = async (
     }
 }
 
-// // next we add fetch all activities(or let's do it now)
-// // done!
+// next we add fetch all activities(or let's do it now)
+// done!
 
 // @desc    Update user (Admin)
 // @route   PUT /api/users/:id
@@ -259,12 +259,66 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
     }
 }
 
-// // for some reason, thr server fails when not connected online ... let's go on for now and see if it'll come back later on ...
+// next we do Get all users
+// @desc    Get all users (With Pagination & Filtering)
+// @route   GET /api/users
+// @access  Private/Admin
+export const getUsers = async (req: Request, res: Response) : Promise<void> => {
+    try {
+        const page = parseInt(req.query.page as string) || 1; // Default to page 1 if not provided
+        const limit = parseInt(req.query.limit as string) || 10;
+        const role = req.query.role as string; 
+        const search = req.query.search as string;// optional: add search later
 
-// // next we do Delete user
-// // @desc    Delete user (Admin)
-// // @route   DELETE /api/users/:id
-// // @access  Private/Admin
+        const skip = (page - 1) * limit;
+
+    // 2. Build Filter Object
+    const filter: any = {};
+
+    if (role && role !== "all" && role !== ""){
+        filter.role = role;
+    }
+    if (search){
+        filter.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+            { idNumber: { $regex: search, $options: "i" } },
+        ];
+     }
+     // 3. Fetch Users with Pagination & Filtering
+     const [total, users] = await Promise.all([
+        User.countDocuments(filter), // Get total count of users matching the filter
+        User.find(filter)
+        .select("-password")
+        // .populate("studentClassess", "_id name code")
+        // .populate("teacherSubject", "_id name code")
+        .sort({ createdAt: -1})
+        .skip(skip)
+        .limit(limit),
+     ])
+
+     // 4. Send response
+     res.status(200).json({
+        users,
+        pagination: {
+            total,
+            page,
+            pages: Math.ceil(total / limit),
+            limit,
+        }
+     })
+    } catch (error) {
+        res.status(500).json({message: `Server error`, error: `${error}`})
+    }
+
+}
+
+// // for some reason, thr server fails when not connected online ... let's go on for now and see if it'll come back later on ... resolved today (23rd may 2026) after discovering that the server had been cut off due to network issues...
+
+// next we do Delete user
+// @desc    Delete user (Admin)
+// @route   DELETE /api/users/:id
+// @access  Private/Admin
 
 export const deleteUser = async (req: Request, res: Response) : Promise<void> => {
     try {
