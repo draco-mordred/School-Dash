@@ -149,7 +149,7 @@ export const registerUser = async (
     }
 }
 
-// @desc    Log in a new user
+// @desc    Log in a user
 // @route   POST /api/users/login
 // @access  Public 
 
@@ -166,35 +166,35 @@ export const login = async (
             generateToken(user.id.toString(), res)
             res.status(201).json(user) //returns the user data to the Response/frontend ... can be customized to show specific fields only, for example: res.status(201).json({  name: user.name, email: user.email, message: `User '${user.name}' logged in successfully`)})
 
-           if ((req as any).user){ //totally forgot this part cannot work since "/login" is not a protected route, but we can still log the activity using the authenticated user object that we just got from the database after successful login, which is "user" in this case, instead of using "req.user" which is not available at this point since the user is not authenticated yet
-                await logActivity({
-                    userId: (req as any).user._id.toString(),
-                    action: "User login",
-                    details: `${user.name} logged in successfully.`
-                })
-            }
+        //    if ((req as any).user){ //totally forgot this part cannot work since "/login" is not a protected route, but we can still log the activity using the authenticated user object that we just got from the database after successful login, which is "user" in this case, instead of using "req.user" which is not available at this point since the user is not authenticated yet
+        //         await logActivity({
+        //             userId: (req as any).user._id.toString(),
+        //             action: "User login",
+        //             details: `${user.name} logged in successfully.`
+        //         })
+        //     }
             
-            // if ((req as any).user){
-            //     // FIX: Use the newly authenticated user object for the log activity, NOT req.user
-            //     await logActivity({
-            //         userId: user._id.toString(),
-            //         action: "Login User",
-            //         details: `${user.name} logged in successfully.`
-            //     });
+            if ((req as any).user){
+                // FIX: Use the newly authenticated user object for the log activity, NOT req.user
+                await logActivity({
+                    userId: user._id.toString(),
+                    action: "Login User",
+                    details: `${user.name} logged in successfully.`
+                });
 
-            //     res.status(201).json({
-            //         _id: user._id,
-            //         name: user.name,
-            //         email: user.email,
-            //         role: user.role,
-            //         studentClasses: user.studentClasses,
-            //         teacherSubject: user.teacherSubject,
-            //         parentStudents: user.parentStudents,
-            //         isActive: user.isActive,
-            //         message: `User '${user.name}' logged in successfully`
-            //     });
-            //     return;
-            // }
+                res.status(201).json({
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    studentClasses: user.studentClasses,
+                    teacherSubject: user.teacherSubject,
+                    parentStudents: user.parentStudents,
+                    isActive: user.isActive,
+                    message: `User '${user.name}' logged in successfully`
+                });
+                return;
+            }
         }else{
             res.status(401).json({ message: "Invalid email or password"});
             return;
