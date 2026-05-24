@@ -11,6 +11,7 @@ import console from "node:console";
 import { connectDB } from "./config/db"; //import the connectDB function to connect to the database
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
+import academicYearRouter from "./routes/academicYear";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -51,11 +52,12 @@ app.get("/", (req: Request, res: Response) => {
 //Import routes here
 app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
+app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
 
 //Global error handling middleware
 app.use((err: Error, req: Request, res: Response, next: Function) => {
   console.error(err.stack);
-  res.status(500).json({ status: "Error!", message: err.message });
+  res.status(500).json({ status: "Error!", message: err.message })
 });
 //or write normally without the next function if you don't need it
 // app.use(
