@@ -12,6 +12,7 @@ import { connectDB } from "./config/db"; //import the connectDB function to conn
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
+import classRouter from "./routes/classes";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -53,6 +54,7 @@ app.get("/", (req: Request, res: Response) => {
 app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
 app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
+app.use('/api/classes', classRouter);
 
 //Global error handling middleware
 app.use((err: Error, req: Request, res: Response, next: Function) => {
