@@ -1,5 +1,5 @@
 import { type Request, type Response } from "express";
-import ClassModel from "../models/class";
+import ClassModel from "../models/classes";
 import { logActivity } from "../utils/activitieslog"
 
 // @desc    Create a New Class
@@ -65,13 +65,12 @@ res: Response
     // 3. Execute Query (Count & Find)
     const [total, classes] = await Promise.all([
       ClassModel.countDocuments(query),
-      ClassModel.find(query
+      ClassModel.find(query)
         .populate("academicYear", "name")
         .populate("classTeacher", "name email")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
-      )
     ]);
     //4. Return Data + Pagination Meta
     res.json({
@@ -136,14 +135,14 @@ res: Response
 ) => {
   try {
     const deletedClass = await ClassModel.findByIdAndDelete( req.params.id )
-    const userId  = (req as any).user_id;
+    const userId = (req as any).user._id;
     await logActivity({ 
       userId, 
       action: `Deleted ${deletedClass?.name} Class`
     })
     if (!deletedClass) {
       return res.status(404).json({
-        message: `Class ${userId} not found!`
+        message: `Class not found! - ${userId} Is ${deletedClass}.`
       })
     }
     // res.json({ message: `Class '${deletedClass?.name}' removed`})
