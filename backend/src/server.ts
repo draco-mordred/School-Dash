@@ -14,6 +14,9 @@ import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses";
+import { serve } from "inngest/express";
+import { inngest } from "./inngest";
+import { generateTimeTable } from "./inngest/functions";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -57,6 +60,12 @@ app.use("/api/activities", LogsRouter); // Use the user routes for any requests 
 app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
 app.use('/api/classes', classRouter);
 app.use('/api/courses', courseRouter); // Import and use the course routes for any requests to /api/courses
+app.use('/api/inngest', serve({ 
+  client: inngest, 
+  functions: [generateTimeTable] 
+})
+);
+
 
 //Global error handling middleware
 app.use((err: Error, req: Request, res: Response, next: Function) => {
