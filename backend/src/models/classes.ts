@@ -6,7 +6,7 @@ export interface IClass extends Document {
   name: string; // e.g 500 level
   academicYear: mongoose.Types.ObjectId; // Link to 2026-2027
   classTeacher: mongoose.Types.ObjectId; // The main Teacher in charge ... will change this later as Classes don't have a fixed teacher here ... maybe swap with Level cord or Examination officer.
-  subjects: mongoose.Types.ObjectId[]; // List of Subjects taught in this class.
+  courses: mongoose.Types.ObjectId[]; // List of Courses taught in this class.
   students: mongoose.Types.ObjectId[]; // List of Students enrolled.
   capacity: number; // Max number of Students allowed (optional).
 }
@@ -30,11 +30,11 @@ const classSchema = new Schema<IClass>(
       ref: "User",
       default: null,
    },
-   // Arrays of References to Subject model
-   subjects: [
+   // Arrays of References to Course model
+   courses: [
     {
       type: Schema.Types.ObjectId,
-      ref: "Subjects",
+      ref: "Course",
     },
    ],
    // Arrays of Refernces to User model (Student role)

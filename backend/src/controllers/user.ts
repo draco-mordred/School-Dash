@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import User from "../models/user";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
+import type { AuthRequest } from "../middleware/auth";
 
 // Define an interface extending Express Request to handle authenticated user data cleanly
 interface AuthenticatedRequest extends Request {

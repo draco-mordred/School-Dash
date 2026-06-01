@@ -55,7 +55,7 @@ export const getAllCourseSubjects = async(
   try {
     // 1. Parse Query Parameters
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
     const search = req.query.search as string;
 
     // 2. Build Search Query (Search by Name OR CODE)
