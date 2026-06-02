@@ -11,13 +11,21 @@ export const generateTimeTable = async (
   res: Response
 ) => {
   try {
-    const { classId, academicYear, settings } = req.body;
+    const { classId, academicYear, academicYearId, settings } = req.body;
+    const classIdValue = classId?._id ?? classId?.id ?? classId;
+    const academicYearValue = academicYearId ?? academicYear?._id ?? academicYear?.id ?? academicYear;
+
+    if (!classIdValue || !academicYearValue || !settings) {
+      return res.status(400).json({ message: "classId, academicYear, and settings are required" });
+    }
+
     await inngest.send(
       {
         name: "generate/timetable",
         data: {
-          classId,
+          classId: classIdValue,
           academicYear,
+          academicYearId: academicYearValue,
           settings
         }
       }
