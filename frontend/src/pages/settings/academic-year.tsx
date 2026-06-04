@@ -33,7 +33,6 @@ const AcademicYear = () => {
   const fetchYears = async () => {
     try {
       setLoading(true);
-
       // Construct Query Params
       const params = new URLSearchParams();
       params.append("page", pageNum.toString());

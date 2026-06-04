@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "dev": "nodemon --exec bun run src/server.ts",
-    "start": "bun --watch src/server.ts"
+    "start": "bun --watch src/server.ts",
+    "build": "nodemon --exec bun run src/inngest/server.ts",
+    "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",

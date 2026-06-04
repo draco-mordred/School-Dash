@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { toast } from "sonner";
-
+ 
 import {
   type Class,
   type UserRole,
@@ -115,7 +115,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
     const fetchSubjects = async () => {
       try {
         setLoadingOptions(true);
-        const { data } = (await api.get("/subjects")) as {
+        const { data } = (await api.get("/courses")) as {
           data: { subjects: subject[]; pagination: pagination };
         };
         setSubjects(data.subjects);

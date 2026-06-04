@@ -20,7 +20,7 @@ userRoutes.post("/register",
 );
 userRoutes.post("/login", login); 
 userRoutes.post("/logout", logoutUser); 
-userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route   
+userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route    
 userRoutes.get("/",
     protect,
     authorize(["admin", "teacher"]),

@@ -17,7 +17,6 @@ academicYearRouter
 academicYearRouter
 .route("/")
 .get(protect, authorize(["admin"]), getAllAcademicYears)
-// .get(protect, authorize(["admin"]), );
 
 academicYearRouter
 .route("/current")

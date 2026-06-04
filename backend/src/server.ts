@@ -47,8 +47,8 @@ if (process.env.NODE_ENV === "development") {
 //cross-origin resource sharing (CORS) middleware to allow requests from different origins
 app.use(
   cors({
-    origin: process.env.CLIENT_URL, // Allow requests from this origin (your frontend)
-    credentials: true // Allow cookies to be sent with requests
+    origin: ["http://localhost:5173"], // Allow requests from these origins (your frontend dev server)
+    credentials: false // Allow cookies to be sent with requests
 }) 
 );
 
@@ -62,7 +62,8 @@ app.use("/api/users", userRoutes); // Use the user routes for any requests to /a
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
 app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
 app.use('/api/classes', classRouter);
-app.use('/api/courses', courseRouter); // Import and use the course routes for any requests to /api/courses
+app.use('/api/subjects', courseRouter); // Mount course/subject routes at /api/subjects
+app.use('/api/courses', courseRouter); // Also expose the same router at /api/courses for compatibility
 app.use("/api/timetables", timeRouter)
 app.use("/api/exams", examRouter);
 app.use("/api/dashboard", dashBoardRouter)

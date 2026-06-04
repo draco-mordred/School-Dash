@@ -54,7 +54,7 @@ export const getTimetable = async (
   try {
     const timetable = await Timetable.findOne({ class: req.params.classId })
     .populate("schedule.periods.subject", "name code courseID")
-    .populate("schedule.periods.teacher", "name email");
+    .populate("schedule.periods.lecturer", "name email");
 
     if (!timetable) {
       return res.status(404).json({ message: "Timetable not found!" });
