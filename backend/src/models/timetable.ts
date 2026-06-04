@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPeriod {
   subject: mongoose.Types.ObjectId;
-  teacher: mongoose.Types.ObjectId;
+  lecturer?: mongoose.Types.ObjectId;
   startTime: string; // e.g., "08:00",
   endTime: string; // e.g., "10:00"
 }
@@ -37,7 +37,7 @@ const timetableSchema = new Schema(
         periods: [
           {
             subject: { type: mongoose.Types.ObjectId, ref: "Course" },
-            teacher: { type: mongoose.Types.ObjectId, ref: "Teacher"},
+            lecturer: { type: mongoose.Types.ObjectId, ref: "User" },
             startTime: String,
             endTime: String,
           }

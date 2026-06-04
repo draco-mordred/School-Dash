@@ -1,11 +1,15 @@
+import mongoose from "mongoose";
 import { inngest } from "./index";
 import ClassModel from "../models/classes";
 import User from "../models/user";
 import Timetable from "../models/timetable";
+import Exam from "../models/exam";
 
 import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
+import { logActivity } from "../utils/activitieslog";
+// import { count } from "node:console";
 // export const inngest = new Inngest({ id: "my-app"});
 interface GenSettings {
   startTime: string;
@@ -43,10 +47,18 @@ export const generateTimeTable = inngest.createFunction(
       if (!classData) throw new NonRetriableError(`Class not found`);
 
       // Fetch teachers
-      const allTeachersAndLecturers = await User.find({ role: "teacher"});
+      const allTeachersAndLecturers = await User.find({ role: "teacher" });
 
       // Filter qualified teachers for class courses
       const classCourseIds = classData.courses.map((course) => course._id.toString());
+
+      // [
+      //   "6a1aed10b3a7676e968a639d",
+      //   "6a1af7f05b5acae623853ecf",
+      //   "6a1d5914166b2f94290264d8",
+      //   "6a1d6c4c0264bbd574c84664",
+      //   "6a1d6cb90264bbd574c84666"
+      // ]
 
       const qualifiedTeachers = allTeachersAndLecturers
         .filter((teacher) => {
@@ -54,9 +66,10 @@ export const generateTimeTable = inngest.createFunction(
           return teacher.teacherSubject.some((subId) => classCourseIds.includes(subId.toString()));
         })
         .map((tea) => ({
-          id: tea._id,
+          id: String(tea._id),
+          idNumber: tea.idNumber,
           name: tea.name,
-          subjects: tea.teacherSubject,
+          subjects: tea.teacherSubject?.map((subId: any) => String(subId)) ?? [],
         }))
       const subjectsPayload = classData.courses.map((course: any) => ({
         id: course._id,
@@ -71,7 +84,7 @@ export const generateTimeTable = inngest.createFunction(
     });
 
     // Timetable generation logic would go here
-    const aiSchedule = await step.run("generate-timetable-logic", async () => {
+    const aiExam = await step.run("generate-timetable-logic", async () => {
       const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       if(!apiKey) {
         throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")
@@ -106,11 +119,12 @@ export const generateTimeTable = inngest.createFunction(
           {
             "day": "Monday",
             "periods": [
-            { "name": "SUBJECT_NAME", "subjectId": "SUBJECT_ID", "teacherId": "TEACHER_ID", "startTime": "HH:MM", "endTime": "HH:MM" }
+            { "subjectId": "SUBJECT_ID", "teacher": "TEACHER._id", "startTime": "HH:MM", "endTime": "HH:MM" }
             ]
           }
         ]
       }
+      Use the teacher's idNumber from the teacher list as teacherId, and preserve the generated teacherId exactly in the saved timetable.
         `;
       const google = createGoogleGenerativeAI({
         apiKey,
@@ -138,21 +152,145 @@ export const generateTimeTable = inngest.createFunction(
 
     // Saved Timetable Template
 
-    await step.run("save-timetable", async () => {
+    const savedTimetable = await step.run("save-timetable", async () => {
       await Timetable.findOneAndDelete({
         class: classIdValue,
         academicYear: academicYearIdValue,
       });
 
+      // const mappedSchedule = (aiExam.schedule ?? []).map((day: any) => ({
+      //   day: day.day,
+      //   periods: (day.periods ?? []).map((period: any) => {
+      //     const subject = period.subjectId ?? period.subject;
+      //     const requestedTeacher = period.teacherId ?? period.teacher;
+      //     const requestedTeacherKey = requestedTeacher != null ? String(requestedTeacher).trim() : undefined;
+
+      //     let teacherObjectId: mongoose.Types.ObjectId | undefined;
+      //     let teacherId: string | undefined;
+
+      //     if (requestedTeacherKey) {
+      //       const foundTeacher = contextData.teachers.find((t) =>
+      //         t.id === requestedTeacherKey || t.idNumber === requestedTeacherKey ||
+      //         t.name?.trim().toLowerCase() === requestedTeacherKey.toLowerCase()
+      //       );
+
+      //       if (foundTeacher) {
+      //         teacherObjectId = new mongoose.Types.ObjectId(foundTeacher.id);
+      //         teacherId = foundTeacher.id;
+      //       } else {
+      //         teacherId = requestedTeacherKey;
+      //       }
+      //     }
+
+      //     return {
+      //       subject,
+      //       teacher: teacherObjectId,
+      //       teacherId,
+      //       startTime: period.startTime,
+      //       endTime: period.endTime,
+      //     };
+      //   }),
+      // }));
+
       await Timetable.create({
         class: classIdValue,
         academicYear: academicYearIdValue,
-        schedule: aiSchedule.schedule,
+        schedule: aiExam.schedule,
       });
-      return { success: true, classId }
+
+      // const timetable = await Timetable.findOne({
+      //   class: classIdValue,
+      //   academicYear: academicYearIdValue,
+      // })
+      //   .populate("schedule.periods.subject", "name code")
+      //   .populate("schedule.periods.teacher", "name email idNumber");
+
+      // if (!timetable) {
+      //   throw new NonRetriableError("Failed to save timetable");
+      // }
+
+      return { success: true, classId };
     });
-    // return { contextData, aiSchedule };
-    return { success: true, message: "Timetable generated successfully", data: { contextData, aiSchedule } };
+    // return { contextData, aiExam };
+    return {
+      success: true,
+      message: "Timetable generated successfully",
+      // timetable: savedTimetable.timetable,
+    };
+  }
+)
+
+//Next generate exam
+export const generateExam = inngest.createFunction(
+    { id: "Generate-Exam", 
+    triggers: { 
+      event: "exam/generate"
+    } 
+  },
+  async ({ event, step }) => {
+    const { examId, topic, subjectName, difficulty, count } = event.data;
+    const aiExam = await step.run("generate-exam-logic", async () => {
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if(!apiKey) {
+      throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")
+    }
+
+    const prompt = `
+    You are a strict medical Teacher. Create a JSON array of ${count} multiple-choice questions for a Medical School Exam.
+
+      CONTEXT:
+    - Subject: ${subjectName}
+    - Topic: ${topic}
+    - Hours: ${difficulty}
+
+    STRICT JSON SCHEMA (Array of Objects):
+    [
+      {
+        "questionText": "Question string",
+        "type": "MCQ",
+        "options": [ "Option A", "Option B", "Option C", "Option D", "Option E" ],
+        "correctAnswer": "The exact string of the correct option",
+        "points": 1
+      }
+    ]
+    RULES:
+    1. Output ONLY raw JSON. No Markdown.
+    2. Ensure correct answer matches one of the options exactly.
+      `;
+    const google = createGoogleGenerativeAI({
+      apiKey,
+    });
+    const activeModel = google("gemini-3-flash-preview")
+    const {text} = await generateText({
+      prompt,
+      model: activeModel,
+    })
+    // Parse Response and Sanitize JSON
+    const cleanJSON = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+    return JSON.parse(cleanJSON);
+    });
+    // Saved Timetable Template
+    await step.run("save-exam", async () => {
+      const exam = await Exam.findById(examId);
+      if (!exam) {
+        throw new NonRetriableError(`Exam ${examId} not found!`);
+      }
+      //Update the exam with the new questions
+      exam.questions = aiExam;
+      exam.isActive = false; //Keppe it inactive until teacher reviews it
+
+      await exam.save();
+
+      return { success: true, count: aiExam.length };
+    });
+    // return { contextData, aiExam };
+    return {
+      success: true,
+      message: "Exam generated successfully",
+    };
   }
 )
 

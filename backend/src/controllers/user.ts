@@ -267,7 +267,7 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
 export const getUsers = async (req: Request, res: Response) : Promise<void> => {
     try {
         const page = parseInt(req.query.page as string) || 1; // Default to page 1 if not provided
-        const limit = parseInt(req.query.limit as string) || 10;
+        const limit = parseInt(req.query.limit as string) || 100;
         const role = req.query.role as string; 
         const search = req.query.search as string;// optional: add search later
 

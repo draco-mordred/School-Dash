@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest";
-
+import Timetable from "../models/timetable";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin
@@ -40,5 +40,27 @@ export const generateTimeTable = async (
     })
   } catch (error) {
     res.status(500).json({ message: `Serve error`, error });
+  }
+}
+
+// @desc    Get Timetable by Class
+// @route   GET /api/timetables/:classId
+// @access  Private/Admin
+
+export const getTimetable = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const timetable = await Timetable.findOne({ class: req.params.classId })
+    .populate("schedule.periods.subject", "name code courseID")
+    .populate("schedule.periods.teacher", "name email");
+
+    if (!timetable) {
+      return res.status(404).json({ message: "Timetable not found!" });
+    }
+    res.json({timetable})
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
   }
 }

@@ -12,10 +12,20 @@ export const protect = async (
     next: NextFunction
 ) => {
     let token;
-    //check for token in cookies, you can also check for token in headers if you want to support both cookie and header authentication
+    
+    // Check for token in cookies first
     if (req.cookies && req.cookies.jwt) {
-        token = req.cookies.jwt; //using .jwt should now allow new user registration to work without any issues, as the token will be sent in the cookie and can be accessed using req.cookies.jwt
+        token = req.cookies.jwt;
     }
+    
+    // Check for token in Authorization header if not in cookies
+    if (!token && req.headers.authorization) {
+        const authHeader = req.headers.authorization;
+        if (authHeader.startsWith("Bearer ")) {
+            token = authHeader.slice(7); // Remove "Bearer " prefix
+        }
+    }
+    
     if (token) {
         try {
             const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);
