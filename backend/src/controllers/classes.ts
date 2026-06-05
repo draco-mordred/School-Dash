@@ -11,7 +11,7 @@ export const createClass = async (
   res: Response
 ) => {
  try {
-  const { name, academicYear, classTeacher, capacity } = req.body;
+  const { name, academicYear, classTeacher, capacity, courses } = req.body;
   const existingClass = await ClassModel.findOne({ name, academicYear });
   if (existingClass) {
     return res
@@ -25,7 +25,8 @@ export const createClass = async (
     name,
     academicYear,
     classTeacher,
-    capacity
+    capacity,
+    courses: Array.isArray(courses) ? courses : [],
   }
 );
   await logActivity({
@@ -54,7 +55,8 @@ res: Response
     // 1. Parse the QUery Parameters
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
-    const search = req.query.page as string;
+    const search = req.query.search as string;
+
 
     // 2. Build Search Query (Case-insensitive regex on Name)
     const query: any = {};
@@ -68,6 +70,7 @@ res: Response
       ClassModel.find(query)
         .populate("academicYear", "name")
         .populate("classTeacher", "name email")
+        .populate("courses", "name code")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -96,28 +99,39 @@ export const updateClass = async (
   req: Request,
   res: Response
 ) => {
-  try {
+  try { 
     const classId = req.params.id;
-    const { name, academicYear, classTeacher, capacity } = req.body;
+    const { name, academicYear, classTeacher, capacity, courses } = req.body;
 
-    const existingClass = await ClassModel.findOne({ 
-      _id: {$ne: classId}
+    const existingClass = await ClassModel.findOne({
+      name,
+      academicYear,
+      _id: { $ne: classId },
     });
+
     if (existingClass) {
-      const updatedClass = await ClassModel.findByIdAndUpdate(
-        classId,
-        req.body,
-        { new: true, runValidators: true }
-      )
-      if (!updatedClass) {
-        return res.status(404).json({ message: "Class not found!"})
-      }
-      await logActivity({
-        userId: (req as any).user.id,
-        action: `Updated class: ${updatedClass?.name}`
-      })
-      res.status(200).json( updatedClass )
+      return res.status(400).json({
+        message:
+          "Class with this name already exists for the specified academic year",
+      });
     }
+
+    const updatedClass = await ClassModel.findByIdAndUpdate(
+      classId,
+      { name, academicYear, classTeacher, capacity, courses },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedClass) {
+      return res.status(404).json({ message: "Class not found!" });
+    }
+
+    await logActivity({
+      userId: (req as any).user.id,
+      action: `Updated class: ${updatedClass?.name}`,
+    });
+
+    res.status(200).json(updatedClass);
     // else{
     //   res.status(400).json({ message: "Class with this name already exists for the specified academic year",  })
     // }

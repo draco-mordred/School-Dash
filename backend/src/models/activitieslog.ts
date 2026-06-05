@@ -1,7 +1,7 @@
 import mongoose, {Schema, Document} from 'mongoose';
 
 export interface IActivityLog extends Document{
-    user: Schema.Types.ObjectId; //Who did it?
+    user: mongoose.Types.ObjectId; //Who did it?
     action: string; //"Created user", "Registered Student"
     details?: string; //optional additional details
     createdAt: Date;
@@ -15,7 +15,7 @@ const ActivityLogSchema = new Schema(
         action: { type: String, required: true},
         details: { type: String},   
     },
-    {
+    { 
         timestamps: true
     }
 );

@@ -23,8 +23,56 @@ export const registerUser = async (
 ): Promise<void> => {
     try {
         const { 
-            name, email, password, idNumber, role, studentClasses, teacherSubject, parentStudents, isActive 
+            name,
+            email,
+            password,
+            idNumber,
+            role,
+            studentClasses,
+            teacherSubject,
+            parentStudents,
+            isActive
         } = req.body;
+
+        // Normalization: frontend sends arrays.
+        // Mongoose schema expects:
+        // - studentClasses: single ObjectId
+        // - teacherSubject: array of ObjectId
+        // - parentStudents: array of ObjectId
+        const studentClassesNormalized = Array.isArray(studentClasses)
+            ? (studentClasses.length ? studentClasses[0] : undefined)
+            : studentClasses || undefined;
+
+        // If form sends `{ classId: "..." }` instead of `studentClasses`, map it here.
+        const studentClassIdFromClassId = (req.body?.classId as string | undefined) || undefined;
+
+        const finalStudentClass = studentClassesNormalized ?? studentClassIdFromClassId;
+
+        // Enforce domain rule: students must belong to a class.
+        if (role === "student") {
+            if (!finalStudentClass) {
+                res.status(400).json({
+                    status: "Error!",
+                    message: "Student must be assigned to a class",
+                });
+                return;
+            }
+        }
+
+        const teacherSubjectNormalized = Array.isArray(teacherSubject)
+            ? teacherSubject
+            : teacherSubject
+              ? [teacherSubject]
+              : [];
+
+
+        const parentStudentsNormalized = Array.isArray(parentStudents)
+            ? parentStudents
+            : parentStudents
+              ? [parentStudents]
+              : [];
+
+
         // Check if the user already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -116,14 +164,24 @@ export const registerUser = async (
             password,
             idNumber: newIDNumber, // Use the newIDNumber which is now the updated sequential ID number we've updated
             role,
-            studentClasses,
-            teacherSubject,
-            parentStudents,
-            isActive
+            studentClasses: finalStudentClass,
+            teacherSubject: teacherSubjectNormalized,
+            parentStudents: parentStudentsNormalized,
+            isActive 
         });
+
         if (newUser) {
+            await newUser.populate("studentClasses", "name academicYear");
+            // teacherSubject is populated from the Course model
+            await newUser.populate("teacherSubject", "name code");
+
+
+
+
+
+
             if ((req as any).user) {
-                await logActivity({
+                await logActivity({ 
                     userId: (req as any).user._id.toString(),
                     action: "Created user",
                     details: `${newUser.name} (${newUser.email}) with role ${newUser.role}, and assigned ID number ${newUser.idNumber}`
@@ -161,29 +219,11 @@ export const login = async (
     try {
         const {email, password} = req.body;
         const user = await User.findOne({ email })
-        // check if user exists and password matches
+        // check if user exists and password matches 
         if (user && (await user.matchPassword(password))){
-            //generate token
-            generateToken(user.id.toString(), res)
-            res.status(201).json(user) //returns the user data to the Response/frontend ... can be customized to show specific fields only, for example: res.status(201).json({  name: user.name, email: user.email, message: `User '${user.name}' logged in successfully`)})
-
-        //    if ((req as any).user){ //totally forgot this part cannot work since "/login" is not a protected route, but we can still log the activity using the authenticated user object that we just got from the database after successful login, which is "user" in this case, instead of using "req.user" which is not available at this point since the user is not authenticated yet
-        //         await logActivity({
-        //             userId: (req as any).user._id.toString(),
-        //             action: "User login",
-        //             details: `${user.name} logged in successfully.`
-        //         })
-        //     }
-            
-            if ((req as any).user){
-                // FIX: Use the newly authenticated user object for the log activity, NOT req.user
-                await logActivity({
-                    userId: user._id.toString(),
-                    action: "Login User",
-                    details: `${user.name} logged in successfully.`
-                });
-
-                res.status(201).json({
+            const token = generateToken(user.id.toString(), res);
+            const responsePayload = {
+                user: {
                     _id: user._id,
                     name: user.name,
                     email: user.email,
@@ -192,11 +232,21 @@ export const login = async (
                     teacherSubject: user.teacherSubject,
                     parentStudents: user.parentStudents,
                     isActive: user.isActive,
-                    message: `User '${user.name}' logged in successfully`
+                },
+                token,
+            };
+
+            if ((req as any).user) {
+                await logActivity({
+                    userId: user._id.toString(),
+                    action: "Login User",
+                    details: `${user.name} logged in successfully.`,
                 });
-                return;
             }
-        }else{
+
+            res.status(201).json(responsePayload);
+            return;
+        } else {
             res.status(401).json({ message: "Invalid email or password"});
             return;
         }
@@ -349,14 +399,18 @@ export const deleteUser = async (req: Request, res: Response) : Promise<void> =>
 
 export const getUserProfile = async (req: Request, res: Response) : Promise<void> => {
     try {
-        const user = await User.findById((req as any).user._id);
+        const user = await User.findById((req as any).user._id)
+          .populate("studentClasses", "name academicYear")
+          .populate("teacherSubject", "name code");
         if (user){  
             res.json({
-                user: {
+                user: { 
                     _id: user._id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
+                    studentClasses: user.studentClasses,
+                    teacherSubject: user.teacherSubject,
                 }  
             })
             // if (req.user){  

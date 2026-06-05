@@ -1,15 +1,19 @@
 import { createBrowserRouter } from "react-router"; // Keeping your requested import
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
+import NotFound from "@/pages/NotFound";
 import PrivateRoutes from "@/pages/routes/PrivateRoutes";
 import Dashboard from "@/pages/Dashboard";
 import AcademicYear from "@/pages/settings/academic-year";
 import UserManagementPage from "@/pages/users";
 import Classes from "@/pages/academics/Classes";
 import { Subjects } from "@/pages/academics/Subjects";
+import Courses from "@/pages/academics/Courses";
 import Timetable from "@/pages/academics/Timetable";
+
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
+
 
 export const router = createBrowserRouter([
   {
@@ -69,9 +73,14 @@ export const router = createBrowserRouter([
             element: <Classes />,
           },
           {
+            path: "courses",
+            element: <Courses />,
+          },
+          {
             path: "subjects",
             element: <Subjects />,
           },
+
           {
             path: "timetable",
             element: <Timetable />,
@@ -83,6 +92,10 @@ export const router = createBrowserRouter([
           {
             path: "lms/exams/:id",
             element: <Exam />,
+          },
+          {
+            path: "*",
+            element: <NotFound />,
           },
         ],
       },

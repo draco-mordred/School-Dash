@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "@/hooks/AuthProvider";
-import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api"; 
 import { Link, useNavigate } from "react-router";
 
 // UI Imports

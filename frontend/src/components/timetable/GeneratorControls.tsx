@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import {
+import { 
   Card,
   CardContent,
   CardHeader,
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import type { academicYear, Class } from "@/types";
-import { useAuth } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 
 export interface GenSettings {
   startTime: string;

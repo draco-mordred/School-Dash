@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import mongoose from "mongoose";
 import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest"
 import Exam from "../models/exam";
@@ -228,7 +229,13 @@ export const submitExam = async (
 try {
   const { answers } = req.body;
   const studentId = (req as any).user._id;
-  const examId = req.params.id;
+  const examId = Array.isArray(req.params.id)
+    ? req.params.id[0]
+    : req.params.id || "";
+
+  if (!examId) {
+    return res.status(400).json({ message: "Exam ID is required" });
+  }
 
   //1. Check if already submitted
   const existingSubmission = await Submission.findOne({
@@ -256,9 +263,12 @@ try {
     }
   });
   // 4. Save Submission
+  const examObjectId = new mongoose.Types.ObjectId(examId);
+  const studentObjectId = new mongoose.Types.ObjectId(studentId);
+
   await Submission.create({
-    exam: examId,
-    student: studentId,
+    exam: examObjectId,
+    student: studentObjectId,
     answers,
     score,
   });

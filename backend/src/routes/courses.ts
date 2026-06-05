@@ -15,7 +15,7 @@ courseRouter
 
 courseRouter
 .route("/")
-.get(protect,  authorize(["admin", "teacher"]), getAllCourseSubjects);
+.get(protect, getAllCourseSubjects);
 
 courseRouter
 .route("/delete/:id")

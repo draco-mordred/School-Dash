@@ -15,11 +15,13 @@ export const logActivity = async ({
         console.warn(`Invalid userId: ${userId}`);
         return;
         // act as a guard to check if 'userId' is valid
-    }
+    } 
     try {
         await ActivitiesLog.create({
-            // user: typeof userId === "string" ? new mongoose.Types.ObjectId(userId) : userId,
-            user: userId,
+            user:
+                typeof userId === "string"
+                    ? new mongoose.Types.ObjectId(userId)
+                    : userId,
             action,
             details,
         });

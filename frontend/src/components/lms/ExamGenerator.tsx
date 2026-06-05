@@ -28,7 +28,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import type { Class, subject } from "@/types";
+import type { Class, courses } from "@/types";
 
 const schema = z.object({
   subject: z.string().min(1, "Subject is required"),
@@ -47,7 +47,7 @@ interface Props {
 }
 
 const ExamGenerator = ({ open, onOpenChange, onSuccess }: Props) => {
-  const [subjects, setSubjects] = useState<subject[]>([]);
+  const [subjects, setSubjects] = useState<courses[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -63,9 +63,9 @@ const ExamGenerator = ({ open, onOpenChange, onSuccess }: Props) => {
   // Fetch Options
   useEffect(() => {
     if (open) {
-      Promise.all([api.get("/subjects"), api.get("/classes")]).then(
+      Promise.all([api.get("/courses"), api.get("/classes")]).then(
         ([subRes, clsRes]) => {
-          setSubjects(subRes.data.subjects);
+          setSubjects(subRes.data.courses);
           setClasses(clsRes.data.classes);
         }
       );

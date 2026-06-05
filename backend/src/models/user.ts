@@ -77,9 +77,11 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     teacherSubject: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Subject",
+        // This field points to Course (your “subjets” implementation lives under courses.ts)
+        ref: "Course",
         default: null
     }],
+
     parentStudents: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",

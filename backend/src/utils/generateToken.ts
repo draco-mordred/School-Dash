@@ -14,5 +14,8 @@ export const generateToken  = (userId: string, res: Response) =>{
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 30 * 24 * 60 * 60 * 1000, //30 days
         path: "/", //cookie valid for entire site
-    })
-} 
+    });
+
+    return token;
+}
+  

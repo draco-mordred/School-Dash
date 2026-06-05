@@ -52,6 +52,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
           setTeachers(teachersRes.data.users);
           setYears(yearsRes.data.years);
         } catch (error) {
+          console.error(error);
           toast.error("Failed to load options");
         } finally {
           setLoadingOptions(false);
@@ -66,15 +67,16 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
     const fetchSubjects = async () => {
       try {
         setLoadingSubjects(true);
-        const { data } = await api.get("/subjects");
-        setSubjects(data.subjects);
+        const { data } = await api.get("/courses");
+        setSubjects(data.courses);
         setLoadingSubjects(false);
       } catch (error) {
-        toast.error("Failed to load subjects");
+        console.error(error);
+        toast.error("Failed to load Courses");
       } finally {
-        setLoadingOptions(false);
+        setLoadingSubjects(false);
       }
-    };
+    }; 
     fetchSubjects();
   }, []);
 
@@ -90,6 +92,35 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
     },
   });
 
+  type ReferenceItem = { _id: string } | string;
+
+  const getReferenceId = (item: ReferenceItem) =>
+    typeof item === "string" ? item : item._id;
+
+  const getSubjectIdsFromClass = (
+    classData: Class | null | undefined,
+  ): string[] => {
+    if (!classData || typeof classData !== "object") return [];
+
+    const fromSubjects = Array.isArray(classData.subjects)
+      ? classData.subjects
+          .map((subject) => subject?._id)
+          .filter((id): id is string => Boolean(id))
+      : [];
+
+    const courseItems = Array.isArray(
+      (classData as Partial<{ courses: ReferenceItem[] }>).courses,
+    )
+      ? (classData as Partial<{ courses: ReferenceItem[] }>).courses ?? []
+      : [];
+
+    const fromCourses = (courseItems ?? [])
+      .map(getReferenceId)
+      .filter((id): id is string => Boolean(id));
+
+    return [...fromSubjects, ...fromCourses];
+  };
+
   //  Populate Form on Edit
   useEffect(() => {
     if (initialData) {
@@ -98,7 +129,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
         capacity: initialData.capacity,
         academicYear: initialData.academicYear?._id || "",
         classTeacher: initialData.classTeacher?._id || "",
-        subjectIds: initialData.subjects.map((s) => s._id),
+        subjectIds: getSubjectIdsFromClass(initialData),
       });
     } else {
       form.reset({
@@ -119,7 +150,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
           data.classTeacher === "unassigned" || data.classTeacher === ""
             ? null
             : data.classTeacher,
-        subjects: data.subjectIds,
+        courses: data.subjectIds,
       };
       if (initialData) {
         await api.put(`/classes/update/${initialData._id}`, payload);
@@ -138,15 +169,15 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
 
   const pending = form.formState.isSubmitting;
 
-  const yearOptions = years.map((year) => ({
+  const yearOptions = (Array.isArray(years) ? years : []).map((year) => ({
     label: year.name,
     value: year._id,
   }));
-  const subjectOptions = subjects.map((subject) => ({
+  const subjectOptions = (Array.isArray(subjects) ? subjects : []).map((subject) => ({
     label: subject.name,
     value: subject._id,
   }));
-  const teachersOptions = teachers.map((teacher) => ({
+  const teachersOptions = (Array.isArray(teachers) ? teachers : []).map((teacher) => ({
     label: teacher.name,
     value: teacher._id,
   }));
@@ -181,7 +212,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
             <CustomSelect
               control={form.control}
               name="classTeacher"
-              label="Year"
+              label="Class Teacher"
               placeholder="Select Teacher"
               options={teachersOptions}
               disabled={pending}

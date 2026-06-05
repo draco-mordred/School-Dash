@@ -24,12 +24,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import CustomPagination from "@/components/global/CustomPagination";
-import type { subject } from "@/types";
+import type { courses } from "@/types";
 
 interface Props {
-  data: subject[];
+  data: courses[];
   loading: boolean;
-  onEdit: (item: subject) => void;
+  onEdit: (item: courses) => void;
   onDelete: (id: string) => void;
   page: number;
   setPage: (page: number) => void;

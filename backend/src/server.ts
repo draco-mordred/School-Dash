@@ -14,6 +14,7 @@ import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses";
+import "./models/subjects"; // ensure Subjects mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
 import { generateExam, generateTimeTable } from "./inngest/functions";
@@ -45,13 +46,21 @@ if (process.env.NODE_ENV === "development") {
 }
 
 //cross-origin resource sharing (CORS) middleware to allow requests from different origins
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  "http://localhost:5173",
+  "https://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://127.0.0.1:5173",
+].filter((origin): origin is string => origin !== undefined && origin !== "");
+
 app.use(
   cors({
-    origin: ["http://localhost:5173"], // Allow requests from these origins (your frontend dev server)
-    credentials: false // Allow cookies to be sent with requests
-}) 
+    origin: allowedOrigins,
+    credentials: true,
+  })
 );
-
+ 
 //Health cheack route to check if the server is running
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "Server is healthy!" });
@@ -62,8 +71,8 @@ app.use("/api/users", userRoutes); // Use the user routes for any requests to /a
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
 app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
 app.use('/api/classes', classRouter);
-app.use('/api/subjects', courseRouter); // Mount course/subject routes at /api/subjects
-app.use('/api/courses', courseRouter); // Also expose the same router at /api/courses for compatibility
+// Courses API (was previously also mounted at /api/subjects)
+app.use('/api/courses', courseRouter);
 app.use("/api/timetables", timeRouter)
 app.use("/api/exams", examRouter);
 app.use("/api/dashboard", dashBoardRouter)

@@ -154,21 +154,21 @@ export const deleteAcedemicYear = async (
   try {
     const year = await AcademicYear.findById(req.params.id);
     if (!year) {
-      res.status(404).json({ message: "Academic Year not found!" });
-      // return;
+      res.status(404).json({ message: "Academic Year not found!" }); 
+      return;
     }
-    if (year) {
-      // Prevent deletion if it's the current academic year to prevent system breakage.
-      if (year.isCurrent) {
-        res.status(404).json({ message: "Cannot delete the current active academic year!" });
-        return;
-      }
+
+    // Prevent deletion if it's the current academic year to prevent system breakage.
+    if (year.isCurrent) {
+      res.status(404).json({ message: "Cannot delete the current active academic year!" });
+      return;
     }
-    await year.deleteOne();
+
+    await year!.deleteOne();
 
     await logActivity({ 
       userId: (req as any).user._id,
-      action: `Deleted academic year ${year.name}`
+      action: `Deleted academic year ${year!.name}`
     })
   } catch (error) {
     res.status(500).json({

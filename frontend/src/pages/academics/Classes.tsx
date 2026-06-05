@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus } from "lucide-react"; 
 
 import { api } from "@/lib/api";
 
@@ -10,6 +10,7 @@ import Search from "@/components/global/Search";
 import CustomAlert from "@/components/global/CustomAlert";
 import ClassTable from "@/components/classes/ClassTable";
 import ClassForm from "@/components/classes/ClassForm";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const Classes = () => {
   // it's the same as users/academics-year components
@@ -34,9 +35,9 @@ const Classes = () => {
     }, 500);
     return () => clearTimeout(handler);
   }, [search]);
-
+ 
   // 2. Fetch Classes
-  const fetchClasses = async () => {
+  const fetchClasses = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -52,22 +53,45 @@ const Classes = () => {
 
       // Handle response structure { classes: [], pagination: {} }
       if (data.classes) {
-        setClasses(data.classes);
+        // Backend populates `courses` (populated Course docs), while ClassForm expects `subjects`.
+        const normalized: Class[] = data.classes.map((cls) => {
+          const typed = cls as Class & {
+            subjects?: unknown;
+            courses?: unknown;
+          };
+
+          const maybeSubjects = typed.subjects;
+          const maybeCourses = typed.courses;
+          const subjects =
+            Array.isArray(maybeSubjects) && maybeSubjects.length > 0
+              ? maybeSubjects
+              : maybeCourses;
+
+          return {
+            ...cls,
+            subjects: Array.isArray(subjects) ? (subjects as unknown[] as Class["subjects"]) : [],
+          } as Class;
+        });
+        setClasses(normalized);
         setTotalPages(data.pagination.pages);
-      } else {
+      } else { 
         setClasses([]);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to load classes");
     } finally {
       setLoading(false);
     }
-  };
-
-  // Trigger fetch when Page or Search changes
-  useEffect(() => {
-    fetchClasses();
   }, [pageNum, debouncedSearch]);
+
+  // Trigger fetch when Page or Search changes 
+  useEffect(() => {
+    const loadClasses = async () => {
+      await fetchClasses();
+    };
+
+    void loadClasses();
+  }, [fetchClasses]);
 
   const handleCreate = () => {
     setEditingClass(null);
@@ -90,8 +114,8 @@ const Classes = () => {
       await api.delete(`/classes/delete/${deleteId}`);
       toast.success("Class deleted successfully");
       fetchClasses(); // to refresh the list
-    } catch (error: any) {
-      toast.error("Failed to delete class");
+    } catch {
+      toast.error("Failed to delete class"); 
     } finally {
       setIsDeleteOpen(false);
       setDeleteId(null);
@@ -112,6 +136,9 @@ const Classes = () => {
           <Button onClick={handleCreate}>
             <Plus className="mr-2 h-4 w-4" /> Create Class
           </Button>
+          <div className="md:hidden">
+            <SidebarTrigger />
+          </div>
         </div>
       </div>
       {/* table */}

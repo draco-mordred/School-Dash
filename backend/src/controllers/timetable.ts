@@ -59,7 +59,7 @@ export const getTimetable = async (
     if (!timetable) {
       return res.status(404).json({ message: "Timetable not found!" });
     }
-    res.json({timetable})
+    res.json({ schedule: timetable.schedule })
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

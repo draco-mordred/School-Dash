@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus } from "lucide-react"; 
 
 import { Button } from "@/components/ui/button";
 // import Alert from "@/components/global/alert";
@@ -21,16 +21,16 @@ const AcademicYear = () => {
   const [pageNum, setPageNum] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  // Dialog States
+  // Dialog States 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingYear, setEditingYear] = useState<academicYear | null>(null);
 
   // Alert States
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
+ 
   //   Fetch Years
-  const fetchYears = async () => {
+  const fetchYears = useCallback(async () => {
     try {
       setLoading(true);
       // Construct Query Params
@@ -48,17 +48,21 @@ const AcademicYear = () => {
       } else {
         setYears([]);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to fetch data");
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageNum, debouncedSearch]);
 
   // Trigger fetch when Page or Search changes
   useEffect(() => {
-    fetchYears();
-  }, [pageNum, debouncedSearch]);
+    const loadYears = async () => {
+      await fetchYears();
+    };
+
+    void loadYears();
+  }, [fetchYears]);
 
   // Debounce Search Input
   useEffect(() => {
@@ -93,10 +97,10 @@ const AcademicYear = () => {
       await api.delete(`/academic-years/delete/${deletingId}`);
       toast.success("Academic year deleted");
       fetchYears();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || "Failed to delete");
+    } catch {
+      toast.error("Failed to delete");
     } finally {
-      setIsAlertOpen(false);
+      setIsAlertOpen(false); 
       setDeletingId(null);
     }
   };

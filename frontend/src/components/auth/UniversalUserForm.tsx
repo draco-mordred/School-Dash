@@ -2,12 +2,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
 import { toast } from "sonner";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
  
 import {
-  type Class,
+  type Class, 
   type UserRole,
   type pagination,
-  type subject,
+  type courses,
   type user,
 } from "@/types";
 import { FieldGroup } from "@/components/ui/field";
@@ -15,8 +17,6 @@ import { Button } from "@/components/ui/button";
 import { CustomInput } from "@/components/global/CustomInput";
 import { api } from "@/lib/api";
 import { CustomSelect } from "@/components/global/CustomSelect";
-import { useEffect, useState } from "react";
-// import { useAuth } from "@/hooks/AuthProvider";
 import { CustomMultiSelect } from "@/components/global/CustomMultiSelect";
 
 export type FormType = "login" | "create" | "update";
@@ -69,13 +69,13 @@ type FormValues = z.infer<ReturnType<typeof createSchema>>;
 
 const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   const isUpdate = type === "update";
-  const isLogin = type === "login";
-  // const { setUser } = useAuth();
+  const isLogin = type === "login"; 
+  const { setUser } = useAuth();
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingOptions, setLoadingOptions] = useState(true);
-  const [subjects, setSubjects] = useState<subject[]>([]);
+  const [subjects, setSubjects] = useState<courses[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(createSchema(type)),
@@ -108,18 +108,18 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
       }
     };
     fetchClasses();
-  }, []);
+  }, [type]);
 
   // Fetch subjects
   useEffect(() => {
     const fetchSubjects = async () => {
       try {
-        setLoadingOptions(true);
+        setLoadingOptions(true); 
         const { data } = (await api.get("/courses")) as {
-          data: { subjects: subject[]; pagination: pagination };
+          data: { courses: courses[]; pagination: pagination };
         };
-        setSubjects(data.subjects);
-        setLoadingOptions(false);
+        setSubjects(data.courses);
+        setLoadingOptions(false); 
       } catch (error) {
         if (type !== "login") {
           toast.error("Failed to load subjects");
@@ -130,23 +130,34 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
       }
     };
     fetchSubjects();
-  }, []);
+  }, [type]);
 
   // Populate form for Update mode
   useEffect(() => {
     if (initialData && isUpdate) {
       const existingClassId =
-        typeof initialData.studentClass === "object"
-          ? initialData.studentClass?._id
-          : initialData.studentClass;
+        typeof initialData.studentClasses === "object" 
+          ? initialData.studentClasses?._id
+          : initialData.studentClasses ||
+            (typeof initialData.studentClass === "object"
+              ? initialData.studentClass?._id
+              : initialData.studentClass);
+
+      const subjectIds = Array.isArray(initialData.teacherSubject)
+        ? initialData.teacherSubject.map((subject) =>
+            typeof subject === "object" ? subject._id : subject
+          )
+        : Array.isArray(initialData.teacherSubjects)
+        ? initialData.teacherSubjects.map((subject) => subject._id)
+        : [];
 
       form.reset({
         name: initialData.name || "",
         email: initialData.email || "",
-        role: initialData.role || "student",
+        role: initialData.role || "student", 
         password: "",
         classId: existingClassId || "",
-        subjectIds: initialData.teacherSubjects?.map((s) => s._id) || [],
+        subjectIds,
       });
     }
   }, [isUpdate, initialData, form, classes]);
@@ -155,20 +166,28 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
     try {
       // console.log(data);
       const payload = {
-        studentClass: data.classId ? data.classId : undefined,
-        teacherSubjects: data.subjectIds ? data.subjectIds : [],
+        studentClasses: data.classId ? data.classId : undefined,
+        teacherSubject: data.subjectIds ? data.subjectIds : [],
+        parentStudents: [],
         // role: role,
-        ...data,
+        ...data, 
       };
       if (isLogin) {
-        const { data: user } = await api.post("/users/login", {
+        const response = await api.post("/users/login", {
           email: data.email,
           password: data.password,
         });
-        //   todo: set user context
-        console.log(user);
+        const responseData = response.data;
+        if (responseData.token) {
+          localStorage.setItem("token", responseData.token);
+        }
+        setUser(responseData.user ?? responseData);
         toast.success("Logged in successfully");
-        window.location.href = "/dashboard";
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          window.location.assign("/dashboard");
+        }
       } else if (type === "create") {
         await api.post("/users/register", payload);
         toast.success("Account created successfully!");

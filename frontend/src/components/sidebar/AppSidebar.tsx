@@ -1,15 +1,7 @@
 "use client";
 
-import {
-  Settings2,
-  School,
-  GraduationCap,
-  Users,
-  LayoutDashboard,
-  Banknote,
-  type LucideIcon,
-  LogOut,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { NavMain } from "@/components/sidebar/nav-main";
 import { NavUser } from "@/components/sidebar/nav-user";
@@ -21,17 +13,18 @@ import {
   SidebarHeader,
   SidebarMenuItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar";
+import { useSidebar } from "@/components/ui/sidebar-context";
 import type { UserRole } from "@/types";
 import { useLocation, useNavigate } from "react-router";
-import { useAuth } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { useMemo } from "react";
-import { toast } from "sonner";
+import { toast } from "sonner"; 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToogle } from "./ThemeToogle";
+import { sidebardata } from "./sidebardata";
 
 export interface NavItem {
   title: string;
@@ -46,121 +39,6 @@ export interface NavItem {
   }[];
 }
 
-// This is sample data.
-export const sidebardata = {
-  teams: [
-    {
-      name: "Springfield High",
-      logo: School,
-    },
-  ],
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: LayoutDashboard,
-      isActive: true,
-      roles: ["admin", "teacher", "student", "parent"],
-      items: [
-        {
-          title: "Dashboard",
-          url: "/dashboard",
-          roles: ["admin", "teacher", "student", "parent"],
-        },
-        {
-          title: "Activities Log",
-          url: "/activies-log",
-          roles: ["admin"], // Restricted to Admin
-        },
-      ],
-    },
-    {
-      title: "Academics",
-      url: "#", // Parent item, no link
-      icon: School,
-      roles: ["admin", "teacher", "student", "parent"],
-      items: [
-        {
-          title: "Classes",
-          url: "/classes",
-          roles: ["admin", "teacher"],
-        },
-        {
-          title: "Subjects",
-          url: "/subjects",
-          roles: ["admin", "teacher"],
-        },
-        {
-          title: "Timetable",
-          url: "/timetable",
-          // Everyone needs to see the schedule
-        },
-        {
-          title: "Attendance",
-          url: "/attendance",
-          // Parents want to see if their kid was present
-        },
-      ],
-    },
-    {
-      title: "Learning (LMS)",
-      url: "#",
-      icon: GraduationCap,
-      roles: ["teacher", "student", "admin"], // Parents usually don't need deep LMS access
-      items: [
-        { title: "Assignments", url: "/lms/assignments" },
-        { title: "Exams", url: "/lms/exams" },
-        { title: "Study Materials", url: "/lms/materials" },
-      ],
-    },
-    {
-      title: "People",
-      url: "#",
-      icon: Users,
-      roles: ["admin", "teacher"],
-      items: [
-        { title: "Students", url: "/users/students" },
-        {
-          title: "Teachers",
-          url: "/users/teachers",
-          roles: ["admin"], // Only Admin can see other Admins
-        },
-        {
-          title: "Parents",
-          url: "/users/parents",
-          roles: ["admin"], // Only Admin can see other Admins
-        },
-        {
-          title: "Admins",
-          url: "/users/admins",
-          roles: ["admin"], // Only Admin can see other Admins
-        },
-      ],
-    },
-    {
-      title: "Finance",
-      url: "#",
-      icon: Banknote,
-      roles: ["admin"],
-      items: [
-        { title: "Fee Collection", url: "/finance/fees" },
-        { title: "Expenses", url: "/finance/expenses" },
-        { title: "Salary", url: "/finance/salary" },
-      ],
-    },
-    {
-      title: "System",
-      url: "#",
-      icon: Settings2,
-      roles: ["admin"],
-      items: [
-        { title: "School Settings", url: "/settings/general" }, // Added to match router
-        { title: "Academic Years", url: "/settings/academic-years" },
-        { title: "Roles & Permissions", url: "/settings/roles" },
-      ],
-    },
-  ] as NavItem[],
-};
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user, year, setUser } = useAuth();
@@ -198,10 +76,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         };
       });
   }, [pathname, userRole]);
-
+ 
   const logout = async () => {
     try {
       await api.post("/users/logout").finally(() => {
+        localStorage.removeItem("token");
         setUser(null);
         navigate("/login");
         toast.success("Logged out successfully");
@@ -210,11 +89,11 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       console.error("Logout failed:", error);
       toast.error("Logout failed. Please try again.");
     }
-  };
+  }; 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={sidebardata.teams} yearName={year?.name!} />
+        <TeamSwitcher teams={sidebardata.teams} yearName={year?.name ?? "Year"} />
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={filteredNav} />

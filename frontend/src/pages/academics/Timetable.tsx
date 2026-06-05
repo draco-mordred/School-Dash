@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useAuth } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 import type { schedule } from "@/types";
-import GeneratorControls, {
+import GeneratorControls, { 
   type GenSettings,
 } from "@/components/timetable/GeneratorControls";
 import TimetableGrid from "@/components/timetable/TimetableGrid";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const Timetable = () => {
   const { user } = useAuth();
@@ -23,6 +24,7 @@ const Timetable = () => {
     if (!classId) return;
 
     try {
+      setLoadingSchedule(true);
       const { data } = await api.get(`/timetables/${classId}`);
       setScheduleData(data.schedule || []);
     } catch (error: any) {
@@ -78,15 +80,20 @@ const Timetable = () => {
   //   console.log("selected class:", selectedClass);
   return (
     <div className="p-4 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          Timetable Management
-        </h1>
-        <p className="text-muted-foreground">
-          {isStudent
-            ? "View your weekly class schedule."
-            : "View or manage weekly schedules."}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Timetable Management
+          </h1>
+          <p className="text-muted-foreground">
+            {isStudent
+              ? "View your weekly class schedule."
+              : "View or manage weekly schedules."}
+          </p>
+        </div>
+        <div className="md:hidden">
+          <SidebarTrigger />
+        </div>
       </div>
       {!isStudent && (
         <GeneratorControls

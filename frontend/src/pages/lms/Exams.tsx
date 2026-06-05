@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Plus, FileText, Clock, Users, Loader2 } from "lucide-react";
-import { useAuth } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/button"; 
 import { Badge } from "@/components/ui/badge";
 import {
   Card,

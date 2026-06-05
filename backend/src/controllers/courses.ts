@@ -2,6 +2,8 @@ import { type Request, type Response } from "express";
 import { logActivity } from "../utils/activitieslog";
 
 import Course, { type ICourse } from "../models/courses";
+import User from "../models/user";
+import ClassModel from "../models/classes";
 
 
 //  @desc    Create a new course subject
@@ -53,38 +55,62 @@ export const getAllCourseSubjects = async(
   res: Response
 ) => {
   try {
-    // 1. Parse Query Parameters
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const userId = (req as any).user._id;
+    const userRole = (req as any).user.role;
     const search = req.query.search as string;
 
-    // 2. Build Search Query (Search by Name OR CODE)
     const query: any = {};
-    if (search){
+    if (search) {
       query.$or = [
         { name: { $regex: search, $options: "i" } },
-        { code: { $regex: search, $options: "i" } }
+        { code: { $regex: search, $options: "i" } },
+        { courseID: { $regex: search, $options: "i" } },
       ];
     }
 
-    // 3. Execute Query (COunt & Find)
-    const [ total, courses ] = await Promise.all([
-      Course.countDocuments(query),
-      Course.find(query)
-      .populate("lecturer", "name,email")
-      .sort({ createdAt: -1 })
-      .skip(( page -1 ) * limit )
-      .limit( limit ),
-    ]);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
 
-    // 4. Return Data + Pagination Meta
+    let courses: ICourse[] = [];
+    let total = 0;
+
+    if (userRole === "teacher") {
+      courses = await Course.find({ ...query, lecturer: userId })
+        .populate("lecturer", "name email")
+        .sort({ createdAt: -1 });
+      total = courses.length;
+    } else if (userRole === "student") {
+      const student = await User.findById(userId).populate({
+        path: "studentClasses",
+        populate: { path: "courses", select: "name code courseID lecturer isActive" },
+      });
+
+      const studentClass = student?.studentClasses as any;
+      const classCourses = studentClass?.courses ?? [];
+
+      courses = Array.isArray(classCourses)
+        ? classCourses.map((course: any) => ({
+            ...course.toObject?.(),
+            lecturer: course.lecturer,
+          }))
+        : [];
+      total = courses.length;
+    } else {
+      total = await Course.countDocuments(query);
+      courses = await Course.find(query)
+        .populate("lecturer", "name email")
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+    }
+
     res.json({
       courses,
       pagination: {
         total,
         page,
-        pages: Math.ceil( total / limit ),
-      },
+        pages: Math.ceil(total / limit),
+      }, 
     });
   } catch(error){
     console.log(error);

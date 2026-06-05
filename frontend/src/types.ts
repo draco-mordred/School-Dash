@@ -7,13 +7,15 @@ export interface pagination {
   limit: number;
 }
 
-export interface user {
+export interface user { 
   _id: string;
   name: string;
   email: string;
   role: UserRole;
   studentClass?: Class;
-  teacherSubjects?: subject[];
+  studentClasses?: Class | string;
+  teacherSubjects?: courses[];
+  teacherSubject?: courses[] | string[];
 }
 
 export interface academicYear {
@@ -29,12 +31,13 @@ export interface Class {
   name: string; // e.g., "Grade 10"
   academicYear: academicYear; // Link to "2024-2025"
   classTeacher: user; // The main teacher in charge
-  subjects: subject[]; // List of subjects taught in this class
+  subjects: courses[]; // List of subjects taught in this class
+  courses?: courses[]; // Backward-compatible alias for backend class course references
   students: user[]; // List of students enrolled
   capacity: number; // Max students allowed (optional)
 }
 
-export interface subject {
+export interface courses {
   _id: string;
   name: string; // "Mathematics"
   code: string; // "MATH101"
@@ -54,7 +57,7 @@ export interface question {
 export interface exam {
   _id: string;
   title: string;
-  subject: subject;
+  subject: courses;
   class: Class;
   teacher: user;
   duration: number; // in minutes

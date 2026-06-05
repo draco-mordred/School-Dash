@@ -17,10 +17,10 @@ academicYearRouter
 academicYearRouter
 .route("/")
 .get(protect, authorize(["admin"]), getAllAcademicYears)
-
+ 
 academicYearRouter
 .route("/current")
-.get(protect, getCurrentAcademicYear);
+.get(getCurrentAcademicYear);
 
 academicYearRouter
 .route("/update/:id")

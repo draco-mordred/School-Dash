@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner"; 
 import { Plus } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import Search from "@/components/global/Search";
 import CustomAlert from "@/components/global/CustomAlert";
-import type { pagination, subject } from "@/types";
+import type { pagination, courses } from "@/types";
 import { SubjectTable } from "@/components/subjects/SubjectTable";
 import { SubjectForm } from "@/components/subjects/SubjectForm";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 export const Subjects = () => {
-  const [subjects, setSubjects] = useState<subject[]>([]);
+  const [subjects, setSubjects] = useState<courses[]>([]);
   const [loading, setLoading] = useState(true);
 
   // --- Search & Pagination State ---
@@ -22,7 +23,7 @@ export const Subjects = () => {
 
   // --- Dialog States ---
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingSubject, setEditingSubject] = useState<subject | null>(null);
+  const [editingSubject, setEditingSubject] = useState<courses | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -36,7 +37,7 @@ export const Subjects = () => {
   }, [search]);
 
   // 2. Fetch Subjects
-  const fetchSubjects = async () => {
+  const fetchSubjects = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -46,35 +47,39 @@ export const Subjects = () => {
       params.append("limit", "10");
       if (debouncedSearch) params.append("search", debouncedSearch);
 
-      const { data } = (await api.get(`/subjects?${params.toString()}`)) as {
-        data: { subjects: subject[]; pagination: pagination };
+      const { data } = (await api.get(`/courses?${params.toString()}`)) as {
+        data: { courses: courses[]; pagination: pagination };
       };
 
-      // Handle response structure { subjects: [], pagination: {} }
-      if (data.subjects) {
-        setSubjects(data.subjects);
+      // Handle response structure { courses: [], pagination: {} }
+      if (data?.courses) {
+        setSubjects(data.courses);
         setTotalPages(data.pagination.pages);
       } else {
         setSubjects([]);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to load subjects");
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageNum, debouncedSearch]);
 
   // Trigger fetch when Page or Search changes
   useEffect(() => {
-    fetchSubjects();
-  }, [pageNum, debouncedSearch]);
+    const loadSubjects = async () => {
+      await fetchSubjects();
+    };
+
+    void loadSubjects();
+  }, [fetchSubjects]);
 
   const handleCreate = () => {
     setEditingSubject(null);
     setIsFormOpen(true);
   };
 
-  const handleEdit = (item: subject) => {
+  const handleEdit = (item: courses) => {
     setEditingSubject(item);
     setIsFormOpen(true);
   };
@@ -87,10 +92,10 @@ export const Subjects = () => {
   const confirmDelete = async () => {
     if (!deleteId) return;
     try {
-      await api.delete(`/subjects/delete/${deleteId}`);
-      toast.success("Subject deleted successfully");
+      await api.delete(`/courses/delete/${deleteId}`);
+      toast.success("Subject deleted successfully"); 
       fetchSubjects();
-    } catch (error: any) {
+    } catch {
       toast.error("Failed to delete subject");
     } finally {
       setIsDeleteOpen(false);
@@ -111,6 +116,9 @@ export const Subjects = () => {
           <Button onClick={handleCreate}>
             <Plus className="mr-2 h-4 w-4" /> Create Subject
           </Button>
+          <div className="md:hidden">
+            <SidebarTrigger />
+          </div>
         </div>
       </div>
       {/* table */}

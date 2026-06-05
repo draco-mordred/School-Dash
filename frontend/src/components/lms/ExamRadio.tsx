@@ -1,5 +1,5 @@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import type { question, Submission } from "@/type";
+import type { question, Submission } from "@/types";
 import type { Dispatch, SetStateAction } from "react";
 import { Label } from "@/components/ui/label";
 import { CheckCircle2, XCircle } from "lucide-react";
@@ -17,10 +17,10 @@ const ExamRadio = ({
 }) => {
   // 1. Get the student's answer for this specific question (if submitted)
   const studentAnswer = submission?.answers.find(
-    (a) => a.questionId === q._id,
+    (a: { questionId: string; answer: string }) => a.questionId === q._id,
   )?.answer;
 
-  return (
+  return ( 
     <RadioGroup
       onValueChange={(val) => {
         if (submission) return;

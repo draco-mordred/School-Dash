@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { CustomInput } from "@/components/global/CustomInput";
 import { CustomMultiSelect } from "@/components/global/CustomMultiSelect";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import type { subject } from "@/types";
+import type { courses } from "@/types";
 import Modal from "@/components/global/Modal";
 
 interface Option {
@@ -23,7 +23,7 @@ interface Option {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialData: subject | null;
+  initialData: courses | null;
   onSuccess: () => void;
 }
 
@@ -103,10 +103,10 @@ export function SubjectForm({
       };
 
       if (initialData) {
-        await api.patch(`/subjects/update/${initialData._id}`, payload);
+        await api.patch(`/courses/update/${initialData._id}`, payload);
         toast.success("Subject updated successfully");
       } else {
-        await api.post("/subjects/create", payload);
+        await api.post("/courses/create", payload);
         toast.success("Subject created successfully");
       }
       onSuccess();
@@ -179,10 +179,10 @@ export function SubjectForm({
                       htmlFor="isActive"
                       className="cursor-pointer mb-0"
                     >
-                      Active Subject
+                      Active Course
                     </FieldLabel>
                     <p className="text-xs text-muted-foreground">
-                      Inactive subjects won't appear in schedules.
+                      Inactive courses won't appear in schedules.
                     </p>
                   </div>
                 </div>
