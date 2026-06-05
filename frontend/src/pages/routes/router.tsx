@@ -10,6 +10,7 @@ import Classes from "@/pages/academics/Classes";
 import { Subjects } from "@/pages/academics/Subjects";
 import Courses from "@/pages/academics/Courses";
 import Timetable from "@/pages/academics/Timetable";
+import Attendance from "@/pages/academics/Attendance";
 
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
@@ -81,6 +82,10 @@ export const router = createBrowserRouter([
             element: <Subjects />,
           },
 
+          {
+            path: "attendance",
+            element: <Attendance />,
+          },
           {
             path: "timetable",
             element: <Timetable />,

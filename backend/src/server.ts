@@ -31,7 +31,7 @@ dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 dotenv.config();
 
 const app: Application = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
