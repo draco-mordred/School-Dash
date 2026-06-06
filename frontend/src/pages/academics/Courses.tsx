@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2 } from "lucide-react";
+import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2, Pencil } from "lucide-react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -50,9 +50,11 @@ export default function Courses() {
   const [search, setSearch] = useState("");
   const [addCourseOpen, setAddCourseOpen] = useState(false);
   const [createCourseOpen, setCreateCourseOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState<courses | null>(null);
   const [allCourses, setAllCourses] = useState<courses[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [creatingCourse, setCreatingCourse] = useState(false);
+  const [updatingCourse, setUpdatingCourse] = useState(false);
   const [deduplicating, setDeduplicating] = useState(false);
   const [teachers, setTeachers] = useState<{ _id: string; name: string; email?: string }[]>([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
@@ -148,9 +150,58 @@ export default function Courses() {
 
   const handleOpenCreateCourse = (open: boolean) => {
     setCreateCourseOpen(open);
-    if (open) {
-      createForm.reset({ name: "", code: "", courseID: "", lecturer: "", isActive: true });
+    if (!open) {
+      setEditingCourse(null);
+      return;
+    }
+    createForm.reset({ name: "", code: "", courseID: "", lecturer: "", isActive: true });
+    void fetchTeachers();
+  };
+
+  const handleOpenEditCourse = (open: boolean, course?: courses) => {
+    if (!open) {
+      setEditingCourse(null);
+      setCreateCourseOpen(false);
+      return;
+    }
+    if (course) {
+      setEditingCourse(course);
+      setCreateCourseOpen(true);
+      const lecturerId = Array.isArray(course.lecturer) && course.lecturer.length > 0
+        ? (typeof course.lecturer[0] === "object" ? (course.lecturer[0] as { _id?: string })._id ?? "" : String(course.lecturer[0]))
+        : "";
+      createForm.reset({
+        name: course.name ?? "",
+        code: course.code ?? "",
+        courseID: course.courseID ?? "",
+        lecturer: lecturerId,
+        isActive: course.isActive ?? true,
+      });
       void fetchTeachers();
+    }
+  };
+
+  const onUpdateCourseSubmit = async (values: CreateCourseFormValues) => {
+    if (!editingCourse?._id) return;
+    try {
+      setUpdatingCourse(true);
+      const payload = {
+        name: values.name,
+        code: values.code,
+        courseID: values.courseID,
+        lecturer: values.lecturer ? [values.lecturer] : [],
+        isActive: values.isActive,
+      };
+      await api.patch(`/courses/update/${editingCourse._id}`, payload);
+      toast.success(`Course "${values.name}" updated successfully`);
+      setCreateCourseOpen(false);
+      setEditingCourse(null);
+      void fetchAllCourses();
+      void fetchClasses();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message ?? "Failed to update course");
+    } finally {
+      setUpdatingCourse(false);
     }
   };
 
@@ -348,7 +399,19 @@ export default function Courses() {
                         : undefined;
                       return (
                         <div key={c._id} className="border rounded-md p-3">
-                          <div className="font-medium">{c.name}</div>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="font-medium">{c.name}</div>
+                            {(user?.role === "admin" || user?.role === "teacher") && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditCourse(true, c)}
+                                className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
+                                title="Edit course"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                           <div className="text-sm text-muted-foreground">{c.code}</div>
                           {displayLecturers && (
                             <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
@@ -405,14 +468,19 @@ export default function Courses() {
         </form>
       </Modal>
 
-      {/* Create Course Modal */}
+      {/* Create / Edit Course Modal */}
       <Modal
         open={createCourseOpen}
         setOpen={handleOpenCreateCourse}
-        title="Create New Course"
-        description="Add a new course subject to the system. Admin and teachers can create courses."
+        title={editingCourse ? "Edit Course" : "Create New Course"}
+        description={editingCourse
+          ? `Update course "${editingCourse.name}".`
+          : "Add a new course subject to the system. Admin and teachers can create courses."}
       >
-        <form onSubmit={createForm.handleSubmit(onCreateCourseSubmit)} className="space-y-4">
+        <form
+          onSubmit={createForm.handleSubmit(editingCourse ? onUpdateCourseSubmit : onCreateCourseSubmit)}
+          className="space-y-4"
+        >
           <Field>
             <FieldLabel>Course Name *</FieldLabel>
             <Input
@@ -465,8 +533,18 @@ export default function Courses() {
             <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
           </div>
 
-          <Button type="submit" className="w-full" disabled={creatingCourse}>
-            {creatingCourse ? "Creating..." : "Create Course"}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={creatingCourse || updatingCourse}
+          >
+            {editingCourse
+              ? updatingCourse
+                ? "Updating..."
+                : "Update Course"
+              : creatingCourse
+              ? "Creating..."
+              : "Create Course"}
           </Button>
         </form>
       </Modal>

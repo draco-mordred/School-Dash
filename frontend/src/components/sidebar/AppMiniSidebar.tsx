@@ -18,11 +18,11 @@ import {
   SidebarHeader,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { TeamSwitcher } from "@/components/sidebar/team-switcher";
 import { ThemeToogle } from "@/components/sidebar/ThemeToogle";
 import { NavUser } from "@/components/sidebar/nav-user";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import appIcon from "@/image/medlog icons2.png";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router";
@@ -88,11 +88,17 @@ export function AppMiniSidebar({
       className={cn("lg:hidden", className)}
       {...props}
     >
-      <SidebarHeader className="px-3 py-2 sm:px-4">
-        <TeamSwitcher
-          teams={sidebardata.teams}
-          yearName={year?.name ?? yearNameOverride ?? "Year"}
-        />
+      <SidebarHeader className="px-2 py-2 sm:px-3">
+        <div className="flex items-center gap-2">
+          <img
+            src={appIcon}
+            alt="School Dash"
+            className="w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shrink-0 object-cover"
+          />
+          <div className="hidden sm:grid flex-1 text-left text-sm leading-tight">
+            <span className="truncate font-medium text-xs">{year?.name ?? yearNameOverride ?? "School Dash"}</span>
+          </div>
+        </div>
       </SidebarHeader>
 
       <SidebarContent className="px-0 py-1">

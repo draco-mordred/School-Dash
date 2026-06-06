@@ -260,6 +260,7 @@ export default function Attendance() {
       });
       toast.success(data.message || "Attendance generation started");
       setIsSessionOpen(false);
+      setSessionRecords([]);
       setIsManageOpen(true);
       await fetchSessionRecords(selectedClassId, selectedCourseId, sessionDate);
     } catch (e: any) {
@@ -270,6 +271,7 @@ export default function Attendance() {
       } else if (msg.includes("DUPLICATE")) {
         toast.error("Attendance records already exist for this session. Open the existing list to update.");
         setIsSessionOpen(false);
+        setSessionRecords([]);
         setIsManageOpen(true);
         await fetchSessionRecords(selectedClassId, selectedCourseId, sessionDate);
       } else {
@@ -436,6 +438,9 @@ export default function Attendance() {
 
       {/* Latest Week Mon–Fri Table */}
       {!isStudent && <LatestWeekTable />}
+
+      {/* Student: class-grouped attendance records */}
+      {isStudent && <StudentRecordsByClass records={records} loading={loading} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -943,10 +948,12 @@ function SavedListsTable({
   loading: boolean;
 }) {
   const grouped = useMemo(() => {
-    const map = new Map<string, { date: string; dayOfWeek?: string; course?: { name: string; code?: string }; class?: { name: string }; lecturer?: { name: string }; records: SessionRecord[] }>();
+    const map = new Map<string, { date: string; dayOfWeek?: string; course?: { name: string; code?: string }; class?: { name: string; _id?: string }; lecturer?: { name: string }; records: SessionRecord[] }>();
 
     allLists.forEach((r) => {
-      const dateKey = new Date(r.date).toDateString();
+      // Group by date + class so each class gets its own card on the same day
+      const classId = r.class?._id ?? r.class?.name ?? "unknown";
+      const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
       if (!map.has(dateKey)) {
         map.set(dateKey, {
           date: r.date,
@@ -1008,62 +1015,67 @@ function SavedListsTable({
               const excused = session.records.filter((r) => r.status === "excused").length;
               const total = session.records.length;
 
+              const sessionKey = `${session.date}-${session.class?._id ?? session.class?.name ?? "unknown"}`;
               return (
-                <div key={session.date} className="border rounded-lg overflow-hidden">
-                  {/* Session header */}
-                  <div className="bg-muted/40 px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <div className="flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="font-medium text-sm">
-                        {new Date(session.date).toLocaleDateString("en-US", {
-                          weekday: "long",
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        })}
-                      </span>
-                      {session.dayOfWeek && (
-                        <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
-                          {session.dayOfWeek}
+                <div key={sessionKey} className="border rounded-lg overflow-hidden">
+                  {/* Session header - responsive stack on mobile */}
+                  <div className="bg-muted/40 px-4 py-3 space-y-2">
+                    {/* Date row */}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-medium text-sm">
+                          {new Date(session.date).toLocaleDateString("en-US", {
+                            weekday: "long",
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          })}
                         </span>
-                      )}
+                        {session.dayOfWeek && (
+                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
+                            {session.dayOfWeek}
+                          </span>
+                        )}
+                      </div>
+                      {/* Stats row - right-aligned on sm+ */}
+                      <div className="ml-auto flex items-center gap-3 text-xs">
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-green-500" />
+                          <span className="text-green-600 font-medium">{present}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-red-500" />
+                          <span className="text-red-600 font-medium">{absent}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                          <span className="text-yellow-600 font-medium">{late}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-blue-500" />
+                          <span className="text-blue-600 font-medium">{excused}</span>
+                        </span>
+                        <span className="text-muted-foreground">/ {total}</span>
+                      </div>
                     </div>
-                    <span className="text-muted-foreground text-xs">•</span>
-                    <span className="text-sm">
-                      <span className="text-muted-foreground">Subject: </span>
-                      <span className="font-medium">
-                        {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
+                    {/* Meta row */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      <span>
+                        <span className="text-muted-foreground">Subject: </span>
+                        <span className="font-medium">
+                          {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-muted-foreground text-xs">•</span>
-                    <span className="text-sm">
-                      <span className="text-muted-foreground">Class: </span>
-                      <span className="font-medium">{session.class?.name ?? "—"}</span>
-                    </span>
-                    <span className="text-muted-foreground text-xs">•</span>
-                    <span className="text-sm">
-                      <span className="text-muted-foreground">Lecturer: </span>
-                      <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
-                    </span>
-                    <span className="ml-auto flex items-center gap-3 text-xs">
-                      <span className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-green-600 font-medium">{present}</span>
+                      <span>
+                        <span className="text-muted-foreground">Class: </span>
+                        <span className="font-medium">{session.class?.name ?? "—"}</span>
                       </span>
-                      <span className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-red-500" />
-                        <span className="text-red-600 font-medium">{absent}</span>
+                      <span>
+                        <span className="text-muted-foreground">Lecturer: </span>
+                        <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
                       </span>
-                      <span className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                        <span className="text-yellow-600 font-medium">{late}</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-blue-500" />
-                        <span className="text-blue-600 font-medium">{excused}</span>
-                      </span>
-                      <span className="text-muted-foreground">/ {total} students</span>
-                    </span>
+                    </div>
                   </div>
 
                   {/* Student rows */}
@@ -1084,6 +1096,187 @@ function SavedListsTable({
                             <td className="px-3 py-1.5 font-medium text-xs">{r.student?.name ?? "—"}</td>
                             <td className="px-3 py-1.5 text-muted-foreground text-xs">{r.student?.idNumber ?? "—"}</td>
                             <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Student Records by Class ────────────────────────────────────────
+function StudentRecordsByClass({
+  records,
+  loading,
+}: {
+  records: AttendanceRecord[];
+  loading: boolean;
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, {
+      date: string;
+      dayOfWeek?: string;
+      subject?: { name: string; code?: string };
+      class?: { name: string; _id?: string };
+      lecturer?: { name: string };
+      records: AttendanceRecord[];
+    }>();
+
+    records.forEach((r) => {
+      const classId = typeof r.class === "string" ? r.class : r.class?._id ?? "unknown";
+      const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
+      if (!map.has(dateKey)) {
+        map.set(dateKey, {
+          date: r.date,
+          dayOfWeek: r.dayOfWeek,
+          subject: typeof r.subject === "object" && r.subject !== null ? r.subject : undefined,
+          class: typeof r.class === "object" && r.class !== null ? r.class : undefined,
+          lecturer: r.lecturer ?? undefined,
+          records: [],
+        });
+      }
+      map.get(dateKey)!.records.push(r);
+    });
+
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [records]);
+
+  const statusBadge = (status: string) => {
+    const cls =
+      status === "present"
+        ? "bg-green-500/15 text-green-600"
+        : status === "absent"
+          ? "bg-red-500/15 text-red-600"
+          : status === "late"
+            ? "bg-yellow-500/15 text-yellow-600"
+            : "bg-blue-500/15 text-blue-600";
+    return (
+      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
+        {status}
+      </span>
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <FileText className="h-4 w-4" />
+          My Attendance Records
+        </CardTitle>
+        <CardDescription>Your attendance history grouped by date and class</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : grouped.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No attendance records found.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {grouped.map((session) => {
+              const present = session.records.filter((r) => r.status === "present").length;
+              const absent = session.records.filter((r) => r.status === "absent").length;
+              const late = session.records.filter((r) => r.status === "late").length;
+              const excused = session.records.filter((r) => r.status === "excused").length;
+              const total = session.records.length;
+
+              const sessionKey = `${session.date}-${typeof session.class === "object" ? session.class?._id ?? session.class?.name ?? "unknown" : session.class ?? "unknown"}`;
+              return (
+                <div key={sessionKey} className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted/40 px-4 py-3 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                      <div className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <span className="font-medium text-sm">
+                          {new Date(session.date).toLocaleDateString("en-US", {
+                            weekday: "long",
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          })}
+                        </span>
+                        {session.dayOfWeek && (
+                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
+                            {session.dayOfWeek}
+                          </span>
+                        )}
+                      </div>
+                      <div className="ml-auto flex items-center gap-3 text-xs">
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-green-500" />
+                          <span className="text-green-600 font-medium">{present}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-red-500" />
+                          <span className="text-red-600 font-medium">{absent}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                          <span className="text-yellow-600 font-medium">{late}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="h-2 w-2 rounded-full bg-blue-500" />
+                          <span className="text-blue-600 font-medium">{excused}</span>
+                        </span>
+                        <span className="text-muted-foreground">/ {total}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                      <span>
+                        <span className="text-muted-foreground">Subject: </span>
+                        <span className="font-medium">
+                          {session.subject?.name ?? "—"}{session.subject?.code ? ` (${session.subject.code})` : ""}
+                        </span>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground">Class: </span>
+                        <span className="font-medium">{typeof session.class === "object" ? session.class?.name ?? "—" : session.class ?? "—"}</span>
+                      </span>
+                      <span>
+                        <span className="text-muted-foreground">Lecturer: </span>
+                        <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="overflow-auto max-h-[30vh]">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/30 sticky top-0">
+                        <tr>
+                          <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Subject</th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {session.records.map((r, i) => (
+                          <tr key={r._id} className="border-t">
+                            <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
+                            <td className="px-3 py-1.5 font-medium text-xs">
+                              {typeof r.subject === "object" && r.subject !== null ? r.subject.name : (r.subject ?? "—")}
+                            </td>
+                            <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+                              {r.status === "excused" && r.approvedBy
+                                ? `Approved by ${r.approvedBy.name}`
+                                : r.status === "excused"
+                                ? "Pending HOD approval"
+                                : "—"}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

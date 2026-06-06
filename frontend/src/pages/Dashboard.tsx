@@ -87,6 +87,10 @@ export default function Dashboard() {
   }, [user]);
 
   useEffect(() => {
+    if (user?.role !== "admin") {
+      setNotificationLoading(false);
+      return;
+    }
     const fetchClassStatus = async () => {
       try {
         setNotificationLoading(true);
@@ -99,7 +103,7 @@ export default function Dashboard() {
       }
     };
     fetchClassStatus();
-  }, []);
+  }, [user]);
 
   // 2. Fetch role stats for admin
   useEffect(() => {
@@ -175,7 +179,7 @@ export default function Dashboard() {
 
       {/* --- ANALYTICS & PROGRESS ROW --- */}
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-8">
+        <div className="lg:col-span-8 h-[280px]">
           <LogbookOverviewChart />
         </div>
         <div className="lg:col-span-4 space-y-4">

@@ -70,7 +70,7 @@ type FormValues = z.infer<ReturnType<typeof createSchema>>;
 const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   const isUpdate = type === "update";
   const isLogin = type === "login"; 
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);

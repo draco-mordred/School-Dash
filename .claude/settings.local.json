@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx tsc --noEmit --skipLibCheck)",
+      "Bash(where convert)",
+      "Bash(where magick)",
+      "Bash(npm list -g sharp canvas)",
+      "Bash(node -e \"require\\(''sharp''\\); console.log\\(''sharp ok''\\)\")",
+      "Bash(npm install sharp)",
+      "Bash(npm list sharp)"
+    ]
+  }
+}

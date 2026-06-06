@@ -32,7 +32,7 @@ export function LogbookOverviewChart() {
         <CardTitle>Logbook Overview</CardTitle>
         <CardDescription>Approved vs pending logs over the last six months.</CardDescription>
       </CardHeader>
-      <CardContent className="h-[320px]">
+      <CardContent className="h-[216px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 16, left: -12, bottom: 6 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />

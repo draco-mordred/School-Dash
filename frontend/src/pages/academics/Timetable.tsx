@@ -99,6 +99,17 @@ const Timetable = () => {
     }
   }, [selectedClass]);
 
+  // Auto-select student's own class on mount
+  useEffect(() => {
+    if (isStudent && user) {
+      const raw = user.studentClasses ?? (user as any).studentClass;
+      const classId = typeof raw === "object" ? raw?._id : raw;
+      if (classId && !selectedClass) {
+        setSelectedClass(typeof classId === "string" ? classId : "");
+      }
+    }
+  }, [isStudent, user]);
+
   const fetchCoursesAndLecturers = async () => {
     try {
       setLoadingData(true);

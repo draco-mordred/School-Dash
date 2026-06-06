@@ -37,7 +37,7 @@ export function NavMainMini({
 
   return (
     <SidebarGroup className="px-0">
-      <SidebarGroupLabel className="px-2 sm:px-3 text-xs font-medium text-muted-foreground">Platform</SidebarGroupLabel>
+      <SidebarGroupLabel className="px-2 sm:px-3 text-xs font-medium text-muted-foreground hidden sm:block">Platform</SidebarGroupLabel>
       <SidebarMenu className="px-0.5 sm:px-1">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
