@@ -37,6 +37,7 @@ interface Props {
   pageNum: number;
   setPageNum: (page: number) => void;
   totalPages: number;
+  showDeleteAction?: boolean;
 }
 
 const UserTable = ({
@@ -50,6 +51,7 @@ const UserTable = ({
   setPageNum,
   users,
   totalPages,
+  showDeleteAction,
 }: Props) => {
   const handleEdit = (user: user) => {
     setEditingUser(user);
@@ -113,13 +115,19 @@ const UserTable = ({
                 )}
                 {role === "student" && (
                   <TableCell>
-                    {user.studentClass?._id ? (
-                      <Badge variant="outline">{user.studentClass.name}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground italic text-sm">
-                        Unassigned
-                      </span>
-                    )}
+                    {(() => {
+                      const studentClass = user.studentClasses as
+                        | { _id?: string; name?: string }
+                        | undefined;
+
+                      return studentClass && studentClass._id ? (
+                        <Badge variant="outline">{studentClass.name}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground italic text-sm">
+                          Unassigned
+                        </span>
+                      );
+                    })()}
                   </TableCell>
                 )}
                 <TableCell className="text-right">
@@ -134,15 +142,17 @@ const UserTable = ({
                       <DropdownMenuItem onClick={() => handleEdit(user)}>
                         <Pencil className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => {
-                          setDeleteId(user._id);
-                          setIsDeleteOpen(true);
-                        }}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
+                      {showDeleteAction !== false && (
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onClick={() => {
+                            setDeleteId(user._id);
+                            setIsDeleteOpen(true);
+                          }}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>

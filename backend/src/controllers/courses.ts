@@ -196,3 +196,39 @@ export const deleteCourseSubjects = async(
   }
 
 }
+
+//  @desc    Deduplicate class courses — remove duplicate course IDs from all classes
+//  @route   POST /api/courses/deduplicate-classes
+//  @access  Private (Admin)
+export const deduplicateClassCourses = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const classes = await ClassModel.find({}, "name courses");
+
+    let totalDeduplicated = 0;
+    let classesUpdated = 0;
+
+    for (const cls of classes) {
+      const courseIds = (cls.courses ?? []).map((c: any) => String(c));
+      const uniqueIds = [...new Set(courseIds)];
+
+      if (uniqueIds.length < courseIds.length) {
+        const removed = courseIds.length - uniqueIds.length;
+        totalDeduplicated += removed;
+        cls.courses = uniqueIds as any;
+        await cls.save();
+        classesUpdated++;
+      }
+    }
+
+    res.json({
+      message: `Deduplication complete. Updated ${classesUpdated} classes, removed ${totalDeduplicated} duplicate entries.`,
+      classesUpdated,
+      totalDeduplicated,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+};

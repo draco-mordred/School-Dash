@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { exam, Submission } from "@/types";
 import ExamRadio from "@/components/lms/ExamRadio";
-
+import { ExamQuestionManager } from "@/components/lms/ExamQuestionManager";
 const Exam = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -199,6 +199,15 @@ const Exam = () => {
               </Button>
             </div>
           </div>
+          <Separator />
+        </>
+      )}
+
+      {/* Teacher Question Manager */}
+      {isTeacher && (
+        <>
+          <Separator />
+          <ExamQuestionManager exam={exam} onQuestionsUpdate={fetch} />
           <Separator />
         </>
       )}

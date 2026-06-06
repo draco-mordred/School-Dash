@@ -92,11 +92,11 @@ const Exams = () => {
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                {exam.subject.name}
+                {exam.subject?.name ?? "—"}
               </div>
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
-                {exam.class.name}
+                {exam.class?.name ?? "—"}
               </div>
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4" />

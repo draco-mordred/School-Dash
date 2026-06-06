@@ -11,11 +11,13 @@ export interface user {
   _id: string;
   name: string;
   email: string;
+  idNumber?: string;
   role: UserRole;
   studentClass?: Class;
   studentClasses?: Class | string;
   teacherSubjects?: courses[];
   teacherSubject?: courses[] | string[];
+  parentStudents?: user[] | string[];
 }
 
 export interface academicYear {
@@ -41,7 +43,7 @@ export interface courses {
   _id: string;
   name: string; // "Mathematics"
   code: string; // "MATH101"
-  teacher?: user[]; // Default teacher for this subject
+  lecturer?: { _id: string; name: string; email?: string }[]; // Teachers taking this course
   isActive: boolean; // Indicates if the subject is currently active
 }
 
@@ -76,7 +78,7 @@ export interface Submission {
 export interface period {
   _id: string;
   subject: { _id: string; name: string; code: string };
-  teacher: { _id: string; name: string };
+  lecturer: { _id: string; name: string; email?: string };
   startTime: string; // e.g., "08:00"
   endTime: string; // e.g., "08:45"
 }

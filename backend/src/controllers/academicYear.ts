@@ -36,7 +36,8 @@ export const createAcademicYear = async (
     });
     await logActivity({ 
       userId: (req as any).user._id, 
-      action: `Created academic year ${name}` });
+      action: `Created academic year ${name}, with ID: ${updatedYear?._id} and it's ${(isCurrent ? "current" : "not current")}` 
+    });
     res.status(201).json(academicYear);
   } catch (error) {
     res.status(500).json({
@@ -129,7 +130,7 @@ export const updateAcademicYear = async (
     );
     await logActivity({ 
       userId: (req as any).user._id, 
-      action: `Created academic year ${updatedYear?.name}` 
+      action: `Updated academic year ${updatedYear?.name} with ID: ${updatedYear?._id} and it's ${(isCurrent ? "current" : "not current")}` 
     });
     if (!updatedYear) {
       res.status(404).json({
@@ -168,7 +169,7 @@ export const deleteAcedemicYear = async (
 
     await logActivity({ 
       userId: (req as any).user._id,
-      action: `Deleted academic year ${year!.name}`
+      action: `Deleted academic year ${year!.name} with ID: ${year!._id} and it's ${(year!.isCurrent ? "current" : "not current")}`
     })
   } catch (error) {
     res.status(500).json({

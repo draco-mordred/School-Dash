@@ -7,6 +7,7 @@ export interface ICourse extends Document {
   code: string; // autmaticallyy generated from the course name.
   lecturer?: mongoose.Types.ObjectId[]; // Default lecturer for this subject
   isActive: boolean; // indicates if the subjecct is currently active
+  students: mongoose.Types.ObjectId[]; // Array of student IDs enrolled in this subject, optional for now but can be used in the future for easier querying of students in a subject
 }
 
 const CourseSchema = new Schema(
@@ -16,6 +17,7 @@ const CourseSchema = new Schema(
     courseID: { type: String, required: true }, // New field to specify the Course ID
     lecturer: [{ type: Schema.Types.ObjectId, ref: "User"}],
     isActive: { type: Boolean, default: true },
+    students: [{ type: Schema.Types.ObjectId, ref: "User" }], // Optional field to track enrolled students
   },
   { timestamps: true}
 );

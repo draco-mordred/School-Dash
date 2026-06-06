@@ -31,11 +31,9 @@ export interface IUser extends Document {
     studentClasses?: string | null; // Array of class IDs for students
     teacherSubject?: string[] | null; // Array of class IDs for teachers
     parentStudents?: string[] | null; // Array of student IDs for parents
-    // studentClasses?: string[]; // Array of class IDs for students
-    // teacherClasses?: string[]; // Array of class IDs for teachers
-    // parentStudents?: string[]; // Array of student IDs for parents
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
+    attendance: mongoose.Types.ObjectId[]; // Array of attendance record IDs
 }
 
 const UserSchema: Schema<IUser> = new Schema({
@@ -76,8 +74,7 @@ const UserSchema: Schema<IUser> = new Schema({
         // default: null
     },
     teacherSubject: [{
-        type: mongoose.Schema.Types.ObjectId,
-        // This field points to Course (your “subjets” implementation lives under courses.ts)
+        type: mongoose.Schema.Types.ObjectId,// This field points to Course (your “subjets” implementation lives under courses.ts)
         ref: "Course",
         default: null
     }],

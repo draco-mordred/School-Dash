@@ -169,7 +169,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
         studentClasses: data.classId ? data.classId : undefined,
         teacherSubject: data.subjectIds ? data.subjectIds : [],
         parentStudents: [],
-        // role: role,
+        role: data.role || role,
         ...data, 
       };
       if (isLogin) {
@@ -193,7 +193,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
         toast.success("Account created successfully!");
         if (onSuccess) onSuccess();
       } else if (type === "update" && initialData?._id) {
-        await api.put(`/users/update/${initialData._id}`, payload);
+        await api.patch(`/users/update/${initialData._id}`, payload);
         toast.success("User updated successfully");
         if (onSuccess) onSuccess();
       }
@@ -212,7 +212,15 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   const subjectOptions = Array.isArray(subjects)
     ? subjects.map((s) => ({ label: s.name, value: s._id }))
     : [];
-  const roleOptions = role ? [{ label: role, value: role }] : [];
+
+  const allRoles = ["admin", "teacher", "student", "parent"] as const;
+  const roleOptions = (() => {
+    if (isUpdate && user?.role === "admin") {
+      return allRoles.map((r) => ({ label: r, value: r }));
+    }
+    if (role) return [{ label: role, value: role }];
+    return [];
+  })();
 
   const pending = form.formState.isSubmitting;
   const showRoleSelector = !isLogin;

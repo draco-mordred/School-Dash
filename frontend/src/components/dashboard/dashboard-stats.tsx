@@ -8,9 +8,20 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+interface DashboardStatsData {
+  totalStudents?: number;
+  totalTeachers?: number;
+  avgAttendance?: string;
+  activeExams?: number;
+  myClassesCount?: number;
+  pendingGrading?: number;
+  nextClass?: string;
+  nextClassTime?: string;
+}
+
 interface StatsProps {
   role: string;
-  data: any; // In real app, define a strict interface
+  data: DashboardStatsData;
 }
 
 export function DashboardStats({ role, data }: StatsProps) {

@@ -1,17 +1,22 @@
 import express from "express";
 import { authorize, protect } from "../middleware/auth";
-import { 
-  createCourseSubject, 
-  deleteCourseSubjects, 
-  getAllCourseSubjects, 
-  updateCourseSubjects 
+import {
+  createCourseSubject,
+  deleteCourseSubjects,
+  getAllCourseSubjects,
+  updateCourseSubjects,
+  deduplicateClassCourses,
 } from "../controllers/courses";
 
 const courseRouter = express.Router();
 
 courseRouter
 .route("/create")
-.post(protect, authorize(["admin"]), createCourseSubject);
+.post(protect, authorize(["admin", "teacher"]), createCourseSubject);
+
+courseRouter
+.route("/deduplicate-classes")
+.post(protect, authorize(["admin"]), deduplicateClassCourses);
 
 courseRouter
 .route("/")

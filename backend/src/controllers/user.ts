@@ -175,6 +175,16 @@ export const registerUser = async (
             // teacherSubject is populated from the Course model
             await newUser.populate("teacherSubject", "name code");
 
+                        // If student, link to class students array
+                        if (role === "student" && finalStudentClass) {
+                            const ClassModel = require("../models/classes").default;
+                            await ClassModel.findByIdAndUpdate(
+                                finalStudentClass,
+                                { $addToSet: { students: newUser._id } },
+                                { new: true }
+                            );
+                        }
+
 
 
 
@@ -258,12 +268,29 @@ export const login = async (
 // next we add fetch all activities(or let's do it now)
 // done!
 
-// @desc    Update user (Admin)
-// @route   PUT /api/users/:id
-// @access  Private/Admin
+// @desc    Update user (Admin or self)
+// @route   PATCH /api/users/:id
+// @access  Private
 
 export const updateUser = async (req: Request, res: Response) : Promise<void> => {
     try {
+        const authReq = req as any;
+        const requestedId = req.params.id;
+        const currentUserId = authReq.user?._id?.toString();
+        const currentUserRole = authReq.user?.role;
+
+        // Allow users to update their own profile, or admins/teachers to update any profile
+        const isOwnProfile = currentUserId === requestedId;
+        const isAdmin = currentUserRole === "admin" || currentUserRole === "teacher";
+
+        if (!isOwnProfile && !isAdmin) {
+            res.status(403).json({ 
+                status: "Error!", 
+                message: "You can only update your own profile" 
+            });
+            return;
+        }
+
         const user = await User.findById(req.params.id);
         if (user){
             user.name = req.body.name || user.name;
@@ -279,6 +306,22 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                 user.password = req.body.password;
             }
             const updatedUser = await user.save();
+                        // Handle student class changes
+                        if (user.role === "student" && req.body.studentClasses) {
+                            const ClassModel = require("../models/classes").default;
+                            const oldClass = user.studentClasses?.toString();
+                            const newClass = req.body.studentClasses?.toString?.() || req.body.studentClasses;
+              
+                            // Remove from old class if different
+                            if (oldClass && oldClass !== newClass) {
+                                await ClassModel.findByIdAndUpdate(oldClass, { $pull: { students: user._id } });
+                            }
+              
+                            // Add to new class
+                            if (newClass) {
+                                await ClassModel.findByIdAndUpdate(newClass, { $addToSet: { students: user._id } });
+                            }
+                        }
             const userId = (req as any).user._id.toString();
             if ((req as any).user) { 
                 //not responding at this point ... will continue the video for now ---to fix return to video at time: 1:30:45 / 7:05:54 ...
@@ -341,8 +384,8 @@ export const getUsers = async (req: Request, res: Response) : Promise<void> => {
         User.countDocuments(filter), // Get total count of users matching the filter
         User.find(filter)
         .select("-password")
-        // .populate("studentClassess", "_id name code")
-        // .populate("teacherSubject", "_id name code")
+        .populate("studentClasses", "_id name")
+        .populate("teacherSubject", "_id name code")
         .sort({ createdAt: -1})
         .skip(skip)
         .limit(limit),
@@ -401,7 +444,8 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
     try {
         const user = await User.findById((req as any).user._id)
           .populate("studentClasses", "name academicYear")
-          .populate("teacherSubject", "name code");
+          .populate("teacherSubject", "name code")
+          .populate("parentStudents", "name email idNumber role");
         if (user){  
             res.json({
                 user: { 
@@ -411,6 +455,7 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
                     role: user.role,
                     studentClasses: user.studentClasses,
                     teacherSubject: user.teacherSubject,
+                    parentStudents: user.parentStudents,
                 }  
             })
             // if (req.user){  

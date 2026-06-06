@@ -43,7 +43,7 @@ export const sidebardata = {
         },
         {
           title: "Activities Log",
-          url: "/activies-log",
+          url: "/activities-log",
           roles: ["admin"],
         },
       ],
@@ -56,6 +56,8 @@ export const sidebardata = {
       items: [
         { title: "Classes", url: "/classes", roles: ["admin", "teacher"] },
         { title: "Courses", url: "/courses", roles: ["admin", "teacher"] },
+        { title: "Logbook Entries", url: "/logbook-entries" },
+        { title: "Procedures", url: "/procedures" },
         { title: "Timetable", url: "/timetable" },
         { title: "Attendance", url: "/attendance" },
       ],
@@ -68,6 +70,9 @@ export const sidebardata = {
       items: [
         { title: "Assignments", url: "/lms/assignments" },
         { title: "Exams", url: "/lms/exams" },
+        { title: "Clinical Rotations", url: "/clinical-rotations" },
+        { title: "Approvals", url: "/approvals" },
+        { title: "Reflections", url: "/reflections" },
         { title: "Study Materials", url: "/lms/materials" },
       ],
     },
@@ -100,6 +105,7 @@ export const sidebardata = {
       icon: Settings2,
       roles: ["admin"],
       items: [
+        { title: "Notifications", url: "/notifications" },
         { title: "School Settings", url: "/settings/general" },
         { title: "Academic Years", url: "/settings/academic-years" },
         { title: "Roles & Permissions", url: "/settings/roles" },

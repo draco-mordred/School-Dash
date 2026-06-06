@@ -93,7 +93,7 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                   className="flex-1 min-w-50 border-r p-2 last:border-r-0"
                 >
                   {/* make sure you have subject and teacher */}
-                  {period && period.subject && period.teacher ? (
+                  {period ? (
                     <div className="h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 border-l-primary">
                       <div>
                         <div className="flex items-center justify-between mb-2">
@@ -101,13 +101,11 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                             variant="outline"
                             className="font-bold text-[10px] px-1.5"
                           >
-                            {period.subject.code && period.subject.code}
+                            {period.subject?.code ?? ""}
                           </Badge>
-                          {/* Redundant time check inside card removed for cleaner look, 
-                                  since it's already in the row header */}
                         </div>
                         <h4 className="font-semibold text-sm leading-tight text-primary line-clamp-2">
-                          {period.subject.name}
+                          {period.subject?.name ?? "TBD Subject"}
                         </h4>
                       </div>
 
@@ -115,17 +113,15 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                         <UserIcon className="h-3 w-3 shrink-0" />
                         <span
                           className="truncate max-w-35"
-                          title={period.teacher.name}
+                          title={period.lecturer?.name ?? ""}
                         >
-                          {period.teacher.name}
+                          {period.lecturer?.name ?? "TBD Lecturer"}
                         </span>
                       </div>
                     </div>
                   ) : (
                     <div className="h-full w-full rounded-md border border-dashed border-primary bg-primary/30 flex items-center justify-center">
-                      <span className="text-xs text-primary font-medium">
-                        Free Period
-                      </span>
+                      <span className="text-xs text-primary font-medium">Free Period</span>
                     </div>
                   )}
                 </div>

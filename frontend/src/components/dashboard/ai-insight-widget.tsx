@@ -39,7 +39,7 @@ export function AiInsightWidget({ role }: Props) {
       }
 
       setInsight(mockResponse);
-    } catch (e) {
+    } catch {
       toast.error("Could not generate insight");
     } finally {
       setLoading(false);

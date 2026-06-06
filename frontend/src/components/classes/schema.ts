@@ -7,6 +7,7 @@ export const classFormSchema = z.object({
   academicYear: z.string().min(1, "Academic year is required"),
   classTeacher: z.string().optional(),
   subjectIds: z.array(z.string()),
+  studentIds: z.array(z.string()),
 });
 
 export type ClassFormValues = z.infer<typeof classFormSchema>;

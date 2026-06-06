@@ -36,9 +36,9 @@ export function NavMain({
   }[];
 }) {
   return (
-    <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
-      <SidebarMenu>
+    <SidebarGroup className="px-0">
+      <SidebarGroupLabel className="px-2 sm:px-3 md:px-4 text-xs font-medium text-muted-foreground">Platform</SidebarGroupLabel>
+      <SidebarMenu className="px-1 sm:px-1.5 md:px-2">
         {items.map((item) => (
           <Collapsible
             key={item.title}
@@ -48,24 +48,30 @@ export function NavMain({
           >
             <SidebarMenuItem>
               <CollapsibleTrigger asChild>
-                <SidebarMenuButton tooltip={item.title}>
-                  {item.icon && <item.icon />}
-                  <span>{item.title}</span>
-                  <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                <SidebarMenuButton 
+                  tooltip={item.title}
+                  className={cn(
+                    "h-8 rounded transition-colors",
+                    "hover:bg-accent hover:text-accent-foreground"
+                  )}
+                >
+                  {item.icon && <item.icon className="h-5 w-5" />}
+                  <span className="text-sm">{item.title}</span>
+                  <ChevronRight className="ml-auto h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                 </SidebarMenuButton>
               </CollapsibleTrigger>
-              <CollapsibleContent>
+              <CollapsibleContent className="pl-2">
                 <SidebarMenuSub>
                   {item.items?.map((subItem) => (
                     <SidebarMenuSubItem key={subItem.title}>
                       <SidebarMenuSubButton
                         asChild
                         className={cn(
-                          "rounded-lg text-center hover:bg-primary",
-                          subItem.isActive && "bg-primary text-white"
+                          "h-8 rounded text-sm transition-colors",
+                          "hover:bg-accent hover:text-accent-foreground",
+                          subItem.isActive && "bg-primary text-primary-foreground font-medium"
                         )}
                       >
-                        {/* here is where the issue was, <a> tag was used causing that reload change to react-router link */}
                         <Link to={subItem.url}>
                           <span>{subItem.title}</span>
                         </Link>

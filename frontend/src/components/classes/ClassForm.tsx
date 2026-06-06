@@ -38,6 +38,8 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [subjects, setSubjects] = useState<Option[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [students, setStudents] = useState<Option[]>([]);
 
   // fetch teachers and years
   useEffect(() => {
@@ -76,9 +78,25 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
       } finally {
         setLoadingSubjects(false);
       }
-    }; 
+    };
     fetchSubjects();
   }, []);
+
+  // fetch students
+  useEffect(() => {
+    const fetchStudents = async () => {
+      try {
+        setLoadingStudents(true);
+        const { data } = await api.get("/users?role=student&page=1&limit=500");
+        setStudents(data.users ?? []);
+      } catch {
+        toast.error("Failed to load students");
+      } finally {
+        setLoadingStudents(false);
+      }
+    };
+    if (open) fetchStudents();
+  }, [open]);
 
   //   form
   const form = useForm<ClassFormValues>({
@@ -89,6 +107,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
       academicYear: "",
       classTeacher: "",
       subjectIds: [],
+      studentIds: [],
     },
   });
 
@@ -121,6 +140,18 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
     return [...fromSubjects, ...fromCourses];
   };
 
+  const getStudentIdsFromClass = (
+    classData: Class | null | undefined,
+  ): string[] => {
+    if (!classData || typeof classData !== "object") return [];
+    const studentItems = Array.isArray(
+      (classData as Partial<{ students: ReferenceItem[] }>).students,
+    )
+      ? (classData as Partial<{ students: ReferenceItem[] }>).students ?? []
+      : [];
+    return studentItems.map(getReferenceId).filter((id): id is string => Boolean(id));
+  };
+
   //  Populate Form on Edit
   useEffect(() => {
     if (initialData) {
@@ -130,6 +161,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
         academicYear: initialData.academicYear?._id || "",
         classTeacher: initialData.classTeacher?._id || "",
         subjectIds: getSubjectIdsFromClass(initialData),
+        studentIds: getStudentIdsFromClass(initialData),
       });
     } else {
       form.reset({
@@ -138,6 +170,7 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
         academicYear: "",
         classTeacher: "",
         subjectIds: [],
+        studentIds: [],
       });
     }
   }, [initialData, form, open]);
@@ -151,9 +184,10 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
             ? null
             : data.classTeacher,
         courses: data.subjectIds,
+        students: data.studentIds,
       };
       if (initialData) {
-        await api.put(`/classes/update/${initialData._id}`, payload);
+        await api.patch(`/classes/update/${initialData._id}`, payload);
         toast.success("Class updated successfully");
       } else {
         await api.post("/classes/create", payload);
@@ -180,6 +214,10 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
   const teachersOptions = (Array.isArray(teachers) ? teachers : []).map((teacher) => ({
     label: teacher.name,
     value: teacher._id,
+  }));
+  const studentOptions = (Array.isArray(students) ? students : []).map((student) => ({
+    label: student.name,
+    value: student._id,
   }));
   return (
     <Modal
@@ -239,6 +277,15 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
             placeholder="Select subjects..."
             options={subjectOptions}
             loading={loadingSubjects}
+            disabled={pending}
+          />
+          <CustomMultiSelect
+            control={form.control}
+            name="studentIds"
+            label="Students"
+            placeholder="Select students..."
+            options={studentOptions}
+            loading={loadingStudents}
             disabled={pending}
           />
         </FieldGroup>

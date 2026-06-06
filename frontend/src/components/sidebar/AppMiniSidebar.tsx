@@ -2,7 +2,7 @@
 
 import { useLocation } from "react-router";
 
-import { NavMain } from "@/components/sidebar/nav-main";
+import { NavMainMini } from "@/components/sidebar/nav-main-mini";
 import type { LucideIcon } from "lucide-react";
 import { sidebardata } from "@/components/sidebar/sidebardata";
 import type { UserRole } from "@/types";
@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
  */
 export function AppMiniSidebar({
   yearNameOverride,
+  className,
   ...props
 }: React.ComponentProps<typeof Sidebar> & { yearNameOverride?: string }) {
   const { user, year, setUser } = useAuth();
@@ -41,8 +42,6 @@ export function AppMiniSidebar({
   const navigate = useNavigate();
 
   const pathname = location.pathname;
-  const isCollapsedIconsOnly = true;
-
   const userRole = (user?.role || "student") as UserRole;
 
   const filteredNav = sidebardata.navMain
@@ -84,44 +83,51 @@ export function AppMiniSidebar({
 
   return (
     <Sidebar
-      collapsible="icon"
+      collapsible="offcanvas"
       side="left"
-      className={cn("hidden md:flex", isCollapsedIconsOnly && "md:block")}
+      className={cn("lg:hidden", className)}
       {...props}
     >
-      <SidebarHeader>
+      <SidebarHeader className="px-3 py-2 sm:px-4">
         <TeamSwitcher
           teams={sidebardata.teams}
           yearName={year?.name ?? yearNameOverride ?? "Year"}
         />
       </SidebarHeader>
 
-      <SidebarContent>
-        {/* NavMain already supports icon-only mode via collapsible=icon */}
-        <NavMain
+      <SidebarContent className="px-0 py-1">
+        {/* Icon-only navigation with popover dropdowns */}
+        <NavMainMini
           items={filteredNav.map((item) => ({
             title: item.title,
             url: item.url,
             icon: item.icon as LucideIcon,
-            isActive: item.isActive,
+            isActive: Boolean(item.isActive),
             items: item.items?.map((sub) => ({
               title: sub.title,
               url: sub.url,
-              isActive: sub.isActive,
+              isActive: Boolean((sub as { isActive?: boolean }).isActive),
             })),
           }))}
         />
       </SidebarContent>
 
-      <SidebarFooter>
-        <div className="gap-2">
-          <Button onClick={logout} variant="ghost" size="icon-sm" aria-label="Logout">
-            <LogOut />
+      <SidebarFooter className="px-3 py-2 sm:px-4">
+        <div className="flex flex-row items-center justify-between gap-2">
+          <Button
+            onClick={logout}
+            variant="ghost"
+            size="sm"
+            aria-label="Logout"
+            className="flex-1 h-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            <span className="text-xs">Logout</span>
           </Button>
           <ThemeToogle />
         </div>
         <div className="hidden" aria-hidden>
-          {/* NavUser exists for footer spacing in AppSidebar; mini keeps icons-only */}
+          {/* NavUser exists for footer spacing in AppSidebar */}
           <NavUser user={userData} />
         </div>
       </SidebarFooter>

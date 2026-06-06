@@ -127,13 +127,16 @@ function Sidebar({
   collapsible = "offcanvas",
   className,
   children,
+  collapsed = false,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offcanvas" | "icon" | "none";
+  collapsed?: boolean;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const effectiveState = collapsed ? "collapsed" : state;
 
   if (collapsible === "none") {
     return (
@@ -173,8 +176,8 @@ function Sidebar({
   return (
     <div
       className="group peer text-sidebar-foreground md:block"
-      data-state={state}
-      data-collapsible={state === "collapsed" ? collapsible : ""}
+      data-state={effectiveState}
+      data-collapsible={effectiveState === "collapsed" ? collapsible : ""}
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
@@ -275,9 +278,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "bg-background relative flex w-full flex-1 flex-col",
-        "md:ml-[var(--sidebar-width)] md:peer-data-[state=collapsed]:ml-[var(--sidebar-width-icon)]",
-        "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm",
+        "bg-background relative flex w-full flex-1 flex-col  md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm overflow-x-hidden pl-0",
         className
       )}
       {...props}

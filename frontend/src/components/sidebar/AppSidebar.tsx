@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { NavMain } from "@/components/sidebar/nav-main";
@@ -14,14 +14,12 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { useSidebar } from "@/components/ui/sidebar-context";
 import type { UserRole } from "@/types";
 import { useLocation, useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useMemo } from "react";
 import { toast } from "sonner"; 
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ThemeToogle } from "./ThemeToogle";
 import { sidebardata } from "./sidebardata";
@@ -44,8 +42,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { user, year, setUser } = useAuth();
   const location = useLocation(); // <--- Get current URL
   const pathname = location.pathname; // e.g., "/dashboard/analytics"
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
   const navigate = useNavigate();
 
   const userData = {
@@ -55,6 +51,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   };
 
   const userRole = (user?.role || "student") as UserRole;
+
+  const roleMeta: Record<UserRole, { icon: LucideIcon; label: string }> = {
+    admin: { icon: ShieldCheck, label: "Administrator" },
+    teacher: { icon: BookOpen, label: "Teacher" },
+    student: { icon: GraduationCap, label: "Student" },
+    parent: { icon: Users, label: "Parent" },
+  };
+
+  const roleInfo = roleMeta[userRole] ?? roleMeta.student;
+  const RoleIcon = roleInfo.icon;
 
   const filteredNav = useMemo(() => {
     return sidebardata.navMain
@@ -98,21 +104,36 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavMain items={filteredNav} />
       </SidebarContent>
-      <SidebarFooter>
-        <div
-          className={cn(
-            "gap-2",
-            isCollapsed ? "flex-row space-y-2" : "flex justify-between",
-          )}
-        >
-          <SidebarMenuItem title="Logout">
-            <Button onClick={logout} variant={"ghost"} size="icon-sm">
-              <LogOut />
-            </Button>
-          </SidebarMenuItem>
-          <ThemeToogle />
+      <SidebarFooter className="border-t border-border px-0">
+        <div className="flex flex-row items-center justify-between gap-2 px-4 py-2">
+          <div className="flex flex-row items-center gap-1">
+            <SidebarMenuItem title="Logout" className="list-none">
+              <Button 
+                onClick={logout} 
+                variant="ghost" 
+                size="icon"
+                className="h-8 w-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </SidebarMenuItem>
+            <ThemeToogle />
+          </div>
         </div>
-        <NavUser user={userData} />
+        <div className="px-4 pb-2">
+          <NavUser user={userData} />
+          <div className="mt-4 rounded-3xl border border-border bg-background p-4">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 place-items-center rounded-2xl bg-primary text-primary-foreground">
+                <RoleIcon className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">{roleInfo.label}</p>
+                <p className="text-xs text-muted-foreground">UNIJOS, JOS, Nigeria</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

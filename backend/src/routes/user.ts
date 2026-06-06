@@ -27,9 +27,9 @@ userRoutes.get("/",
     getUsers
 );
 // here you can use either patch or put
+// Allow anyone to update their own profile, or admins/teachers to update any profile
 userRoutes.patch("/update/:id",
     protect,
-    authorize(["admin", "teacher"]),
     updateUser
 );
 userRoutes.delete("/delete/:id",

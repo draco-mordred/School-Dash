@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
 import ClassModel from "../models/classes";
+import UserModel from "../models/user";
 import { logActivity } from "../utils/activitieslog"
 
 // @desc    Create a New Class
@@ -7,11 +8,11 @@ import { logActivity } from "../utils/activitieslog"
 // @access  Private/Admin
 
 export const createClass = async (
-  req: Request, 
+  req: Request,
   res: Response
 ) => {
  try {
-  const { name, academicYear, classTeacher, capacity, courses } = req.body;
+  const { name, academicYear, classTeacher, capacity, courses, students } = req.body;
   const existingClass = await ClassModel.findOne({ name, academicYear });
   if (existingClass) {
     return res
@@ -20,6 +21,7 @@ export const createClass = async (
       message: `Class with the same name already exists for the specified academic year!`
     })
   }
+  const studentIds = Array.isArray(students) ? students : [];
   const newClass  = await ClassModel.create(
     {
     name,
@@ -27,10 +29,17 @@ export const createClass = async (
     classTeacher,
     capacity,
     courses: Array.isArray(courses) ? courses : [],
+    students: studentIds,
   }
 );
+  if (studentIds.length > 0) {
+    await UserModel.updateMany(
+      { _id: { $in: studentIds }, role: "student" },
+      { $set: { studentClasses: newClass._id } }
+    );
+  }
   await logActivity({
-    userId: (req as any).user?._id, 
+    userId: (req as any).user?._id,
     action: `Created new class: ${newClass.name}`
   });
   res.status(201).json({newClass})
@@ -70,7 +79,7 @@ res: Response
       ClassModel.find(query)
         .populate("academicYear", "name")
         .populate("classTeacher", "name email")
-        .populate("courses", "name code")
+        .populate("courses", "name code lecturer")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -99,9 +108,9 @@ export const updateClass = async (
   req: Request,
   res: Response
 ) => {
-  try { 
+  try {
     const classId = req.params.id;
-    const { name, academicYear, classTeacher, capacity, courses } = req.body;
+    const { name, academicYear, classTeacher, capacity, courses, students } = req.body;
 
     const existingClass = await ClassModel.findOne({
       name,
@@ -116,14 +125,34 @@ export const updateClass = async (
       });
     }
 
+    const currentClass = await ClassModel.findById(classId);
+    const oldStudentIds = (currentClass?.students ?? []).map(String);
+    const newStudentIds = Array.isArray(students) ? students.map(String) : [];
+
+    const addedStudentIds = newStudentIds.filter((id) => !oldStudentIds.includes(id));
+    const removedStudentIds = oldStudentIds.filter((id) => !newStudentIds.includes(id));
+
     const updatedClass = await ClassModel.findByIdAndUpdate(
       classId,
-      { name, academicYear, classTeacher, capacity, courses },
+      { name, academicYear, classTeacher, capacity, courses, students: newStudentIds },
       { new: true, runValidators: true }
     );
 
     if (!updatedClass) {
       return res.status(404).json({ message: "Class not found!" });
+    }
+
+    if (addedStudentIds.length > 0) {
+      await UserModel.updateMany(
+        { _id: { $in: addedStudentIds }, role: "student" },
+        { $set: { studentClasses: updatedClass._id } }
+      );
+    }
+    if (removedStudentIds.length > 0) {
+      await UserModel.updateMany(
+        { _id: { $in: removedStudentIds }, role: "student" },
+        { $set: { studentClasses: null } }
+      );
     }
 
     await logActivity({
@@ -132,9 +161,6 @@ export const updateClass = async (
     });
 
     res.status(200).json(updatedClass);
-    // else{
-    //   res.status(400).json({ message: "Class with this name already exists for the specified academic year",  })
-    // }
   } catch (error) {
     res.status(500).json({ message: `Server error`, error: `${error}` })
   }

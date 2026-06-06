@@ -17,10 +17,11 @@ import courseRouter from "./routes/courses";
 import "./models/subjects"; // ensure Subjects mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
-import { generateExam, generateTimeTable } from "./inngest/functions";
+import { generateExam, generateTimeTable, generateAttendance } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
 import dashBoardRouter from "./routes/dashboard";
+import attendanceRouter from "./routes/attendance";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -75,10 +76,11 @@ app.use('/api/classes', classRouter);
 app.use('/api/courses', courseRouter);
 app.use("/api/timetables", timeRouter)
 app.use("/api/exams", examRouter);
-app.use("/api/dashboard", dashBoardRouter)
-app.use('/api/inngest', serve({ 
-  client: inngest, 
-  functions: [generateTimeTable, generateExam] 
+app.use("/api/dashboard", dashBoardRouter);
+app.use("/api/attendance", attendanceRouter);
+app.use('/api/inngest', serve({
+  client: inngest,
+  functions: [generateTimeTable, generateExam, generateAttendance]
 })
 );
 

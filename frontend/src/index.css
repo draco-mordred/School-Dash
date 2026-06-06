@@ -35,6 +35,8 @@
   --sidebar-accent-foreground: oklch(0.4254 0.1159 144.3078);
   --sidebar-border: oklch(0.8805 0.0208 74.6428);
   --sidebar-ring: oklch(0.5234 0.1347 144.1672);
+  --sidebar-width: 18rem;
+  --sidebar-width-icon: 5rem;
   --font-sans: Montserrat, sans-serif;
   --font-serif: Merriweather, serif;
   --font-mono: Source Code Pro, monospace;
@@ -203,4 +205,13 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+}
+
+/* Hide all scrollbars */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
 }
