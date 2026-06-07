@@ -1,7 +1,7 @@
 "use client";
 
 import { type LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 import {
   SidebarGroup,
@@ -17,7 +17,7 @@ import {
 import { Link } from "react-router";
 import { cn } from "@/lib/utils";
 
-export function NavMainMini({
+export function NavMainMiniSidebar({
   items,
 }: {
   items: {
@@ -32,48 +32,47 @@ export function NavMainMini({
     }[];
   }[];
 }) {
-  const [openPopover, setOpenPopover] = useState<string | null>(null);
+  const [openItem, setOpenItem] = useState<string | null>(null);
+
+  const handleOpenChange = useCallback((title: string, open: boolean) => {
+    setOpenItem(open ? title : null);
+  }, []);
 
   return (
-    <SidebarGroup className="px-1 py-1">
-      <SidebarMenu className="space-y-0.5">
+    <SidebarGroup className="px-0 py-1">
+      <SidebarMenu className="space-y-0.5 px-1">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
 
           return (
-            <SidebarMenuItem key={item.title} className="px-0.5 py-0.5">
+            <SidebarMenuItem key={item.title}>
               {hasSubItems ? (
                 <Popover
-                  open={openPopover === item.title}
-                  onOpenChange={(open) =>
-                    setOpenPopover(open ? item.title : null)
-                  }
+                  open={openItem === item.title}
+                  onOpenChange={(open) => handleOpenChange(item.title, open)}
                 >
-                  <PopoverTrigger asChild>
+                  <PopoverTrigger
+                    asChild
+                    onMouseEnter={() => setOpenItem(item.title)}
+                    onMouseLeave={() => setOpenItem(null)}
+                  >
                     <SidebarMenuButton
                       tooltip={item.title}
                       className={cn(
-                        "h-9 w-9 flex items-center justify-center rounded-md transition-colors",
-                        "hover:bg-accent hover:text-accent-foreground",
-                        openPopover === item.title && "bg-accent text-accent-foreground"
+                        "h-9 w-full flex items-center justify-center rounded-md transition-colors",
+                        "hover:bg-accent hover:text-accent-foreground"
                       )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setOpenPopover(
-                          openPopover === item.title ? null : item.title
-                        );
-                      }}
-                      isActive={Boolean(item.isActive)}
                     >
-                      {item.icon && <item.icon className="h-4 w-4" />}
+                      {item.icon && <item.icon className="h-5 w-5" />}
                     </SidebarMenuButton>
                   </PopoverTrigger>
-
                   <PopoverContent
                     side="right"
                     align="start"
                     sideOffset={8}
                     className="w-48 border-border bg-background p-0 shadow-lg"
+                    onMouseEnter={() => setOpenItem(item.title)}
+                    onMouseLeave={() => setOpenItem(null)}
                   >
                     <div className="p-2">
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
@@ -84,7 +83,7 @@ export function NavMainMini({
                           <Link
                             key={subItem.title}
                             to={subItem.url}
-                            onClick={() => setOpenPopover(null)}
+                            onClick={() => setOpenItem(null)}
                             className={cn(
                               "flex h-8 items-center rounded-md px-2 py-1.5 text-sm transition-colors",
                               "hover:bg-accent hover:text-accent-foreground",
@@ -105,12 +104,11 @@ export function NavMainMini({
                   <SidebarMenuButton
                     tooltip={item.title}
                     className={cn(
-                      "h-9 w-9 flex items-center justify-center rounded-md transition-colors",
+                      "h-9 w-full flex items-center justify-center rounded-md transition-colors",
                       "hover:bg-accent hover:text-accent-foreground"
                     )}
-                    isActive={Boolean(item.isActive)}
                   >
-                    {item.icon && <item.icon className="h-4 w-4" />}
+                    {item.icon && <item.icon className="h-5 w-5" />}
                   </SidebarMenuButton>
                 </Link>
               )}

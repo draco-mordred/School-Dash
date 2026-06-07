@@ -19,12 +19,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Pencil, Trash2, Plus, X } from "lucide-react";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -47,11 +41,23 @@ const Timetable = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
   const isStudent = user?.role === "student";
+  const isParent = user?.role === "parent";
 
   const [scheduleData, setScheduleData] = useState<schedule[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [studentClassInfo, setStudentClassInfo] = useState<{ name: string; academicYear: string; classTeacher?: string } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedClass, setSelectedClass] = useState("");
+
+  // Parent: classes of linked children (multiple)
+  const [parentChildrenClasses, setParentChildrenClasses] = useState<{
+    classId: string;
+    className: string;
+    academicYear: string;
+    classTeacher: string;
+    schedule: schedule[];
+  }[]>([]);
+  const [loadingParentTimetables, setLoadingParentTimetables] = useState(false);
 
   // Period management state
   const [manageOpen, setManageOpen] = useState(false);
@@ -109,6 +115,82 @@ const Timetable = () => {
       }
     }
   }, [isStudent, user]);
+
+  // Fetch student's class name + academic year
+  useEffect(() => {
+    if (!isStudent || !selectedClass) return;
+    const fetchClassInfo = async () => {
+      try {
+        const { data } = await api.get(`/classes/${selectedClass}`);
+        setStudentClassInfo({
+          name: data.name ?? "—",
+          academicYear: data.academicYear?.name ?? "—",
+        });
+      } catch { /* silent */ }
+    };
+    void fetchClassInfo();
+  }, [isStudent, selectedClass]);
+
+  // Fetch timetables for parent's linked children's classes
+  useEffect(() => {
+    if (!isParent || !user) return;
+    const parentStudentIds = (user.parentStudents ?? [])
+      .map((s) => (typeof s === "object" ? (s as user)._id : s))
+      .filter(Boolean);
+    if (parentStudentIds.length === 0) return;
+
+    const fetchParentTimetables = async () => {
+      setLoadingParentTimetables(true);
+      try {
+        const classMap = new Map<string, { className: string; academicYear: string; classTeacher: string }>();
+        const scheduleMap = new Map<string, schedule[]>();
+
+        // Fetch each student's class details and timetable sequentially to avoid overwhelming the server
+        for (const studentId of parentStudentIds) {
+          try {
+            const studentRes = await api.get(`/users/${studentId}`);
+            const student = studentRes.data;
+            if (!student) continue;
+
+            const rawClass = student.studentClass ?? student.studentClasses;
+            const classId = typeof rawClass === "object" ? rawClass?._id : rawClass;
+            if (!classId) continue;
+
+            if (!classMap.has(classId)) {
+              try {
+                const clsRes = await api.get(`/classes/${classId}`);
+                const cls = clsRes.data;
+                classMap.set(classId, {
+                  className: cls?.name ?? "—",
+                  academicYear: cls?.academicYear?.name ?? "—",
+                  classTeacher: cls?.classTeacher?.name ?? "—",
+                });
+              } catch { /* silent */ }
+            }
+
+            try {
+              const ttRes = await api.get(`/timetables/${classId}`);
+              scheduleMap.set(classId, ttRes.data?.schedule ?? []);
+            } catch { /* silent */ }
+          } catch { /* silent */ }
+        }
+
+        const result = Array.from(classMap.entries()).map(([classId, info]) => ({
+          classId,
+          className: info.className,
+          academicYear: info.academicYear,
+          classTeacher: info.classTeacher,
+          schedule: scheduleMap.get(classId) ?? [],
+        }));
+
+        setParentChildrenClasses(result);
+      } catch { /* silent */ } finally {
+        setLoadingParentTimetables(false);
+      }
+    };
+
+    void fetchParentTimetables();
+  }, [isParent, user]);
 
   const fetchCoursesAndLecturers = async () => {
     try {
@@ -275,8 +357,12 @@ const Timetable = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Timetable Management</h1>
           <p className="text-muted-foreground">
-            {isStudent
+            {isStudent && studentClassInfo
+              ? `${studentClassInfo.name} · Academic Year ${studentClassInfo.academicYear}`
+              : isStudent
               ? "View your weekly class schedule."
+              : isParent
+              ? "View your children's class schedules."
               : "View or manage weekly schedules."}
           </p>
         </div>
@@ -292,17 +378,51 @@ const Timetable = () => {
         </div>
       </div>
 
-      {!isStudent && (
-        <GeneratorControls
-          onGenerate={handleGenerate}
-          onClassChange={fetchTimetable}
-          isGenerating={isGenerating}
-          selectedClass={selectedClass}
-          setSelectedClass={setSelectedClass}
-        />
-      )}
+      {/* Parent: show multiple class timetable cards */}
+      {isParent ? (
+        loadingParentTimetables ? (
+          <div className="h-64 w-full flex items-center justify-center border rounded-lg bg-card">
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+              <p className="text-muted-foreground text-sm">Loading timetables...</p>
+            </div>
+          </div>
+        ) : parentChildrenClasses.length === 0 ? (
+          <div className="h-40 w-full flex flex-col items-center justify-center border rounded-lg border-dashed bg-card">
+            <p className="text-muted-foreground text-sm">No linked class timetables found.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {parentChildrenClasses.map((cls) => (
+              <div key={cls.classId} className="border rounded-lg overflow-hidden">
+                <div className="bg-muted/50 px-4 py-3 border-b flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-base">{cls.className}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Academic Year {cls.academicYear} · Class Teacher: {cls.classTeacher}
+                    </p>
+                  </div>
+                </div>
+                <TimetableGrid schedule={cls.schedule} isLoading={false} />
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <>
+          {!isStudent && (
+            <GeneratorControls
+              onGenerate={handleGenerate}
+              onClassChange={fetchTimetable}
+              isGenerating={isGenerating}
+              selectedClass={selectedClass}
+              setSelectedClass={setSelectedClass}
+            />
+          )}
 
-      <TimetableGrid schedule={scheduleData} isLoading={loadingSchedule} />
+          <TimetableGrid schedule={scheduleData} isLoading={loadingSchedule} />
+        </>
+      )}
 
       {/* Manage Periods Modal */}
       <Modal

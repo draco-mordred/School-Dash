@@ -1,18 +1,13 @@
 import { useAuth } from "@/hooks/useAuth";
 import { Navigate, Outlet, useLocation } from "react-router";
-import { Loader2 } from "lucide-react"; // Optional: for loading spinner 
+import { Loader2 } from "lucide-react";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import AppShell from "@/components/layout/AppShell";
-import { AppMiniSidebar } from "@/components/sidebar/AppMiniSidebar";
-import { useIsDesktop } from "@/hooks/use-mobile";
 
 const PrivateRoutes = () => {
   const { loading, user, year } = useAuth();
   const location = useLocation();
-  const isDesktop = useIsDesktop();
-  const showDesktopSidebar = isDesktop;
-  const showMiniSidebar = !isDesktop;
 
   if (loading) {
     return (
@@ -37,9 +32,8 @@ const PrivateRoutes = () => {
 
       return (
         <SidebarProvider>
-          {showDesktopSidebar && <AppSidebar />}
-          {showMiniSidebar && <AppMiniSidebar />}
-          <SidebarInset className="overflow-x-hidden pl-0">
+          <AppSidebar />
+          <SidebarInset className="flex min-h-screen flex-col pl-0">
             <AppShell>
               <Outlet />
             </AppShell>
@@ -51,9 +45,8 @@ const PrivateRoutes = () => {
     // Scenario B: Non-admins should remain authenticated rather than bouncing back to login.
     return (
       <SidebarProvider>
-        {showDesktopSidebar && <AppSidebar />}
-        {showMiniSidebar && <AppMiniSidebar />}
-        <SidebarInset className="overflow-x-hidden pl-0">
+        <AppSidebar />
+        <SidebarInset className="flex min-h-screen flex-col pl-0">
           <AppShell>
             <div className="rounded-xl border border-border bg-muted p-8 text-center">
               <h1 className="text-2xl font-semibold">No current academic year</h1>
@@ -70,9 +63,8 @@ const PrivateRoutes = () => {
 
   return (
     <SidebarProvider>
-      {showDesktopSidebar && <AppSidebar />}
-      {showMiniSidebar && <AppMiniSidebar />}
-      <SidebarInset className="overflow-x-hidden pl-0">
+      <AppSidebar />
+      <SidebarInset className="flex min-h-screen flex-col pl-0">
         <AppShell>
           <Outlet />
         </AppShell>

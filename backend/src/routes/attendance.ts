@@ -15,6 +15,8 @@ import {
   getAllAttendanceLists,
   getClassesAttendanceStatus,
   getWeeklyCourseAttendance,
+  getStudentNotificationsSummary,
+  getStudentAttendanceSummary,
 } from "../controllers/attendance";
 
 const attendanceRouter = express.Router();
@@ -46,6 +48,13 @@ attendanceRouter.get(
   protect,
   authorize(["admin", "teacher", "parent", "student"]),
   getStudentAttendanceRecords
+);
+
+attendanceRouter.get(
+  "/student/:studentId/summary",
+  protect,
+  authorize(["admin", "teacher", "parent"]),
+  getStudentAttendanceSummary
 );
 
 attendanceRouter.post(
@@ -93,7 +102,7 @@ attendanceRouter.get(
 attendanceRouter.get(
   "/status",
   protect,
-  authorize(["admin"]),
+  authorize(["admin", "teacher", "parent"]),
   getClassesAttendanceStatus
 );
 
@@ -102,6 +111,13 @@ attendanceRouter.get(
   protect,
   authorize(["admin", "teacher"]),
   getWeeklyCourseAttendance
+);
+
+attendanceRouter.get(
+  "/student-notifications",
+  protect,
+  authorize(["student"]),
+  getStudentNotificationsSummary
 );
 
 export default attendanceRouter;

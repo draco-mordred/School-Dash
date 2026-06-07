@@ -38,7 +38,16 @@ import {
   CalendarDays,
   CheckCircle2,
   XCircle,
+  ChevronRight,
 } from "lucide-react";
+
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 type AttendanceStatus = "present" | "absent" | "late" | "excused";
 
@@ -58,6 +67,10 @@ type SessionRecord = {
   class?: { _id: string; name: string };
   academicYear?: { _id: string; name: string };
   approvedBy?: { _id: string; name: string; email?: string } | null;
+  lecturerApproval?: "approved" | "not-approved" | null;
+  lecturerApprovalDate?: Date | null;
+  hodApproval?: "approved" | "not-approved" | null;
+  hodApprovalDate?: Date | null;
 };
 
 type AttendanceRecord = {
@@ -123,6 +136,20 @@ export default function Attendance() {
   const [chartMode, setChartMode] = useState<"byStatus" | "bySubject">("bySubject");
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [weeklyData, setWeeklyData] = useState<WeeklyCourseRow[]>([]);
+  const [classAttendanceData, setClassAttendanceData] = useState<any[]>([]);
+
+  // Deduplicated latest records (one per course+lecturer pair)
+  const latestRecordsDeduplicated = useMemo(() => {
+    const seen = new Set<string>();
+    return records.filter((r) => {
+      const courseId = typeof r.course === "object" ? r.course?._id : r.course;
+      const lecturerId = typeof r.lecturer === "object" ? r.lecturer?._id : r.lecturer;
+      const key = `${courseId ?? ""}-${lecturerId ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 10);
+  }, [records]);
 
   // Session management state
   const [classes, setClasses] = useState<Class[]>([]);
@@ -135,9 +162,13 @@ export default function Attendance() {
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [sessionRecords, setSessionRecords] = useState<SessionRecord[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
+  const [lecturerApproval, setLecturerApproval] = useState<"approved" | "not-approved" | "">("");
+  const [hodApproval, setHodApproval] = useState<"approved" | "not-approved" | "">("");
   const [saving, setSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNoTimetableModal, setShowNoTimetableModal] = useState(false);
+  const [sessionLecturerApproval, setSessionLecturerApproval] = useState<"approved" | "not-approved" | null>(null);
+  const [sessionHodApproval, setSessionHodApproval] = useState<"approved" | "not-approved" | null>(null);
 
   const fetchAttendance = async () => {
     try {
@@ -145,17 +176,19 @@ export default function Attendance() {
       setStats([]);
       setRecords([]);
       setSubjectSummary([]);
+      setClassAttendanceData([]);
 
       if (isStudent) {
         const { data } = await api.get("/attendance/me");
         setStats((data.stats ?? []) as AttendanceStat[]);
         setRecords((data.records ?? []) as AttendanceRecord[]);
       } else {
-        const [meRes, subjRes, listsRes, weeklyRes] = await Promise.all([
+        const [meRes, subjRes, listsRes, weeklyRes, statusRes] = await Promise.all([
           api.get("/attendance/me"),
           api.get("/attendance/subjects"),
           api.get("/attendance/lists"),
           api.get("/attendance/weekly"),
+          api.get("/attendance/status"),
         ]);
 
         setStats((meRes.data?.stats ?? []) as AttendanceStat[]);
@@ -163,6 +196,7 @@ export default function Attendance() {
         setSubjectSummary((subjRes.data?.summary ?? []) as SubjectAttendanceSummaryRow[]);
         setAllLists((listsRes.data?.records ?? []) as SessionRecord[]);
         setWeeklyData((weeklyRes.data?.records ?? []) as WeeklyCourseRow[]);
+        setClassAttendanceData(statusRes.data?.classes ?? []);
       }
     } catch (e) {
       console.error(e);
@@ -261,19 +295,43 @@ export default function Attendance() {
       toast.success(data.message || "Attendance generation started");
       setIsSessionOpen(false);
       setSessionRecords([]);
-      setIsManageOpen(true);
-      await fetchSessionRecords(selectedClassId, selectedCourseId, sessionDate);
+
+      // Poll until records are available
+      const pollInterval = 2000;
+      const maxAttempts = 30;
+      let attempts = 0;
+
+      const poll = async (): Promise<boolean> => {
+        attempts++;
+        try {
+          const params = new URLSearchParams({ classId: selectedClassId, courseId: selectedCourseId, date: sessionDate });
+          const { data: sessionData } = await api.get(`/attendance/session?${params.toString()}`);
+          const records = sessionData.records ?? [];
+          if (records.length > 0) {
+            setSessionRecords(records as SessionRecord[]);
+            setIsManageOpen(true);
+            return true;
+          }
+        } catch {
+          // ignore errors while polling
+        }
+
+        if (attempts < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+          return poll();
+        }
+        return false;
+      };
+
+      const success = await poll();
+      if (!success) {
+        toast.error("Timed out waiting for attendance records. They may still be generating — check back shortly or refresh.");
+      }
     } catch (e: any) {
       const msg = e.response?.data?.message || "Generation failed";
       if (msg.includes("NO_TIMETABLE")) {
         setIsGenerating(false);
         setShowNoTimetableModal(true);
-      } else if (msg.includes("DUPLICATE")) {
-        toast.error("Attendance records already exist for this session. Open the existing list to update.");
-        setIsSessionOpen(false);
-        setSessionRecords([]);
-        setIsManageOpen(true);
-        await fetchSessionRecords(selectedClassId, selectedCourseId, sessionDate);
       } else {
         toast.error(msg);
       }
@@ -288,10 +346,22 @@ export default function Attendance() {
       setSaving(true);
       const updates = sessionRecords
         .filter((r) => r._id)
-        .map((r) => ({ attendanceId: r._id, status: r.status }));
+        .map((r) => ({
+          attendanceId: r._id,
+          status: r.status,
+          lecturerApproval: r.lecturerApproval,
+          hodApproval: r.hodApproval,
+        }));
       await api.patch("/attendance/bulk", { updates });
       toast.success("Attendance saved successfully");
       setIsManageOpen(false);
+      setSessionLecturerApproval(null);
+      setSessionHodApproval(null);
+      void fetchAttendance();
+      // Refresh session records to reflect saved approvals
+      const params = new URLSearchParams({ classId: selectedClassId, courseId: selectedCourseId, date: sessionDate });
+      const { data: sessionData } = await api.get(`/attendance/session?${params.toString()}`);
+      setSessionRecords((sessionData.records ?? []) as SessionRecord[]);
     } catch {
       toast.error("Failed to save attendance");
     } finally {
@@ -356,6 +426,53 @@ export default function Attendance() {
       .map((r) => r.value);
     return values.reduce((m, v) => Math.max(m, v), 0);
   }, [chartMode, isStudent, chartRows]);
+
+  // Per-class pie chart data
+  const classChartData = useMemo(() => {
+    // Use classAttendanceData when records is empty (admin fallback from /attendance/status)
+    if (records.length === 0 && classAttendanceData.length > 0) {
+      return classAttendanceData.map((cls: any) => {
+        const total = cls.present + cls.absent + cls.late + cls.excused;
+        const chartSegments = [
+          { name: "Present", value: cls.present, color: "#22c55e" },
+          { name: "Absent", value: cls.absent, color: "#ef4444" },
+          { name: "Late", value: cls.late, color: "#eab308" },
+          { name: "Excused", value: cls.excused, color: "#3b82f6" },
+        ].filter((s) => s.value > 0);
+        return {
+          classId: cls.classId,
+          className: cls.className,
+          present: cls.present,
+          absent: cls.absent,
+          late: cls.late,
+          excused: cls.excused,
+          total,
+          chartSegments,
+        };
+      });
+    }
+    const map = new Map<string, { classId: string; className: string; present: number; absent: number; late: number; excused: number }>();
+    records.forEach((r) => {
+      const classId = typeof r.class === "string" ? r.class : r.class?._id ?? "unknown";
+      const className = typeof r.class === "string" ? r.class : r.class?.name ?? "Unknown";
+      if (!map.has(classId)) map.set(classId, { classId, className, present: 0, absent: 0, late: 0, excused: 0 });
+      const s = map.get(classId)!;
+      if (r.status === "present") s.present++;
+      else if (r.status === "absent") s.absent++;
+      else if (r.status === "late") s.late++;
+      else if (r.status === "excused") s.excused++;
+    });
+    return Array.from(map.values()).map((cls) => {
+      const total = cls.present + cls.absent + cls.late + cls.excused;
+      const chartSegments = [
+        { name: "Present", value: cls.present, color: "#22c55e" },
+        { name: "Absent", value: cls.absent, color: "#ef4444" },
+        { name: "Late", value: cls.late, color: "#eab308" },
+        { name: "Excused", value: cls.excused, color: "#3b82f6" },
+      ].filter((s) => s.value > 0);
+      return { ...cls, total, chartSegments };
+    });
+  }, [records, classAttendanceData]);
 
   const sessionLecturer = useMemo(() => {
     return sessionRecords[0]?.lecturer ?? null;
@@ -434,7 +551,39 @@ export default function Attendance() {
       )}
 
       {/* Saved Attendance Lists Table — admin/teacher */}
-      {!isStudent && <SavedListsTable allLists={allLists} loading={loading} />}
+      {!isStudent && (
+        <SavedListsTable
+          allLists={allLists}
+          loading={loading}
+          onEditSession={({ records, course, class: cls }) => {
+            setSessionRecords(records as SessionRecord[]);
+            const classId = cls?._id ?? "";
+            const courseId = course?._id ?? "";
+            setSelectedClassId(classId);
+            setSelectedCourseId(courseId);
+            setSessionDate((records[0] as any)?.date ?? "");
+            setSessionLecturerApproval(null);
+            setSessionHodApproval(null);
+            // Ensure the class and course are in their lookup arrays so the modal header renders correctly
+            setClasses((prev) => {
+              if (prev.some((c) => c._id === classId)) {
+                // If class exists but missing this course, merge the course in
+                return prev.map((c) =>
+                  c._id === classId && course
+                    ? { ...c, courses: [...(c.courses ?? []), { _id: courseId, name: course.name ?? "", code: course.code ?? "" }] }
+                    : c
+                );
+              }
+              return cls && course
+                ? [...prev, { _id: classId, name: cls.name ?? "", courses: [{ _id: courseId, name: course.name ?? "", code: course.code ?? "" }] } as Class]
+                : cls
+                ? [...prev, { _id: classId, name: cls.name ?? "", courses: [] } as Class]
+                : prev;
+            });
+            setIsManageOpen(true);
+          }}
+        />
+      )}
 
       {/* Latest Week Mon–Fri Table */}
       {!isStudent && <LatestWeekTable />}
@@ -459,54 +608,52 @@ export default function Attendance() {
           </CardHeader>
 
           <CardContent>
-            {chartRows.length === 0 ? (
-              <p className="text-muted-foreground">
-                No {isStudent || chartMode === "byStatus" ? "data yet" : "subject data yet"}.
-              </p>
-            ) : chartMode === "bySubject" && !isStudent ? (
-              <div className="space-y-3">
-                {chartRows.map((row) => {
-                  if (row.kind !== "subject") return null;
-                  const total = row.present + row.absent + row.late + row.excused;
-                  return (
-                    <div key={row.key} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{row.label}</span>
-                        <span className="text-muted-foreground">Total: {total}</span>
-                      </div>
-                      <div className="mt-2 h-2 w-full bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: total ? `${Math.round((row.present / total) * 100)}%` : "0%" }}
-                        />
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <div>Present: {row.present}</div>
-                        <div>Absent: {row.absent}</div>
-                        <div>Late: {row.late}</div>
-                        <div>Excused: {row.excused}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            {classChartData.length === 0 ? (
+              <p className="text-muted-foreground">No attendance data yet.</p>
             ) : (
-              <div className="space-y-3">
-                {chartRows.map((row) => {
-                  if (row.kind !== "status") return null;
-                  const percentage = maxStatusValue === 0 ? 0 : Math.round((row.value / maxStatusValue) * 100);
-                  return (
-                    <div key={row.label} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="capitalize">{row.label}</span>
-                        <span className="font-medium">{row.value}</span>
-                      </div>
-                      <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary" style={{ width: `${percentage}%` }} />
-                      </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {classChartData.map((cls) => (
+                  <div key={cls.classId} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium truncate">{cls.className}</span>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">Total: {cls.total}</span>
                     </div>
-                  );
-                })}
+                    {cls.total === 0 ? (
+                      <p className="text-xs text-muted-foreground italic text-center py-4">No records</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={100}>
+                        <PieChart>
+                          <Pie
+                            data={cls.chartSegments}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={22}
+                            outerRadius={40}
+                            paddingAngle={2}
+                          >
+                            {cls.chartSegments.map((seg) => (
+                              <Cell key={seg.name} fill={seg.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number, name: string) => [`${value}`, name]}
+                            contentStyle={{ fontSize: 11 }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                      {cls.chartSegments.map((seg) => (
+                        <span key={seg.name} className="flex items-center gap-1 text-xs">
+                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: seg.color }} />
+                          <span>{seg.name}: {seg.value}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -518,12 +665,12 @@ export default function Attendance() {
             <CardDescription>Most recent attendance entries</CardDescription>
           </CardHeader>
           <CardContent>
-            {records.length === 0 ? (
+            {latestRecordsDeduplicated.length === 0 ? (
               <p className="text-muted-foreground">No records found.</p>
             ) : (
               <div className="space-y-3">
-                {records.slice(0, 10).map((r) => {
-                  const subjectLabel = typeof r.subject === "string" ? r.subject : r.subject?.name;
+                {latestRecordsDeduplicated.map((r) => {
+                  const subjectLabel = typeof r.course === "string" ? r.course : r.course?.name ?? r.course?.code;
                   const classLabel = typeof r.class === "string" ? r.class : r.class?.name;
                   return (
                     <div key={r._id} className="flex flex-col gap-2 border rounded-lg p-3">
@@ -551,7 +698,6 @@ export default function Attendance() {
                           {r.status}
                         </span>
                       </div>
-                      {/* Lecturer & approval row */}
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>Lecturer: {r.lecturer?.name ?? "—"}</span>
                         {r.status === "excused" && (
@@ -738,11 +884,65 @@ export default function Attendance() {
                 <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t">
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">Lecturer Signature</div>
-                    <div className="h-8 border-b border-dashed border-muted-foreground/40" />
+                    <Select
+                      value={sessionLecturerApproval ?? "pending"}
+                      onValueChange={(v) => setSessionLecturerApproval(v === "pending" ? null : v as "approved" | "not-approved")}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Select approval status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">— Select —</SelectItem>
+                        <SelectItem value="approved">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-green-500" />
+                            Approved
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="not-approved">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-red-500" />
+                            Not Approved
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {sessionLecturerApproval && (
+                      <div className="text-xs text-muted-foreground">
+                        {sessionLecturerApproval === "approved" ? "Approved" : "Not Approved"} on {new Date().toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <div className="text-xs text-muted-foreground">HOD Signature</div>
-                    <div className="h-8 border-b border-dashed border-muted-foreground/40" />
+                    <Select
+                      value={sessionHodApproval ?? "pending"}
+                      onValueChange={(v) => setSessionHodApproval(v === "pending" ? null : v as "approved" | "not-approved")}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Select approval status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">— Select —</SelectItem>
+                        <SelectItem value="approved">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-green-500" />
+                            Approved
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="not-approved">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-red-500" />
+                            Not Approved
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {sessionHodApproval && (
+                      <div className="text-xs text-muted-foreground">
+                        {sessionHodApproval === "approved" ? "Approved" : "Not Approved"} on {new Date().toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -767,6 +967,8 @@ export default function Attendance() {
                       <th className="px-3 py-2 font-medium text-muted-foreground text-left">Student Name</th>
                       <th className="px-3 py-2 font-medium text-muted-foreground text-left">ID Number</th>
                       <th className="px-3 py-2 font-medium text-muted-foreground text-center">Attendance</th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">Lect. Approval</th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">HOD Approval</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -800,6 +1002,64 @@ export default function Attendance() {
                                   </div>
                                 </SelectItem>
                               ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <Select
+                            value={r.lecturerApproval ?? "pending"}
+                            onValueChange={(v) => {
+                              setSessionRecords((prev) =>
+                                prev.map((rec) => (rec._id === r._id ? { ...rec, lecturerApproval: v === "pending" ? null : v as "approved" | "not-approved" } : rec))
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="w-28 mx-auto">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pending">—</SelectItem>
+                              <SelectItem value="approved">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                                  Approved
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="not-approved">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-red-500" />
+                                  Not Approved
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <Select
+                            value={r.hodApproval ?? "pending"}
+                            onValueChange={(v) => {
+                              setSessionRecords((prev) =>
+                                prev.map((rec) => (rec._id === r._id ? { ...rec, hodApproval: v === "pending" ? null : v as "approved" | "not-approved" } : rec))
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="w-28 mx-auto">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pending">—</SelectItem>
+                              <SelectItem value="approved">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                                  Approved
+                                </div>
+                              </SelectItem>
+                              <SelectItem value="not-approved">
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-2 rounded-full bg-red-500" />
+                                  Not Approved
+                                </div>
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         </td>
@@ -940,38 +1200,16 @@ function TimetableStatusCard() {
 }
 
 // ─── Saved Attendance Lists Table ───────────────────────────────────
+// ─── Saved Lists Table ────────────────────────────────────────────────
 function SavedListsTable({
   allLists,
   loading,
+  onEditSession,
 }: {
   allLists: SessionRecord[];
   loading: boolean;
+  onEditSession: (session: { records: SessionRecord[]; course?: { name: string; code?: string; _id?: string }; class?: { name: string; _id?: string }; lecturer?: { name: string } }) => void;
 }) {
-  const grouped = useMemo(() => {
-    const map = new Map<string, { date: string; dayOfWeek?: string; course?: { name: string; code?: string }; class?: { name: string; _id?: string }; lecturer?: { name: string }; records: SessionRecord[] }>();
-
-    allLists.forEach((r) => {
-      // Group by date + class so each class gets its own card on the same day
-      const classId = r.class?._id ?? r.class?.name ?? "unknown";
-      const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
-      if (!map.has(dateKey)) {
-        map.set(dateKey, {
-          date: r.date,
-          dayOfWeek: r.dayOfWeek,
-          course: r.course,
-          class: r.class,
-          lecturer: r.lecturer,
-          records: [],
-        });
-      }
-      map.get(dateKey)!.records.push(r);
-    });
-
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [allLists]);
-
   const statusBadge = (status: string) => {
     const cls =
       status === "present"
@@ -988,6 +1226,70 @@ function SavedListsTable({
     );
   };
 
+  // Step 1: group records into sessions (date + course within a class)
+  const sessionsMap = useMemo(() => {
+    const map = new Map<string, {
+      date: string;
+      dayOfWeek?: string;
+      course?: { name: string; code?: string };
+      class?: { name: string; _id?: string };
+      lecturer?: { name: string };
+      records: SessionRecord[];
+    }>();
+
+    allLists.forEach((r) => {
+      const classId = r.class?._id ?? r.class?.name ?? "unknown";
+      const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
+      if (!map.has(dateKey)) {
+        map.set(dateKey, {
+          date: r.date,
+          dayOfWeek: r.dayOfWeek,
+          course: r.course,
+          class: r.class,
+          lecturer: r.lecturer,
+          records: [],
+        });
+      }
+      map.get(dateKey)!.records.push(r);
+    });
+
+    return map;
+  }, [allLists]);
+
+  // Step 2: group sessions by class
+  const byClass = useMemo(() => {
+    const map = new Map<string, {
+      className: string;
+      classId: string;
+      sessions: Array<{
+        date: string;
+        dayOfWeek?: string;
+        course?: { name: string; code?: string };
+        class?: { name: string; _id?: string };
+        lecturer?: { name: string };
+        records: SessionRecord[];
+      }>;
+    }>();
+
+    sessionsMap.forEach((session) => {
+      const classId = session.class?._id ?? session.class?.name ?? "unknown";
+      const className = session.class?.name ?? "Unknown Class";
+      if (!map.has(classId)) {
+        map.set(classId, { className, classId, sessions: [] });
+      }
+      map.get(classId)!.sessions.push(session);
+    });
+
+    // Sort sessions within each class by date (newest first)
+    return Array.from(map.values()).sort((a, b) => {
+      const aDate = a.sessions[0]?.date ?? "";
+      const bDate = b.sessions[0]?.date ?? "";
+      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    });
+  }, [sessionsMap]);
+
+  const [openClass, setOpenClass] = useState<string | null>(null);
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -995,112 +1297,164 @@ function SavedListsTable({
           <FileText className="h-4 w-4" />
           Saved Attendance Lists
         </CardTitle>
-        <CardDescription>Saved attendance sessions — grouped by date, course, and class</CardDescription>
+        <CardDescription>Saved attendance sessions — click a class card to expand its sessions</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
           </div>
-        ) : grouped.length === 0 ? (
+        ) : byClass.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
             No saved attendance lists yet. Generate a session first.
           </p>
         ) : (
-          <div className="space-y-4">
-            {grouped.map((session) => {
-              const present = session.records.filter((r) => r.status === "present").length;
-              const absent = session.records.filter((r) => r.status === "absent").length;
-              const late = session.records.filter((r) => r.status === "late").length;
-              const excused = session.records.filter((r) => r.status === "excused").length;
-              const total = session.records.length;
+          <div className="space-y-3">
+            {byClass.map((cls) => {
+              const isOpen = openClass === cls.classId;
+              const totalSessions = cls.sessions.length;
+              const totalRecords = cls.sessions.reduce((sum, s) => sum + s.records.length, 0);
+              const totalPresent = cls.sessions.reduce(
+                (sum, s) => sum + s.records.filter((r) => r.status === "present").length,
+                0
+              );
+              const totalAbsent = cls.sessions.reduce(
+                (sum, s) => sum + s.records.filter((r) => r.status === "absent").length,
+                0
+              );
 
-              const sessionKey = `${session.date}-${session.class?._id ?? session.class?.name ?? "unknown"}`;
               return (
-                <div key={sessionKey} className="border rounded-lg overflow-hidden">
-                  {/* Session header - responsive stack on mobile */}
-                  <div className="bg-muted/40 px-4 py-3 space-y-2">
-                    {/* Date row */}
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                      <div className="flex items-center gap-2">
+                <div key={cls.classId} className="border rounded-lg overflow-hidden">
+                  {/* Class card header */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenClass(isOpen ? null : cls.classId)}
+                    className="w-full bg-muted/40 hover:bg-muted/60 transition-colors px-4 py-3 text-left flex items-center gap-3"
+                  >
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
                         <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-medium text-sm">
-                          {new Date(session.date).toLocaleDateString("en-US", {
-                            weekday: "long",
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                          })}
-                        </span>
-                        {session.dayOfWeek && (
-                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">
-                            {session.dayOfWeek}
-                          </span>
-                        )}
+                        <span className="font-semibold text-sm truncate">{cls.className}</span>
                       </div>
-                      {/* Stats row - right-aligned on sm+ */}
-                      <div className="ml-auto flex items-center gap-3 text-xs">
-                        <span className="flex items-center gap-1">
-                          <div className="h-2 w-2 rounded-full bg-green-500" />
-                          <span className="text-green-600 font-medium">{present}</span>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+                        <span className="bg-muted px-1.5 py-0.5 rounded-full">
+                          {totalSessions} session{totalSessions !== 1 ? "s" : ""}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <div className="h-2 w-2 rounded-full bg-red-500" />
-                          <span className="text-red-600 font-medium">{absent}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                          <span className="text-yellow-600 font-medium">{late}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <div className="h-2 w-2 rounded-full bg-blue-500" />
-                          <span className="text-blue-600 font-medium">{excused}</span>
-                        </span>
-                        <span className="text-muted-foreground">/ {total}</span>
+                        <span>{totalRecords} records</span>
                       </div>
                     </div>
-                    {/* Meta row */}
-                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                      <span>
-                        <span className="text-muted-foreground">Subject: </span>
-                        <span className="font-medium">
-                          {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
-                        </span>
+                    {/* Summary stats */}
+                    <div className="flex items-center gap-3 text-xs shrink-0">
+                      <span className="flex items-center gap-1">
+                        <div className="h-2 w-2 rounded-full bg-green-500" />
+                        <span className="text-green-600 font-medium">{totalPresent}</span>
                       </span>
-                      <span>
-                        <span className="text-muted-foreground">Class: </span>
-                        <span className="font-medium">{session.class?.name ?? "—"}</span>
-                      </span>
-                      <span>
-                        <span className="text-muted-foreground">Lecturer: </span>
-                        <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                      <span className="flex items-center gap-1">
+                        <div className="h-2 w-2 rounded-full bg-red-500" />
+                        <span className="text-red-600 font-medium">{totalAbsent}</span>
                       </span>
                     </div>
-                  </div>
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-90" : ""}`} />
+                  </button>
 
-                  {/* Student rows */}
-                  <div className="overflow-auto max-h-[30vh]">
-                    <table className="w-full text-sm">
-                      <thead className="bg-muted/30 sticky top-0">
-                        <tr>
-                          <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Student Name</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">ID Number</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {session.records.map((r, i) => (
-                          <tr key={r._id} className="border-t">
-                            <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
-                            <td className="px-3 py-1.5 font-medium text-xs">{r.student?.name ?? "—"}</td>
-                            <td className="px-3 py-1.5 text-muted-foreground text-xs">{r.student?.idNumber ?? "—"}</td>
-                            <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {/* Expanded sessions */}
+                  {isOpen && (
+                    <div className="divide-y">
+                      {cls.sessions
+                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                        .map((session) => {
+                          const present = session.records.filter((r) => r.status === "present").length;
+                          const absent = session.records.filter((r) => r.status === "absent").length;
+                          const late = session.records.filter((r) => r.status === "late").length;
+                          const excused = session.records.filter((r) => r.status === "excused").length;
+                          const total = session.records.length;
+
+                          const sessionKey = `${session.date}-${cls.classId}`;
+
+                          return (
+                            <div key={sessionKey} className="px-4 py-3 space-y-2">
+                              {/* Session meta */}
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                                <span>
+                                  <span className="text-muted-foreground">Date: </span>
+                                  <span className="font-medium">
+                                    {new Date(session.date).toLocaleDateString("en-US", {
+                                      weekday: "short",
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                    })}
+                                  </span>
+                                  {session.dayOfWeek && (
+                                    <span className="ml-1 text-muted-foreground">({session.dayOfWeek})</span>
+                                  )}
+                                </span>
+                                <span>
+                                  <span className="text-muted-foreground">Subject: </span>
+                                  <span className="font-medium">
+                                    {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
+                                  </span>
+                                </span>
+                                <span>
+                                  <span className="text-muted-foreground">Lecturer: </span>
+                                  <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                                </span>
+                                <span className="flex items-center gap-1 ml-auto">
+                                  <div className="h-2 w-2 rounded-full bg-green-500" />
+                                  <span className="text-green-600 font-medium">{present}</span>
+                                  <div className="h-2 w-2 rounded-full bg-red-500 ml-1" />
+                                  <span className="text-red-600 font-medium">{absent}</span>
+                                  <div className="h-2 w-2 rounded-full bg-yellow-500 ml-1" />
+                                  <span className="text-yellow-600 font-medium">{late}</span>
+                                  <div className="h-2 w-2 rounded-full bg-blue-500 ml-1" />
+                                  <span className="text-blue-600 font-medium">{excused}</span>
+                                  <span className="text-muted-foreground ml-1">/ {total}</span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="ml-3 h-6 text-xs"
+                                    onClick={() =>
+                                      onEditSession({
+                                        records: session.records,
+                                        course: session.course,
+                                        class: session.class,
+                                        lecturer: session.lecturer,
+                                      })
+                                    }
+                                  >
+                                    Edit
+                                  </Button>
+                                </span>
+                              </div>
+
+                              {/* Student table */}
+                              <div className="overflow-auto max-h-[25vh] border rounded">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-muted/30 sticky top-0">
+                                    <tr>
+                                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Student Name</th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">ID Number</th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {session.records.map((r, i) => (
+                                      <tr key={r._id} className="border-t">
+                                        <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
+                                        <td className="px-3 py-1.5 font-medium text-xs">{r.student?.name ?? "—"}</td>
+                                        <td className="px-3 py-1.5 text-muted-foreground text-xs">{r.student?.idNumber ?? "—"}</td>
+                                        <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1136,7 +1490,7 @@ function StudentRecordsByClass({
         map.set(dateKey, {
           date: r.date,
           dayOfWeek: r.dayOfWeek,
-          subject: typeof r.subject === "object" && r.subject !== null ? r.subject : undefined,
+          course: typeof r.course === "object" && r.course !== null ? r.course : undefined,
           class: typeof r.class === "object" && r.class !== null ? r.class : undefined,
           lecturer: r.lecturer ?? undefined,
           records: [],
@@ -1238,7 +1592,7 @@ function StudentRecordsByClass({
                       <span>
                         <span className="text-muted-foreground">Subject: </span>
                         <span className="font-medium">
-                          {session.subject?.name ?? "—"}{session.subject?.code ? ` (${session.subject.code})` : ""}
+                          {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
                         </span>
                       </span>
                       <span>
@@ -1267,7 +1621,7 @@ function StudentRecordsByClass({
                           <tr key={r._id} className="border-t">
                             <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
                             <td className="px-3 py-1.5 font-medium text-xs">
-                              {typeof r.subject === "object" && r.subject !== null ? r.subject.name : (r.subject ?? "—")}
+                              {r.course?.name ?? r.course?.code ?? "—"}
                             </td>
                             <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
                             <td className="px-3 py-1.5 text-xs text-muted-foreground">
@@ -1340,10 +1694,31 @@ function LatestWeekTable() {
 
   const todayName = new Date().toLocaleDateString("en-US", { weekday: "long" });
 
+  // Build a per-class summary across all days
+  const classSummary = useMemo(() => {
+    const map = new Map<string, {
+      className: string;
+      present: number;
+      absent: number;
+      late: number;
+      excused: number;
+    }>();
+    records.forEach((r) => {
+      const className = r.class && typeof r.class !== "string" ? r.class.name : "Unknown";
+      if (!map.has(className)) map.set(className, { className, present: 0, absent: 0, late: 0, excused: 0 });
+      const s = map.get(className)!;
+      if (r.status === "present") s.present++;
+      else if (r.status === "absent") s.absent++;
+      else if (r.status === "late") s.late++;
+      else if (r.status === "excused") s.excused++;
+    });
+    return Array.from(map.values());
+  }, [records]);
+
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium">This Week's Attendance</CardTitle>
+        <CardTitle className="text-base font-medium">This Week&apos;s Attendance</CardTitle>
         <CardDescription>Mon–Friday records for the current week</CardDescription>
       </CardHeader>
       <CardContent>
@@ -1351,65 +1726,107 @@ function LatestWeekTable() {
           <div className="space-y-2">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
-        ) : groupedByDay.every((d) => d.records.length === 0) ? (
-          <p className="text-sm text-muted-foreground py-4 text-center">
-            No attendance records for this week yet.
-          </p>
         ) : (
-          <div className="space-y-3">
-            {groupedByDay.map(({ day, records: dayRecords }) => (
-              <div key={day}>
-                <div className={`flex items-center gap-2 text-sm font-medium mb-1 ${day === todayName ? "text-primary" : "text-foreground"}`}>
-                  <span className={day === todayName ? "font-bold" : ""}>{day}</span>
-                  {day === todayName && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">Today</span>}
-                  <span className="text-xs text-muted-foreground font-normal ml-auto">{dayRecords.length} record{dayRecords.length !== 1 ? "s" : ""}</span>
+          <>
+            {/* ── At-a-glance class summary (always shown) ── */}
+            {classSummary.length > 0 && (
+              <div className="border rounded-lg bg-muted/20 overflow-hidden mb-3">
+                <div className="px-3 py-2 border-b bg-muted/40">
+                  <p className="text-xs font-semibold text-muted-foreground">By Class</p>
                 </div>
-                {dayRecords.length === 0 ? (
-                  <div className="border rounded-lg px-3 py-2 text-xs text-muted-foreground italic">
-                    No records
-                  </div>
-                ) : (
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
-                          <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Class</th>
-                          <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
-                          <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dayRecords.map((r) => (
-                          <tr key={r._id} className="border-t">
-                            <td className="px-2 py-1.5">{r.course?.name ?? "—"}</td>
-                            <td className="px-2 py-1.5">{r.class && typeof r.class !== "string" ? r.class.name : "—"}</td>
-                            <td className="px-2 py-1.5 text-center">
-                              <span
-                                className={
-                                  "px-1.5 py-0.5 rounded-full capitalize text-xs font-medium " +
-                                  (r.status === "present"
-                                    ? "bg-green-500/15 text-green-600"
-                                    : r.status === "absent"
-                                      ? "bg-red-500/15 text-red-600"
-                                      : r.status === "late"
-                                        ? "bg-yellow-500/15 text-yellow-600"
-                                        : "bg-blue-500/15 text-blue-600")
-                                }
-                              >
-                                {r.status}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5">{new Date(r.date).toLocaleDateString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <div className="divide-y">
+                  {classSummary.map((cls) => {
+                    const total = cls.present + cls.absent + cls.late + cls.excused;
+                    return (
+                      <div key={cls.className} className="flex items-center gap-3 px-3 py-2 text-xs">
+                        <span className="font-medium min-w-0 truncate flex-1">{cls.className}</span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="flex items-center gap-0.5">
+                            <div className="h-2 w-2 rounded-full bg-green-500" />
+                            <span className="text-green-600 font-medium">{cls.present}</span>
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            <div className="h-2 w-2 rounded-full bg-red-500" />
+                            <span className="text-red-600 font-medium">{cls.absent}</span>
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            <div className="h-2 w-2 rounded-full bg-yellow-500" />
+                            <span className="text-yellow-600 font-medium">{cls.late}</span>
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            <div className="h-2 w-2 rounded-full bg-blue-500" />
+                            <span className="text-blue-600 font-medium">{cls.excused}</span>
+                          </span>
+                          <span className="text-muted-foreground text-[10px] ml-1">/ {total}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {records.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">
+                No attendance records for this week yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {groupedByDay.map(({ day, records: dayRecords }) => (
+                  <div key={day}>
+                    <div className={`flex items-center gap-2 text-sm font-medium mb-1 ${day === todayName ? "text-primary" : "text-foreground"}`}>
+                      <span className={day === todayName ? "font-bold" : ""}>{day}</span>
+                      {day === todayName && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">Today</span>}
+                      <span className="text-xs text-muted-foreground font-normal ml-auto">{dayRecords.length} record{dayRecords.length !== 1 ? "s" : ""}</span>
+                    </div>
+                    {dayRecords.length === 0 ? (
+                      <div className="border rounded-lg px-3 py-2 text-xs text-muted-foreground italic">
+                        No records
+                      </div>
+                    ) : (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Class</th>
+                              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dayRecords.map((r) => (
+                              <tr key={r._id} className="border-t">
+                                <td className="px-2 py-1.5">{r.course?.name ?? "—"}</td>
+                                <td className="px-2 py-1.5">{r.class && typeof r.class !== "string" ? r.class.name : "—"}</td>
+                                <td className="px-2 py-1.5 text-center">
+                                  <span
+                                    className={
+                                      "px-1.5 py-0.5 rounded-full capitalize text-xs font-medium " +
+                                      (r.status === "present"
+                                        ? "bg-green-500/15 text-green-600"
+                                        : r.status === "absent"
+                                          ? "bg-red-500/15 text-red-600"
+                                          : r.status === "late"
+                                            ? "bg-yellow-500/15 text-yellow-600"
+                                            : "bg-blue-500/15 text-blue-600")
+                                    }
+                                  >
+                                    {r.status}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-1.5">{new Date(r.date).toLocaleDateString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>

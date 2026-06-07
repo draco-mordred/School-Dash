@@ -141,8 +141,8 @@ export const updateCourseSubjects = async(
         lecturer: Array.isArray(lecturer) ? lecturer : [], 
         courseID 
       },
-      { new: true, 
-        runValidators: true 
+      { returnDocument: 'after',
+        runValidators: true
       }
     );
 

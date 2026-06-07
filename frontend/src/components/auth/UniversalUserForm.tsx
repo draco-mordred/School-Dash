@@ -38,6 +38,8 @@ const createSchema = (type: FormType) => {
       subjectIds: z.array(z.string()).optional(),
       email: z.email("Invalid email address"),
       role: z.string().optional(),
+      academicStatus: z.string().optional(),
+      departmentRole: z.string().optional(),
       password:
         type === "update"
           ? z
@@ -86,6 +88,8 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
       password: "",
       classId: undefined,
       subjectIds: [],
+      academicStatus: undefined,
+      departmentRole: undefined,
     },
   });
 
@@ -154,10 +158,12 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
       form.reset({
         name: initialData.name || "",
         email: initialData.email || "",
-        role: initialData.role || "student", 
+        role: initialData.role || "student",
         password: "",
         classId: existingClassId || "",
         subjectIds,
+        academicStatus: initialData.academicStatus || undefined,
+        departmentRole: initialData.departmentRole || undefined,
       });
     }
   }, [isUpdate, initialData, form, classes]);
@@ -170,7 +176,9 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
         teacherSubject: data.subjectIds ? data.subjectIds : [],
         parentStudents: [],
         role: data.role || role,
-        ...data, 
+        academicStatus: data.academicStatus || null,
+        departmentRole: data.departmentRole || null,
+        ...data,
       };
       if (isLogin) {
         const response = await api.post("/users/login", {
@@ -227,6 +235,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   // you can also include teacher is needed
   const showClassSelector = !isLogin && role === "student";
   const showSubjectSelector = !isLogin && role === "teacher";
+  const showTeacherFields = !isLogin && role === "teacher";
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -274,6 +283,39 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
                 placeholder="Select subjects..."
                 options={subjectOptions}
                 loading={loadingOptions}
+                disabled={pending}
+              />
+            )}
+            {/* academic status */}
+            {showTeacherFields && (
+              <CustomSelect
+                control={form.control}
+                name="academicStatus"
+                label="Academic Status"
+                placeholder="Select academic status"
+                options={[
+                  { label: "Professor", value: "professor" },
+                  { label: "Associate Professor", value: "associate professor" },
+                  { label: "Lecturer I", value: "lecturer i" },
+                  { label: "Lecturer II", value: "lecturer ii" },
+                  { label: "Assistant Lecturer", value: "assistant lecturer" },
+                  { label: "Resident", value: "resident" },
+                ]}
+                disabled={pending}
+              />
+            )}
+            {/* department role */}
+            {showTeacherFields && (
+              <CustomSelect
+                control={form.control}
+                name="departmentRole"
+                label="Department Role"
+                placeholder="Select department role"
+                options={[
+                  { label: "Head of Department", value: "head of department" },
+                  { label: "Dean of Faculty", value: "dean of faculty" },
+                  { label: "Exam Officer", value: "exam officer" },
+                ]}
                 disabled={pending}
               />
             )}

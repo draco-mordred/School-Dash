@@ -126,7 +126,7 @@ export const updateAcademicYear = async (
     const updatedYear = await AcademicYear.findByIdAndUpdate(
       req.params.id,
       req.body,
-      { new: true, runValidators: true } //return the updated version ...
+      { returnDocument: 'after', runValidators: true }
     );
     await logActivity({ 
       userId: (req as any).user._id, 

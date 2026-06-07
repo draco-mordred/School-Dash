@@ -4,6 +4,7 @@ import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users } from "lucide-reac
 import type { LucideIcon } from "lucide-react";
 
 import { NavMain } from "@/components/sidebar/nav-main";
+import { NavMainMiniSidebar } from "@/components/sidebar/nav-main-mini-sidebar";
 import { NavUser } from "@/components/sidebar/nav-user";
 import { TeamSwitcher } from "@/components/sidebar/team-switcher";
 import {
@@ -38,7 +39,7 @@ export interface NavItem {
 }
 
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentProps<typeof Sidebar> & { collapsible?: "offcanvas" | "icon" | "none" }) {
   const { user, year, setUser } = useAuth();
   const location = useLocation(); // <--- Get current URL
   const pathname = location.pathname; // e.g., "/dashboard/analytics"
@@ -97,20 +98,61 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     }
   }; 
   return (
-    <Sidebar collapsible="icon" {...props}>
+    <Sidebar collapsible={collapsible} {...props}>
       <SidebarHeader>
         <TeamSwitcher teams={sidebardata.teams} yearName={year?.name ?? "Year"} />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={filteredNav} />
+        {/* Expanded sidebar: click Collapsible (NavMain visible when expanded) */}
+        <div className="group-data-[collapsible=icon]:hidden">
+          <NavMain items={filteredNav} />
+        </div>
+        {/* Icon-only sidebar: hover popover (NavMainMiniSidebar visible when collapsed) */}
+        <div className="hidden group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:flex-col">
+          <NavMainMiniSidebar items={filteredNav} />
+        </div>
       </SidebarContent>
       <SidebarFooter className="border-t border-border px-0">
-        <div className="flex flex-row items-center justify-between gap-2 px-4 py-2">
+        {/* ── Centering overrides for mini (icon-only) sidebar ── */}
+        <style>{`
+          /* Center the MedLog logo button in the header */
+          [data-collapsible="icon"] [data-slot="sidebar-header"] [data-slot="sidebar-menu-button"] {
+            justify-content: center !important;
+            width: 100%;
+          }
+          /* TeamSwitcher logo button: hide text grid div (2nd child) and chevron, keep logo div (1st child) */
+          [data-collapsible="icon"] [data-slot="sidebar-header"] [data-slot="sidebar-menu-button"] > :nth-child(2) {
+            display: none;
+          }
+          [data-collapsible="icon"] [data-slot="sidebar-header"] [data-slot="sidebar-menu-button"] > :last-child {
+            display: none;
+          }
+          /* Center the nav icons and hide labels + chevrons in icon mode */
+          [data-collapsible="icon"] [data-slot="sidebar-menu"] {
+            align-items: center;
+          }
+          [data-collapsible="icon"] [data-slot="sidebar-menu-button"] {
+            justify-content: center !important;
+          }
+          /* Hide text label and chevron arrows in icon mode */
+          [data-collapsible="icon"] [data-slot="sidebar-menu-button"] > span:last-of-type {
+            display: none;
+          }
+          [data-collapsible="icon"] [data-slot="sidebar-menu-button"] svg:last-child {
+            display: none;
+          }
+          /* Hide the "Platform" group label in icon mode */
+          [data-collapsible="icon"] [data-slot="sidebar-group-label"] {
+            display: none;
+          }
+        `}</style>
+        {/* Expanded footer — hidden when collapsed to icon */}
+        <div className="group-data-[collapsible=icon]:hidden flex flex-row items-center justify-between gap-2 px-4 py-2">
           <div className="flex flex-row items-center gap-1">
             <SidebarMenuItem title="Logout" className="list-none">
-              <Button 
-                onClick={logout} 
-                variant="ghost" 
+              <Button
+                onClick={logout}
+                variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
               >
@@ -120,7 +162,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <ThemeToogle />
           </div>
         </div>
-        <div className="px-4 pb-2">
+        <div className="group-data-[collapsible=icon]:hidden px-4 pb-2">
           <NavUser user={userData} />
           <div className="mt-4 rounded-3xl border border-border bg-background p-4">
             <div className="flex items-center gap-3">
@@ -133,6 +175,21 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </div>
             </div>
           </div>
+        </div>
+        {/* Compact icon-only footer — only visible when collapsed */}
+        <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
+          <Button
+            onClick={logout}
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
+            aria-label="Logout"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <RoleIcon className="h-4 w-4" />
+          </span>
         </div>
       </SidebarFooter>
       <SidebarRail />

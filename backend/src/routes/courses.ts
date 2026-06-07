@@ -28,6 +28,6 @@ courseRouter
 
 courseRouter
 .route("/update/:id")
-.patch(protect,  authorize(["admin"]), updateCourseSubjects);
+.patch(protect,  authorize(["admin", "teacher"]), updateCourseSubjects);
 
 export default courseRouter;

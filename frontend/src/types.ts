@@ -7,17 +7,22 @@ export interface pagination {
   limit: number;
 }
 
-export interface user { 
+export interface user {
   _id: string;
   name: string;
   email: string;
   idNumber?: string;
   role: UserRole;
+  profileImage?: string;
   studentClass?: Class;
   studentClasses?: Class | string;
   teacherSubjects?: courses[];
   teacherSubject?: courses[] | string[];
   parentStudents?: user[] | string[];
+  // Academic status tags for teachers/lecturers
+  academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
+  // Department role tags for teachers/lecturers
+  departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
 }
 
 export interface academicYear {
@@ -86,4 +91,20 @@ export interface period {
 export interface schedule {
   day: string; // "Monday", "Tuesday", etc.
   periods: period[];
+}
+
+export type NotificationType = "info" | "warning" | "success" | "error" | "attendance" | "timetable" | "system";
+
+export interface Notification {
+  _id: string;
+  userId: string;
+  role: UserRole;
+  title: string;
+  message: string;
+  type: NotificationType;
+  isRead: boolean;
+  link?: string;
+  metadata?: Record<string, any>;
+  createdAt: string;
+  updatedAt: string;
 }

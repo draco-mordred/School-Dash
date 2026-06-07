@@ -12,6 +12,10 @@ export interface IAttendance extends Document {
   status: AttendanceStatus;
   notes?: string;
   approvedBy?: mongoose.Types.ObjectId; // For excused absences, who approved it (e.g., admin or teacher)
+  lecturerApproval?: "approved" | "not-approved" | null;
+  lecturerApprovalDate?: Date | null;
+  hodApproval?: "approved" | "not-approved" | null;
+  hodApprovalDate?: Date | null;
 } 
 
 const AttendanceSchema = new Schema(
@@ -64,6 +68,24 @@ const AttendanceSchema = new Schema(
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+      default: null,
+    },
+    lecturerApproval: {
+      type: String,
+      enum: ["approved", "not-approved", null],
+      default: null,
+    },
+    lecturerApprovalDate: {
+      type: Date,
+      default: null,
+    },
+    hodApproval: {
+      type: String,
+      enum: ["approved", "not-approved", null],
+      default: null,
+    },
+    hodApprovalDate: {
+      type: Date,
       default: null,
     },
   },

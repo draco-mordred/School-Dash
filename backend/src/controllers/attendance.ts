@@ -148,11 +148,136 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       .populate("course", "name code courseID")
       .populate("class", "name")
       .populate("student", "name idNumber email")
+      .populate("lecturer", "name email")
       .populate("approvedBy", "name email")
       .sort({ date: -1 })
       .limit(50);
 
     res.json({ stats, records });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// @desc    Get attendance summary for a specific student (used by parents)
+// @route   GET /api/attendance/student/:studentId/summary
+// @access  Private (Admin/Teacher/Parent)
+export const getStudentAttendanceSummary = async (req: Request, res: Response) => {
+  try {
+    const { studentId } = req.params;
+
+    const stats = await Attendance.aggregate([
+      { $match: { student: studentId } },
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const records = await Attendance.find({ student: studentId })
+      .populate("course", "name code courseID")
+      .populate("class", "name")
+      .populate("lecturer", "name email")
+      .sort({ date: -1 })
+      .limit(50);
+
+    res.json({ stats, records });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// @desc    Get student notifications summary (weekly timetable + attendance stats)
+// @route   GET /api/attendance/student-notifications
+// @access  Private (Student)
+export const getStudentNotificationsSummary = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user._id;
+    const user = await import("../models/user").then(m => m.default.findById(userId).select("studentClasses name"));
+    const classId = user?.studentClasses;
+    if (!classId) {
+      return res.json({ className: null, academicYear: null, timetable: [], todayLectures: [], totalAttended: 0, totalClasses: 0, percentage: 0, weeklyAlerts: [] });
+    }
+
+    const ClassModel = (await import("../models/classes")).default;
+    const Timetable = (await import("../models/timetable")).default;
+
+    const cls = await ClassModel.findById(classId).populate("academicYear", "name").select("name academicYear");
+    const timetable = await Timetable.findOne({ class: classId }).select("schedule");
+
+    // Get today's day name
+    const dayMap = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const todayName = dayMap[new Date().getDay()];
+
+    // Today's lectures from timetable
+    const todaySchedule = timetable?.schedule.find((s: any) => s.day === todayName);
+    const todayLectures = (todaySchedule?.periods ?? []).map((p: any) => ({
+      subject: (p as any).subject,
+      lecturer: (p as any).lecturer,
+      startTime: (p as any).startTime,
+      endTime: (p as any).endTime,
+    }));
+
+    // Get week start (Monday) and end (Friday)
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMon);
+    monday.setHours(0, 0, 0, 0);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    friday.setHours(23, 59, 59, 999);
+
+    // Get attendance records for this student this week
+    const weekAttendance = await Attendance.find({
+      student: userId,
+      date: { $gte: monday, $lte: friday },
+    }).select("status course date dayOfWeek lecturer");
+
+    // Get total attendance count
+    const totalAttended = await Attendance.countDocuments({ student: userId, status: { $in: ["present", "late", "excused"] } });
+    const totalClasses = await Attendance.countDocuments({ student: userId });
+
+    // Map attendance by course+day for alerts
+    const attendanceMap = new Map<string, string>();
+    weekAttendance.forEach((a: any) => {
+      const key = `${a.course?._id ?? a.course}-${a.dayOfWeek}`;
+      attendanceMap.set(key, a.status);
+    });
+
+    // Weekly alerts grouped by day
+    const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+    const weeklyAlerts = weekDays.map((day) => {
+      const daySchedule = timetable?.schedule.find((s: any) => s.day === day);
+      const lectures = (daySchedule?.periods ?? []).map((p: any) => {
+        const key = `${(p as any).subject?._id ?? (p as any).subject}-${day}`;
+        return {
+          subject: (p as any).subject,
+          lecturer: (p as any).lecturer,
+          startTime: (p as any).startTime,
+          endTime: (p as any).endTime,
+          status: attendanceMap.get(key) ?? null,
+        };
+      });
+      return { day, lectures };
+    });
+
+    res.json({
+      className: cls?.name ?? null,
+      academicYear: cls?.academicYear?.name ?? null,
+      timetable: timetable?.schedule ?? [],
+      todayDay: todayName,
+      todayLectures,
+      totalAttended,
+      totalClasses,
+      percentage: totalClasses > 0 ? Math.round((totalAttended / totalClasses) * 100) : 0,
+      weeklyAlerts,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
@@ -383,11 +508,20 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
     }
     const userId = (req as any).user._id;
     const results = await Promise.all(
-      updates.map(async ({ attendanceId, status, notes }: { attendanceId: string; status: string; notes?: string }) => {
+      updates.map(async ({ attendanceId, status, notes, lecturerApproval, hodApproval }: { attendanceId: string; status?: string; notes?: string; lecturerApproval?: "approved" | "not-approved"; hodApproval?: "approved" | "not-approved" }) => {
         const existing = await Attendance.findById(attendanceId);
         if (!existing) return null;
-        const updateData: any = { status };
+        const updateData: any = {};
+        if (status !== undefined) updateData.status = status;
         if (notes !== undefined) updateData.notes = notes;
+        if (lecturerApproval !== undefined) {
+          updateData.lecturerApproval = lecturerApproval;
+          updateData.lecturerApprovalDate = new Date();
+        }
+        if (hodApproval !== undefined) {
+          updateData.hodApproval = hodApproval;
+          updateData.hodApprovalDate = new Date();
+        }
         const record = await Attendance.findByIdAndUpdate(
           attendanceId,
           updateData,

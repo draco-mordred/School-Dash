@@ -181,7 +181,7 @@ export const registerUser = async (
                             await ClassModel.findByIdAndUpdate(
                                 finalStudentClass,
                                 { $addToSet: { students: newUser._id } },
-                                { new: true }
+                                { returnDocument: 'after' }
                             );
                         }
 
@@ -238,10 +238,15 @@ export const login = async (
                     name: user.name,
                     email: user.email,
                     role: user.role,
+                    idNumber: user.idNumber,
+                    profileImage: user.profileImage,
                     studentClasses: user.studentClasses,
+                    studentClass: user.studentClasses,
                     teacherSubject: user.teacherSubject,
                     parentStudents: user.parentStudents,
                     isActive: user.isActive,
+                    academicStatus: user.academicStatus,
+                    departmentRole: user.departmentRole,
                 },
                 token,
             };
@@ -284,9 +289,9 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
         const isAdmin = currentUserRole === "admin" || currentUserRole === "teacher";
 
         if (!isOwnProfile && !isAdmin) {
-            res.status(403).json({ 
-                status: "Error!", 
-                message: "You can only update your own profile" 
+            res.status(403).json({
+                status: "Error!",
+                message: "You can only update your own profile"
             });
             return;
         }
@@ -301,34 +306,54 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             user.studentClasses = req.body.studentClasses || user.studentClasses;
             user.teacherSubject = req.body.teacherSubject || user.teacherSubject;
             user.parentStudents = req.body.parentStudents || user.parentStudents;
+            if (req.body.academicStatus !== undefined) user.academicStatus = req.body.academicStatus;
+            if (req.body.departmentRole !== undefined) user.departmentRole = req.body.departmentRole;
 
-            if(req.body.password){
+            // Handle password change with current password verification
+            if (req.body.password) {
+                // If changing own password, require current password verification
+                if (isOwnProfile && req.body.currentPassword) {
+                    const isMatch = await user.matchPassword(req.body.currentPassword);
+                    if (!isMatch) {
+                        res.status(400).json({
+                            status: "Error!",
+                            message: "Current password is incorrect"
+                        });
+                        return;
+                    }
+                }
                 user.password = req.body.password;
             }
+
+            // Handle profile image update
+            if (req.body.profileImage !== undefined) {
+                user.profileImage = req.body.profileImage;
+            }
+
             const updatedUser = await user.save();
                         // Handle student class changes
                         if (user.role === "student" && req.body.studentClasses) {
                             const ClassModel = require("../models/classes").default;
                             const oldClass = user.studentClasses?.toString();
                             const newClass = req.body.studentClasses?.toString?.() || req.body.studentClasses;
-              
+
                             // Remove from old class if different
                             if (oldClass && oldClass !== newClass) {
                                 await ClassModel.findByIdAndUpdate(oldClass, { $pull: { students: user._id } });
                             }
-              
+
                             // Add to new class
                             if (newClass) {
                                 await ClassModel.findByIdAndUpdate(newClass, { $addToSet: { students: user._id } });
                             }
                         }
             const userId = (req as any).user._id.toString();
-            if ((req as any).user) { 
+            if ((req as any).user) {
                 //not responding at this point ... will continue the video for now ---to fix return to video at time: 1:30:45 / 7:05:54 ...
                 await logActivity({
                     userId: (req as any).user._id.toString(),
                     action: "Updated user",
-                    details: `Updated user ${updatedUser.email} (ID: ${updatedUser.idNumber}) successfully. 
+                    details: `Updated user ${updatedUser.email} (ID: ${updatedUser.idNumber}) successfully.
                     Changes: ${JSON.stringify(req.body)}`
                 });
             }
@@ -341,8 +366,11 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                 isActive: updatedUser.isActive,
                 studentClasses: updatedUser.studentClasses,
                 idNumber: updatedUser.idNumber,
+                profileImage: updatedUser.profileImage,
                 parentStudents: updatedUser.parentStudents,
                 teacherSubject: updatedUser.teacherSubject,
+                academicStatus: updatedUser.academicStatus,
+                departmentRole: updatedUser.departmentRole,
                 message: `User ${updatedUser.email} (ID: ${updatedUser.idNumber}) updated successfully.`,
             })
         } else {
@@ -407,6 +435,26 @@ export const getUsers = async (req: Request, res: Response) : Promise<void> => {
 
 }
 
+// @desc    Get user by ID
+// @route   GET /api/users/:id
+// @access  Private (admin, teacher, parent — own children)
+export const getUserById = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const user = await User.findById(req.params.id)
+            .select("-password")
+            .populate("studentClasses", "_id name academicYear")
+            .populate("teacherSubject", "_id name code")
+            .populate("parentStudents", "name email idNumber role");
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: `Server error`, error: `${error}` });
+    }
+}
+
 // // for some reason, thr server fails when not connected online ... let's go on for now and see if it'll come back later on ... resolved today (23rd may 2026) after discovering that the server had been cut off due to network issues...
 
 // next we do Delete user
@@ -446,17 +494,21 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
           .populate("studentClasses", "name academicYear")
           .populate("teacherSubject", "name code")
           .populate("parentStudents", "name email idNumber role");
-        if (user){  
+        if (user){
             res.json({
-                user: { 
+                user: {
                     _id: user._id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
+                    idNumber: user.idNumber,
+                    profileImage: user.profileImage,
                     studentClasses: user.studentClasses,
                     teacherSubject: user.teacherSubject,
                     parentStudents: user.parentStudents,
-                }  
+                    academicStatus: user.academicStatus,
+                    departmentRole: user.departmentRole,
+                }
             })
             // if (req.user){  
             //     res.json({
@@ -487,6 +539,114 @@ export const logoutUser = async (req: Request, res: Response) => {
             expires: new Date(0) // Set the cookie to expire immediately
         });
         res.json({ message: "Logged out successfully" });
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// @desc    Bulk upload users via file
+// @route   POST /api/users/bulk-upload
+// @access  Private/Admin
+export const bulkUploadUsers = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { users, classId, courseIds } = req.body as {
+            users: Array<{ name: string; email: string; idNumber?: string; role: string }>;
+            classId?: string;
+            courseIds?: string[];
+        };
+
+        if (!users || users.length === 0) {
+            res.status(400).json({ status: "Error!", message: "No users provided." });
+            return;
+        }
+
+        if (users.length > 500) {
+            res.status(400).json({ status: "Error!", message: "Maximum 500 users per upload." });
+            return;
+        }
+
+        // Validate each user entry
+        for (const u of users) {
+            if (!u.name || !u.email || !u.role) {
+                res.status(400).json({
+                    status: "Error!",
+                    message: "Each user entry must have name, email, and role.",
+                });
+                return;
+            }
+            if (!["admin", "teacher", "student", "parent"].includes(u.role)) {
+                res.status(400).json({
+                    status: "Error!",
+                    message: `Invalid role '${u.role}'. Must be admin, teacher, student, or parent.`,
+                });
+                return;
+            }
+        }
+
+        // Trigger async Inngest function
+        const { inngest } = require("../inngest");
+        await inngest.send({
+            name: "users/bulk-create",
+            data: {
+                users,
+                classId: classId || undefined,
+                courseIds: courseIds || undefined,
+                userId: (req as any).user?._id?.toString(),
+            },
+        });
+
+        res.status(202).json({
+            status: "Accepted",
+            message: `Bulk upload started. Processing ${users.length} user(s) in the background.`,
+        });
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// @desc    Extract user data from a PDF file
+// @route   POST /api/users/bulk-upload/extract-pdf
+// @access  Private/Admin
+export const extractFromPDF = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.body || typeof req.body !== "object") {
+            res.status(400).json({ status: "Error!", message: "No file data provided." });
+            return;
+        }
+        const { base64Data, mimeType } = req.body as { base64Data?: string; mimeType?: string };
+        if (!base64Data) {
+            res.status(400).json({ status: "Error!", message: "No file data provided." });
+            return;
+        }
+        // TODO: Integrate a PDF text extraction library (e.g. pdf-parse) when available
+        res.status(501).json({
+            status: "Error!",
+            message: "PDF text extraction is not yet available. Please use a spreadsheet (.csv or .xlsx) with Name, Email, and ID Number columns.",
+        });
+    } catch (error) {
+        res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+    }
+}
+
+// @desc    Extract user data from an image file (OCR)
+// @route   POST /api/users/bulk-upload/extract-image
+// @access  Private/Admin
+export const extractFromImage = async (req: Request, res: Response): Promise<void> => {
+    try {
+        if (!req.body || typeof req.body !== "object") {
+            res.status(400).json({ status: "Error!", message: "No file data provided." });
+            return;
+        }
+        const { base64Data, mimeType } = req.body as { base64Data?: string; mimeType?: string };
+        if (!base64Data) {
+            res.status(400).json({ status: "Error!", message: "No file data provided." });
+            return;
+        }
+        // TODO: Integrate an OCR service (e.g. Google Cloud Vision, AWS Textract, or Tesseract) when available
+        res.status(501).json({
+            status: "Error!",
+            message: "Image OCR extraction is not yet available. Please use a spreadsheet (.csv or .xlsx) with Name, Email, and ID Number columns.",
+        });
     } catch (error) {
         res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
     }

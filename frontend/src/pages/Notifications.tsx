@@ -1,10 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Bell, CalendarCheck, Users, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Bell,
+  CalendarCheck,
+  Users,
+  AlertCircle,
+  RefreshCw,
+  Clock,
+  BookOpen,
+  TrendingUp,
+} from "lucide-react";
 
+// ─── Shared ClassStatus (admin/teacher view) ──────────────────────────
 interface ClassStatus {
   classId: string;
   className: string;
@@ -16,38 +28,333 @@ interface ClassStatus {
   excused: number;
 }
 
+// ─── Student Notifications Data ───────────────────────────────────────
+interface LectureEntry {
+  subject: any;
+  lecturer: any;
+  startTime: string;
+  endTime: string;
+  status: string | null;
+}
+
+interface DayAlerts {
+  day: string;
+  lectures: LectureEntry[];
+}
+
+interface StudentNotifData {
+  className: string | null;
+  academicYear: string | null;
+  timetable: any[];
+  todayDay: string;
+  todayLectures: LectureEntry[];
+  totalAttended: number;
+  totalClasses: number;
+  percentage: number;
+  weeklyAlerts: DayAlerts[];
+}
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+const statusColors: Record<string, string> = {
+  present: "bg-green-500/15 text-green-600",
+  absent: "bg-red-500/15 text-red-600",
+  late: "bg-yellow-500/15 text-yellow-600",
+  excused: "bg-blue-500/15 text-blue-600",
+};
+
 export default function Notifications() {
-  const [classes, setClasses] = useState<ClassStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const totalClasses = classes.length;
-  const activeTimetables = classes.filter((cls) => cls.timetableStatus === "active").length;
-  const missingTimetables = totalClasses - activeTimetables;
-  const classesWithAttendanceAlerts = classes.filter((cls) => cls.absent > 0 || cls.late > 0 || cls.excused > 0);
-
-  useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const { data } = await api.get("/attendance/status");
-        setClasses(data.classes ?? []);
-      } catch {
-        // silent fail
-      } finally {
-        setLoading(false);
-      }
-    };
-    void fetchStatus();
-  }, []);
+  const { user } = useAuth();
+  const isStudent = user?.role === "student";
 
   return (
     <div className="flex w-full flex-col gap-4 px-6 py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Bell className="h-5 w-5" />
-          Class Status Overview
+          {isStudent ? "My Notifications" : "Class Status Overview"}
         </h2>
       </div>
 
+      {isStudent ? (
+        <StudentNotifications />
+      ) : (
+        <AdminNotifications />
+      )}
+    </div>
+  );
+}
+
+// ─── Student View ──────────────────────────────────────────────────────
+function StudentNotifications() {
+  const [data, setData] = useState<StudentNotifData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const { data: res } = await api.get("/attendance/student-notifications");
+      setData(res);
+    } catch {
+      // silent fail
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+        {[1, 2, 3].map((i) => (
+          <Card key={i}>
+            <CardHeader className="pb-3"><Skeleton className="h-4 w-32" /></CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const hasTimetable = data.timetable && data.timetable.length > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Class info banner */}
+      <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3">
+        <div className="flex items-center gap-3">
+          <BookOpen className="h-5 w-5 text-muted-foreground" />
+          <div>
+            <p className="text-sm font-medium">{data.className ?? "—"}</p>
+            <p className="text-xs text-muted-foreground">Academic Year {data.academicYear ?? "—"}</p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void fetchData()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
+
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+        {/* Total Classes Card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Total Classes</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">
+              {data.totalAttended}
+              <span className="text-base font-normal text-muted-foreground">
+                {" "}of {data.totalClasses}
+              </span>
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-green-500 transition-all"
+                  style={{ width: `${data.percentage}%` }}
+                />
+              </div>
+              <span className="text-sm font-semibold">{data.percentage}%</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Active Timetables Card (shows today's lectures summary) */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Today&apos;s Lectures</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <p className="text-3xl font-semibold">{data.todayLectures.length}</p>
+            <p className="text-xs text-muted-foreground">{data.todayDay}</p>
+          </CardContent>
+        </Card>
+
+        {/* Attendance Alerts Card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium">Attendance Alerts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">
+              {data.weeklyAlerts.reduce(
+                (acc, d) => acc + d.lectures.filter((l) => l.status && l.status !== "present").length,
+                0
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground">This week</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Active Timetable Card — weekly lecture schedule */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CalendarCheck className="h-4 w-4" />
+            Weekly Timetable
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!hasTimetable ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No timetable available for your class.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {DAYS.map((day) => {
+                const daySchedule = data.timetable.find((s: any) => s.day === day);
+                const lectures = daySchedule?.periods ?? [];
+                const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
+                return (
+                  <div key={day}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
+                    {lectures.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {lectures.map((lec: any, i: number) => {
+                          const alertEntry = alertsForDay[i];
+                          const status = alertEntry?.status ?? null;
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">
+                                  {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
+                                </p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{lec.startTime} – {lec.endTime}</span>
+                                  {typeof lec.lecturer === "object" && lec.lecturer?.name && (
+                                    <span>· {lec.lecturer.name}</span>
+                                  )}
+                                </div>
+                              </div>
+                              {status && (
+                                <span
+                                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
+                                    statusColors[status] ?? "bg-muted text-foreground"
+                                  }`}
+                                >
+                                  {status}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Attendance Alerts Card — all lectures for the week by day with status */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Attendance Alerts
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.weeklyAlerts.every((d) => d.lectures.every((l) => !l.status || l.status === "present")) ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              No attendance alerts. All lectures marked present.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {data.weeklyAlerts.map((dayAlert) => {
+                const hasAlerts = dayAlert.lectures.some((l) => l.status && l.status !== "present");
+                if (!hasAlerts) return null;
+                return (
+                  <div key={dayAlert.day}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                      {dayAlert.day}
+                    </p>
+                    <div className="space-y-1">
+                      {dayAlert.lectures
+                        .filter((l) => l.status && l.status !== "present")
+                        .map((lec, i) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-900"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">
+                                {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
+                              </p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Clock className="h-3 w-3" />
+                                <span>{lec.startTime} – {lec.endTime}</span>
+                              </div>
+                            </div>
+                            <span
+                              className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
+                                statusColors[lec.status ?? ""] ?? "bg-muted text-foreground"
+                              }`}
+                            >
+                              {lec.status}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Admin/Teacher View (existing) ────────────────────────────────────
+function AdminNotifications() {
+  const [classes, setClasses] = useState<ClassStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const totalClasses = classes.length;
+  const activeTimetables = classes.filter((cls) => cls.timetableStatus === "active").length;
+  const missingTimetables = totalClasses - activeTimetables;
+  const classesWithAttendanceAlerts = classes.filter(
+    (cls) => cls.absent > 0 || cls.late > 0 || cls.excused > 0
+  );
+
+  const fetchStatus = async () => {
+    try {
+      setLoading(true);
+      const { data } = await api.get("/attendance/status");
+      setClasses(data.classes ?? []);
+    } catch {
+      // silent fail
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchStatus();
+  }, []);
+
+  return (
+    <>
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-3">
@@ -104,7 +411,6 @@ export default function Notifications() {
                   <div className="text-xs text-muted-foreground">{cls.academicYear}</div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {/* Timetable status */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm">
                       <CalendarCheck className="h-4 w-4 text-muted-foreground" />
@@ -118,7 +424,6 @@ export default function Notifications() {
                     </Badge>
                   </div>
 
-                  {/* Attendance summary */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm">
                       <Users className="h-4 w-4 text-muted-foreground" />
@@ -127,34 +432,20 @@ export default function Notifications() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="flex items-center justify-between border rounded px-2 py-1">
-                      <div className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-xs">Present</span>
+                    {[
+                      { label: "Present", value: cls.present, color: "bg-green-500" },
+                      { label: "Absent", value: cls.absent, color: "bg-red-500" },
+                      { label: "Late", value: cls.late, color: "bg-yellow-500" },
+                      { label: "Excused", value: cls.excused, color: "bg-blue-500" },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="flex items-center justify-between border rounded px-2 py-1">
+                        <div className="flex items-center gap-1">
+                          <div className={`h-2 w-2 rounded-full ${color}`} />
+                          <span className="text-xs">{label}</span>
+                        </div>
+                        <span className="text-xs font-semibold">{value}</span>
                       </div>
-                      <span className="text-xs font-semibold">{cls.present}</span>
-                    </div>
-                    <div className="flex items-center justify-between border rounded px-2 py-1">
-                      <div className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-red-500" />
-                        <span className="text-xs">Absent</span>
-                      </div>
-                      <span className="text-xs font-semibold">{cls.absent}</span>
-                    </div>
-                    <div className="flex items-center justify-between border rounded px-2 py-1">
-                      <div className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                        <span className="text-xs">Late</span>
-                      </div>
-                      <span className="text-xs font-semibold">{cls.late}</span>
-                    </div>
-                    <div className="flex items-center justify-between border rounded px-2 py-1">
-                      <div className="flex items-center gap-1">
-                        <div className="h-2 w-2 rounded-full bg-blue-500" />
-                        <span className="text-xs">Excused</span>
-                      </div>
-                      <span className="text-xs font-semibold">{cls.excused}</span>
-                    </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
@@ -166,22 +457,27 @@ export default function Notifications() {
             </CardHeader>
             <CardContent className="space-y-3">
               {classesWithAttendanceAlerts.length === 0 && missingTimetables === 0 ? (
-                <p className="text-sm text-muted-foreground">No urgent notifications. All classes are up to date.</p>
+                <p className="text-sm text-muted-foreground">
+                  No urgent notifications. All classes are up to date.
+                </p>
               ) : (
                 <div className="space-y-3">
                   {missingTimetables > 0 && (
                     <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-3 text-sm">
                       <p className="font-medium">{missingTimetables} classes need timetable generation</p>
-                      <p className="text-muted-foreground">Please generate timetables to avoid attendance and schedule gaps.</p>
+                      <p className="text-muted-foreground">
+                        Please generate timetables to avoid attendance and schedule gaps.
+                      </p>
                     </div>
                   )}
                   {classesWithAttendanceAlerts.map((cls) => (
-                    <div key={cls.classId} className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700 p-3 text-sm">
+                    <div
+                      key={cls.classId}
+                      className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700 p-3 text-sm"
+                    >
                       <p className="font-medium">{cls.className} has attendance alerts</p>
                       <p className="text-muted-foreground">
-                        {cls.absent > 0 ? `${cls.absent} absent, ` : ""}
-                        {cls.late > 0 ? `${cls.late} late, ` : ""}
-                        {cls.excused > 0 ? `${cls.excused} excused` : ""}
+                        {[cls.absent > 0 && `${cls.absent} absent`, cls.late > 0 && `${cls.late} late`, cls.excused > 0 && `${cls.excused} excused`].filter(Boolean).join(", ") || "No alerts"}
                       </p>
                     </div>
                   ))}
@@ -191,6 +487,6 @@ export default function Notifications() {
           </Card>
         </>
       )}
-    </div>
+    </>
   );
 }

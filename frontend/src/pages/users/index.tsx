@@ -8,10 +8,11 @@ import { useAuth } from "@/hooks/useAuth";
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import UserTable from "@/components/users/UserTable";
 import UserDialog from "@/components/users/UserDialog";
+import BulkUploadDialog from "@/components/users/BulkUploadDialog";
 
 interface Props {
   role: UserRole;
@@ -41,6 +42,9 @@ export default function UserManagementPage({
   // Delete States
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+
+  // Bulk Upload States
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   // Handle Debounce (Wait 500ms after typing stops)
   useEffect(() => {
@@ -166,6 +170,11 @@ export default function UserManagementPage({
         </div>
         <div className="flex gap-2">
           <Search search={search} setSearch={setSearch} title={`${role}s`} />
+          {authUser?.role === "admin" && (
+            <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" /> Bulk Upload
+            </Button>
+          )}
           {authUser?.role !== "parent" && (
             <Button onClick={handleCreate}>
               <Plus className="mr-2 h-4 w-4" /> Add{" "}
@@ -263,6 +272,14 @@ export default function UserManagementPage({
         handleDelete={handleDelete}
         title="Delete User?"
         description="This will permanently delete this user from the system."
+      />
+
+      {/* bulk upload */}
+      <BulkUploadDialog
+        open={isBulkUploadOpen}
+        setOpen={setIsBulkUploadOpen}
+        role={role}
+        onSuccess={fetchUsers}
       />
     </div>
   );

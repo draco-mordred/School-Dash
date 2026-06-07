@@ -85,17 +85,17 @@ export function AppMiniSidebar({
     <Sidebar
       collapsible="offcanvas"
       side="left"
-      className={cn("lg:hidden", className)}
+      className={cn("", className)}
       {...props}
     >
-      <SidebarHeader className="px-2 py-2 sm:px-3">
+      <SidebarHeader className="px-2 py-2">
         <div className="flex items-center gap-2">
           <img
             src={appIcon}
             alt="School Dash"
-            className="w-8 h-8 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shrink-0 object-cover"
+            className="w-7 h-7 rounded-md bg-sidebar-primary text-sidebar-primary-foreground shrink-0 object-cover"
           />
-          <div className="hidden sm:grid flex-1 text-left text-sm leading-tight">
+          <div className="flex-1 text-left text-sm leading-tight overflow-hidden">
             <span className="truncate font-medium text-xs">{year?.name ?? yearNameOverride ?? "School Dash"}</span>
           </div>
         </div>
@@ -118,17 +118,16 @@ export function AppMiniSidebar({
         />
       </SidebarContent>
 
-      <SidebarFooter className="px-3 py-2 sm:px-4">
+      <SidebarFooter className="p-2">
         <div className="flex flex-row items-center justify-between gap-2">
           <Button
             onClick={logout}
             variant="ghost"
             size="sm"
             aria-label="Logout"
-            className="flex-1 h-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="h-8 px-2 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
           >
-            <LogOut className="h-4 w-4 mr-2" />
-            <span className="text-xs">Logout</span>
+            <LogOut className="h-3.5 w-3.5" />
           </Button>
           <ThemeToogle />
         </div>

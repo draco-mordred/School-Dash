@@ -3,6 +3,21 @@ import ClassModel from "../models/classes";
 import UserModel from "../models/user";
 import { logActivity } from "../utils/activitieslog"
 
+export const getClassById = async (req: Request, res: Response) => {
+  try {
+    const cls = await ClassModel.findById(req.params.id)
+      .populate("academicYear", "name")
+      .populate("courses", "name code")
+      .select("name academicYear courses");
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+    res.json(cls);
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
 // @desc    Create a New Class
 // @route   POST /api/classes
 // @access  Private/Admin

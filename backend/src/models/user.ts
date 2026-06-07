@@ -28,9 +28,14 @@ export interface IUser extends Document {
     password: string;
     role: userRoles;
     isActive: boolean;
+    profileImage?: string; // Base64 encoded profile image
     studentClasses?: string | null; // Array of class IDs for students
     teacherSubject?: string[] | null; // Array of class IDs for teachers
     parentStudents?: string[] | null; // Array of student IDs for parents
+    // Academic status tags for teachers/lecturers
+    academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
+    // Department role tags for teachers/lecturers
+    departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
     attendance: mongoose.Types.ObjectId[]; // Array of attendance record IDs
@@ -43,8 +48,8 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     email: {
         type: String,
-        required: true,
-        unique: true
+        required: false,
+        sparse: true
     },
     idNumber: {
         type: String,
@@ -68,6 +73,10 @@ const UserSchema: Schema<IUser> = new Schema({
         type: Boolean,
         default: true
     },
+    profileImage: {
+        type: String,
+        default: null
+    },
     studentClasses: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Class",
@@ -83,7 +92,17 @@ const UserSchema: Schema<IUser> = new Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
         default: null
-    }]
+    }],
+    academicStatus: {
+        type: String,
+        enum: ["professor", "associate professor", "lecturer i", "lecturer ii", "assistant lecturer", "resident", null],
+        default: null,
+    },
+    departmentRole: {
+        type: String,
+        enum: ["head of department", "dean of faculty", "exam officer", null],
+        default: null,
+    }
 }, {
     timestamps: true
 });
