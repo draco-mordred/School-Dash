@@ -53,9 +53,37 @@ export const getAllActivities = async (
 // @access  Private/Admin
 export const getRoleStats = async (req: Request, res: Response): Promise<void> => {
   try {
-    const stats = await User.aggregate([
+    // Return counts of active vs inactive users per role
+    const active = await User.aggregate([
+      { $match: { isActive: true } },
       { $group: { _id: "$role", count: { $sum: 1 } } },
     ]);
+    const inactive = await User.aggregate([
+      { $match: { isActive: false } },
+      { $group: { _id: "$role", count: { $sum: 1 } } },
+    ]);
+
+    // Merge results into a map for easy consumption by frontend
+    const roleMap: Record<string, { role: string; active: number; inactive: number }> = {};
+
+    const ensureRole = (r: string) => {
+      if (!roleMap[r]) roleMap[r] = { role: r, active: 0, inactive: 0 };
+    };
+
+    active.forEach((a: any) => {
+      ensureRole(a._id);
+      roleMap[a._id].active = a.count;
+    });
+    inactive.forEach((a: any) => {
+      ensureRole(a._id);
+      roleMap[a._id].inactive = a.count;
+    });
+
+    // Ensure known roles appear even with zero counts
+    const knownRoles = ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"];
+    knownRoles.forEach((r) => ensureRole(r));
+
+    const stats = Object.values(roleMap);
     res.json(stats);
   } catch (error) {
     res.status(500).json({ message: `Server error`, error });

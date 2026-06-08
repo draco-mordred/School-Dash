@@ -152,8 +152,10 @@ const Timetable = () => {
             const student = studentRes.data;
             if (!student) continue;
 
-            const rawClass = student.studentClass ?? student.studentClasses;
-            const classId = typeof rawClass === "object" ? rawClass?._id : rawClass;
+            const rawClass = student.studentClasses;
+            const classId = typeof rawClass === "object" && rawClass !== null
+              ? rawClass._id
+              : (typeof rawClass === "string" ? rawClass : null);
             if (!classId) continue;
 
             if (!classMap.has(classId)) {
@@ -181,7 +183,7 @@ const Timetable = () => {
           academicYear: info.academicYear,
           classTeacher: info.classTeacher,
           schedule: scheduleMap.get(classId) ?? [],
-        }));
+        })).sort((a, b) => a.className.localeCompare(b.className));
 
         setParentChildrenClasses(result);
       } catch { /* silent */ } finally {

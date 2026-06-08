@@ -7,6 +7,8 @@ import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -35,8 +37,9 @@ interface ClassStatus {
 }
 
 interface RoleStat {
-  _id: string;
-  count: number;
+  role: string;
+  active: number;
+  inactive: number;
 }
 
 interface QuickTile {
@@ -74,6 +77,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [roleStats, setRoleStats] = useState<RoleStat[]>([]);
   const [classStatuses, setClassStatuses] = useState<ClassStatus[]>([]);
+  const [parentChildren, setParentChildren] = useState<any[]>([]);
+  const [childrenAttendance, setChildrenAttendance] = useState<Record<string, any>>({});
+  const [studentCourseGroups, setStudentCourseGroups] = useState<any[]>([
+    { label: "PED", code: "PED101", present: 28, absent: 4, late: 2, excused: 1, total: 35 },
+    { label: "O&G", code: "O&G202", present: 30, absent: 2, late: 1, excused: 0, total: 33 },
+    { label: "INT", code: "INT301", present: 25, absent: 6, late: 3, excused: 1, total: 35 },
+    { label: "SUR", code: "SUR104", present: 20, absent: 8, late: 2, excused: 0, total: 30 },
+    { label: "ANA", code: "ANA205", present: 32, absent: 1, late: 2, excused: 0, total: 35 },
+  ]);
 
   // Chart data — mock logbook entries for Jan–Jun
   const logbookData = [
@@ -92,6 +104,8 @@ export default function Dashboard() {
     { name: "Upcoming", value: 14, color: "#C3D405" },
   ];
 
+  const [rotationStats, setRotationStats] = useState<typeof rotationData | null>(null);
+
   useEffect(() => {
     const fetchAll = async () => {
       try {
@@ -102,6 +116,64 @@ export default function Dashboard() {
         ]);
         setRoleStats(roleRes.data ?? []);
         setClassStatuses(classRes.data?.classes ?? []);
+
+        // Fetch linked children's attendance for parent users
+        if (user?.role === "parent" && user?.parentStudents?.length > 0) {
+          setParentChildren(user.parentStudents);
+          const attendanceMap: Record<string, any> = {};
+          await Promise.all(
+            (user.parentStudents as any[]).map(async (student: any) => {
+              const studentId = typeof student === "string" ? student : student._id;
+              try {
+                const { data } = await api.get(`/attendance/student/${studentId}/summary`);
+                attendanceMap[studentId] = data;
+              } catch {
+                attendanceMap[studentId] = null;
+              }
+            })
+          );
+          setChildrenAttendance(attendanceMap);
+        }
+
+        // Fetch student's own attendance for per-course-group charts
+        if (user?.role === "student") {
+          try {
+            const { data } = await api.get("/attendance/me");
+            const records = data.records ?? [];
+            // Group records by course code prefix (e.g., "PED", "O&G")
+            const groupMap: Record<string, any> = {};
+            records.forEach((rec: any) => {
+              const code = rec.course?.code ?? rec.course?.name ?? "Unknown";
+              const prefix = code.replace(/[^A-Za-z]/g, "").split("").slice(0, 3).join("") || code.slice(0, 3);
+              if (!groupMap[prefix]) {
+                groupMap[prefix] = { label: prefix, code, present: 0, absent: 0, late: 0, excused: 0, total: 0 };
+              }
+              groupMap[prefix][rec.status] = (groupMap[prefix][rec.status] ?? 0) + 1;
+              groupMap[prefix].total += 1;
+            });
+            setStudentCourseGroups(Object.values(groupMap));
+          } catch {
+            setStudentCourseGroups([]);
+          }
+        }
+
+        // Fetch rotation stats scoped to the user
+        try {
+          const { data } = await api.get("/clinical-rotations/stats");
+          const counts: Record<string, number> = data.counts || {};
+          const completed = counts["completed"] || 0;
+          const active = counts["active"] || 0;
+          const upcoming = (counts["upcoming"] || 0) + (counts["pending_approval"] || 0);
+          const total = completed + active + upcoming || 1;
+          const computed = [
+            { name: "Completed", value: Math.round((completed / total) * 100), color: "#AD6BEE" },
+            { name: "In Progress", value: Math.round((active / total) * 100), color: "#A6D49F" },
+            { name: "Upcoming", value: Math.round((upcoming / total) * 100), color: "#C3D405" },
+          ];
+          setRotationStats(computed);
+        } catch (err) {
+          setRotationStats(null);
+        }
       } catch (error) {
         console.error("Failed to load dashboard", error);
       } finally {
@@ -183,6 +255,51 @@ export default function Dashboard() {
         </p>
       </div>
 
+      {/* ══ TEST CHARTS — RESPONSIVE CONTAINER TEST ═══════════════ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold">Test Bar Chart</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — bar chart</p>
+          </div>
+          <div className="p-5">
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={roleStats.map((r) => ({ name: roleLabels[r.role] ?? r.role, active: r.active ?? 0, inactive: r.inactive ?? 0 }))} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Bar dataKey="active" name="Active" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="inactive" name="Inactive" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold">Test Line Chart</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — line chart</p>
+          </div>
+          <div className="p-5">
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={[{ name: "W1", value: 10 }, { name: "W2", value: 35 }, { name: "W3", value: 50 }, { name: "W4", value: 25 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
+                  <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ══ CHARTS — TOP OF PAGE ═══════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Logbook Overview — line chart (3 cols) */}
@@ -253,7 +370,7 @@ export default function Dashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={rotationData}
+                      data={rotationStats ?? rotationData}
                     cx="50%"
                     cy="50%"
                     innerRadius={52}
@@ -261,9 +378,9 @@ export default function Dashboard() {
                     paddingAngle={3}
                     dataKey="value"
                   >
-                    {rotationData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
+                      {(rotationStats ?? rotationData).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
                   </Pie>
                   <Tooltip
                     contentStyle={{
@@ -434,6 +551,272 @@ export default function Dashboard() {
               <div className="p-5">
                 <p className="text-sm text-muted-foreground py-4 text-center">
                   No attendance records found for today.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Parent: Children's Attendance Charts */}
+          {isParent && parentChildren.length > 0 && (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div>
+                  <h3 className="text-sm font-semibold">Children's Attendance</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Attendance overview for each child</p>
+                </div>
+                <button
+                  onClick={() => navigate("/settings/account")}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  View Details
+                </button>
+              </div>
+              <div className="p-5 space-y-6">
+                {parentChildren.map((student: any) => {
+                  const studentId = typeof student === "string" ? student : student._id;
+                  const studentName = typeof student === "object" ? student.name : "Student";
+                  const attendance = childrenAttendance[studentId];
+                  const stats = attendance?.stats ?? [];
+                  const statsMap: Record<string, number> = {};
+                  stats.forEach((s: any) => { statsMap[s._id] = s.count; });
+                  const total = Object.values(statsMap).reduce((a, b) => a + b, 0) || 1;
+                  const present = statsMap.present ?? 0;
+                  const absent = statsMap.absent ?? 0;
+                  const late = statsMap.late ?? 0;
+                  const excused = statsMap.excused ?? 0;
+                  const presentPct = Math.round(((present + late) / total) * 100);
+
+                  // Prepare chart data
+                  const chartData = [
+                    { name: "Present", value: present, fill: "#22c55e" },
+                    { name: "Absent", value: absent, fill: "#ef4444" },
+                    { name: "Late", value: late, fill: "#eab308" },
+                    { name: "Excused", value: excused, fill: "#3b82f6" },
+                  ].filter((d) => d.value > 0);
+
+                  return (
+                    <div key={studentId} className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{studentName}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground">{present}/{total}</span>
+                          <span
+                            className={cn(
+                              "text-xs font-semibold",
+                              presentPct >= 75
+                                ? "text-green-600 dark:text-green-400"
+                                : presentPct >= 50
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-red-600 dark:text-red-400"
+                            )}
+                          >
+                            {presentPct}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            presentPct >= 75
+                              ? "bg-green-500"
+                              : presentPct >= 50
+                              ? "bg-amber-500"
+                              : "bg-red-500"
+                          )}
+                          style={{ width: `${presentPct}%` }}
+                        />
+                      </div>
+                      {chartData.length > 0 && (
+                        <ResponsiveContainer width="100%" height={100}>
+                          <PieChart>
+                            <Pie
+                              data={chartData}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={24}
+                              outerRadius={40}
+                              paddingAngle={2}
+                            >
+                              {chartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip
+                              formatter={(value: number, name: string) => [`${value}`, name]}
+                              contentStyle={{
+                                background: "hsl(var(--card))",
+                                border: "1px solid hsl(var(--border))",
+                                borderRadius: "8px",
+                                fontSize: "12px",
+                              }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                      <div className="flex gap-4 justify-center">
+                        {chartData.map((d) => (
+                          <div key={d.name} className="flex items-center gap-1.5">
+                            <div className="h-2 w-2 rounded-full" style={{ backgroundColor: d.fill }} />
+                            <span className="text-xs text-muted-foreground">{d.name}: {d.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Parent empty state */}
+          {isParent && !loading && parentChildren.length === 0 && (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border">
+                <h3 className="text-sm font-semibold">Children's Attendance</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">No linked students yet</p>
+              </div>
+              <div className="p-5">
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Link a student in your Account Settings to view attendance.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Student: Course Subject Group Attendance Charts */}
+          {isStudent && studentCourseGroups.length > 0 && (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+                <div>
+                  <h3 className="text-sm font-semibold">Attendance by Subject</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Attendance across your course subject groups</p>
+                </div>
+                <button
+                  onClick={() => navigate("/attendance")}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  View All
+                </button>
+              </div>
+              <div className="p-5">
+                <div className="flex gap-4 overflow-x-auto pb-2">
+                  {studentCourseGroups.map((group) => {
+                    const total = group.total || 1;
+                    const presentPct = Math.round(((group.present ?? 0) / total) * 100);
+                    const chartData = [
+                      { name: "Present", value: group.present ?? 0, fill: "#22c55e" },
+                      { name: "Absent", value: group.absent ?? 0, fill: "#ef4444" },
+                      { name: "Late", value: group.late ?? 0, fill: "#eab308" },
+                      { name: "Excused", value: group.excused ?? 0, fill: "#3b82f6" },
+                    ].filter((d) => d.value > 0);
+                    return (
+                      <div key={group.label} className="shrink-0 w-44 flex flex-col items-center rounded-lg border border-border p-4 space-y-3">
+                        <span className="text-sm font-semibold">{group.label}</span>
+                        <div className="relative">
+                          <ResponsiveContainer width={80} height={80}>
+                            <PieChart>
+                              <Pie
+                                data={chartData}
+                                dataKey="value"
+                                nameKey="name"
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={22}
+                                outerRadius={36}
+                                paddingAngle={2}
+                              >
+                                {chartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number, name: string) => [`${value}`, name]}
+                                contentStyle={{
+                                  background: "hsl(var(--card))",
+                                  border: "1px solid hsl(var(--border))",
+                                  borderRadius: "8px",
+                                  fontSize: "11px",
+                                }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span
+                              className={cn(
+                                "text-xs font-bold",
+                                presentPct >= 75
+                                  ? "text-green-600 dark:text-green-400"
+                                  : presentPct >= 50
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : "text-red-600 dark:text-red-400"
+                              )}
+                            >
+                              {presentPct}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center">
+                          {chartData.map((d) => (
+                            <div key={d.name} className="flex items-center gap-1">
+                              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: d.fill }} />
+                              <span className="text-[10px] text-muted-foreground">{d.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* TEST: Dummy bar charts for ResponsiveContainer */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Group Attendance Bar</p>
+                    <div className="h-40">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={[{ name: "PED", present: 28, absent: 4 }, { name: "O&G", present: 30, absent: 2 }, { name: "INT", present: 25, absent: 6 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
+                          <Bar dataKey="present" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                          <Bar dataKey="absent" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Weekly Trend Line</p>
+                    <div className="h-40">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={[{ day: "Mon", rate: 85 }, { day: "Tue", rate: 92 }, { day: "Wed", rate: 78 }, { day: "Thu", rate: 95 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                          <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
+                          <Line type="monotone" dataKey="rate" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Student empty state */}
+          {isStudent && !loading && studentCourseGroups.length === 0 && (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border">
+                <h3 className="text-sm font-semibold">Attendance by Subject</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">No attendance data yet</p>
+              </div>
+              <div className="p-5">
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  No attendance records found for your courses.
                 </p>
               </div>
             </div>

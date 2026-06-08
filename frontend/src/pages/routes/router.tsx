@@ -80,6 +80,26 @@ export const router = createBrowserRouter([
             ),
           },
           {
+            path: "users/unit-consultants",
+            element: (
+              <UserManagementPage
+                role="unit_consultant"
+                title="Unit Consultants"
+                description="Manage Unit Consultants."
+              />
+            ),
+          },
+          {
+            path: "users/unit-residents",
+            element: (
+              <UserManagementPage
+                role="unit_resident"
+                title="Unit Residents"
+                description="Manage Unit Residents."
+              />
+            ),
+          },
+          {
             path: "classes",
             element: <Classes />,
           },

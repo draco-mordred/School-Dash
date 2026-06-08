@@ -99,6 +99,22 @@ const GeneratorControls = ({
   const handleClassSelect = (val: string) => {
     setSelectedClass(val);
     onClassChange(val);
+
+    // Auto-detect clinical level classes and set clinical time frame
+    const selectedClassData = classes.find((c) => c._id === val);
+    if (selectedClassData) {
+      const is500Level = /^500\s*level/i.test(selectedClassData.name);
+      const is400Level = /^400\s*level/i.test(selectedClassData.name);
+      if (is500Level) {
+        setStartTime("10:00");
+        setEndTime("13:00");
+        setPeriods("3");
+      } else if (is400Level) {
+        setStartTime("10:00");
+        setEndTime("12:00");
+        setPeriods("2");
+      }
+    }
   };
   return (
     <Card className="w-full">

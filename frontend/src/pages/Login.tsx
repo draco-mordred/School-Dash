@@ -1,6 +1,6 @@
 import UniversalUserForm from "@/components/auth/UniversalUserForm";
 import { useAuth } from "@/hooks/useAuth";
-import { School } from "lucide-react";
+import { User as UserIcon } from "lucide-react";
 import { Link, Navigate, useNavigate } from "react-router";
 
 const Login = () => {
@@ -10,32 +10,28 @@ const Login = () => {
   if (user && !loading) {
     return <Navigate to="/dashboard" />;
   }
+
   return (
-    <div className="grid min-h-svh lg:grid-cols-2"> 
-      <div className="flex flex-col gap-4 p-6 md:p-10">
-        <div className="flex justify-center gap-2 md:justify-start">
-          <Link to="/" className="flex items-center gap-2 font-medium">
-            <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
-              <School className="size-4" />
+    <div className="min-h-svh flex items-center justify-center bg-surface p-6">
+      <div className="w-full max-w-md">
+        <div className="flex flex-col items-center gap-6 bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-lg">
+          <Link to="/" className="text-sm text-muted-foreground self-start">Edunexus.</Link>
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-28 w-28 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-3xl shadow-inner">
+              <UserIcon className="size-10" />
             </div>
-            Edunexus.
-          </Link>
-        </div>
-        <div className="flex flex-1 items-center justify-center">
-          <div className="w-full max-w-xs">
-            <UniversalUserForm
-              type="login"
-              onSuccess={() => navigate("/dashboard")}
-            />
+            <h2 className="text-lg font-semibold">Sign in</h2>
+            <p className="text-xs text-muted-foreground">Enter your email and password to continue</p>
+          </div>
+
+          <div className="w-full">
+            <UniversalUserForm type="login" onSuccess={() => navigate("/dashboard")} />
+          </div>
+
+          <div className="w-full text-center mt-1">
+            <Link to="/forgot-password" className="text-sm text-muted-foreground hover:underline">Forgot password?</Link>
           </div>
         </div>
-      </div>
-      <div className="bg-muted relative hidden lg:block">
-        <img
-          src="https://images.unsplash.com/photo-1610962381137-50ef93055125"
-          alt="Image"
-          className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
-        />
       </div>
     </div>
   );

@@ -36,10 +36,11 @@ const timetableSchema = new Schema(
         day: { type: String, required: true },
         periods: [
           {
-            subject: { type: mongoose.Types.ObjectId, ref: "Course" },
-            lecturer: { type: mongoose.Types.ObjectId, ref: "User" },
+            subject: { type: mongoose.Types.ObjectId, ref: "Course", default: null },
+            lecturer: { type: mongoose.Types.ObjectId, ref: "User", default: null },
             startTime: String,
             endTime: String,
+            isClinical: { type: Boolean, default: false },
           }
         ]
       }

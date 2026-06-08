@@ -7,18 +7,31 @@ export enum UserRole {
     TEACHER = "teacher",
     STUDENT = "student",
     PARENT = "parent",
+    UNIT_CONSULTANT = "unit_consultant",
+    UNIT_RESIDENT = "unit_resident",
 }
 
 export enum UserIDs {
     ADMINID = "UJ0000AD0000", // Unique ID for admin
     STUDENTID = "UJ0000ST0000", // Unique ID for students
     TEACHERID = "UJ0000TE0000", // Unique ID for teachers
-    PARENTID = "UJ0000PA0000" // Unique ID for parents
+    PARENTID = "UJ0000PA0000", // Unique ID for parents
+    UNITCONSULTANTID = "UJ0000UC0000", // Unique ID for unit consultants
+    UNITRESIDENTID = "UJ0000UR0000" // Unique ID for unit residents
 }
 
-export type userRoles = "admin" | "teacher" | "student" | "parent" ; // Define a type for user roles, including the unique admin and student IDs
+export type userRoles = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident" ; // Define a type for user roles, including the unique admin and student IDs
 
-export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID";
+export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
+
+export const roleDisplayName: Record<userRoles, string> = {
+    admin: "Admin",
+    teacher: "Teacher",
+    student: "Student",
+    parent: "Parent",
+    unit_consultant: "Unit Consultant",
+    unit_resident: "Unit Resident",
+};
 
 export interface IUser extends Document {
     name: string;

@@ -190,7 +190,8 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
           localStorage.setItem("token", responseData.token);
         }
         setUser(responseData.user ?? responseData);
-        toast.success("Logged in successfully");
+        const displayName = responseData.user?.name ?? responseData.name ?? "";
+        toast.success(`Welcome ${displayName}`);
         if (onSuccess) {
           onSuccess();
         } else {
@@ -221,12 +222,21 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
     ? subjects.map((s) => ({ label: s.name, value: s._id }))
     : [];
 
-  const allRoles = ["admin", "teacher", "student", "parent"] as const;
+  const roleDisplayMap: Record<string, string> = {
+    admin: "Admin",
+    teacher: "Teacher",
+    student: "Student",
+    parent: "Parent",
+    unit_consultant: "Unit Consultant",
+    unit_resident: "Unit Resident",
+  };
+
+  const allRoles = ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"] as const;
   const roleOptions = (() => {
     if (isUpdate && user?.role === "admin") {
-      return allRoles.map((r) => ({ label: r, value: r }));
+      return allRoles.map((r) => ({ label: roleDisplayMap[r] ?? r, value: r }));
     }
-    if (role) return [{ label: role, value: role }];
+    if (role) return [{ label: roleDisplayMap[role] ?? role, value: role }];
     return [];
   })();
 
@@ -325,6 +335,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
               label="Email Address"
               type="email"
               placeholder="m@example.com"
+              className={isLogin ? "rounded-full h-12 px-4" : undefined}
               disabled={pending}
             />
           </div>
@@ -335,6 +346,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
               label="Password"
               type="password"
               placeholder={isUpdate ? "New Password (Optional)" : "Password"}
+              className={isLogin ? "rounded-full h-12 px-4" : undefined}
               disabled={pending}
             />
           </div>

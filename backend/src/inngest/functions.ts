@@ -100,6 +100,12 @@ export const generateTimeTable = inngest.createFunction(
         }
       });
 
+    // Detect if this is a clinical level class (400 or 500 level)
+    const is400Level = /^400\s*level/i.test(contextData.className);
+    const is500Level = /^500\s*level/i.test(contextData.className);
+    const isClinicalLevel = is400Level || is500Level;
+    const clinicalEndTime = is500Level ? "13:00" : "12:00"; // 500 level: 1PM, 400 level: 12PM
+
     // Timetable generation logic would go here
     const aiSchedule = await step.run("generate-timetable-logic", async () => {
       const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -107,12 +113,24 @@ export const generateTimeTable = inngest.createFunction(
         throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")
       }
 
-      const allTimeTables = await Timetable.find({ 
+      const allTimeTables = await Timetable.find({
         academicYear: academicYearIdValue,
       })
 
+      // Clinical activities slot for 400/500 level classes
+      const clinicalSlotInstruction = isClinicalLevel ? `
+
+        CLINICAL ACTIVITIES SLOT (REQUIRED):
+        - For ${contextData.className}, you MUST add a "Clinical Activities" period on EACH weekday (Monday to Friday).
+        - The clinical slot must be from 10:00 AM to ${clinicalEndTime} (${is500Level ? "3 hours" : "2 hours"}).
+        - Use courseId: "CLINICAL_ACTIVITIES" for this special entry (it is not a real course, just a placeholder for clinical activities).
+        - Lecturer field can be null or "CLINICAL_SUPERVISOR" for this slot.
+        - This slot should be the THIRD period of the day (after 2 regular periods).
+        - Example period: { "courseId": "CLINICAL_ACTIVITIES", "lecturer": null, "startTime": "10:00", "endTime": "${clinicalEndTime}" }
+        ` : "";
+
         const prompt = `
-        You are a University Timetable Scheduler. 
+        You are a University Timetable Scheduler.
         Generate a weekly timetable (Monday to Friday).
 
         CONTEXT:
@@ -123,12 +141,13 @@ export const generateTimeTable = inngest.createFunction(
         - Courses: ${JSON.stringify(contextData.courses)}
         - Lecturers: ${JSON.stringify(contextData.lecturers)}
         - Other Timetables: ${JSON.stringify(allTimeTables)}
+        ${clinicalSlotInstruction}
 
         STRICT RULES:
-   
+
         1. Assign a Lecturer to every Course period.
         2. Lecturer MUST have the course ID in their courses list.
-        3. Break Time/free period after every 2 periods(10 minutes), Lunch time after 5 periods (at 12:00)(30 minutes).
+        3. Break Time/free period after every 2 periods (10 minutes), Lunch time after 5 periods (at 12:00) (30 minutes).
         4. Avoid clashes with other classes (lecturer cannot be in two classes at the same time).
         5. OUTPUT strict JSON only. Schema:
         {
@@ -212,12 +231,24 @@ export const generateTimeTable = inngest.createFunction(
         // Map AI output to MongoDB schema: courseId -> subject, lecturer stays lecturer
         const mappedSchedule = (aiSchedule.schedule ?? []).map((day: any) => ({
           day: day.day,
-          periods: (day.periods ?? []).map((period: any) => ({
-            subject: period.courseId, // AI uses courseId, MongoDB schema uses subject
-            lecturer: period.lecturer, // Keep lecturer as is
-            startTime: period.startTime,
-            endTime: period.endTime,
-          })),
+          periods: (day.periods ?? []).map((period: any) => {
+            // Handle clinical activities - set subject and lecturer to null
+            if (period.courseId === "CLINICAL_ACTIVITIES") {
+              return {
+                subject: null,
+                lecturer: null,
+                startTime: period.startTime,
+                endTime: period.endTime,
+                isClinical: true,
+              };
+            }
+            return {
+              subject: new mongoose.Types.ObjectId(period.courseId),
+              lecturer: period.lecturer ? new mongoose.Types.ObjectId(period.lecturer) : null,
+              startTime: period.startTime,
+              endTime: period.endTime,
+            };
+          }),
         }));
 
         await Timetable.create({

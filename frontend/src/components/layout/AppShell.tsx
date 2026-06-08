@@ -135,8 +135,18 @@ function getUserSubInfo(user: any) {
       return "Teacher";
     case "parent":
       if (user?.parentStudents?.length) {
-        const names = user.parentStudents.map((s: any) => typeof s === 'object' ? s.name : s);
-        return `Children: ${names.join(", ")}`;
+        const count = (user.parentStudents ?? []).length;
+        // Collect class names if available on child objects (avoid showing raw IDs)
+        const classNames: string[] = [];
+        (user.parentStudents ?? []).forEach((s: any) => {
+          if (s && typeof s === "object") {
+            const rawClass = s.studentClasses ?? s.studentClass;
+            const className = rawClass && typeof rawClass === "object" ? rawClass.name : (typeof rawClass === "string" ? null : null);
+            if (className) classNames.push(className);
+          }
+        });
+        const classesPart = classNames.length ? ` · Classes: ${Array.from(new Set(classNames)).join(", ")}` : "";
+        return `Children: ${count}${classesPart}`;
       }
       return "Parent";
     case "admin":
@@ -302,7 +312,7 @@ export default function AppShell({ children }: PropsWithChildren) {
       <div className="flex min-h-screen">
         <div className="flex min-h-screen flex-1 flex-col">
           {isProtected && (
-            <header className="sticky top-0 z-40 border-b border-border bg-transparent backdrop-blur-xl Supports-[backdrop-blur]:bg-background/30">
+            <header className="fixed top-0 z-60 left-0 right-0 border-b border-border bg-background/60 dark:bg-background/60 backdrop-blur-xl Supports-[backdrop-blur]:bg-background/30 transition-all duration-200 ease-in-out" style={{backdropFilter: 'blur(10px)'}}>
               <div className="flex h-14 items-center justify-between gap-4 px-4">
                 {/* Left: Hamburger + Home + Title */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -504,10 +514,10 @@ export default function AppShell({ children }: PropsWithChildren) {
             </header>
           )}
 
-          <main className={cn("flex-1 overflow-y-auto", isProtected ? "px-4 md:pl-0 md:pr-4 py-4" : "")}>{children ?? <Outlet />}</main>
+          <main className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[25px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
 
           {isProtected && (
-            <footer className="border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground">
+            <footer className="fixed bottom-0 z-50 left-0 right-0 md:left-[var(--sidebar-width)] peer-data-[state=collapsed]:md:left-[var(--sidebar-width-icon)] border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground">
               <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <span>© {new Date().getFullYear()} Avalon Industries</span>
                 <div className="flex flex-wrap items-center gap-2">

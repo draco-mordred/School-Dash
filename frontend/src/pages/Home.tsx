@@ -8,7 +8,7 @@ const Home = () => {
   return (
     <div>
       <Navbar />
-      <main className="">
+      <main className="pt-16">
         <Hero />
 
         {/* Partnership / Logo Cloud */}

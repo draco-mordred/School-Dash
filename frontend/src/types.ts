@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "teacher" | "student" | "parent";
+export type UserRole = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident";
 
 export interface pagination {
   total: number;
@@ -82,10 +82,11 @@ export interface Submission {
 
 export interface period {
   _id: string;
-  subject: { _id: string; name: string; code: string };
-  lecturer: { _id: string; name: string; email?: string };
+  subject?: { _id: string; name: string; code: string } | null;
+  lecturer?: { _id: string; name: string; email?: string } | null;
   startTime: string; // e.g., "08:00"
   endTime: string; // e.g., "08:45"
+  isClinical?: boolean;
 }
 
 export interface schedule {

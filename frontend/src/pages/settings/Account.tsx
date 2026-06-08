@@ -103,6 +103,7 @@ const Account = () => {
   const [studentDetails, setStudentDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [studentCourses, setStudentCourses] = useState<any[]>([]);
+  const [studentClassInfo, setStudentClassInfo] = useState<{ name: string; teacher: { name: string; email: string } | null } | null>(null);
 
   // ─── Effects ──────────────────────────────────────────────────
   useEffect(() => {
@@ -183,9 +184,14 @@ const Account = () => {
       if (classId) {
         try {
           const { data: classData } = await api.get(`/classes/${classId}`);
-          setStudentCourses((classData.class ?? classData).subjects ?? (classData.class ?? classData).courses ?? []);
-        } catch { setStudentCourses([]); }
-      } else { setStudentCourses([]); }
+          const cls = classData.class ?? classData;
+          setStudentCourses(cls.subjects ?? cls.courses ?? []);
+          setStudentClassInfo({
+            name: cls.name ?? "Unknown Class",
+            teacher: cls.classTeacher ? { name: cls.classTeacher.name ?? "Unknown", email: cls.classTeacher.email ?? "" } : null,
+          });
+        } catch { setStudentCourses([]); setStudentClassInfo(null); }
+      } else { setStudentCourses([]); setStudentClassInfo(null); }
     } catch (e) { console.error(e); }
     finally { setLoadingDetails(false); }
   };
@@ -210,7 +216,7 @@ const Account = () => {
       toast.success("Student unlinked");
       const { data } = await api.get(`/users/profile`);
       setUser(data.user ?? data);
-      if (selectedStudent?._id === studentId) { setSelectedStudent(null); setStudentAttendance(null); setStudentDetails(null); }
+      if (selectedStudent?._id === studentId) { setSelectedStudent(null); setStudentAttendance(null); setStudentDetails(null); setStudentClassInfo(null); }
     } catch (e) { toast.error("Failed to unlink student"); }
   };
 
@@ -489,16 +495,27 @@ const Account = () => {
           <div className="flex items-center gap-4 px-5 py-4 border-b">
             <Avatar className="h-12 w-12 border-2 border-primary/20"><AvatarFallback className="bg-primary/10 text-primary">{getInitials(selectedStudent.name)}</AvatarFallback></Avatar>
             <div className="flex-1 min-w-0"><h3 className="text-base font-semibold truncate">{selectedStudent.name}</h3><p className="text-sm text-muted-foreground">{selectedStudent.idNumber}</p></div>
-            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => { setSelectedStudent(null); setStudentAttendance(null); setStudentDetails(null); }}><X className="h-4 w-4" /></Button>
+            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => { setSelectedStudent(null); setStudentAttendance(null); setStudentDetails(null); setStudentClassInfo(null); }}><X className="h-4 w-4" /></Button>
           </div>
           <div className="divide-y">
             <div className="px-5 py-4">
               <div className="flex items-center gap-2 mb-3"><BookOpen className="h-4 w-4 text-muted-foreground" /><h4 className="text-sm font-semibold">Class Information</h4></div>
               {loadingDetails ? (<div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading...</div>) :
-               studentDetails?.studentClasses?.length ? (
-                <div className="space-y-2 pl-6">
-                  <div className="flex flex-wrap gap-2">{studentDetails.studentClasses.map((c: any, i: number) => (<span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">{c.name ?? c}</span>))}</div>
-                  {studentDetails.studentClasses[0]?.academicYear?.name && <p className="text-xs text-muted-foreground">Academic Year: {studentDetails.studentClasses[0].academicYear.name}</p>}
+               studentClassInfo ? (
+                <div className="space-y-3 pl-6">
+                  <div className="flex flex-wrap gap-2">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">{studentClassInfo.name}</span>
+                  </div>
+                  {studentClassInfo.teacher && (
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">{studentClassInfo.teacher.name}</span>
+                      <span className="text-xs text-muted-foreground">({studentClassInfo.teacher.email})</span>
+                    </div>
+                  )}
+                  {studentDetails?.studentClasses?.[0]?.academicYear?.name && (
+                    <p className="text-xs text-muted-foreground">Academic Year: {studentDetails.studentClasses[0].academicYear.name}</p>
+                  )}
                 </div>
               ) : studentDetails?.studentClass ? (
                 <div className="space-y-1 pl-6"><span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">{typeof studentDetails.studentClass === "object" ? studentDetails.studentClass.name : studentDetails.studentClass}</span></div>

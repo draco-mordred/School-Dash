@@ -2,22 +2,24 @@ import { Input } from "@/components/ui/input";
 import { SearchIcon } from "lucide-react";
 
 const Search = ({
-  search,
-  setSearch,
-  title,
+  value,
+  onChange,
+  placeholder = "Search",
+  className = "",
 }: {
-  search: string;
-  setSearch: (search: string) => void;
-  title: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
 }) => {
   return (
-    <div className="relative w-full md:w-64">
+    <div className={`relative w-full md:w-64 ${className}`}>
       <SearchIcon className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
       <Input
-        placeholder={`Search ${title}`}
-        className="pl-8"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        placeholder={placeholder}
+        className="pl-8 rounded-lg"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
       />
     </div>
   );

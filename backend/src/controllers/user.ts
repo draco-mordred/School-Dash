@@ -95,7 +95,7 @@ export const registerUser = async (
             } else {
                 // if no ID number is passed, update with the next in the sequence based on the role prefix (e.g., UJ0000ST0001 for students, UJ0000AD0001 for admins, etc.)
                 if (!idNumber) {
-                    const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : "UJ0000ST"; // Default prefix for unknown roles
+                    const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : role === "unit_consultant" ? "UJ0000UC" : role === "unit_resident" ? "UJ0000UR" : "UJ0000ST"; // Default prefix for unknown roles
                     const lastUserWithRolePrefix = await User.findOne({ idNumber: { $regex: `^${rolePrefix}` } }).sort({ createdAt: -1 });
                     if (lastUserWithRolePrefix) {
                         const lastIDNumber = lastUserWithRolePrefix.idNumber;
@@ -105,7 +105,7 @@ export const registerUser = async (
                         newIDNumber = `${prefix}${newNumericPart}`;
                     } else {
                         // If no existing user with the same role prefix is found, we can start with the first ID number in the sequence (e.g., UJ0000ST0001 for students)
-                        const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : "UJ0000ST"; // Default prefix for unknown roles
+                        const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : role === "unit_consultant" ? "UJ0000UC" : role === "unit_resident" ? "UJ0000UR" : "UJ0000ST"; // Default prefix for unknown roles
                         newIDNumber = `${rolePrefix}0001`;
                     }
                 }
@@ -444,7 +444,7 @@ export const getUserById = async (req: Request, res: Response): Promise<void> =>
             .select("-password")
             .populate("studentClasses", "_id name academicYear")
             .populate("teacherSubject", "_id name code")
-            .populate("parentStudents", "name email idNumber role");
+            .populate("parentStudents", "name email idNumber role studentClasses");
         if (!user) {
             res.status(404).json({ message: "User not found" });
             return;
@@ -493,7 +493,7 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
         const user = await User.findById((req as any).user._id)
           .populate("studentClasses", "name academicYear")
           .populate("teacherSubject", "name code")
-          .populate("parentStudents", "name email idNumber role");
+          .populate("parentStudents", "name email idNumber role studentClasses");
         if (user){
             res.json({
                 user: {
@@ -574,10 +574,10 @@ export const bulkUploadUsers = async (req: Request, res: Response): Promise<void
                 });
                 return;
             }
-            if (!["admin", "teacher", "student", "parent"].includes(u.role)) {
+            if (!["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"].includes(u.role)) {
                 res.status(400).json({
                     status: "Error!",
-                    message: `Invalid role '${u.role}'. Must be admin, teacher, student, or parent.`,
+                    message: `Invalid role '${u.role}'. Must be admin, teacher, student, parent, unit_consultant, or unit_resident.`,
                 });
                 return;
             }

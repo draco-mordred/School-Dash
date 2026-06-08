@@ -29,7 +29,11 @@ export const protect = async (
     if (token) {
         try {
             const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);
-            req.user = (await User.findById(decoded.userId).select("-password")) as IUser;
+            req.user = (await User.findById(decoded.userId)
+                .select("-password")
+                .populate("studentClasses", "_id name")
+                .populate("teacherSubject", "_id name code")
+                .populate("parentStudents", "_id name email idNumber role studentClasses")) as IUser;
             next();
         } catch (error) {
             console.log(error);

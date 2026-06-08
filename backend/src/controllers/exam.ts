@@ -5,7 +5,6 @@ import { inngest } from "../inngest"
 import Exam from "../models/exam";
 import CourseModel from "../models/courses";
 import Submission from "../models/submission";
-import { isQuestionDotToken } from "typescript";
 
 // @desc    Trigger AI Exam Generation
 // @route   POST /api/exams/generate
@@ -91,12 +90,29 @@ export const getExams = async (
     let query = {};
 
     if (user.role === "student") {
-      //Student see exams for their class only
-      query = { class: user.StudentClass, isActive: true };
-    }else if (user.role === "teacher") {
-      //Teacher see exams thery created
+      // Student see exams for their class only
+      // Auth middleware populates `studentClasses` (lowercase) as `studentClasses: [{_id, name}]`.
+      // Some older code uses `StudentClass`, so we support both.
+      const studentClassId =
+        // preferred: populated studentClasses
+        (user as any).studentClasses?.[0]?._id ||
+        // fallback: direct object
+        (user as any).studentClass?._id ||
+        // fallback: legacy capitalized field could be populated or raw id
+        (user as any).StudentClass?._id ||
+        (user as any).StudentClass ||
+        (user as any).studentClass;
+
+      if (!studentClassId) {
+        return res.json([]);
+      }
+
+      query = { class: studentClassId, isActive: true };
+    } else if (user.role === "teacher") {
+      // Teacher see exams they created
       query = { lecturer: user._id };
     }
+
 
     const exams = await Exam.find(query)
     .populate("subject", "name")

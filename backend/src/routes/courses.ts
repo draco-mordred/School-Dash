@@ -12,7 +12,7 @@ const courseRouter = express.Router();
 
 courseRouter
 .route("/create")
-.post(protect, authorize(["admin", "teacher"]), createCourseSubject);
+.post(protect, authorize(["admin", "teacher", "unit_consultant", "unit_resident"]), createCourseSubject);
 
 courseRouter
 .route("/deduplicate-classes")
@@ -28,6 +28,6 @@ courseRouter
 
 courseRouter
 .route("/update/:id")
-.patch(protect,  authorize(["admin", "teacher"]), updateCourseSubjects);
+.patch(protect,  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]), updateCourseSubjects);
 
 export default courseRouter;

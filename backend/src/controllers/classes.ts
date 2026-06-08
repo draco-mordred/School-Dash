@@ -7,8 +7,9 @@ export const getClassById = async (req: Request, res: Response) => {
   try {
     const cls = await ClassModel.findById(req.params.id)
       .populate("academicYear", "name")
+      .populate("classTeacher", "name email")
       .populate("courses", "name code")
-      .select("name academicYear courses");
+      .select("name academicYear classTeacher courses");
     if (!cls) {
       return res.status(404).json({ message: "Class not found" });
     }

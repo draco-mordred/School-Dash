@@ -215,3 +215,11 @@
 *::-webkit-scrollbar {
   display: none;
 }
+
+/* Smooth transform utility to hint browser for GPU acceleration */
+.smooth-transform {
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+}

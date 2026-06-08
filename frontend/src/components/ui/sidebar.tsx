@@ -110,7 +110,7 @@ function SidebarProvider({
         <div
           data-slot="sidebar-wrapper"
           className={cn(
-            "group has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
+            "peer group has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
             className
           )}
           {...props}
@@ -198,7 +198,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          "fixed inset-y-0 z-50 h-svh w-[var(--sidebar-width)] transition-[left,right,width] duration-200 ease-linear md:flex pointer-events-none md:pointer-events-auto",
+          "fixed top-[70px] bottom-0 z-50 w-[var(--sidebar-width)] transition-[left,right,width] duration-200 ease-linear md:flex pointer-events-none md:pointer-events-auto",
 
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
@@ -343,7 +343,7 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overflow-x-visible group-data-[collapsible=icon]:overflow-hidden group-data-[collapsible=icon]:overflow-y-auto",
         className
       )}
       {...props}
@@ -356,7 +356,7 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sidebar-group"
       data-sidebar="group"
-      className={cn("relative flex w-full min-w-0 flex-col p-2", className)}
+      className={cn("relative flex w-full min-w-0 flex-col overflow-visible p-2", className)}
       {...props}
     />
   );
@@ -436,7 +436,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
     <li
       data-slot="sidebar-menu-item"
       data-sidebar="menu-item"
-      className={cn("group/menu-item relative", className)}
+      className={cn("group/menu-item relative overflow-visible", className)}
       {...props}
     />
   );

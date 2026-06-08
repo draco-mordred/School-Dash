@@ -88,19 +88,27 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                     </div>
 
                     {/* Card */}
-                    <div className="flex-1 min-w-0 rounded-md border bg-card p-2.5 border-l-4 border-l-primary shadow-sm">
+                    <div className={`flex-1 min-w-0 rounded-md border bg-card p-2.5 border-l-4 ${period.isClinical ? "border-l-green-500 bg-green-50" : "border-l-primary"} shadow-sm`}>
                       <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <h4 className="font-semibold text-sm leading-tight text-primary truncate">
-                          {period.subject?.name ?? "TBD Subject"}
+                        <h4 className={`font-semibold text-sm leading-tight truncate ${period.isClinical ? "text-green-700" : "text-primary"}`}>
+                          {period.isClinical ? "Clinical Activities" : (period.subject?.name ?? "TBD Subject")}
                         </h4>
-                        <Badge variant="outline" className="font-bold text-[10px] px-1 shrink-0">
-                          {period.subject?.code ?? ""}
-                        </Badge>
+                        {period.isClinical ? (
+                          <Badge variant="outline" className="font-bold text-[10px] px-1 shrink-0 bg-green-100 text-green-700 border-green-300">
+                            CLINICAL
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="font-bold text-[10px] px-1 shrink-0">
+                            {period.subject?.code ?? ""}
+                          </Badge>
+                        )}
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <UserIcon className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{period.lecturer?.name ?? "TBD Lecturer"}</span>
-                      </div>
+                      {!period.isClinical && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <UserIcon className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{period.lecturer?.name ?? "TBD Lecturer"}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))
@@ -144,27 +152,35 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                   className="min-w-44 flex-1 border-r p-2 last:border-r-0"
                 >
                   {period ? (
-                    <div className="h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 border-l-primary">
+                    <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 ${period.isClinical ? "border-l-green-500 bg-green-50" : "border-l-primary"}`}>
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <Badge
-                            variant="outline"
-                            className="font-bold text-[10px] px-1.5"
-                          >
-                            {period.subject?.code ?? ""}
-                          </Badge>
+                          {period.isClinical ? (
+                            <Badge variant="outline" className="font-bold text-[10px] px-1.5 bg-green-100 text-green-700 border-green-300">
+                              CLINICAL
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="font-bold text-[10px] px-1.5"
+                            >
+                              {period.subject?.code ?? ""}
+                            </Badge>
+                          )}
                         </div>
-                        <h4 className="font-semibold text-sm leading-tight text-primary line-clamp-2">
-                          {period.subject?.name ?? "TBD Subject"}
+                        <h4 className={`font-semibold text-sm leading-tight line-clamp-2 ${period.isClinical ? "text-green-700" : "text-primary"}`}>
+                          {period.isClinical ? "Clinical Activities" : (period.subject?.name ?? "TBD Subject")}
                         </h4>
                       </div>
 
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
-                        <UserIcon className="h-3 w-3 shrink-0" />
-                        <span className="truncate max-w-35" title={period.lecturer?.name ?? ""}>
-                          {period.lecturer?.name ?? "TBD Lecturer"}
-                        </span>
-                      </div>
+                      {!period.isClinical && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
+                          <UserIcon className="h-3 w-3 shrink-0" />
+                          <span className="truncate max-w-35" title={period.lecturer?.name ?? ""}>
+                            {period.lecturer?.name ?? "TBD Lecturer"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="h-full w-full rounded-md border border-dashed border-primary bg-primary/30 flex items-center justify-center">
