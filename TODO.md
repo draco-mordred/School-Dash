@@ -194,3 +194,5 @@ NEW TASKS START HERE:
 
 
 For Admin users, in the Clinical Rotations page, move the "New rotation" button to be closer to the "Refresh" button. And Let's make it so that when an admin, teacher, consultant, or Register "Creates" a new Clinical posting, it is saved and added to the database, and then a new Notification is created for all users, especially students, and the new notification is sent to be displayed in the Notifications card for all users in their dashboard and Notifications page, then the bell icon in the toopnavbar should have a shaking/ringing animation for users who haven't seen this notification (add function for all users to identify if they have seen new notifications in the system). Now, generate a notifications card and replace the "Notifications" in the Students Dashboard page. This Notifications card will show new Notifications in the system when they are available (Top 7 new notifications), clicking the card will open the Notifications page. The notifications Card should automatically refresh every 5 minutes and be updated with new notifications.
+
+We'll do this next, and ensure it works.
