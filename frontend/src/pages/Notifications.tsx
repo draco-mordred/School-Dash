@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -69,18 +69,26 @@ export default function Notifications() {
   const isStudent = user?.role === "student";
   const { notifications, unreadCount, markAllAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
 
-  // When the page opens and there are unread notifications, show them in the
-  // "New System Notifications" card, then mark them as read for this user so
-  // the navbar bell and badge update. Add a short delay so the card is visible
-  // before the count is cleared.
+  // Use an IntersectionObserver to mark notifications as read only when the
+  // "New System Notifications" card is visible to the user. This prevents
+  // clearing the badge prematurely.
+  const newNotifsRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (unreadCount > 0) {
-      const t = setTimeout(() => {
-        void markAllAsRead();
-      }, 600);
-      return () => clearTimeout(t);
-    }
-    return;
+    if (!newNotifsRef.current) return;
+    if (unreadCount <= 0) return;
+
+    const el = newNotifsRef.current;
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          void markAllAsRead();
+          obs.disconnect();
+        }
+      });
+    }, { threshold: 0.2 });
+
+    obs.observe(el);
+    return () => obs.disconnect();
   }, [unreadCount, markAllAsRead]);
 
   return (
@@ -96,6 +104,7 @@ export default function Notifications() {
         <>
           {/* New system notifications card */}
           {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <div ref={newNotifsRef as any}>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">New System Notifications</CardTitle>
@@ -119,6 +128,7 @@ export default function Notifications() {
                   ))}
               </CardContent>
             </Card>
+            </div>
           )}
 
           <StudentNotifications />
@@ -126,6 +136,7 @@ export default function Notifications() {
       ) : (
         <>
           {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <div ref={newNotifsRef as any}>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">New System Notifications</CardTitle>
@@ -149,6 +160,7 @@ export default function Notifications() {
                   ))}
               </CardContent>
             </Card>
+            </div>
           )}
 
           <AdminNotifications />

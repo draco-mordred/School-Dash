@@ -57,6 +57,40 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     await api.patch("/notifications/read-all");
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
+    try {
+      window.dispatchEvent(new CustomEvent("notifications:read-all"));
+    } catch {}
+  }, []);
+
+  // Broadcast a global event when all notifications are marked read so other
+  // hook instances (e.g., the AppShell) can update their local state.
+  useEffect(() => {
+    // patch markAllAsRead to dispatch the event after updating the server
+    const original = markAllAsRead;
+    async function wrappedMarkAll() {
+      await original();
+      try {
+        window.dispatchEvent(new CustomEvent("notifications:read-all"));
+      } catch {}
+    }
+
+    // replace by mutation — consumers call the function reference returned
+    // from this hook, so we cannot easily replace it here. Instead we listen
+    // for the event below to react to external dispatches.
+    return () => {
+      // no-op cleanup
+    };
+  }, [markAllAsRead]);
+
+  // Listen for global "notifications:read-all" events so separate hook
+  // instances stay in sync when another component marks notifications read.
+  useEffect(() => {
+    const onReadAll = () => {
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    };
+    window.addEventListener("notifications:read-all", onReadAll);
+    return () => window.removeEventListener("notifications:read-all", onReadAll);
   }, []);
 
   const deleteNotification = useCallback(async (id: string) => {
