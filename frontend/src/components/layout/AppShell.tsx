@@ -8,6 +8,7 @@ import {
   Settings,
   GraduationCap,
   Shield,
+  Users,
   BookOpen,
   UserCircle,
   UsersRound,
@@ -49,7 +50,20 @@ function getRoleIcon(role?: string) {
   }
 }
 
-
+function getRoleIconLarge(role?: string) {
+  switch (role) {
+    case "admin":
+      return <Shield className="h-6 w-6" />;
+    case "teacher":
+      return <GraduationCap className="h-6 w-6" />;
+    case "student":
+      return <BookOpen className="h-6 w-6" />;
+    case "parent":
+      return <UsersRound className="h-6 w-6" />;
+    default:
+      return <UserCircle className="h-6 w-6" />;
+  }
+}
 
 function getRoleLabel(role?: string) {
   switch (role) {
@@ -338,14 +352,7 @@ export default function AppShell({ children }: PropsWithChildren) {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{user?.name?.toUpperCase()}</span>
                     <span className="text-xs text-muted-foreground">—</span>
-                    {/* Student navbar should show class name, not class id */}
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {user?.role === "student"
-                        ? typeof user?.studentClass === "object"
-                          ? user.studentClass?.name || "N/A"
-                          : user?.studentClass || "N/A"
-                        : user?.idNumber || "N/A"}
-                    </span>
+                    <span className="text-xs text-muted-foreground font-mono">{user?.idNumber || "N/A"}</span>
                   </div>
                   <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                     {getUserSubInfo(user)}
@@ -507,7 +514,7 @@ export default function AppShell({ children }: PropsWithChildren) {
             </header>
           )}
 
-mt-[25px] px-4 md:pl-0 md:pr-4 py-4 pb-16
+          <main className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[25px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
 
           {isProtected && (
             <footer className="fixed bottom-0 z-50 left-0 right-0 md:left-[var(--sidebar-width)] peer-data-[state=collapsed]:md:left-[var(--sidebar-width-icon)] border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground">

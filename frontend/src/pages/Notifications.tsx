@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Clock,
   BookOpen,
+  TrendingUp,
 } from "lucide-react";
 
 // ─── Shared ClassStatus (admin/teacher view) ──────────────────────────
@@ -27,7 +28,7 @@ interface ClassStatus {
   late: number;
   excused: number;
 }
-   
+
 // ─── Student Notifications Data ───────────────────────────────────────
 interface LectureEntry {
   subject: any;
@@ -66,7 +67,6 @@ const statusColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
-<<<<<<< HEAD
   const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
 
   // Use an IntersectionObserver to mark notifications as read only when the
@@ -89,18 +89,6 @@ export default function Notifications() {
 
     obs.observe(el);
     return () => obs.disconnect();
-=======
-  const { markAllAsRead, unreadCount } = useNotifications();
-
-  // When the Notifications page is opened and there are unread notifications,
-  // mark them as read for the current user so the navbar bell updates.
-  useEffect(() => {
-    if (unreadCount > 0) {
-      void markAllAsRead();
-      // notify other hook instances to sync
-      window.dispatchEvent(new CustomEvent("notifications:read-all"));
-    }
->>>>>>> 0a8c4960816369cce9c36154d03bf62dde9e38b5
   }, [unreadCount, markAllAsRead]);
 
   return (
@@ -111,15 +99,6 @@ export default function Notifications() {
           {isStudent ? "My Notifications" : "Class Status Overview"}
         </h2>
       </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">New System Notifications</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Stay updated with the latest system-wide announcements.
-        </CardContent>
-      </Card>
 
       {isStudent ? (
         <>
@@ -200,7 +179,6 @@ export default function Notifications() {
           <AdminNotifications />
         </>
       )}
-
     </div>
   );
 }
@@ -331,63 +309,54 @@ function StudentNotifications() {
             </p>
           ) : (
             <div className="space-y-4">
-              {/* Only render today's + tomorrow's timetable */}
-              {(() => {
-                const todayIndex = DAYS.findIndex((d) => d === data.todayDay);
-                const currentAndNext = [
-                  todayIndex >= 0 ? DAYS[todayIndex] : null,
-                  todayIndex >= 0 && todayIndex + 1 < DAYS.length ? DAYS[todayIndex + 1] : null,
-                ].filter(Boolean) as string[];
-
-                return currentAndNext.map((day) => {
-                  const daySchedule = data.timetable.find((s: any) => s.day === day);
-                  const lectures = daySchedule?.periods ?? [];
-                  const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
-                  return (
-                    <div key={day}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
-                      {lectures.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {lectures.map((lec: any, i: number) => {
-                            const alertEntry = alertsForDay[i];
-                            const status = alertEntry?.status ?? null;
-                            return (
-                              <div
-                                key={i}
-                                className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium truncate">
-                                    {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
-                                  </p>
-                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <Clock className="h-3 w-3" />
-                                    <span>{lec.startTime} – {lec.endTime}</span>
-                                    {typeof lec.lecturer === "object" && lec.lecturer?.name && (
-                                      <span>· {lec.lecturer.name}</span>
-                                    )}
-                                  </div>
+              {DAYS.map((day) => {
+                const daySchedule = data.timetable.find((s: any) => s.day === day);
+                const lectures = daySchedule?.periods ?? [];
+                const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
+                return (
+                  <div key={day}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
+                    {lectures.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {lectures.map((lec: any, i: number) => {
+                          const alertEntry = alertsForDay[i];
+                          const status = alertEntry?.status ?? null;
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">
+                                  {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
+                                </p>
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{lec.startTime} – {lec.endTime}</span>
+                                  {typeof lec.lecturer === "object" && lec.lecturer?.name && (
+                                    <span>· {lec.lecturer.name}</span>
+                                  )}
                                 </div>
-                                {status && (
-                                  <span
-                                    className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
-                                      statusColors[status] ?? "bg-muted text-foreground"
-                                    }`}
-                                  >
-                                    {status}
-                                  </span>
-                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
+                              {status && (
+                                <span
+                                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
+                                    statusColors[status] ?? "bg-muted text-foreground"
+                                  }`}
+                                >
+                                  {status}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
