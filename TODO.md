@@ -18,9 +18,9 @@ Okay, we're working on... Let's work properly now on the sidenav. 1. Let's ensur
 
 FROM HERE ABOVE, TASKS ARE COMPLETE! DON NOT PERFORM THEM ANYMORE!
 
-
-Clinical Rotation: 
+Clinical Rotation:
 This should be created with the following fields provided:
+
 - Rotation Name
 - Rotation Description
 - Rotation Type
@@ -70,8 +70,10 @@ interface IClinicalRotation {
 The page should also allow users to add notes to each rotation and view the notes when clicking on the rotation.
 
 Log book entries:
-The log book entries should be created with the fields based on the Clinical rotation: 
+The log book entries should be created with the fields based on the Clinical rotation:
+
 <!-- for example Medicine rotations are different within the units, and same for the surgical units -->
+
 - Theatre (list of theatre days, with their props(id, week number, day/date, day number(if multiple days), attendance status for the student) based on day in the Clnical Rotation)
 - Consultant Ward Rounds (list of Consultant Ward Round days, with their props(id, week number, day/date, day number(if multiple days), attendance status for the student)based on day in the Clinical Rotation)
 - Resident Ward Rounds (list of Resident Ward Rounds days, with their props(id, week number, day/date, day number(if multiple days), attendance status for the student)based on day in the Clinical Rotation)
@@ -84,6 +86,7 @@ The log book entries should be created with the fields based on the Clinical rot
 The log book entries should also allow users to add notes to each rotation and view the notes when clicking on the rotation. The Logbook entries page should allow users to view, create, edit, and delete logbook entries. The page should also allow users to filter and search through the rotations based on various criteria such as rotation type, rotation location, rotation supervisor, and rotation status. Additionally, the page should allow users to add notes to each rotation and view the notes when clicking on the rotation.
 
 Create schema object for Log book entries:
+
 ```typescript
 interface ILogbookEntries {
   _id: mongoose.Types.ObjectId;
@@ -127,59 +130,67 @@ interface ITheatreDays {
 
 ```
 
-1 UJ/2013/MD/0149 RINJI TANIMU GOTAN 
-2 UJ/2015/MD/0091 IJOKO SUNDAY OORI 
-3 UJ/2015/MD/0126 ZAKKA LUMI 
-4 UJ/2015/MD/0226 CHUNGYANG DACHUNG ISHAKU 
-5 UJ/2015/MD/0238 LOHPON PONNAN NIMKUR 
-6 UJ/2016/MD/0034 BELLO HARUNA DABO 
-7 UJ/2016/MD/0092 ISMAILA FARUK 
-8 UJ/2016/MD/0182 PANYIL MITONG DAKWOM 
-9 UJ/2016/MD/0205 EGGA JOEL AMOS 
-10 UJ/2016/MD/0213 GIDEON DANJUMA 
-11 UJ/2016/MD/0228 DANIANG JOSEPH NAANYONG 
-12 UJ/2016/MD/0230 RAYMOND JONAH JACOB 
-13 UJ/2016/MD/0263 DAKOGOL FRANKLIN 
-14 UJ/2016/MD/0268 YILYOK JOSEPH NAANGOE’AN 
-15 UJ/2016/MD/0272 WUSHANGKA PEACE NENKIMUN 
-16 UJ/2017/MD/0001 OLAJE BONIFACE IDU 
-17 UJ/2017/MD/0007 DANLADI JOY ASABA-SHAAMU 
-18 UJ/2017/MD/0043 DASHAP NANDAN GIDEON 
-19 UJ/2017/MD/0051 ONOJA GRACIELLE ELEOJO 
-20 UJ/2017/MD/0123 WULAPBA FAVOUR PINZUMMWA 
-21 UJ/2017/MD/0132 ABDULRAZAK IBRAHIM 
-22 UJ/2017/MD/0179 ADENIKEN DAVID OLUWATOSIN 
+1 UJ/2013/MD/0149 RINJI TANIMU GOTAN
+2 UJ/2015/MD/0091 IJOKO SUNDAY OORI
+3 UJ/2015/MD/0126 ZAKKA LUMI
+4 UJ/2015/MD/0226 CHUNGYANG DACHUNG ISHAKU
+5 UJ/2015/MD/0238 LOHPON PONNAN NIMKUR
+6 UJ/2016/MD/0034 BELLO HARUNA DABO
+7 UJ/2016/MD/0092 ISMAILA FARUK
+8 UJ/2016/MD/0182 PANYIL MITONG DAKWOM
+9 UJ/2016/MD/0205 EGGA JOEL AMOS
+10 UJ/2016/MD/0213 GIDEON DANJUMA
+11 UJ/2016/MD/0228 DANIANG JOSEPH NAANYONG
+12 UJ/2016/MD/0230 RAYMOND JONAH JACOB
+13 UJ/2016/MD/0263 DAKOGOL FRANKLIN
+14 UJ/2016/MD/0268 YILYOK JOSEPH NAANGOE’AN
+15 UJ/2016/MD/0272 WUSHANGKA PEACE NENKIMUN
+16 UJ/2017/MD/0001 OLAJE BONIFACE IDU
+17 UJ/2017/MD/0007 DANLADI JOY ASABA-SHAAMU
+18 UJ/2017/MD/0043 DASHAP NANDAN GIDEON
+19 UJ/2017/MD/0051 ONOJA GRACIELLE ELEOJO
+20 UJ/2017/MD/0123 WULAPBA FAVOUR PINZUMMWA
+21 UJ/2017/MD/0132 ABDULRAZAK IBRAHIM
+22 UJ/2017/MD/0179 ADENIKEN DAVID OLUWATOSIN
 
-23 UJ/2017/MD/0238 ANYUABAGA HARRY DANIEL 
-24 UJ/2017/MD/0303 JOEL MALGWI DAVID 
-25 UJ/2017/MD/0323 GOEWAM JOSEPH MANAANAH 
-26 UJ/2017/MD/0330 DANIANG GOEWAM SABASTINE 
-27 UJ/2017/MD/0368 TABOET NAANSHANGAN MOSES 
-28 UJ/2017/MD/0399 ENIOLOMINDA OLUFEMI DAYO 
-29 UJ/2017/MD/0427 LAAH NICHOLAS BAYO 
-30 UJ/2017/MD/0492 ABOJE JAMES OCHE 
-31 UJ/2017/MD/0600 ASIEBA JOSHUA JAMES 
-32 UJ/2017/MD/0641 DUNG KELVIN JEREMIAH 
-33 UJ/2017/MD/0669 MUHAMMAD AMINU KASSIM 
-34 UJ/2017/MD/0730 ZAILANI ABDULLAHI YAHAYA 
-35 UJ/2018/CS/0001 NWALI DESTINY CHIKA 
-36 UJ/2018/CS/0006 WILLIAMS KACHIRA NYIOR 
-37 UJ/2018/CS/0018 OKYAUWA CONSTANCE ONYAWOLE 
-38 UJ/2018/CS/0021 GYANG BYONG BULUS 
-39 UJ/2018/CS/0038 TUKURA LIYATU YAMMA 
-40 UJ/2018/CS/0045 DAJIN NAANTAGAM AMOS 
-41 UJ/2018/CS/0058 DADEON PATIENCE 
-42 UJ/2018/CS/0059 ALIYU TAFIDA RAMATU 
-43 UJ/2018/CS/0066 KWATMEN ABBA PESA’AN 
-44 UJ/2018/CS/0067 GYARA SINKUUL HABILA 
-45 UJ/2018/CS/0068 AGYON MATHEW EWA 
-46 UJ/2018/CS/0072 SANI ANNA UNEKWU–OJO 
-47 UJ/2018/CS/0076 ADAMS ISTIFANUS DANJA 
-48 UJ/2018/CS/0081 OKE JOY KIKELOMO 
-49 UJ/2018/CS/0090 EMMANUEL ALERO SHALOM 
-50 UJ/2018/CS/0096 MUSA FARIDA LAMISHI 
-51 UJ/2018/CS/0099 ROTJI WOKJI LAR 
-52 UJ/2018/CS/0109 AGADA VICTOR ONOJA 
-53 UJ/2018/CS/0113 HAYAB GYENOM FAITH 
-54 UJ/2018/CS/0114 SHEILA JACK OONYE 
-55 UJ/2018/CS/0115 DALANG KIRKI 
+23 UJ/2017/MD/0238 ANYUABAGA HARRY DANIEL
+24 UJ/2017/MD/0303 JOEL MALGWI DAVID
+25 UJ/2017/MD/0323 GOEWAM JOSEPH MANAANAH
+26 UJ/2017/MD/0330 DANIANG GOEWAM SABASTINE
+27 UJ/2017/MD/0368 TABOET NAANSHANGAN MOSES
+28 UJ/2017/MD/0399 ENIOLOMINDA OLUFEMI DAYO
+29 UJ/2017/MD/0427 LAAH NICHOLAS BAYO
+30 UJ/2017/MD/0492 ABOJE JAMES OCHE
+31 UJ/2017/MD/0600 ASIEBA JOSHUA JAMES
+32 UJ/2017/MD/0641 DUNG KELVIN JEREMIAH
+33 UJ/2017/MD/0669 MUHAMMAD AMINU KASSIM
+34 UJ/2017/MD/0730 ZAILANI ABDULLAHI YAHAYA
+35 UJ/2018/CS/0001 NWALI DESTINY CHIKA
+36 UJ/2018/CS/0006 WILLIAMS KACHIRA NYIOR
+37 UJ/2018/CS/0018 OKYAUWA CONSTANCE ONYAWOLE
+38 UJ/2018/CS/0021 GYANG BYONG BULUS
+39 UJ/2018/CS/0038 TUKURA LIYATU YAMMA
+40 UJ/2018/CS/0045 DAJIN NAANTAGAM AMOS
+41 UJ/2018/CS/0058 DADEON PATIENCE
+42 UJ/2018/CS/0059 ALIYU TAFIDA RAMATU
+43 UJ/2018/CS/0066 KWATMEN ABBA PESA’AN
+44 UJ/2018/CS/0067 GYARA SINKUUL HABILA
+45 UJ/2018/CS/0068 AGYON MATHEW EWA
+46 UJ/2018/CS/0072 SANI ANNA UNEKWU–OJO
+47 UJ/2018/CS/0076 ADAMS ISTIFANUS DANJA
+48 UJ/2018/CS/0081 OKE JOY KIKELOMO
+49 UJ/2018/CS/0090 EMMANUEL ALERO SHALOM
+50 UJ/2018/CS/0096 MUSA FARIDA LAMISHI
+51 UJ/2018/CS/0099 ROTJI WOKJI LAR
+52 UJ/2018/CS/0109 AGADA VICTOR ONOJA
+53 UJ/2018/CS/0113 HAYAB GYENOM FAITH
+54 UJ/2018/CS/0114 SHEILA JACK OONYE
+55 UJ/2018/CS/0115 DALANG KIRKI
+
+
+THE ABOVE HAVE BEEN COMPLETED.
+
+NEW TASKS START HERE:
+
+
+For Admin users, in the Clinical Rotations page, move the "New rotation" button to be closer to the "Refresh" button. And Let's make it so that when an admin, teacher, consultant, or Register "Creates" a new Clinical posting, it is saved and added to the database, and then a new Notification is created for all users, especially students, and the new notification is sent to be displayed in the Notifications card for all users in their dashboard and Notifications page, then the bell icon in the toopnavbar should have a shaking/ringing animation for users who haven't seen this notification (add function for all users to identify if they have seen new notifications in the system). Now, generate a notifications card and replace the "Notifications" in the Students Dashboard page. This Notifications card will show new Notifications in the system when they are available (Top 7 new notifications), clicking the card will open the Notifications page. The notifications Card should automatically refresh every 5 minutes and be updated with new notifications.
