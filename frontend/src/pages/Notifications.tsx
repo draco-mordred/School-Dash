@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useNotifications } from "@/hooks/useNotifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,6 +67,21 @@ const statusColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
+  const { notifications, unreadCount, markAllAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
+
+  // When the page opens and there are unread notifications, show them in the
+  // "New System Notifications" card, then mark them as read for this user so
+  // the navbar bell and badge update. Add a short delay so the card is visible
+  // before the count is cleared.
+  useEffect(() => {
+    if (unreadCount > 0) {
+      const t = setTimeout(() => {
+        void markAllAsRead();
+      }, 600);
+      return () => clearTimeout(t);
+    }
+    return;
+  }, [unreadCount, markAllAsRead]);
 
   return (
     <div className="flex w-full flex-col gap-4 px-6 py-6">
@@ -77,9 +93,66 @@ export default function Notifications() {
       </div>
 
       {isStudent ? (
-        <StudentNotifications />
+        <>
+          {/* New system notifications card */}
+          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">New System Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {notifications
+                  .filter((n) => !n.isRead)
+                  .slice(0, 10)
+                  .map((n) => (
+                    <div key={n._id} className="border rounded-md p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{n.title}</p>
+                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <StudentNotifications />
+        </>
       ) : (
-        <AdminNotifications />
+        <>
+          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">New System Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {notifications
+                  .filter((n) => !n.isRead)
+                  .slice(0, 10)
+                  .map((n) => (
+                    <div key={n._id} className="border rounded-md p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{n.title}</p>
+                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
+          <AdminNotifications />
+        </>
       )}
     </div>
   );
