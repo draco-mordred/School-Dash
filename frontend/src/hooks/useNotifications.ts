@@ -57,6 +57,20 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     await api.patch("/notifications/read-all");
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
+    // broadcast globally so other hook instances update (e.g., AppShell)
+    try {
+      window.dispatchEvent(new CustomEvent("notifications:read-all"));
+    } catch {}
+  }, []);
+
+  // Listen for global "read all" events so separate hook instances stay in sync
+  useEffect(() => {
+    const onReadAll = () => {
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+    };
+    window.addEventListener("notifications:read-all", onReadAll);
+    return () => window.removeEventListener("notifications:read-all", onReadAll);
   }, []);
 
   const deleteNotification = useCallback(async (id: string) => {
