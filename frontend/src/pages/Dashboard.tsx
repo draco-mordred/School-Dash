@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 function NotificationsCard() {
   const navigate = useNavigate();
-  const { notifications, unreadCount, isLoading, refetch } = useNotifications(1, 7);
+  const { notifications, unreadCount, isLoading, refetch, markAsRead } = useNotifications(1, 7);
 
   const openNotifications = () => navigate("/notifications");
 
@@ -64,7 +64,15 @@ function NotificationsCard() {
         ) : (
           <div className="divide-y divide-border">
             {notifications.map((n) => (
-              <div key={n._id} className={cn("p-3 hover:bg-muted flex items-start gap-3", !n.isRead && "bg-surface") }>
+              <button
+                key={n._id}
+                onClick={async () => {
+                  try { await markAsRead(n._id); } catch {}
+                  if (n.link) window.location.href = n.link;
+                  else navigate('/notifications');
+                }}
+                className={cn("w-full text-left p-3 hover:bg-muted flex items-start gap-3", !n.isRead && "bg-surface")}
+              >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <div className="truncate font-medium text-sm">{n.title}</div>
@@ -72,7 +80,7 @@ function NotificationsCard() {
                   </div>
                   <div className="text-xs text-muted-foreground truncate mt-1">{n.message}</div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

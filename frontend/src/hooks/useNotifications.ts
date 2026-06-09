@@ -50,7 +50,18 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     setNotifications((prev) =>
       prev.map((n) => (n._id === id ? { ...n, isRead: true } : n))
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+    setUnreadCount((prev) => {
+      const next = Math.max(0, prev - 1);
+      if (next === 0) {
+        try {
+          window.dispatchEvent(new CustomEvent("notifications:read-all"));
+        } catch {}
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("notifications:changed", { detail: { count: next } }));
+      } catch {}
+      return next;
+    });
   }, []);
 
   const markAllAsRead = useCallback(async () => {
@@ -90,7 +101,15 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
       setUnreadCount(0);
     };
     window.addEventListener("notifications:read-all", onReadAll);
-    return () => window.removeEventListener("notifications:read-all", onReadAll);
+    const onChanged = (e: any) => {
+      const c = e?.detail?.count ?? null;
+      if (typeof c === "number") setUnreadCount(c);
+    };
+    window.addEventListener("notifications:changed", onChanged as EventListener);
+    return () => {
+      window.removeEventListener("notifications:read-all", onReadAll);
+      window.removeEventListener("notifications:changed", onChanged as EventListener);
+    };
   }, []);
 
   const deleteNotification = useCallback(async (id: string) => {

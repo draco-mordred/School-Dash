@@ -67,7 +67,7 @@ const statusColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
-  const { notifications, unreadCount, markAllAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
+  const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
 
   // Use an IntersectionObserver to mark notifications as read only when the
   // "New System Notifications" card is visible to the user. This prevents
@@ -114,7 +114,20 @@ export default function Notifications() {
                   .filter((n) => !n.isRead)
                   .slice(0, 10)
                   .map((n) => (
-                    <div key={n._id} className="border rounded-md p-3">
+                    <button
+                      key={n._id}
+                      onClick={async () => {
+                        // mark this notification as read for the current user
+                        try {
+                          await markAsRead(n._id);
+                        } catch {}
+                        if (n.link) {
+                          // navigate if the notification contains a link
+                          window.location.href = n.link;
+                        }
+                      }}
+                      className="w-full text-left border rounded-md p-3"
+                    >
                       <div className="flex items-start justify-between">
                         <div className="min-w-0">
                           <p className="font-medium truncate">{n.title}</p>
@@ -124,7 +137,7 @@ export default function Notifications() {
                           {new Date(n.createdAt).toLocaleString()}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
               </CardContent>
             </Card>
