@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useNotifications } from "@/hooks/useNotifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,7 +14,6 @@ import {
   RefreshCw,
   Clock,
   BookOpen,
-  TrendingUp,
 } from "lucide-react";
 
 // ─── Shared ClassStatus (admin/teacher view) ──────────────────────────
@@ -66,6 +66,42 @@ const statusColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
+<<<<<<< HEAD
+  const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
+
+  // Use an IntersectionObserver to mark notifications as read only when the
+  // "New System Notifications" card is visible to the user. This prevents
+  // clearing the badge prematurely.
+  const newNotifsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!newNotifsRef.current) return;
+    if (unreadCount <= 0) return;
+
+    const el = newNotifsRef.current;
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          void markAllAsRead();
+          obs.disconnect();
+        }
+      });
+    }, { threshold: 0.2 });
+
+    obs.observe(el);
+    return () => obs.disconnect();
+=======
+  const { markAllAsRead, unreadCount } = useNotifications();
+
+  // When the Notifications page is opened and there are unread notifications,
+  // mark them as read for the current user so the navbar bell updates.
+  useEffect(() => {
+    if (unreadCount > 0) {
+      void markAllAsRead();
+      // notify other hook instances to sync
+      window.dispatchEvent(new CustomEvent("notifications:read-all"));
+    }
+>>>>>>> 0a8c4960816369cce9c36154d03bf62dde9e38b5
+  }, [unreadCount, markAllAsRead]);
 
   return (
     <div className="flex w-full flex-col gap-4 px-6 py-6">
@@ -76,11 +112,95 @@ export default function Notifications() {
         </h2>
       </div>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium">New System Notifications</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Stay updated with the latest system-wide announcements.
+        </CardContent>
+      </Card>
+
       {isStudent ? (
-        <StudentNotifications />
+        <>
+          {/* New system notifications card */}
+          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <div ref={newNotifsRef as any}>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">New System Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {notifications
+                  .filter((n) => !n.isRead)
+                  .slice(0, 10)
+                  .map((n) => (
+                    <button
+                      key={n._id}
+                      onClick={async () => {
+                        // mark this notification as read for the current user
+                        try {
+                          await markAsRead(n._id);
+                        } catch {}
+                        if (n.link) {
+                          // navigate if the notification contains a link
+                          window.location.href = n.link;
+                        }
+                      }}
+                      className="w-full text-left border rounded-md p-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{n.title}</p>
+                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+              </CardContent>
+            </Card>
+            </div>
+          )}
+
+          <StudentNotifications />
+        </>
       ) : (
-        <AdminNotifications />
+        <>
+          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
+            <div ref={newNotifsRef as any}>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">New System Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {notifications
+                  .filter((n) => !n.isRead)
+                  .slice(0, 10)
+                  .map((n) => (
+                    <div key={n._id} className="border rounded-md p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{n.title}</p>
+                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                        </div>
+                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+            </div>
+          )}
+
+          <AdminNotifications />
+        </>
       )}
+
     </div>
   );
 }
@@ -211,54 +331,63 @@ function StudentNotifications() {
             </p>
           ) : (
             <div className="space-y-4">
-              {DAYS.map((day) => {
-                const daySchedule = data.timetable.find((s: any) => s.day === day);
-                const lectures = daySchedule?.periods ?? [];
-                const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
-                return (
-                  <div key={day}>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
-                    {lectures.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {lectures.map((lec: any, i: number) => {
-                          const alertEntry = alertsForDay[i];
-                          const status = alertEntry?.status ?? null;
-                          return (
-                            <div
-                              key={i}
-                              className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate">
-                                  {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
-                                </p>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <Clock className="h-3 w-3" />
-                                  <span>{lec.startTime} – {lec.endTime}</span>
-                                  {typeof lec.lecturer === "object" && lec.lecturer?.name && (
-                                    <span>· {lec.lecturer.name}</span>
-                                  )}
+              {/* Only render today's + tomorrow's timetable */}
+              {(() => {
+                const todayIndex = DAYS.findIndex((d) => d === data.todayDay);
+                const currentAndNext = [
+                  todayIndex >= 0 ? DAYS[todayIndex] : null,
+                  todayIndex >= 0 && todayIndex + 1 < DAYS.length ? DAYS[todayIndex + 1] : null,
+                ].filter(Boolean) as string[];
+
+                return currentAndNext.map((day) => {
+                  const daySchedule = data.timetable.find((s: any) => s.day === day);
+                  const lectures = daySchedule?.periods ?? [];
+                  const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
+                  return (
+                    <div key={day}>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
+                      {lectures.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {lectures.map((lec: any, i: number) => {
+                            const alertEntry = alertsForDay[i];
+                            const status = alertEntry?.status ?? null;
+                            return (
+                              <div
+                                key={i}
+                                className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">
+                                    {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
+                                  </p>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Clock className="h-3 w-3" />
+                                    <span>{lec.startTime} – {lec.endTime}</span>
+                                    {typeof lec.lecturer === "object" && lec.lecturer?.name && (
+                                      <span>· {lec.lecturer.name}</span>
+                                    )}
+                                  </div>
                                 </div>
+                                {status && (
+                                  <span
+                                    className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
+                                      statusColors[status] ?? "bg-muted text-foreground"
+                                    }`}
+                                  >
+                                    {status}
+                                  </span>
+                                )}
                               </div>
-                              {status && (
-                                <span
-                                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
-                                    statusColors[status] ?? "bg-muted text-foreground"
-                                  }`}
-                                >
-                                  {status}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </CardContent>
