@@ -123,8 +123,9 @@ npx ts-node scripts/seedDemoUsers.ts
   - Add tests for new backend behavior where possible.
 
 ## License
+## License
 
-This repository does not include a license file. Add a `LICENSE` (e.g., MIT) to clarify terms.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ## Where to look next
 
