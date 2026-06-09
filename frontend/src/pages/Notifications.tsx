@@ -27,7 +27,7 @@ interface ClassStatus {
   late: number;
   excused: number;
 }
-
+   
 // ─── Student Notifications Data ───────────────────────────────────────
 interface LectureEntry {
   subject: any;
