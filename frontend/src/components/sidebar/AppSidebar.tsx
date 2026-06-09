@@ -1,3 +1,4 @@
+
 "use client";
 
 import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users } from "lucide-react";
@@ -176,6 +177,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
             </div>
           </div>
         </div>
+        <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
         {/* Compact icon-only footer — only visible when collapsed */}
         <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
           <Button
@@ -190,6 +192,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
             <RoleIcon className="h-4 w-4" />
           </span>
+        </div>
         </div>
       </SidebarFooter>
       <SidebarRail />

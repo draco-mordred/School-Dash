@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
-import { MoreHorizontal, Plus, Pencil, Trash2, X, ClipboardList, Stethoscope, CalendarDays } from "lucide-react";
+import { MoreHorizontal, Plus, Pencil, Trash2, X, ClipboardList, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -244,17 +244,22 @@ export default function ClinicalRotations() {
             Manage student clinical rotation schedules and records.
           </p>
         </div>
+        <div className="flex items-center gap-2">
           {canCreate && (
-          <Button onClick={() => openForm()} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Rotation
-          </Button>
-        )}
+            <Button onClick={() => openForm()} className="gap-2">
+              <Plus className="h-4 w-4" />
+              New Rotation
+            </Button>
+          )}
           {user?.role === "student" && (
             <Button variant="ghost" onClick={() => setShowAvailableDialog(true)} className="ml-3">
               Browse Available Postings
             </Button>
           )}
+          <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-2">
+            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

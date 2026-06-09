@@ -85,6 +85,9 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     markAsRead,
     markAllAsRead,
     deleteNotification,
-    refetch: fetchNotifications,
+    // refetch both the list and the unread count
+    refetch: useCallback(async () => {
+      await Promise.all([fetchNotifications(), fetchUnreadCount()]);
+    }, [fetchNotifications, fetchUnreadCount]),
   };
 }

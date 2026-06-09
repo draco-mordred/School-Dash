@@ -64,6 +64,33 @@ export const createClinicalRotation = async (req: Request, res: Response) => {
       details: `Created rotation "${rotationName}" for student ${student}`,
     });
 
+    // Create a system notification for all users about the new clinical rotation
+    try {
+      const User = (await import("../models/user")).default;
+      const { Notification } = await import("../models/notification");
+      // Notify all active users
+      const users = await User.find({ isActive: { $ne: false } }).select("_id role").lean();
+      if (Array.isArray(users) && users.length) {
+        const now = new Date();
+        const notifications = users.map((u: any) => ({
+          userId: u._id,
+          role: u.role || "student",
+          title: `New clinical rotation: ${rotationName}`,
+          message: `${rotationName} — ${rotationDescription || "New clinical posting available"}`,
+          type: "info",
+          isRead: false,
+          link: `/clinical-rotations`,
+          metadata: { rotationId: rotation._id },
+          createdAt: now,
+          updatedAt: now,
+        }));
+        // Insert many; do not block rotation creation on notification failures
+        await Notification.insertMany(notifications);
+      }
+    } catch (notifErr) {
+      console.error("Failed to create rotation notifications:", notifErr);
+    }
+
     res.status(201).json(rotation);
   } catch (error) {
     console.error(error);
@@ -100,6 +127,7 @@ export const getAllClinicalRotations = async (req: Request, res: Response) => {
     if (rotationType) filter.rotationType = rotationType;
     if (rotationStatus) filter.rotationStatus = rotationStatus;
 
+    console.debug("getAvailableRotations filter:", JSON.stringify(filter));
     const rotations = await ClinicalRotation.find(filter)
       .populate("student", "name idNumber email")
       .populate("students", "name idNumber email")
@@ -112,8 +140,8 @@ export const getAllClinicalRotations = async (req: Request, res: Response) => {
     const total = await ClinicalRotation.countDocuments(filter);
     res.json({ rotations, total, page: +page, limit: +limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error", error });
+    console.error(error?.stack || error);
+    res.status(500).json({ message: "Server error", error: String(error) });
   }
 };
 
@@ -429,7 +457,12 @@ export const getAvailableRotations = async (req: Request, res: Response) => {
 
     if (userId && userRole === "student") {
       // Try to collect student IDs from classes the user belongs to
-      const classIds = ((req as any).user?.studentClasses ?? []).map((c: any) => (typeof c === "string" ? c : c._id));
+      const rawStudentClasses = (req as any).user?.studentClasses ?? (req as any).user?.studentClass ?? [];
+      const classIds = Array.isArray(rawStudentClasses)
+        ? rawStudentClasses.map((c: any) => (typeof c === "string" ? c : c._id))
+        : rawStudentClasses
+          ? [ (typeof rawStudentClasses === "string" ? rawStudentClasses : rawStudentClasses._id) ]
+          : [];
       let classStudentIds: string[] = [];
       if (classIds.length) {
         const Class = (await import("../models/classes")).default;
@@ -460,14 +493,20 @@ export const getAvailableRotations = async (req: Request, res: Response) => {
     if (rotationUnit) filter.rotationUnit = rotationUnit;
 
     if (q && typeof q === "string") {
-      const regex = new RegExp(q.trim(), "i");
-      filter.$or = [
+      // escape user input before creating RegExp to avoid invalid pattern errors
+      const safeQ = q.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+      const regex = new RegExp(safeQ, "i");
+      const regexClauses = [
         { rotationName: regex },
         { rotationDescription: regex },
         { rotationUnit: regex },
       ];
+      // merge with any existing $or clauses (e.g. student/class filters)
+      if (filter.$or && Array.isArray(filter.$or)) filter.$or = filter.$or.concat(regexClauses);
+      else filter.$or = regexClauses;
     }
 
+    console.debug("listAllRotations filter:", JSON.stringify(filter));
     const rotations = await ClinicalRotation.find(filter)
       .populate("student", "name idNumber email")
       .populate("students", "name idNumber email")
@@ -547,17 +586,26 @@ export const listAllRotations = async (req: Request, res: Response) => {
     if (rotationStatus) filter.rotationStatus = rotationStatus;
 
     if (q && typeof q === 'string') {
-      const regex = new RegExp(q.trim(), 'i');
-      filter.$or = [
+      // escape user input before creating RegExp to avoid invalid pattern errors
+      const safeQ = q.trim().replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+      const regex = new RegExp(safeQ, 'i');
+      const regexClauses = [
         { rotationName: regex },
         { rotationDescription: regex },
         { rotationUnit: regex },
       ];
+      if (filter.$or && Array.isArray(filter.$or)) filter.$or = filter.$or.concat(regexClauses);
+      else filter.$or = regexClauses;
     }
 
     // If the requester is a student, limit visibility to rotations that are unclaimed by participants OR claimed by anyone in their class OR claimed by the student
     if (userId && userRole === 'student') {
-      const classIds = ((req as any).user?.studentClasses ?? []).map((c: any) => (typeof c === 'string' ? c : c._id));
+      const rawStudentClasses = (req as any).user?.studentClasses ?? (req as any).user?.studentClass ?? [];
+      const classIds = Array.isArray(rawStudentClasses)
+        ? rawStudentClasses.map((c: any) => (typeof c === 'string' ? c : c._id))
+        : rawStudentClasses
+          ? [ (typeof rawStudentClasses === 'string' ? rawStudentClasses : rawStudentClasses._id) ]
+          : [];
       let classStudentIds: string[] = [];
       if (classIds.length) {
         const Class = (await import('../models/classes')).default;
@@ -588,7 +636,7 @@ export const listAllRotations = async (req: Request, res: Response) => {
     const total = await ClinicalRotation.countDocuments(filter);
     res.json({ rotations, total, page: +page, limit: +limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error });
+    console.error(error?.stack || error);
+    res.status(500).json({ message: 'Server error', error: String(error) });
   }
 };

@@ -22,7 +22,64 @@ import {
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { useNotifications } from "@/hooks/useNotifications";
+import { formatDistanceToNow } from "date-fns";
 import { cn } from "@/lib/utils";
+
+function NotificationsCard() {
+  const navigate = useNavigate();
+  const { notifications, unreadCount, isLoading, refetch } = useNotifications(1, 7);
+
+  const openNotifications = () => navigate("/notifications");
+
+  // Auto-refresh notifications every 5 minutes
+  useEffect(() => {
+    const id = setInterval(() => {
+      void refetch();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [refetch]);
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden cursor-pointer" onClick={openNotifications}>
+      <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Notifications</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">Top {notifications?.length ?? 0} recent</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && <Badge variant="destructive">{unreadCount}</Badge>}
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+      <div className="p-2">
+        {isLoading ? (
+          <div className="space-y-2 p-3">
+            <Skeleton className="h-6 w-full rounded" />
+            <Skeleton className="h-6 w-full rounded" />
+            <Skeleton className="h-6 w-full rounded" />
+          </div>
+        ) : notifications.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">No notifications</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {notifications.map((n) => (
+              <div key={n._id} className={cn("p-3 hover:bg-muted flex items-start gap-3", !n.isRead && "bg-surface") }>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="truncate font-medium text-sm">{n.title}</div>
+                    <div className="text-xs text-muted-foreground ml-2">{formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}</div>
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate mt-1">{n.message}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Data interfaces ───────────────────────────────────────────
 interface ClassStatus {
@@ -257,27 +314,7 @@ export default function Dashboard() {
 
       {/* ══ TEST CHARTS — RESPONSIVE CONTAINER TEST ═══════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-border">
-            <h3 className="text-sm font-semibold">Test Bar Chart</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — bar chart</p>
-          </div>
-          <div className="p-5">
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={roleStats.map((r) => ({ name: roleLabels[r.role] ?? r.role, active: r.active ?? 0, inactive: r.inactive ?? 0 }))} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                  <Bar dataKey="active" name="Active" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="inactive" name="Inactive" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+        <NotificationsCard />
 
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border">

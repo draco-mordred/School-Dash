@@ -2,7 +2,7 @@ import mongoose, { Schema, type Document } from "mongoose";
 
 export interface INotification extends Document {
   userId: mongoose.Types.ObjectId;
-  role: "admin" | "teacher" | "student" | "parent";
+  role: "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident";
   title: string;
   message: string;
   type: "info" | "warning" | "success" | "error" | "attendance" | "timetable" | "system";
@@ -18,7 +18,7 @@ const NotificationSchema = new Schema<INotification>(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     role: {
       type: String,
-      enum: ["admin", "teacher", "student", "parent"],
+      enum: ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"],
       required: true,
       index: true,
     },
