@@ -82,7 +82,10 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
       await original();
       try {
         window.dispatchEvent(new CustomEvent("notifications:read-all"));
-      } catch {}
+      } catch {
+        // ignore — event dispatch is best-effort for cross-instance sync
+        
+      }
     }
 
     // replace by mutation — consumers call the function reference returned
