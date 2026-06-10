@@ -45,6 +45,40 @@ router.get("/unread-count", protect, async (req, res) => {
   }
 });
 
+// GET /notifications/system — recent notifications across the system
+router.get("/system", protect, async (req, res) => {
+  try {
+    const user = (req as any).user;
+    if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit)) || 100));
+
+    const notifications = await Notification.find({})
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    // Deduplicate by a key composed of type + createdAt ISO string
+    const seen = new Map<string, any>();
+    for (const n of notifications) {
+      const key = `${n.type}:${new Date(n.createdAt).toISOString()}`;
+      if (!seen.has(key)) {
+        seen.set(key, n);
+      }
+    }
+
+    const deduped = Array.from(seen.values()).map((n: any) => ({
+      ...n,
+      unreadForUser: String(n.userId) === String(user._id) && n.isRead === false,
+    }));
+
+    res.json({ notifications: deduped });
+  } catch (err) {
+    console.error("GET /notifications/system error:", err);
+    res.status(500).json({ error: "Failed to fetch system notifications" });
+  }
+});
+
 // PATCH /notifications/:id/read — mark a single notification as read
 router.patch("/:id/read", protect, async (req, res) => {
   try {

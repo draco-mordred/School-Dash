@@ -245,20 +245,20 @@ export default function ClinicalRotations() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {user?.role === "student" && (
+            <Button variant="ghost" onClick={() => setShowAvailableDialog(true)} className="ml-0">
+              Browse Available Postings
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-0">
+            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+          </Button>
           {canCreate && (
-            <Button onClick={() => openForm()} className="gap-2">
+            <Button onClick={() => openForm()} className="gap-2 ml-2">
               <Plus className="h-4 w-4" />
               New Rotation
             </Button>
           )}
-          {user?.role === "student" && (
-            <Button variant="ghost" onClick={() => setShowAvailableDialog(true)} className="ml-3">
-              Browse Available Postings
-            </Button>
-          )}
-          <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-2">
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
-          </Button>
         </div>
       </div>
 

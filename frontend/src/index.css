@@ -223,3 +223,18 @@
   -webkit-backface-visibility: hidden;
   transform: translateZ(0);
 }
+
+/* Bell / notification ring animation used by the AppShell bell */
+@keyframes ring {
+  0% { transform: rotate(0deg); }
+  10% { transform: rotate(-15deg); }
+  30% { transform: rotate(10deg); }
+  50% { transform: rotate(-8deg); }
+  70% { transform: rotate(6deg); }
+  100% { transform: rotate(0deg); }
+}
+.animate-ring {
+  display: inline-block;
+  transform-origin: top center;
+  animation: ring 1s ease-in-out infinite;
+}

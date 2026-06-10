@@ -222,6 +222,34 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
       endTime: (p as any).endTime,
     }));
 
+    // Resolve subject and lecturer names for timetable entries (replace ids with { _id, name })
+    const subjectIds = new Set<string>();
+    const lecturerIds = new Set<string>();
+    const addIdsFromPeriods = (periods: any[]) => {
+      for (const p of periods || []) {
+        if (p?.subject) subjectIds.add(String(p.subject));
+        if (p?.lecturer) lecturerIds.add(String(p.lecturer));
+      }
+    };
+    // collect from today's periods
+    addIdsFromPeriods(todaySchedule?.periods ?? []);
+    // collect from whole week schedule
+    for (const s of (timetable?.schedule ?? [])) addIdsFromPeriods(s.periods ?? []);
+
+    const subjectsArr = subjectIds.size ? await Course.find({ _id: { $in: Array.from(subjectIds) } }).select("name") : [];
+    const lecturersArr = lecturerIds.size ? await User.find({ _id: { $in: Array.from(lecturerIds) } }).select("name") : [];
+    const subjMap = new Map(subjectsArr.map((c: any) => [String(c._id), { _id: c._id, name: c.name }]));
+    const lectMap = new Map(lecturersArr.map((u: any) => [String(u._id), { _id: u._id, name: u.name }]));
+
+    const resolvePeriod = (p: any) => ({
+      subject: p?.subject && subjMap.get(String(p.subject)) ? subjMap.get(String(p.subject)) : p.subject,
+      lecturer: p?.lecturer && lectMap.get(String(p.lecturer)) ? lectMap.get(String(p.lecturer)) : p.lecturer,
+      startTime: p?.startTime,
+      endTime: p?.endTime,
+    });
+
+    const resolvedTodayLectures = (todaySchedule?.periods ?? []).map(resolvePeriod);
+
     // Get week start (Monday) and end (Friday)
     const now = new Date();
     const dayOfWeek = now.getDay();
@@ -250,17 +278,18 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
       attendanceMap.set(key, a.status);
     });
 
-    // Weekly alerts grouped by day
+    // Weekly alerts grouped by day (with subjects/lecturers resolved)
     const weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
     const weeklyAlerts = weekDays.map((day) => {
       const daySchedule = timetable?.schedule.find((s: any) => s.day === day);
       const lectures = (daySchedule?.periods ?? []).map((p: any) => {
         const key = `${(p as any).subject?._id ?? (p as any).subject}-${day}`;
+        const resolved = resolvePeriod(p);
         return {
-          subject: (p as any).subject,
-          lecturer: (p as any).lecturer,
-          startTime: (p as any).startTime,
-          endTime: (p as any).endTime,
+          subject: resolved.subject,
+          lecturer: resolved.lecturer,
+          startTime: resolved.startTime,
+          endTime: resolved.endTime,
           status: attendanceMap.get(key) ?? null,
         };
       });
@@ -272,7 +301,7 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
       academicYear: cls?.academicYear?.name ?? null,
       timetable: timetable?.schedule ?? [],
       todayDay: todayName,
-      todayLectures,
+      todayLectures: resolvedTodayLectures,
       totalAttended,
       totalClasses,
       percentage: totalClasses > 0 ? Math.round((totalAttended / totalClasses) * 100) : 0,

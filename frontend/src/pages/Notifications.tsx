@@ -68,6 +68,8 @@ export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
   const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
+  const [systemNotifications, setSystemNotifications] = useState<any[] | null>(null);
+  const [systemLoading, setSystemLoading] = useState(false);
 
   // Use an IntersectionObserver to mark notifications as read only when the
   // "New System Notifications" card is visible to the user. This prevents
@@ -91,6 +93,33 @@ export default function Notifications() {
     return () => obs.disconnect();
   }, [unreadCount, markAllAsRead]);
 
+  useEffect(() => {
+    const fetchSystem = async () => {
+      try {
+        setSystemLoading(true);
+        const { data } = await api.get("/notifications/system?limit=200");
+        // Deduplicate by type + createdAt and sort so unreadForUser are first
+        const raw: any[] = data.notifications || [];
+        const seen = new Map<string, any>();
+        for (const n of raw) {
+          const key = `${n.type}:${new Date(n.createdAt).toISOString()}`;
+          if (!seen.has(key)) seen.set(key, n);
+        }
+        const deduped = Array.from(seen.values()).map((n) => ({ ...n }));
+        const items = deduped.sort((a: any, b: any) => {
+          if (a.unreadForUser === b.unreadForUser) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          return a.unreadForUser ? -1 : 1;
+        });
+        setSystemNotifications(items);
+      } catch (e) {
+        console.error("Failed to fetch system notifications", e);
+      } finally {
+        setSystemLoading(false);
+      }
+    };
+    void fetchSystem();
+  }, []);
+
   return (
     <div className="flex w-full flex-col gap-4 px-6 py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -102,79 +131,79 @@ export default function Notifications() {
 
       {isStudent ? (
         <>
-          {/* New system notifications card */}
-          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
-            <div ref={newNotifsRef as any}>
+          {/* Student class info and academic year card above system notifications */}
+          <StudentNotifications />
+
+          {/* New system notifications card (system-wide) */}
+          <div ref={newNotifsRef as any}>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">New System Notifications</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {notifications
-                  .filter((n) => !n.isRead)
-                  .slice(0, 10)
-                  .map((n) => (
-                    <button
-                      key={n._id}
-                      onClick={async () => {
-                        // mark this notification as read for the current user
-                        try {
-                          await markAsRead(n._id);
-                        } catch {}
-                        if (n.link) {
-                          // navigate if the notification contains a link
-                          window.location.href = n.link;
-                        }
-                      }}
-                      className="w-full text-left border rounded-md p-3"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium truncate">{n.title}</p>
-                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                {systemLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ) : (systemNotifications || [])
+                    .slice(0, 10)
+                    .map((n) => (
+                      <button
+                        key={n._id}
+                        onClick={async () => {
+                          try { if (n.unreadForUser) await markAsRead(n._id); } catch {}
+                          if (n.link) window.location.href = n.link;
+                        }}
+                        className={`w-full text-left border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{n.title} {n.unreadForUser && <Badge className="ml-2">New</Badge>}</p>
+                            <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                          </div>
+                          <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                            {new Date(n.createdAt).toLocaleString()}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
-                          {new Date(n.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    ))}
               </CardContent>
             </Card>
-            </div>
-          )}
-
-          <StudentNotifications />
+          </div>
         </>
       ) : (
         <>
-          {notifications && notifications.filter((n) => !n.isRead).length > 0 && (
-            <div ref={newNotifsRef as any}>
+          {/* New system notifications card (system-wide) */}
+          <div ref={newNotifsRef as any}>
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">New System Notifications</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {notifications
-                  .filter((n) => !n.isRead)
-                  .slice(0, 10)
-                  .map((n) => (
-                    <div key={n._id} className="border rounded-md p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0">
-                          <p className="font-medium truncate">{n.title}</p>
-                          <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
-                        </div>
-                        <div className="text-xs text-muted-foreground ml-3 shrink-0">
-                          {new Date(n.createdAt).toLocaleString()}
+                {systemLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                ) : (systemNotifications || [])
+                    .slice(0, 10)
+                    .map((n) => (
+                      <div key={n._id} className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}>
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{n.title} {n.unreadForUser && <Badge className="ml-2">New</Badge>}</p>
+                            <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                          </div>
+                          <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                            {new Date(n.createdAt).toLocaleString()}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
               </CardContent>
             </Card>
-            </div>
-          )}
+          </div>
 
           <AdminNotifications />
         </>
@@ -309,54 +338,65 @@ function StudentNotifications() {
             </p>
           ) : (
             <div className="space-y-4">
-              {DAYS.map((day) => {
-                const daySchedule = data.timetable.find((s: any) => s.day === day);
-                const lectures = daySchedule?.periods ?? [];
-                const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
-                return (
-                  <div key={day}>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
-                    {lectures.length === 0 ? (
-                      <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {lectures.map((lec: any, i: number) => {
-                          const alertEntry = alertsForDay[i];
-                          const status = alertEntry?.status ?? null;
-                          return (
-                            <div
-                              key={i}
-                              className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium truncate">
-                                  {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
-                                </p>
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <Clock className="h-3 w-3" />
-                                  <span>{lec.startTime} – {lec.endTime}</span>
-                                  {typeof lec.lecturer === "object" && lec.lecturer?.name && (
-                                    <span>· {lec.lecturer.name}</span>
-                                  )}
+              {/* Only show today and tomorrow */}
+              {(() => {
+                const todayName = data.todayDay || (() => {
+                  const jsDay = new Date().getDay();
+                  // map JS day (0=Sun) to our DAYS (Monday..Friday)
+                  const map: Record<number, string> = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 0: "Monday", 6: "Monday"};
+                  return map[jsDay] || DAYS[0];
+                })();
+                const idx = DAYS.indexOf(todayName);
+                const tomorrowName = DAYS[(idx + 1) % DAYS.length];
+                const daysToShow = [todayName, tomorrowName];
+
+                return daysToShow.map((day) => {
+                  const daySchedule = data.timetable.find((s: any) => s.day === day);
+                  const lectures = daySchedule?.periods ?? [];
+                  const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
+                  return (
+                    <div key={day}>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
+                      {lectures.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {lectures.map((lec: any, i: number) => {
+                            const alertEntry = alertsForDay[i];
+                            const status = alertEntry?.status ?? null;
+                            return (
+                              <div
+                                key={i}
+                                className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium truncate">{typeof lec.subject === "object" ? lec.subject?.name ?? "—" : (lec.subject ?? "—")}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {typeof lec.lecturer === "object" && lec.lecturer?.name ? lec.lecturer.name : (lec.lecturer ?? "—")}
+                                  </p>
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                    <Clock className="h-3 w-3" />
+                                    <span>{lec.startTime} – {lec.endTime}</span>
+                                  </div>
                                 </div>
+                                {status && (
+                                  <span
+                                    className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
+                                      statusColors[status] ?? "bg-muted text-foreground"
+                                    }`}
+                                  >
+                                    {status}
+                                  </span>
+                                )}
                               </div>
-                              {status && (
-                                <span
-                                  className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
-                                    statusColors[status] ?? "bg-muted text-foreground"
-                                  }`}
-                                >
-                                  {status}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </CardContent>

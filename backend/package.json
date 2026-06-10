@@ -7,20 +7,27 @@
     "dev": "nodemon --exec bun run src/server.ts",
     "start": "bun --watch src/server.ts",
     "build": "nodemon --exec bun run src/inngest/server.ts",
-    "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest"
+    "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
+    "test": "mocha --loader ts-node/esm tests/**/*.spec.ts --exit --timeout 20000"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
+    "@types/chai": "^5.2.3",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/mocha": "^10.0.10",
     "@types/mongoose": "^5.11.97",
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.6.2",
+    "@types/supertest": "^7.2.0",
+    "chai": "^6.2.2",
     "inngest-cli": "^1.19.2",
+    "mocha": "^11.7.6",
     "nodemon": "^3.1.14",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2"
   },
   "peerDependencies": {
