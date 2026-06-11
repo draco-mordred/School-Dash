@@ -556,6 +556,12 @@ export const signupRotation = async (req: Request, res: Response) => {
       // Set primary student if not set or if it's the same user
       rotation.student = userId;
     }
+    // allow student to specify a supervisor on signup (optional)
+    const { rotationSupervisor } = (req as any).body || {};
+    if (rotationSupervisor) {
+      rotation.rotationSupervisor = rotationSupervisor;
+    }
+
     await rotation.save();
 
     await logActivity({
@@ -563,6 +569,31 @@ export const signupRotation = async (req: Request, res: Response) => {
       action: "Signed up for rotation",
       details: `Signed up for rotation \"${rotation.rotationName}\" (${rotation._id})`,
     });
+
+    // notify admins about the student signup
+    try {
+      const User = (await import("../models/user")).default;
+      const { Notification } = await import("../models/notification");
+      const admins = await User.find({ role: "admin", isActive: { $ne: false } }).select("_id role").lean();
+      if (admins && admins.length) {
+        const now = new Date();
+        const notifications = admins.map((a: any) => ({
+          userId: a._id,
+          role: a.role || "admin",
+          title: `Student signed up: ${rotation.rotationName}`,
+          message: `${(req as any).user?.name || "A student"} signed up for ${rotation.rotationName}`,
+          type: "info",
+          isRead: false,
+          link: `/clinical-rotations/${rotation._id}`,
+          metadata: { rotationId: rotation._id, studentId: userId },
+          createdAt: now,
+          updatedAt: now,
+        }));
+        await Notification.insertMany(notifications);
+      }
+    } catch (err) {
+      console.error("Failed to create signup notifications:", err);
+    }
 
     res.json(rotation);
   } catch (error) {

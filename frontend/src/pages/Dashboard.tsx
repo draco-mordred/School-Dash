@@ -23,7 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { useNotifications } from "@/hooks/useNotifications";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
 
 function NotificationsCard() {
@@ -170,6 +170,7 @@ export default function Dashboard() {
   ];
 
   const [rotationStats, setRotationStats] = useState<typeof rotationData | null>(null);
+  const [weeklyActivity, setWeeklyActivity] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -239,6 +240,19 @@ export default function Dashboard() {
         } catch (err) {
           setRotationStats(null);
         }
+
+        // Fetch weekly activity counts for students (admin view)
+        try {
+          if (user?.role === "admin") {
+            const { data } = await api.get(`/activities/weekly?weeks=12`);
+            const weeks = data.weeks ?? [];
+            setWeeklyActivity(
+              weeks.map((w: any) => ({ name: format(new Date(w.weekStart), "MMM d"), attendance: w.attendance || 0, rotation: w.rotation || 0 }))
+            );
+          }
+        } catch (err) {
+          // ignore
+        }
       } catch (error) {
         console.error("Failed to load dashboard", error);
       } finally {
@@ -252,6 +266,16 @@ export default function Dashboard() {
   const isTeacher = user?.role === "teacher";
   const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
+
+  // Derived UI values for class overview
+  const classesWithTimetableCount = classStatuses.filter((c) => c.timetableStatus === "active").length;
+  const classesOverviewValue = `${classesWithTimetableCount} / ${classStatuses.length}`;
+  const classesOverviewStatus =
+    classStatuses.length === 0
+      ? "neutral"
+      : classStatuses.every((c) => c.timetableStatus === "active")
+      ? "good"
+      : "warn";
 
   // Build quick tiles based on role
   const quickTiles: QuickTile[] = [
@@ -330,14 +354,16 @@ export default function Dashboard() {
             <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — line chart</p>
           </div>
           <div className="p-5">
-            <div className="h-56">
+              <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={[{ name: "W1", value: 10 }, { name: "W2", value: 35 }, { name: "W3", value: 50 }, { name: "W4", value: 25 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                <LineChart data={weeklyActivity.length ? weeklyActivity : [{ name: "W1", attendance: 10, rotation: 6 }, { name: "W2", attendance: 35, rotation: 12 }, { name: "W3", attendance: 50, rotation: 16 }, { name: "W4", attendance: 25, rotation: 8 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
-                  <Line type="monotone" dataKey="value" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="rotation" name="Rotation" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -476,10 +502,7 @@ export default function Dashboard() {
         <div className="lg:col-span-3 space-y-6">
           {/* User roles breakdown — admin only, clickable card */}
           {isAdmin && roleStats.length > 0 && (
-            <div
-              onClick={() => navigate("/users")}
-              className="rounded-xl border border-border bg-card overflow-hidden cursor-pointer transition-all hover:border-primary/40 hover:bg-accent/30 active:scale-[0.99]"
-            >
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-border">
                 <div>
                   <h3 className="text-sm font-semibold">People</h3>
@@ -490,28 +513,39 @@ export default function Dashboard() {
                   <ChevronRight className="h-4 w-4 text-primary" />
                 </div>
               </div>
-              <div className="divide-y divide-border">
-                {roleStats.map((stat) => (
-                  <div
-                    key={stat._id}
-                    className="flex items-center justify-between px-5 py-3 first:pt-0 last:pb-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-                        {getRoleIconSmall(stat._id)}
+              <div className="p-4 max-h-[36rem] overflow-auto">
+                <div className="divide-y divide-border">
+                {roleStats.map((stat: any) => {
+                  const roleKey = stat._id ?? stat.role;
+                  const total = stat.count ?? ((stat.active ?? 0) + (stat.inactive ?? 0));
+                  const route =
+                    roleKey === "unit_consultant" ? "unit-consultants" :
+                    roleKey === "unit_resident" ? "unit-residents" :
+                    roleKey === "admin" ? "admins" : `${roleKey}s`;
+
+                  return (
+                    <div
+                      key={roleKey}
+                      onClick={() => navigate(`/users/${route}`)}
+                      className="flex items-center justify-between py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-accent/30"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                          {getRoleIconSmall(roleKey)}
+                        </div>
+                        <span className="text-sm font-medium capitalize">
+                          {roleLabels[roleKey] ?? roleKey}
+                        </span>
                       </div>
-                      <span className="text-sm font-medium capitalize">
-                        {roleLabels[stat._id] ?? stat._id}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <Badge variant={roleBadgeVariant(roleKey)} className="capitalize">
+                          {total}
+                        </Badge>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Badge variant={roleBadgeVariant(stat._id)} className="capitalize">
-                        {stat.count}
-                      </Badge>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -886,14 +920,8 @@ export default function Dashboard() {
                 <>
                   <StatusRow
                     label="Classes with Timetables"
-                    value={`${classStatuses.filter((c) => c.timetableStatus === "active").length} / ${classStatuses.length}`}
-                    status={
-                      classStatuses.length === 0
-                        ? "neutral"
-                        : classStatuses.every((c) => c.timetableStatus === "active")
-                        ? "good"
-                        : "warn"
-                    }
+                    value={classesOverviewValue}
+                    status={classesOverviewStatus}
                   />
                   <StatusRow
                     label="User Roles"

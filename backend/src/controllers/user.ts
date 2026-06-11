@@ -1,5 +1,7 @@
 import { type Request, type Response } from "express";
 import User from "../models/user";
+import { Notification } from "../models/notification";
+import { sendSSE } from "../utils/sse";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
 import type { AuthRequest } from "../middleware/auth";
@@ -48,16 +50,7 @@ export const registerUser = async (
 
         const finalStudentClass = studentClassesNormalized ?? studentClassIdFromClassId;
 
-        // Enforce domain rule: students must belong to a class.
-        if (role === "student") {
-            if (!finalStudentClass) {
-                res.status(400).json({
-                    status: "Error!",
-                    message: "Student must be assigned to a class",
-                });
-                return;
-            }
-        }
+        // Note: Students may be created without an assigned class; class can be added later.
 
         const teacherSubjectNormalized = Array.isArray(teacherSubject)
             ? teacherSubject
@@ -222,6 +215,165 @@ export const registerUser = async (
 // @route   POST /api/users/login
 // @access  Public 
 
+// Public registration for self-signup (used by frontend registration flow)
+export const registerPublic = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const {
+            name,
+            email,
+            password,
+            idNumber,
+            role,
+            studentClasses,
+            teacherSubject,
+            parentStudents,
+            isActive,
+        } = req.body;
+
+        // Determine if first user
+        const usersCount = await User.countDocuments();
+        const isFirst = usersCount === 0;
+
+        // If not first user, restrict public-assignable roles
+        const allowedRoles = isFirst
+            ? ["admin", "teacher"]
+            : ["student", "teacher", "parent"];
+
+        if (!role || !allowedRoles.includes(role)) {
+            res.status(400).json({ message: "Invalid role for public registration" });
+            return;
+        }
+
+        // Students may register without selecting a class; create account now and allow class assignment later.
+        const studentClassId = Array.isArray(studentClasses)
+            ? studentClasses[0]
+            : studentClasses || req.body?.classId || undefined;
+
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+            res.status(400).json({ message: "User already exists" });
+            return;
+        }
+
+        // Normalize arrays
+        const teacherSubjectNormalized = Array.isArray(teacherSubject)
+            ? teacherSubject
+            : teacherSubject
+            ? [teacherSubject]
+            : [];
+        const parentStudentsNormalized = Array.isArray(parentStudents)
+            ? parentStudents
+            : parentStudents
+            ? [parentStudents]
+            : [];
+
+        // idNumber generation
+        let newIDNumber = idNumber;
+        if (!newIDNumber) {
+            const rolePrefix =
+                role === "admin"
+                    ? "UJ0000AD"
+                    : role === "teacher"
+                    ? "UJ0000TE"
+                    : role === "student"
+                    ? "UJ0000ST"
+                    : role === "parent"
+                    ? "UJ0000PA"
+                    : "UJ0000ST";
+            const lastUserWithRolePrefix = await User.findOne({ idNumber: { $regex: `^${rolePrefix}` } }).sort({ createdAt: -1 });
+            if (lastUserWithRolePrefix) {
+                const lastIDNumber = lastUserWithRolePrefix.idNumber;
+                const prefix = lastIDNumber.slice(0, -4);
+                const lastNumericPart = parseInt(lastIDNumber.slice(-4));
+                const newNumericPart = (lastNumericPart + 1).toString().padStart(4, '0');
+                newIDNumber = `${prefix}${newNumericPart}`;
+            } else {
+                newIDNumber = `${rolePrefix}0001`;
+            }
+        }
+
+        const newUser = await User.create({
+            name,
+            email,
+            password,
+            idNumber: newIDNumber,
+            role,
+            studentClasses: studentClassId,
+            teacherSubject: teacherSubjectNormalized,
+            parentStudents: parentStudentsNormalized,
+            isActive,
+        });
+
+        if (newUser) {
+            await newUser.populate('studentClasses', 'name academicYear');
+            await newUser.populate('teacherSubject', 'name code');
+
+            if (role === 'student' && studentClassId) {
+                const ClassModel = require('../models/classes').default;
+                await ClassModel.findByIdAndUpdate(studentClassId, { $addToSet: { students: newUser._id } });
+            }
+
+            // If a student registered without a class, notify all admins to assign a class
+            if (role === 'student' && !studentClassId) {
+                try {
+                    const admins = await User.find({ role: 'admin' }).select('_id');
+                    const notifications = admins.map((a) => ({
+                        userId: a._id,
+                        role: 'admin',
+                        title: 'New student requires class assignment',
+                        message: `${newUser.name} (${newUser.email}) registered and needs to be assigned to a class.`,
+                        type: 'system',
+                        isRead: false,
+                        metadata: { newUserId: newUser._id },
+                    }));
+                        if (notifications.length) {
+                            const inserted = await Notification.insertMany(notifications);
+                            // broadcast each created notification via SSE to the specific admin user
+                            try {
+                                for (const doc of inserted) {
+                                    try { sendSSE('notification', doc, String(doc.userId)); } catch (err) { console.error('Failed to send SSE for inserted notifications', err); }
+                                }
+                            } catch (err) { console.error('Failed to send SSE for inserted notifications', err); }
+                        }
+                } catch (err) {
+                    console.error('Failed to notify admins about new student:', err);
+                }
+            }
+
+            res.status(201).json({
+                _id: newUser._id,
+                name: newUser.name,
+                email: newUser.email,
+                idNumber: newUser.idNumber,
+                role: newUser.role,
+                studentClasses: newUser.studentClasses,
+                teacherSubject: newUser.teacherSubject,
+                parentStudents: newUser.parentStudents,
+                isActive: newUser.isActive,
+                message: `User '${newUser.name}' created successfully`,
+            });
+            return;
+        }
+
+        res.status(400).json({ message: 'Invalid user data' });
+    } catch (error) {
+        res.status(500).json({ message: `Server error: ${error}` });
+    }
+};
+
+// Check if any users exist
+export const isFirstUser = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const count = await User.countDocuments();
+        res.status(200).json({ count, isFirst: count === 0 });
+    } catch (error) {
+        res.status(500).json({ message: `Server error: ${error}` });
+    }
+};
+
 export const login = async (
     req: Request, 
     res: Response
@@ -331,6 +483,8 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             }
 
             const updatedUser = await user.save();
+            const updater = (req as any).user;
+            const userId = updater?._id?.toString?.();
                         // Handle student class changes
                         if (user.role === "student" && req.body.studentClasses) {
                             const ClassModel = require("../models/classes").default;
@@ -346,12 +500,60 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                             if (newClass) {
                                 await ClassModel.findByIdAndUpdate(newClass, { $addToSet: { students: user._id } });
                             }
+                            // If a pending admin notification exists for assigning this student, remove it
+                            try {
+                                await Notification.deleteMany({ 'metadata.newUserId': updatedUser._id, type: 'system' });
+                            } catch (err) {
+                                console.error('Failed to clear admin notifications for user assignment:', err);
+                            }
+                            // Send notification to the user about class assignment
+                            try {
+                                const ClassModel2 = require("../models/classes").default;
+                                const classObj = newClass ? await ClassModel2.findById(newClass).select('name') : null;
+                                try {
+                                    const created = await Notification.create({
+                                        userId: updatedUser._id,
+                                        role: updatedUser.role,
+                                        title: 'Assigned to class',
+                                        message: classObj ? `You have been assigned to ${classObj.name}.` : 'You have been assigned to a class.',
+                                        type: 'info',
+                                        isRead: false,
+                                        metadata: { classId: newClass, className: classObj?.name || null, updatedBy: userId },
+                                    });
+                                    try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
+                                } catch (err) {
+                                    console.error('Failed to notify user about class assignment:', err);
+                                }
+                            } catch (err) {
+                                console.error('Failed to notify user about class assignment:', err);
+                            }
                         }
-            const userId = (req as any).user._id.toString();
-            if ((req as any).user) {
+                        // Notify the user if their profile was updated by someone else
+                        try {
+                            const updater = (req as any).user;
+                            if (!isOwnProfile && updater) {
+                                try {
+                                    const created = await Notification.create({
+                                        userId: updatedUser._id,
+                                        role: updatedUser.role,
+                                        title: 'Profile updated',
+                                        message: `Your profile was updated by ${updater.name || updater.email || 'an admin'}.`,
+                                        type: 'info',
+                                        isRead: false,
+                                        metadata: { updatedBy: updater._id, changes: req.body },
+                                    });
+                                    try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
+                                } catch (err) {
+                                    console.error('Failed to create profile-updated notification:', err);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('Failed to create profile-updated notification:', err);
+                        }
+            if (updater) {
                 //not responding at this point ... will continue the video for now ---to fix return to video at time: 1:30:45 / 7:05:54 ...
                 await logActivity({
-                    userId: (req as any).user._id.toString(),
+                    userId: userId,
                     action: "Updated user",
                     details: `Updated user ${updatedUser.email} (ID: ${updatedUser.idNumber}) successfully.
                     Changes: ${JSON.stringify(req.body)}`

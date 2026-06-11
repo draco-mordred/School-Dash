@@ -187,12 +187,129 @@ interface ITheatreDays {
 54 UJ/2018/CS/0114 SHEILA JACK OONYE
 55 UJ/2018/CS/0115 DALANG KIRKI
 
-
 THE ABOVE HAVE BEEN COMPLETED.
 
 NEW TASKS START HERE:
 
-
 For Admin users, in the Clinical Rotations page, move the "New rotation" button to be closer to the "Refresh" button. And Let's make it so that when an admin, teacher, consultant, or Register "Creates" a new Clinical posting, it is saved and added to the database, and then a new Notification is created for all users, especially students, and the new notification is sent to be displayed in the Notifications card for all users in their dashboard and Notifications page, then the bell icon in the toopnavbar should have a shaking/ringing animation for users who haven't seen this notification (add function for all users to identify if they have seen new notifications in the system). Now, generate a notifications card and replace the "Notifications" in the Students Dashboard page. This Notifications card will show new Notifications in the system when they are available (Top 7 new notifications), clicking the card will open the Notifications page. The notifications Card should automatically refresh every 5 minutes and be updated with new notifications.
 
 We'll do this next, and ensure it works.
+
+
+
+PUT /api/inngest 200 6.380 ms - 54
+247 |   }
+248 |
+249 |   try {
+250 |     return castObjectId(value);
+251 |   } catch (error) {
+252 |     throw new CastError('ObjectId', value, this.path, error, this);
+                ^
+CastError: Cast to ObjectId failed for value "list" (type string) at path "_id" for model "ClinicalRotation"
+ stringValue: "\"list\"",
+ messageFormat: undefined,
+       kind: "ObjectId",
+      value: "list",
+       path: "_id",
+  valueType: "string",
+
+    at`<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schema\objectId.js:252:11)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1372:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1798:17)
+      at cast (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast.js:386:32)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:5212:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2409:10)
+      at _findOne (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2756:8)
+      at exec (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:4797:74)
+
+2631 |                 if (ObjectId.cacheHexString) {
+2632 |                     __idCache.set(this, workingId);
+2633 |                 }
+2634 |             }
+2635 |             else {
+2636 |                 throw new BSONError('input must be a 24 character hex string, 12 byte Uint8Array, or an integer');
+                             ^
+error: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\bson\lib\bson.cjs:2636:23)
+      at castObjectId (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast\objectid.js:25:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schema\objectId.js:250:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1372:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1798:17)
+      at cast (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast.js:386:32)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:5212:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2409:10)
+      at _findOne (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2756:8)
+      at exec (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:4797:74)
+
+GET /api/clinical-rotations/list?page=1&limit=50&q=a 500 436.289 ms - 275
+PUT /api/inngest 200 5.441 ms - 54
+
+
+PUT /api/inngest 200 6.380 ms - 54
+247 |   }
+248 |
+249 |   try {
+250 |     return castObjectId(value);
+251 |   } catch (error) {
+252 |     throw new CastError('ObjectId', value, this.path, error, this);
+                ^
+CastError: Cast to ObjectId failed for value "list" (type string) at path "_id" for model "ClinicalRotation"
+ stringValue: "\"list\"",
+ messageFormat: undefined,
+       kind: "ObjectId",
+      value: "list",
+       path: "_id",
+  valueType: "string",
+
+    at`<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schema\objectId.js:252:11)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1372:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1798:17)
+      at cast (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast.js:386:32)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:5212:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2409:10)
+      at _findOne (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2756:8)
+      at exec (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:4797:74)
+
+2631 |                 if (ObjectId.cacheHexString) {
+2632 |                     __idCache.set(this, workingId);
+2633 |                 }
+2634 |             }
+2635 |             else {
+2636 |                 throw new BSONError('input must be a 24 character hex string, 12 byte Uint8Array, or an integer');
+                             ^
+error: input must be a 24 character hex string, 12 byte Uint8Array, or an integer
+      at new ObjectId (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\bson\lib\bson.cjs:2636:23)
+      at castObjectId (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast\objectid.js:25:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schema\objectId.js:250:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1372:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\schemaType.js:1798:17)
+      at cast (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\cast.js:386:32)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:5212:12)
+      at `<anonymous>` (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2409:10)
+      at _findOne (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:2756:8)
+      at exec (D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\backend\node_modules\mongoose\lib\query.js:4797:74)
+
+GET /api/clinical-rotations/list?page=1&limit=50&q=a 500 436.289 ms - 275
+PUT /api/inngest 200 5.441 ms - 54
+
+
+
+
+
+```
+[plugin:vite:react-babel] D:\Users\israe\OneDrive\Documents\dev\Node\School Dash\frontend\src\pages\Notifications.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (252:6)
+  255 |
+```
+
+```
+D:/Users/israe/OneDrive/Documents/dev/Node/School Dash/frontend/src/pages/Notifications.tsx:252:6
+```
+
+```
+255 |  
+256 |  // Render the user edit dialog at module level so it can be toggled
+257 |  function NotificationsWrapperDialog({ editingUser, open, setOpen, onSuccess }: { editingUser: any; open: boolean; set...
+    |                                                    ^
+258 |    if (!editingUser) return null;
+259 |    return (
+```

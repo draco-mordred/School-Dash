@@ -107,10 +107,18 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 
 // Start the server and listen on the specified port
 connectDB().then(() => {
-    app.listen(PORT, () => {
-    //connectDB(); //connect to the database when the server starts
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+    const server = app.listen(PORT, () => {
+      console.log(`Server is running on http://localhost:${PORT}`);
+    });
+
+    // initialize optional WebSocket server
+    try {
+      const { initWebSocket } = require('./utils/ws');
+      initWebSocket(server as any);
+    } catch (err) {
+      // not critical if ws package isn't installed
+      console.warn('WebSocket init failed or not available', err?.message || err);
+    }
 
 })
 //you can use any of these scripts to run the server with nodemon or bun

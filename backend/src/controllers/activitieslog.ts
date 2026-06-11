@@ -89,3 +89,72 @@ export const getRoleStats = async (req: Request, res: Response): Promise<void> =
     res.status(500).json({ message: `Server error`, error });
   }
 };
+
+// @desc    Get weekly activity counts for students
+// @route   Get /api/activities/weekly
+// @access  Private/Admin
+export const getWeeklyActivityCounts = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const weeks = Number(req.query.weeks) || 8;
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(end.getDate() - weeks * 7);
+
+    // categorize actions into types (attendance, rotation, other)
+    const results = await ActivityLog.aggregate([
+      { $match: { createdAt: { $gte: start, $lte: end } } },
+      { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'user' } },
+      { $unwind: '$user' },
+      { $match: { 'user.role': 'student' } },
+      { $addFields: {
+          actionType: {
+            $switch: {
+              branches: [
+                { case: { $regexMatch: { input: '$action', regex: /attendance/i } }, then: 'attendance' },
+                { case: { $regexMatch: { input: '$action', regex: /rotation|clinical/i } }, then: 'rotation' },
+              ],
+              default: 'other'
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: { week: { $dateTrunc: { date: '$createdAt', unit: 'week' } }, type: '$actionType' },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.week': 1 } },
+    ]);
+
+    // Build continuous weekly series so frontend can plot missing weeks as 0
+    const seriesWeeks: Date[] = [];
+    const curr = new Date(start);
+    // align to week boundaries by using the dateTrunc behavior (approx)
+    while (curr <= end) {
+      seriesWeeks.push(new Date(curr));
+      curr.setDate(curr.getDate() + 7);
+    }
+
+    // Map results into { weekISO -> { attendance, rotation, other } }
+    const map = new Map<string, { attendance: number; rotation: number; other: number }>();
+    results.forEach((r: any) => {
+      const wk = new Date(r._id.week).toISOString();
+      if (!map.has(wk)) map.set(wk, { attendance: 0, rotation: 0, other: 0 });
+      const entry = map.get(wk)!;
+      if (r._id.type === 'attendance') entry.attendance = r.count;
+      else if (r._id.type === 'rotation') entry.rotation = r.count;
+      else entry.other = r.count;
+    });
+
+    const out = seriesWeeks.map((d) => {
+      const wk = d.toISOString();
+      const counts = map.get(wk) ?? { attendance: 0, rotation: 0, other: 0 };
+      return { weekStart: wk, ...counts };
+    });
+
+    res.json({ weeks: out });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { protect } from "../middleware/auth";
 import { Notification } from "../models/notification";
+import { addSSEClient } from "../utils/sse";
 import { User } from "../models/user";
 
 const router = Router();
@@ -127,4 +128,16 @@ router.delete("/:id", protect, async (req, res) => {
   }
 });
 
+// GET /notifications/stream — Server-Sent Events stream for notifications
+router.get('/stream', protect, async (req, res) => {
+  try {
+    addSSEClient(req, res);
+    // Keep the connection open — addSSEClient handles initial handshake
+  } catch (err) {
+    console.error('Failed to add SSE client', err);
+    try { res.status(500).end(); } catch {}
+  }
+});
+
 export default router;
+

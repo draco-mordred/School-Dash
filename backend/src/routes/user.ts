@@ -3,6 +3,7 @@ const userRoutes = express.Router();
 import {
     login,
     registerUser,
+    registerPublic,
     updateUser,
     deleteUser,
     logoutUser,
@@ -12,6 +13,7 @@ import {
     bulkUploadUsers,
     extractFromPDF,
     extractFromImage,
+    isFirstUser,
 } from "../controllers/user";
 import { protect, authorize } from "../middleware/auth";
 
@@ -21,6 +23,10 @@ userRoutes.post("/register",
     authorize(["admin"]),
     registerUser
 );
+
+// Public registration endpoints
+userRoutes.get("/public/is-first", isFirstUser);
+userRoutes.post("/public/register", registerPublic);
 userRoutes.post("/login", login); 
 userRoutes.post("/logout", logoutUser); 
 userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route    

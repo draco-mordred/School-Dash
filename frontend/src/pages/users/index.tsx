@@ -94,6 +94,18 @@ export default function UserManagementPage({
     fetchUsers();
   }, [fetchUsers]);
 
+  const handleBulkDelete = async (ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/users/delete/${id}`)));
+      toast.success(`Deleted ${ids.length} users`);
+      fetchUsers();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete selected users");
+    }
+  };
+
   const parentChildren = currentParent?.parentStudents ?? [];
 
   const handleAddStudent = async () => {
@@ -251,6 +263,7 @@ export default function UserManagementPage({
         setEditingUser={setEditingUser}
         setIsFormOpen={setIsFormOpen}
         users={users}
+        onBulkDelete={handleBulkDelete}
         setPageNum={setPage}
         pageNum={page}
         totalPages={totalPages}

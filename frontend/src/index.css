@@ -238,3 +238,41 @@
   transform-origin: top center;
   animation: ring 1s ease-in-out infinite;
 }
+
+/* Page-level helper to center field labels and force inputs full-width */
+.center-field-labels [data-slot="field-label"] {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  text-align: center;
+}
+.center-field-labels label {
+  text-align: center;
+  width: 100%;
+}
+
+/* Thin curved input border and focus outline */
+input[data-slot="input"] {
+  border-width: 0.8px;
+  border-radius: 10px;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease, border-radius 0.18s ease;
+}
+input[data-slot="input"]:focus {
+  outline: none;
+  border-width: 1px;
+  border-color: rgba(99, 102, 241, 0.9); /* indigo-500 */
+  box-shadow: 0 6px 18px rgba(99,102,241,0.08);
+  border-radius: 14px;
+}
+
+/* Glassmorphism card style */
+.glass-card {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+.dark .glass-card {
+  background: rgba(17,24,39,0.36);
+  border: 1px solid rgba(255,255,255,0.06);
+}

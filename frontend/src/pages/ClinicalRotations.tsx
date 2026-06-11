@@ -205,19 +205,56 @@ export default function ClinicalRotations() {
   const [availableRotations, setAvailableRotations] = useState<Rotation[]>([]);
   const [availableSearch, setAvailableSearch] = useState("");
   const [availableLoading, setAvailableLoading] = useState(false);
+  const [showSignupDialog, setShowSignupDialog] = useState(false);
+  const [signupRotation, setSignupRotation] = useState<Rotation | null>(null);
+  const [supervisors, setSupervisors] = useState<Array<{ _id: string; name: string }>>([]);
+  const [selectedSupervisor, setSelectedSupervisor] = useState<string>("");
 
   const fetchAvailable = async (q = "") => {
     try {
       setAvailableLoading(true);
       const params: any = { page: 1, limit: 50 };
       if (q) params.q = q;
-      const { data } = await api.get("/clinical-rotations/available", { params });
+      // Students should be able to view all statuses when browsing available postings
+      const { data } = await api.get("/clinical-rotations/list", { params: { ...params, page: 1, limit: 50 } });
       setAvailableRotations(data.rotations ?? []);
     } catch (e) {
       console.error("Failed to fetch available rotations", e);
       toast.error("Failed to fetch available postings");
     } finally {
       setAvailableLoading(false);
+    }
+  };
+
+  const openSignupDialog = async (rotation: Rotation) => {
+    setSignupRotation(rotation);
+    setShowSignupDialog(true);
+    // fetch supervisors list (teachers/consultants)
+    try {
+      const { data } = await api.get('/users?role=teacher&limit=200');
+      setSupervisors(data.users ?? []);
+      // preselect rotation's current supervisor if present
+      setSelectedSupervisor(rotation.rotationSupervisor?._id ?? "");
+    } catch (e) {
+      console.error('Failed to load supervisors', e);
+      setSupervisors([]);
+    }
+  };
+
+  const confirmSignup = async () => {
+    if (!signupRotation) return;
+    try {
+      const payload: any = {};
+      if (selectedSupervisor) payload.rotationSupervisor = selectedSupervisor;
+      const { data } = await api.post(`/clinical-rotations/${signupRotation._id}/signup`, payload);
+      toast.success('Signed up successfully');
+      setAvailableRotations((prev) => prev.map((r) => (r._id === data._id ? data : r)));
+      setRotations((prev) => [data, ...prev]);
+      setShowSignupDialog(false);
+      setSignupRotation(null);
+    } catch (e: any) {
+      console.error('Signup failed', e);
+      toast.error(e.response?.data?.message || 'Failed to sign up for rotation');
     }
   };
 
@@ -351,7 +388,7 @@ export default function ClinicalRotations() {
                               {((r.students && r.students.some((s) => s._id === user?._id)) || r.student?._id === user?._id) ? (
                                 <Button size="sm" variant="outline" disabled>Signed</Button>
                               ) : (
-                                <Button size="sm" onClick={() => handleSignup(r._id)}>Sign up</Button>
+                                <Button size="sm" onClick={() => openSignupDialog(r)}>Sign up</Button>
                               )}
                             </TableCell>
                           </TableRow>
@@ -377,7 +414,7 @@ export default function ClinicalRotations() {
                               {((r.students && r.students.some((s) => s._id === user?._id)) || r.student?._id === user?._id) ? (
                                 <Button size="sm" variant="outline" disabled>Signed</Button>
                               ) : (
-                                <Button size="sm" onClick={() => handleSignup(r._id)}>Sign up</Button>
+                                <Button size="sm" onClick={() => openSignupDialog(r)}>Sign up</Button>
                               )}
                             </div>
                         </CardContent>
@@ -390,6 +427,36 @@ export default function ClinicalRotations() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAvailableDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Signup Dialog for students to choose supervisor */}
+      <Dialog open={showSignupDialog} onOpenChange={(v) => !v && setShowSignupDialog(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Sign up for rotation</DialogTitle>
+            <DialogDescription>Choose the unit supervisor to assign for this signup.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium mb-1 block">Rotation</label>
+              <div className="text-sm">{signupRotation?.rotationName}</div>
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block">Select Supervisor</label>
+              <Select value={selectedSupervisor} onValueChange={(v) => setSelectedSupervisor(v)}>
+                <SelectTrigger><SelectValue placeholder="Select supervisor" /></SelectTrigger>
+                <SelectContent>
+                  {supervisors.map((s) => (
+                    <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSignupDialog(false)}>Cancel</Button>
+            <Button onClick={confirmSignup}>Confirm Signup</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

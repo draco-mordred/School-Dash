@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import type { Notification } from "@/types";
 
@@ -130,6 +131,39 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     void fetchNotifications();
     void fetchUnreadCount();
   }, [fetchNotifications, fetchUnreadCount]);
+
+  // Subscribe to server-sent events for real-time notifications
+  const { user } = useAuth();
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(`${api.defaults.baseURL || '/api'}/notifications/stream`);
+      es.addEventListener('notification', (ev: any) => {
+        try {
+          const n = JSON.parse(ev.data);
+          setNotifications((prev) => [n, ...(prev || [])].slice(0, 100));
+          // increment unread count if relevant
+          if (user && String(n.userId) === String(user._id)) {
+            setUnreadCount((c) => c + 1);
+            try { window.dispatchEvent(new CustomEvent('notifications:changed', { detail: { count: (unreadCount + 1) } })); } catch {}
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE notification', err);
+        }
+      });
+      es.onerror = (e) => {
+        // reconnect logic is left to the browser EventSource implementation
+        // console.log('SSE error', e);
+      };
+    } catch (err) {
+      // EventSource may not be available in some environments
+      // ignore
+    }
+    return () => {
+      if (es) es.close();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   return {
     notifications,

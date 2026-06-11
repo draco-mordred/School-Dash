@@ -25,6 +25,7 @@ interface Props {
   initialData?: user | null;
   onSuccess?: () => void;
   role?: UserRole;
+  singleColumn?: boolean;
 }
 
 const createSchema = (type: FormType) => {
@@ -69,7 +70,7 @@ const createSchema = (type: FormType) => {
 
 type FormValues = z.infer<ReturnType<typeof createSchema>>;
 
-const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
+const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }: Props) => {
   const isUpdate = type === "update";
   const isLogin = type === "login"; 
   const { user, setUser } = useAuth();
@@ -96,6 +97,10 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   // fetch classes
   useEffect(() => {
     const fetchClasses = async () => {
+      if (type === "login") {
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         const { data } = (await api.get("/classes")) as {
@@ -117,6 +122,10 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   // Fetch subjects
   useEffect(() => {
     const fetchSubjects = async () => {
+      if (type === "login") {
+        setLoadingOptions(false);
+        return;
+      }
       try {
         setLoadingOptions(true); 
         const { data } = (await api.get("/courses")) as {
@@ -247,10 +256,12 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role }: Props) => {
   const showSubjectSelector = !isLogin && role === "teacher";
   const showTeacherFields = !isLogin && role === "teacher";
 
+  const gridCols = singleColumn ? "grid-cols-1" : "grid-cols-2";
+
   return (
     <form onSubmit={form.handleSubmit(onSubmit)}>
       <FieldGroup>
-        <div className="grid grid-cols-2 gap-4 w-full">
+        <div className={`grid ${gridCols} gap-4 w-full`}>
           {!isLogin && (
             <CustomInput
               control={form.control}

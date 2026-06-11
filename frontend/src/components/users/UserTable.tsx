@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useState } from "react";
 import {
   Table,
   TableBody,
@@ -7,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import type { user } from "@/types";
 import CustomPagination from "@/components/global/CustomPagination";
+import CustomAlert from "@/components/global/CustomAlert";
+import { api } from "@/lib/api";
 
 // ?page=${pageNum}&limit=10
 interface Props {
@@ -38,6 +42,7 @@ interface Props {
   setPageNum: (page: number) => void;
   totalPages: number;
   showDeleteAction?: boolean;
+  onBulkDelete?: (ids: string[]) => Promise<void>;
 }
 
 const UserTable = ({
@@ -52,16 +57,70 @@ const UserTable = ({
   users,
   totalPages,
   showDeleteAction,
+  onBulkDelete,
 }: Props) => {
+  const [selected, setSelected] = useState<string[]>([]);
+
+  const toggleSelectAll = (checked: boolean) => {
+    if (checked) setSelected(users.map((u) => u._id));
+    else setSelected([]);
+  };
+
+  const toggleSelectOne = (id: string, checked: boolean) => {
+    if (checked) setSelected((s) => [...s, id]);
+    else setSelected((s) => s.filter((x) => x !== id));
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selected.length) return;
+    // open confirmation dialog
+    setIsBulkDeleteOpen(true);
+  };
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+
+  const confirmBulkDelete = async () => {
+    try {
+      if (onBulkDelete) await onBulkDelete(selected);
+      else await Promise.all(selected.map((id) => (api.delete as any)(`/users/delete/${id}`)));
+      setSelected([]);
+      setIsBulkDeleteOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert("Bulk delete failed");
+    }
+  };
   const handleEdit = (user: user) => {
     setEditingUser(user);
     setIsFormOpen(true);
   };
   return (
     <div className="border rounded-md">
+      {selected.length > 0 && (
+        <div className="flex items-center justify-between p-3 border-b bg-muted rounded-t-md">
+          <div className="text-sm">{selected.length} selected</div>
+          <div>
+            <Button variant="destructive" onClick={handleBulkDelete}>
+              Delete Selected
+            </Button>
+          </div>
+        </div>
+      )}
+      <CustomAlert
+        isOpen={isBulkDeleteOpen}
+        setIsOpen={setIsBulkDeleteOpen}
+        handleDelete={confirmBulkDelete}
+        title={`Delete ${selected.length} users?`}
+        description="This will permanently delete the selected users from the system."
+      />
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-12">
+              <Checkbox
+                checked={selected.length > 0 && selected.length === users.length}
+                onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
+              />
+            </TableHead>
             <TableHead>Name</TableHead>
             <TableHead>Email</TableHead>
             {role === "teacher" && <TableHead>Subjects</TableHead>}
@@ -73,14 +132,14 @@ const UserTable = ({
         <TableBody>
           {loading ? (
             <TableRow>
-              <TableCell colSpan={4} className="h-24 text-center">
+              <TableCell colSpan={6} className="h-24 text-center">
                 <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
               </TableCell>
             </TableRow>
           ) : users.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={4}
+                colSpan={6}
                 className="h-24 text-center text-muted-foreground"
               >
                 No {role}s found.
@@ -89,6 +148,12 @@ const UserTable = ({
           ) : (
             users.map((user) => (
               <TableRow key={user._id}>
+                <TableCell>
+                  <Checkbox
+                    checked={selected.includes(user._id)}
+                    onCheckedChange={(v) => toggleSelectOne(user._id, Boolean(v))}
+                  />
+                </TableCell>
                 <TableCell className="font-medium flex items-center gap-2">
                   <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
                     <UserIcon className="h-4 w-4 text-slate-500" />

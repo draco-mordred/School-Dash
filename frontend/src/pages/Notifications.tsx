@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import UserDialog from "@/components/users/UserDialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,9 @@ export default function Notifications() {
   const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
   const [systemNotifications, setSystemNotifications] = useState<any[] | null>(null);
   const [systemLoading, setSystemLoading] = useState(false);
+  const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [assignNotifId, setAssignNotifId] = useState<string | null>(null);
 
   // Use an IntersectionObserver to mark notifications as read only when the
   // "New System Notifications" card is visible to the user. This prevents
@@ -120,7 +124,31 @@ export default function Notifications() {
     void fetchSystem();
   }, []);
 
+  // Handler after editing user (refresh system notifications and status)
+  const onUserEditSuccess = async (removedNotificationId?: string | null) => {
+    try {
+      // optimistic removal for snappier UX
+      if (removedNotificationId) {
+        setSystemNotifications((prev) => (prev || []).filter((s) => s._id !== removedNotificationId));
+      }
+      const { data } = await api.get("/notifications/system?limit=200");
+      setSystemNotifications((data.notifications || []).slice(0,200));
+    } catch (e) {
+      console.error('Failed to refresh system notifications', e);
+    }
+    void fetchStatusIfNeeded();
+    setEditOpen(false);
+    setEditingUser(null);
+    setAssignNotifId(null);
+  };
+
+  // fetchStatus is defined inside AdminNotifications; create a lightweight bridge
+  const fetchStatusIfNeeded = async () => {
+    try { await api.get('/attendance/status'); } catch {};
+  }
+
   return (
+    <>
     <div className="flex w-full flex-col gap-4 px-6 py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -189,15 +217,37 @@ export default function Notifications() {
                 ) : (systemNotifications || [])
                     .slice(0, 10)
                     .map((n) => (
-                      <div key={n._id} className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}>
+                              <div key={n._id} className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}>
                         <div className="flex items-start justify-between">
                           <div className="min-w-0">
                             <p className="font-medium truncate">{n.title} {n.unreadForUser && <Badge className="ml-2">New</Badge>}</p>
                             <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
                           </div>
-                          <div className="text-xs text-muted-foreground ml-3 shrink-0">
-                            {new Date(n.createdAt).toLocaleString()}
-                          </div>
+                                  <div className="text-xs text-muted-foreground ml-3 shrink-0 text-right flex flex-col items-end gap-2">
+                                    <div>{new Date(n.createdAt).toLocaleString()}</div>
+                                    {/* If this notification references a newUserId, allow quick assign */}
+                                    {n.metadata?.newUserId && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={async () => {
+                                          const ok = window.confirm('Open assign dialog for this new user?');
+                                          if (!ok) return;
+                                          try {
+                                            const { data } = await api.get(`/users/${n.metadata.newUserId}`);
+                                            setEditingUser(data);
+                                            setAssignNotifId(n._id);
+                                            setEditOpen(true);
+                                            try { if (n.unreadForUser) await markAsRead(n._id); } catch {};
+                                          } catch (err) {
+                                            console.error('Failed to fetch user for assignment', err);
+                                          }
+                                        }}
+                                      >
+                                        Assign class
+                                      </Button>
+                                    )}
+                                  </div>
                         </div>
                       </div>
                     ))}
@@ -209,6 +259,23 @@ export default function Notifications() {
         </>
       )}
     </div>
+      <NotificationsWrapperDialog editingUser={editingUser} open={editOpen} setOpen={setEditOpen} onSuccess={onUserEditSuccess} />
+    </>
+  );
+}
+
+// Render the user edit dialog at module level so it can be toggled
+function NotificationsWrapperDialog(props: any) {
+  const { editingUser, open, setOpen, onSuccess } = props || {};
+  if (!editingUser) return null;
+  return (
+    <UserDialog
+      open={open}
+      setOpen={setOpen}
+      editingUser={editingUser}
+      role={editingUser.role}
+      onSuccess={() => onSuccess && onSuccess(assignNotifId)}
+    />
   );
 }
 

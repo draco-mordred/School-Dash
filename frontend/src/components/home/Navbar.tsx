@@ -53,6 +53,7 @@ const Navbar = () => {
               <Bell className="w-5 h-5 text-gray-700 dark:text-gray-200" />
             </button>
 
+            <Link to="/register" className="hidden md:inline-flex items-center bg-transparent border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-md font-semibold hover:bg-gray-100 dark:hover:bg-gray-800 transition-all">Register</Link>
             <Link to="/login" className="hidden md:inline-flex items-center bg-[#3ecf8e] text-black px-4 py-2 rounded-md font-semibold">Login</Link>
 
             {/* Mobile menu button */}
@@ -72,6 +73,7 @@ const Navbar = () => {
           <a href="#programs" className="block text-gray-700 dark:text-gray-200 hover:text-[#3ecf8e] text-lg font-medium">Programs</a>
           <a href="#stats" className="block text-gray-700 dark:text-gray-200 hover:text-[#3ecf8e] text-lg font-medium">Research</a>
           <a href="#assistant" className="block text-gray-700 dark:text-gray-200 hover:text-[#3ecf8e] text-lg font-medium">AI Guide</a>
+          <Link to="/register" className="w-full block bg-transparent border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white px-5 py-3 rounded-md font-bold text-center">Register</Link>
           <Link to="/login" className="w-full block bg-[#3ecf8e] text-black px-5 py-3 rounded-md font-bold text-center">Login</Link>
         </div>
       )}
