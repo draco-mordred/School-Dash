@@ -51,6 +51,13 @@ clinicalRotationRouter.post(
   signupRotation
 );
 
+// list all rotations for browsing (no role-based restriction)
+clinicalRotationRouter.get(
+  "/list",
+  protect,
+  listAllRotations
+);
+
 clinicalRotationRouter.get(
   "/:id",
   protect,
@@ -92,10 +99,5 @@ clinicalRotationRouter.post(
 );
 
 // list all rotations for browsing (no role-based restriction)
-clinicalRotationRouter.get(
-  "/list",
-  protect,
-  listAllRotations
-);
 
 export default clinicalRotationRouter;

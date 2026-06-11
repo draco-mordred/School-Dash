@@ -1,5 +1,6 @@
 import { type Request, type Response } from "express";
 import ClinicalRotation from "../models/clinicalRotation";
+import { Types } from "mongoose";
 import { logActivity } from "../utils/activitieslog";
 
 // @desc    Create a new clinical rotation
@@ -154,6 +155,10 @@ export const getClinicalRotationById = async (req: Request, res: Response) => {
     const userRole = (req as any).user.role;
     const { id } = req.params;
 
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
+
     const rotation = await ClinicalRotation.findById(id)
       .populate("student", "name idNumber email")
       .populate("rotationSupervisor", "name email")
@@ -187,6 +192,10 @@ export const updateClinicalRotation = async (req: Request, res: Response) => {
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
 
     const rotation = await ClinicalRotation.findById(id);
     if (!rotation) {
@@ -240,6 +249,10 @@ export const deleteClinicalRotation = async (req: Request, res: Response) => {
     const userId = (req as any).user._id;
     const { id } = req.params;
 
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
+
     const rotation = await ClinicalRotation.findById(id);
     if (!rotation) {
       res.status(404).json({ message: "Clinical rotation not found" });
@@ -268,6 +281,10 @@ export const addRotationNote = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
     const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
     const { note } = req.body;
 
     const rotation = await ClinicalRotation.findById(id);
@@ -302,6 +319,10 @@ export const addPatientClerked = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
     const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
     const { patientName, diagnosis, notes } = req.body;
 
     const rotation = await ClinicalRotation.findById(id);
@@ -339,6 +360,10 @@ export const approveRotation = async (req: Request, res: Response) => {
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
 
     const rotation = await ClinicalRotation.findById(id);
     if (!rotation) {
@@ -532,6 +557,10 @@ export const signupRotation = async (req: Request, res: Response) => {
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
+
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid rotation id" });
+    }
 
     if (userRole !== "student") {
       return res.status(403).json({ message: "Only students can sign up for rotations" });

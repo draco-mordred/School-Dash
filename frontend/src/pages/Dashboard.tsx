@@ -305,6 +305,35 @@ export default function Dashboard() {
     ] : []),
   ];
 
+  // Precompute role rows to keep JSX simpler and avoid TSX parser ambiguities
+  const roleRows = roleStats.map((stat: any) => {
+    const roleKey = stat._id ?? stat.role;
+    const total = stat.count ?? ((stat.active ?? 0) + (stat.inactive ?? 0));
+    const route =
+      roleKey === "unit_consultant" ? "unit-consultants" :
+      roleKey === "unit_resident" ? "unit-residents" :
+      roleKey === "admin" ? "admins" : `${roleKey}s`;
+
+    return (
+      <div
+        key={roleKey}
+        onClick={() => navigate(`/users/${route}`)}
+        className="flex items-center justify-between py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-accent/30"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+            {getRoleIconSmall(roleKey)}
+          </div>
+          <span className="text-sm font-medium capitalize">{roleLabels[roleKey] ?? roleKey}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant={roleBadgeVariant(roleKey)} className="capitalize">{total}</Badge>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+    );
+  });
+
   if (loading) {
     return (
       <div className="flex-1 space-y-6 p-6">
@@ -515,39 +544,10 @@ export default function Dashboard() {
               </div>
               <div className="p-4 max-h-[36rem] overflow-auto">
                 <div className="divide-y divide-border">
-                {roleStats.map((stat: any) => {
-                  const roleKey = stat._id ?? stat.role;
-                  const total = stat.count ?? ((stat.active ?? 0) + (stat.inactive ?? 0));
-                  const route =
-                    roleKey === "unit_consultant" ? "unit-consultants" :
-                    roleKey === "unit_resident" ? "unit-residents" :
-                    roleKey === "admin" ? "admins" : `${roleKey}s`;
-
-                  return (
-                    <div
-                      key={roleKey}
-                      onClick={() => navigate(`/users/${route}`)}
-                      className="flex items-center justify-between py-3 first:pt-0 last:pb-0 cursor-pointer hover:bg-accent/30"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-                          {getRoleIconSmall(roleKey)}
-                        </div>
-                        <span className="text-sm font-medium capitalize">
-                          {roleLabels[roleKey] ?? roleKey}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant={roleBadgeVariant(roleKey)} className="capitalize">
-                          {total}
-                        </Badge>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                  {roleRows}
+                </div>
             </div>
+          </div>
           )}
 
           {/* Class attendance overview */}
@@ -902,68 +902,11 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Right column: System Status + Quick Links */}
+          {/* Right column simplified for parsing/debug */}
         <div className="lg:col-span-2 space-y-6">
-          {/* System Status */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border">
-              <h3 className="text-sm font-semibold">System Status</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">Current platform overview</p>
-            </div>
-            <div className="p-5 space-y-3">
-              <StatusRow
-                label="Active Academic Year"
-                value={user?.year?.name ?? "Not Set"}
-                status="info"
-              />
-              {isAdmin && (
-                <>
-                  <StatusRow
-                    label="Classes with Timetables"
-                    value={classesOverviewValue}
-                    status={classesOverviewStatus}
-                  />
-                  <StatusRow
-                    label="User Roles"
-                    value={roleStats.reduce((a, b) => a + b.count, 0).toString()}
-                    status="info"
-                  />
-                  <StatusRow
-                    label="Today's Attendance"
-                    value={`${classStatuses.reduce((a, c) => a + c.present, 0)} present`}
-                    status="info"
-                  />
-                </>
-              )}
-              <StatusRow
-                label="Your Role"
-                value={(user?.role ?? "—").replace(/\b\w/g, (c) => c.toUpperCase())}
-                status="info"
-              />
-            </div>
-          </div>
-
-          {/* Quick Links */}
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-4 border-b border-border">
-              <h3 className="text-sm font-semibold">Quick Links</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">Frequently accessed areas</p>
-            </div>
-            <div className="p-2 space-y-1">
-              {quickTiles.slice(0, 5).map((tile) => (
-                <button
-                  key={tile.id}
-                  onClick={tile.onClick}
-                  className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                >
-                  <div className="flex items-center gap-3">
-                    <W11Icon glyph={tile.icon} size="sm" />
-                    <span>{tile.title}</span>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </button>
-              ))}
-            </div>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold">Right column (debug)</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Temporarily simplified to isolate JSX parse errors.</p>
           </div>
         </div>
       </div>
