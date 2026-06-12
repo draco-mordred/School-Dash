@@ -177,12 +177,36 @@ export const getClinicalRotationById = async (req: Request, res: Response) => {
       return;
     }
 
+    // notify the selected supervisor on the signup
+    try {
+      const { Notification } = await import("../models/notification");
+      const supervisorId = rotation.rotationSupervisor;
+      if (supervisorId) {
+        const now = new Date();
+        await Notification.create({
+          userId: supervisorId,
+          role: "teacher",
+          title: `Rotation signup: ${rotation.rotationName}`,
+          message: `${rotation.studentName} has signed up for the rotation ${rotation.rotationName}`,
+          type: "info",
+          isRead: false,
+          link: `/clinical-rotations/${rotation._id}`,
+          metadata: { rotationId: rotation._id, studentId: userId, supervisorId },
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+    } catch (err) {
+      console.error("Failed to notify supervisor:", err);
+    }
+
     res.json(rotation);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
   }
 };
+
 
 // @desc    Update a clinical rotation
 // @route   PUT /api/clinical-rotations/:id
@@ -591,6 +615,14 @@ export const signupRotation = async (req: Request, res: Response) => {
       rotation.rotationSupervisor = rotationSupervisor;
     }
 
+    // Persist studentName + supervisorName at signup time
+    const User = (await import("../models/user")).default;
+    const studentUser = await User.findById(userId).select("name").lean();
+    const supervisorUser = await User.findById(rotation.rotationSupervisor).select("name").lean();
+
+    rotation.studentName = studentUser?.name ?? "";
+    rotation.supervisorName = supervisorUser?.name ?? "";
+
     await rotation.save();
 
     await logActivity({
@@ -601,10 +633,9 @@ export const signupRotation = async (req: Request, res: Response) => {
 
     // notify admins about the student signup
     try {
-      const User = (await import("../models/user")).default;
-      const { Notification } = await import("../models/notification");
       const admins = await User.find({ role: "admin", isActive: { $ne: false } }).select("_id role").lean();
-      if (admins && admins.length) {
+      if (Array.isArray(admins) && admins.length) {
+        const { Notification } = await import("../models/notification");
         const now = new Date();
         const notifications = admins.map((a: any) => ({
           userId: a._id,
@@ -624,12 +655,36 @@ export const signupRotation = async (req: Request, res: Response) => {
       console.error("Failed to create signup notifications:", err);
     }
 
+    // notify the selected supervisor on the signup
+    try {
+      const { Notification } = await import("../models/notification");
+      const supervisorId = rotation.rotationSupervisor;
+      if (supervisorId) {
+        const now = new Date();
+        await Notification.create({
+          userId: supervisorId,
+          role: "teacher",
+          title: `Rotation signup: ${rotation.rotationName}`,
+          message: `${rotation.studentName} has signed up for the rotation ${rotation.rotationName}`,
+          type: "info",
+          isRead: false,
+          link: `/clinical-rotations/${rotation._id}`,
+          metadata: { rotationId: rotation._id, studentId: userId, supervisorId },
+          createdAt: now,
+          updatedAt: now,
+        } as any);
+      }
+    } catch (err) {
+      console.error("Failed to notify supervisor:", err);
+    }
+
     res.json(rotation);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
   }
 };
+
 
 // @desc    List all clinical rotations (no role restriction) for browsing
 // @route   GET /api/clinical-rotations/list

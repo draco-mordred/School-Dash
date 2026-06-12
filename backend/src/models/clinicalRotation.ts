@@ -96,8 +96,12 @@ export interface IClinicalRotation extends Document {
   otherDays: IOtherDay[];
   student: mongoose.Types.ObjectId;
   students?: mongoose.Types.ObjectId[];
+  // Persisted display fields for signup history
+  studentName: string;
+  supervisorName: string;
   academicYear: mongoose.Types.ObjectId;
 }
+
 
 const ClinicDaySchema = new Schema({
   dayName: { type: String, required: true },
@@ -193,8 +197,12 @@ const ClinicalRotationSchema = new Schema({
   otherDays: { type: [OtherDaySchema], default: [] },
   student: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   students: { type: [mongoose.Schema.Types.ObjectId], ref: "User", default: [] },
+  // Persisted display fields for signup history
+  studentName: { type: String, required: true, default: "" },
+  supervisorName: { type: String, required: true, default: "" },
   academicYear: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", required: true },
 }, {
+
   timestamps: true,
 });
 

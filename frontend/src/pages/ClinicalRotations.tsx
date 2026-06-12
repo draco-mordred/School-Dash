@@ -2,13 +2,17 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
-import { MoreHorizontal, Plus, Pencil, Trash2, X, ClipboardList, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
+import { MoreHorizontal, Plus, Pencil, Trash2, ClipboardList, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const DIALOG_GLASS_CLASS =
+  "backdrop-blur-md bg-white/10 border border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_80px_rgba(0,0,0,0.35)]";
+
 import {
   Select,
   SelectContent,
@@ -44,6 +48,7 @@ import CustomPagination from "@/components/global/CustomPagination";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
+
 
 interface Tutorial {
   _id?: string;
@@ -150,7 +155,9 @@ export default function ClinicalRotations() {
     }
   }, [page, search, statusFilter, typeFilter, user]);
 
-  useEffect(() => { fetchRotations(); }, [fetchRotations]);
+  useEffect(() => {
+    void fetchRotations();
+  }, [fetchRotations]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this clinical rotation?")) return;
@@ -215,8 +222,9 @@ export default function ClinicalRotations() {
       setAvailableLoading(true);
       const params: any = { page: 1, limit: 50 };
       if (q) params.q = q;
-      // Students should be able to view all statuses when browsing available postings
-      const { data } = await api.get("/clinical-rotations/list", { params: { ...params, page: 1, limit: 50 } });
+
+      // Students browse "available" postings (batch-visibility rules) and should see computed status.
+      const { data } = await api.get("/clinical-rotations/available", { params: { ...params, page: 1, limit: 50 } });
       setAvailableRotations(data.rotations ?? []);
     } catch (e) {
       console.error("Failed to fetch available rotations", e);
@@ -441,6 +449,17 @@ export default function ClinicalRotations() {
             <div>
               <label className="text-xs font-medium mb-1 block">Rotation</label>
               <div className="text-sm">{signupRotation?.rotationName}</div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium mb-1 block">Posting status</label>
+              <div className="flex items-center gap-2">
+                <Badge
+                  className={`text-xs capitalize ${STATUS_COLORS[(signupRotation?.rotationStatus ?? "upcoming") as RotationStatus]}`}
+                >
+                  {signupRotation?.rotationStatus ?? "upcoming"}
+                </Badge>
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block">Select Supervisor</label>
