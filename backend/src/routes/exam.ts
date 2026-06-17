@@ -7,6 +7,7 @@ import {
   getExamById,
   toggleExamStatus,
   getExamResult,
+  deleteExam,
 } from "../controllers/exam";
 
 import { protect , authorize } from "../middleware/auth";
@@ -33,6 +34,14 @@ examRouter.patch(
   authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
   toggleExamStatus
 );
+
+examRouter.delete(
+  "/:id",
+  protect,
+  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  deleteExam
+);
+
 
 examRouter.get(
   "/:id/result",

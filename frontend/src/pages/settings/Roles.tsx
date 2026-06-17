@@ -61,8 +61,16 @@ function RoleSection({ role, users, isExpanded, onToggle, onEdit, onCreate, canC
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-card text-card-foreground overflow-hidden">
       {/* Header — always visible, clickable */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
         className="w-full flex items-center gap-4 px-5 py-4 hover:bg-accent transition-colors duration-150 text-left"
       >
         {/* Role icon */}
@@ -104,7 +112,7 @@ function RoleSection({ role, users, isExpanded, onToggle, onEdit, onCreate, canC
             )}
           </div>
         </div>
-      </button>
+      </div>
 
       {/* Expanded content */}
       {isExpanded && (
@@ -244,7 +252,7 @@ export default function RolesPage() {
   const isAdmin = authUser?.role === "admin";
 
   return (
-    <div className="p-6 space-y-6">
+    <div id="page-roles" className="p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>

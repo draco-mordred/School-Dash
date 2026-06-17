@@ -6,6 +6,7 @@ import Timetable from "../models/timetable";
 import Exam from "../models/exam";
 import Course from "../models/courses";
 import Attendance from "../models/attendance";
+import generateRotationSchedule from "../services/rotationScheduler";
 
 import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
@@ -605,3 +606,56 @@ export const bulkCreateUsers = inngest.createFunction(
     };
   }
 );
+
+// Rotation generation
+export const generateRotations = inngest.createFunction(
+  { id: "Generate-Rotations", 
+    triggers: { 
+      event: "rotation/generate"
+    } 
+  },
+  async ({ event, step }) => {
+    const { academicYearId, classId, level, options, generatedBy } = event.data as any;
+    if (!academicYearId || !classId || !level || !generatedBy) {
+      throw new NonRetriableError("academicYearId, classId, level and generatedBy are required");
+    }
+
+    const schedule = await step.run("generate-rotation-schedule", async () => {
+      return await generateRotationSchedule(academicYearId, classId, { ...options, level, generatedBy });
+    });
+
+    return { success: true, scheduleId: schedule._id };
+  }
+)
+
+// Process delayed rotation notification events
+export const rotationNotify = inngest.createFunction(
+  { id: "Rotation-Notify",
+    triggers: {
+      event: "rotation/notify"
+    }
+  },
+  async ({ event, step }) => {
+    const payload = event.data as any;
+    if (!payload?.userId || !payload?.title || !payload?.message) {
+      throw new NonRetriableError('Invalid notification payload');
+    }
+
+    await step.run('create-notification', async () => {
+      const { Notification } = await import('../models/notification');
+      await Notification.create({
+        userId: new mongoose.Types.ObjectId(payload.userId),
+        role: 'student',
+        title: payload.title,
+        message: payload.message,
+        type: 'timetable',
+        isRead: false,
+        link: payload.metadata?.link || null,
+        metadata: payload.metadata || {},
+      });
+      return { ok: true };
+    });
+
+    return { success: true };
+  }
+)

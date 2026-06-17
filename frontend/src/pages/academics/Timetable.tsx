@@ -300,6 +300,50 @@ const Timetable = () => {
     }
   };
 
+  const cloneStylesForPrint = () => {
+    const styles: string[] = [];
+    // copy link[rel=stylesheet] and style tags
+    document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
+      styles.push((node as HTMLElement).outerHTML);
+    });
+    return styles.join('\n');
+  };
+
+  const openPrintWindowWithContent = (htmlContent: string) => {
+    const printWindow = window.open("", "_blank", "width=1200,height=900");
+    if (!printWindow) {
+      toast.error("Popup blocked. Allow popups to download PDF.");
+      return;
+    }
+    const styles = cloneStylesForPrint();
+    printWindow.document.write(`<!doctype html><html><head><meta charset=\"utf-8\">${styles}</head><body>${htmlContent}</body></html>`);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      // don't automatically close so user can save; close after a delay to be safe
+      setTimeout(() => printWindow.close(), 2000);
+    }, 500);
+  };
+
+  const handleDownloadTimetable = () => {
+    const el = document.getElementById("timetable-printable");
+    if (!el) {
+      toast.error("No timetable content to print");
+      return;
+    }
+    openPrintWindowWithContent(el.outerHTML);
+  };
+
+  const handleDownloadTimetableForId = (id: string) => {
+    const el = document.getElementById(`timetable-printable-${id}`) || document.getElementById(`timetable-${id}`);
+    if (!el) {
+      toast.error("Timetable not found");
+      return;
+    }
+    openPrintWindowWithContent(el.outerHTML);
+  };
+
   const handleGenerate = async (
     selectedClass: string,
     yearId: string,
@@ -354,7 +398,7 @@ const Timetable = () => {
   };
 
   return (
-    <div className="p-4 space-y-6">
+    <div id="page-timetable" className="p-4 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Timetable Management</h1>
@@ -374,6 +418,9 @@ const Timetable = () => {
               Manage Periods
             </Button>
           )}
+            <Button variant="outline" size="sm" onClick={() => handleDownloadTimetable()}>
+              Save timetable
+            </Button>
           <div className="md:hidden">
             <SidebarTrigger />
           </div>
@@ -393,10 +440,10 @@ const Timetable = () => {
           <div className="h-40 w-full flex flex-col items-center justify-center border rounded-lg border-dashed bg-card">
             <p className="text-muted-foreground text-sm">No linked class timetables found.</p>
           </div>
-        ) : (
+          ) : (
           <div className="space-y-6">
             {parentChildrenClasses.map((cls) => (
-              <div key={cls.classId} className="border rounded-lg overflow-hidden">
+              <div key={cls.classId} id={`timetable-${cls.classId}`} className="border rounded-lg overflow-hidden">
                 <div className="bg-muted/50 px-4 py-3 border-b flex items-center justify-between">
                   <div>
                     <h3 className="font-semibold text-base">{cls.className}</h3>
@@ -404,8 +451,15 @@ const Timetable = () => {
                       Academic Year {cls.academicYear} · Class Teacher: {cls.classTeacher}
                     </p>
                   </div>
+                  <div>
+                    <Button size="sm" variant="ghost" onClick={() => handleDownloadTimetableForId(cls.classId)}>
+                      Save timetable
+                    </Button>
+                  </div>
                 </div>
-                <TimetableGrid schedule={cls.schedule} isLoading={false} />
+                <div id={`timetable-printable-${cls.classId}`} className="p-3">
+                  <TimetableGrid schedule={cls.schedule} isLoading={false} />
+                </div>
               </div>
             ))}
           </div>
@@ -422,7 +476,9 @@ const Timetable = () => {
             />
           )}
 
-          <TimetableGrid schedule={scheduleData} isLoading={loadingSchedule} />
+          <div id="timetable-printable">
+            <TimetableGrid schedule={scheduleData} isLoading={loadingSchedule} />
+          </div>
         </>
       )}
 

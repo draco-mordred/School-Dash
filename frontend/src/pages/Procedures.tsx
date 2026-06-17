@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 
 export default function Procedures() {
   return (
-    <div className="p-8">
+    <div id="page-procedures" className="p-8">
       <Card>
         <CardHeader>
           <CardTitle>Procedures</CardTitle>

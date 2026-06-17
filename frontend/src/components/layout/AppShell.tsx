@@ -206,7 +206,7 @@ function getPageTitle(pathname: string) {
 }
 
 export default function AppShell({ children }: PropsWithChildren) {
-  const { toggleSidebar } = useSidebar();
+  const { toggleSidebar, state: sidebarState } = useSidebar();
   const { user, setUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -514,12 +514,20 @@ export default function AppShell({ children }: PropsWithChildren) {
             </header>
           )}
 
-          <main className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[25px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
+          <main id="app-main" className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
 
           {isProtected && (
-            <footer className="fixed bottom-0 z-50 left-0 right-0 md:left-[var(--sidebar-width)] peer-data-[state=collapsed]:md:left-[var(--sidebar-width-icon)] border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground">
+            <footer
+              id="app-footer"
+              className="fixed bottom-0 z-50 border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground transition-[left,right,width] duration-200 ease-linear"
+              style={{
+                left: sidebarState === "expanded" ? "var(--sidebar-width)" : "var(--sidebar-width-icon)",
+                right: 0,
+                width: `calc(100% - ${sidebarState === "expanded" ? "var(--sidebar-width)" : "var(--sidebar-width-icon)"})`,
+              }}
+            >
               <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <span>© {new Date().getFullYear()} Avalon Industries</span>
+                <span>© {new Date().getFullYear()} Avalon Enterprises</span>
                 <div className="flex flex-wrap items-center gap-2">
                   <a href="#" className="transition-colors hover:text-foreground">
                     Privacy policy

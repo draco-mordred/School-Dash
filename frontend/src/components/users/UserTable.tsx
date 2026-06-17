@@ -93,6 +93,7 @@ const UserTable = ({
     setEditingUser(user);
     setIsFormOpen(true);
   };
+
   return (
     <div className="border rounded-md">
       {selected.length > 0 && (
@@ -105,6 +106,7 @@ const UserTable = ({
           </div>
         </div>
       )}
+
       <CustomAlert
         isOpen={isBulkDeleteOpen}
         setIsOpen={setIsBulkDeleteOpen}
@@ -112,127 +114,129 @@ const UserTable = ({
         title={`Delete ${selected.length} users?`}
         description="This will permanently delete the selected users from the system."
       />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">
-              <Checkbox
-                checked={selected.length > 0 && selected.length === users.length}
-                onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
-              />
-            </TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Email</TableHead>
-            {role === "teacher" && <TableHead>Subjects</TableHead>}
-            {/* Show Class only for students */}
-            {role === "student" && <TableHead>Class</TableHead>}
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {loading ? (
-            <TableRow>
-              <TableCell colSpan={6} className="h-24 text-center">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              </TableCell>
-            </TableRow>
-          ) : users.length === 0 ? (
-            <TableRow>
-              <TableCell
-                colSpan={6}
-                className="h-24 text-center text-muted-foreground"
-              >
-                No {role}s found.
-              </TableCell>
-            </TableRow>
-          ) : (
-            users.map((user) => (
-              <TableRow key={user._id}>
-                <TableCell>
-                  <Checkbox
-                    checked={selected.includes(user._id)}
-                    onCheckedChange={(v) => toggleSelectOne(user._id, Boolean(v))}
-                  />
-                </TableCell>
-                <TableCell className="font-medium flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center">
-                    <UserIcon className="h-4 w-4 text-slate-500" />
-                  </div>
-                  {user.name}
-                </TableCell>
-                <TableCell>{user.email}</TableCell>
-                {role === "teacher" && (
-                  <TableCell>
-                    {user.teacherSubjects?.length ? (
-                      <div className="flex gap-1">
-                        {user.teacherSubjects.map((subject) => (
-                          <Badge variant="outline" key={subject._id}>
-                            {subject.name}
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground italic text-sm">
-                        Unassigned
-                      </span>
-                    )}
-                  </TableCell>
-                )}
-                {role === "student" && (
-                  <TableCell>
-                    {(() => {
-                      const studentClass = user.studentClasses as
-                        | { _id?: string; name?: string }
-                        | undefined;
 
-                      return studentClass && studentClass._id ? (
-                        <Badge variant="outline">{studentClass.name}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground italic text-sm">
-                          Unassigned
-                        </span>
-                      );
-                    })()}
-                  </TableCell>
-                )}
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => handleEdit(user)}>
-                        <Pencil className="mr-2 h-4 w-4" /> Edit
-                      </DropdownMenuItem>
-                      {showDeleteAction !== false && (
-                        <DropdownMenuItem
-                          className="text-red-600"
-                          onClick={() => {
-                            setDeleteId(user._id);
-                            setIsDeleteOpen(true);
-                          }}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+      <div className="w-full overflow-x-auto">
+        <Table className="min-w-full">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-12">
+                <Checkbox
+                  checked={selected.length > 0 && selected.length === users.length}
+                  onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
+                />
+              </TableHead>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              {role === "teacher" && <TableHead>Subjects</TableHead>}
+              {role === "student" && <TableHead>Class</TableHead>}
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
                 </TableCell>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            ) : users.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  No {role}s found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              users.map((user) => (
+                <TableRow key={user._id}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.includes(user._id)}
+                      onCheckedChange={(v) => toggleSelectOne(user._id, Boolean(v))}
+                    />
+                  </TableCell>
+
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                        <UserIcon className="h-4 w-4 text-slate-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{user.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">{user.idNumber ?? "N/A"}</div>
+                      </div>
+                    </div>
+                  </TableCell>
+
+                  <TableCell>{user.email}</TableCell>
+
+                  {role === "teacher" && (
+                    <TableCell>
+                      {user.teacherSubjects?.length ? (
+                        <div className="flex gap-1">
+                          {user.teacherSubjects.map((subject) => (
+                            <Badge variant="outline" key={subject._id} className="py-0.5 px-2 text-sm">
+                              {subject.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground italic text-sm">Unassigned</span>
+                      )}
+                    </TableCell>
+                  )}
+
+                  {role === "student" && (
+                    <TableCell>
+                      {(() => {
+                        const studentClass = user.studentClasses as
+                          | { _id?: string; name?: string }
+                          | undefined;
+
+                        return studentClass && studentClass._id ? (
+                          <Badge variant="outline" className="py-0.5 px-2 text-sm">{studentClass.name}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground italic text-sm">Unassigned</span>
+                        );
+                      })()}
+                    </TableCell>
+                  )}
+
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => handleEdit(user)}>
+                          <Pencil className="mr-2 h-4 w-4" /> Edit
+                        </DropdownMenuItem>
+                        {showDeleteAction !== false && (
+                          <DropdownMenuItem
+                            className="text-red-600"
+                            onClick={() => {
+                              setDeleteId(user._id);
+                              setIsDeleteOpen(true);
+                            }}
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
       {users.length > 10 && (
-        <CustomPagination
-          loading={loading}
-          page={pageNum}
-          setPage={setPageNum}
-          totalPages={totalPages}
-        />
+        <CustomPagination loading={loading} page={pageNum} setPage={setPageNum} totalPages={totalPages} />
       )}
     </div>
   );

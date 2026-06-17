@@ -119,7 +119,14 @@ router.delete("/:id", protect, async (req, res) => {
     const user = (req as any).user;
     if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-    const deleted = await Notification.findOneAndDelete({ _id: req.params.id, userId: user._id });
+    // Admins may delete any notification (system-wide); regular users only their own
+    let deleted;
+    if (user.role === "admin" || user.role === "teacher") {
+      deleted = await Notification.findOneAndDelete({ _id: req.params.id });
+    } else {
+      deleted = await Notification.findOneAndDelete({ _id: req.params.id, userId: user._id });
+    }
+
     if (!deleted) return res.status(404).json({ error: "Notification not found" });
     res.json({ success: true });
   } catch (err) {

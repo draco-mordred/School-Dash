@@ -35,7 +35,7 @@ const schema = z.object({
   class: z.string().min(1, "Class is required"),
   topic: z.string().min(3, "Topic is required"),
   difficulty: z.enum(["Easy", "Medium", "Hard"]),
-  count: z.coerce.number().min(1).max(20),
+  count: z.coerce.number().min(1).max(200),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -85,7 +85,7 @@ const ExamGenerator = ({ open, onOpenChange, onSuccess }: Props) => {
       toast.success("AI is generating the exam! Check back in a moment.");
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
+    } catch { 
       toast.error("Failed to start generation");
     } finally {
       setLoading(false);

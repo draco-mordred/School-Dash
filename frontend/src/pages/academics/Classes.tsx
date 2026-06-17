@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus } from "lucide-react"; 
+import { Plus, Loader2 } from "lucide-react"; 
 
 import { api } from "@/lib/api";
 
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { Class, pagination } from "@/types";
 import Search from "@/components/global/Search";
 import CustomAlert from "@/components/global/CustomAlert";
+import Modal from "@/components/global/Modal";
 import ClassTable from "@/components/classes/ClassTable";
 import ClassForm from "@/components/classes/ClassForm";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -108,6 +109,47 @@ const Classes = () => {
     setIsDeleteOpen(true);
   };
 
+  // Students modal
+  const [studentsModalOpen, setStudentsModalOpen] = useState(false);
+  const [studentsLoading, setStudentsLoading] = useState(false);
+  const [studentsList, setStudentsList] = useState<any[]>([]);
+
+  const handleViewStudents = async (cls: Class) => {
+    // If students are already populated as objects, use them
+    if (Array.isArray(cls.students) && cls.students.length > 0 && typeof cls.students[0] === 'object') {
+      setStudentsList(cls.students as any[]);
+      setStudentsModalOpen(true);
+      return;
+    }
+
+    setStudentsLoading(true);
+    setStudentsList([]);
+    setStudentsModalOpen(true);
+    try {
+      // Try class-specific endpoint first
+      try {
+        const { data } = await api.get(`/classes/${cls._id}/students`);
+        const students = data?.students ?? data;
+        if (Array.isArray(students)) {
+          setStudentsList(students);
+          return;
+        }
+      } catch (err) {
+        // ignore and try users lookup
+      }
+
+      // Fallback to users endpoint filtered by class id
+      const usersRes = await api.get(`/users?classId=${cls._id}&limit=500`);
+      const users = usersRes.data?.users ?? [];
+      setStudentsList(Array.isArray(users) ? users : []);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load students for this class");
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleteId) return;
     try {
@@ -123,7 +165,7 @@ const Classes = () => {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div id="page-classes" className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Classes</h1>
@@ -147,6 +189,7 @@ const Classes = () => {
         loading={loading}
         onEdit={handleEdit}
         onDelete={handleDeleteClick}
+        onViewStudents={handleViewStudents}
         page={pageNum}
         setPage={setPageNum}
         totalPages={totalPages}
@@ -166,6 +209,33 @@ const Classes = () => {
         title="Delete Class"
         description="Are you sure you want to delete this class? This action cannot be undone."
       />
+      {/* Students Modal */}
+      <Modal
+        open={studentsModalOpen}
+        setOpen={setStudentsModalOpen}
+        title="Class Students"
+        description="List of students in this class"
+      >
+        <div className="space-y-2">
+          {studentsLoading ? (
+            <div className="h-24 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : studentsList.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No students found for this class.</p>
+          ) : (
+            <div className="space-y-2 max-h-[60vh] overflow-auto">
+              {studentsList.map((s) => (
+                <div key={s._id ?? s.id ?? Math.random()} className="border rounded-md p-3">
+                  <div className="font-medium">{s.name}</div>
+                  <div className="text-xs text-muted-foreground">ID: {s.idNumber ?? "N/A"}</div>
+                  <div className="text-xs text-muted-foreground">{s.email ?? ""}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };

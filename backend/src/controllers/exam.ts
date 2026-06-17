@@ -14,12 +14,21 @@ export const triggerExamGeneration = async (
 ) => {
   try {
     const {
-      title, subject, class: classId, duration, dueDate, topic, difficulty, count,
+      title,
+      subject,
+      class: classId,
+      duration,
+      dueDate,
+      topic,
+      difficulty,
+      count,
     } = req.body;
+
     const subjectDoc = await CourseModel.findById(subject);
-    if(!subjectDoc) {
+    if (!subjectDoc) {
       return res.status(404).json({ message: `Subject not found!` });
     }
+
     const lecturerId = (req as any).user._id;
     const draftExam = await Exam.create({
       title: title || `Auto-Generated ${topic}`,
@@ -27,14 +36,16 @@ export const triggerExamGeneration = async (
       class: classId,
       lecturer: lecturerId,
       duration: duration || 60,
-      dueDate: dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Defaults to 1 week.
+      dueDate:
+        dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Defaults to 1 week.
       isActive: false, // Draft mode.
       questions: [], // Filled up by Inngest.
     });
+
     const userId = (req as any).user._id;
     await logActivity({
-      userId, 
-      action: `User triggered exam generation: ${draftExam._id}`
+      userId,
+      action: `User triggered exam generation: ${draftExam._id}`,
     });
 
     await inngest.send({
@@ -44,17 +55,45 @@ export const triggerExamGeneration = async (
         topic,
         subjectName: subjectDoc?.name,
         difficulty: difficulty || "Medium",
-        count: count || 10,
+        count: typeof count === "number" ? count : count ? Number(count) : 10,
       },
     });
-    res.status(202).json({
+
+    return res.status(202).json({
       message: `Exam generation started`,
       examId: draftExam._id,
-    })
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error})
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: "Server error", error });
   }
-}
+};
+
+// Delete exam (teacher/admin) 
+export const deleteExam = async (req: Request, res: Response) => {
+  try {
+    const examId = req.params.id;
+    const user = (req as any).user;
+
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ message: "Exam not found!" });
+    }
+
+    if (user.role !== "admin" && exam.lecturer.toString() !== user._id.toString()) {
+      return res.status(401).json({ message: "Not authorized to delete this exam!" });
+    }
+
+    await Exam.findByIdAndDelete(examId);
+    await logActivity({
+      userId: user._id,
+      action: `User ${user._id} deleted exam ${examId}`,
+    });
+
+    return res.json({ message: "Exam deleted" });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
 
 // Create Exam
 // @desc  Create/Publish Exam
@@ -107,7 +146,16 @@ export const getExams = async (
         return res.json([]);
       }
 
-      query = { class: studentClassId, isActive: true };
+      // Remove expired exams for the class so they no longer appear to students.
+      try {
+        await Exam.deleteMany({ class: studentClassId, dueDate: { $lt: new Date() } });
+      } catch (err) {
+        // Non-fatal: log and continue
+        console.warn('Failed to cleanup expired exams for class', studentClassId, err);
+      }
+
+      // Only return active/upcoming exams for students
+      query = { class: studentClassId, isActive: true, dueDate: { $gte: new Date() } };
     } else if (user.role === "teacher") {
       // Teacher see exams they created
       query = { lecturer: user._id };

@@ -73,7 +73,7 @@ export interface IClinicalRotation extends Document {
   rotationStartDate: Date;
   rotationEndDate: Date;
   rotationUnit: string;
-  rotationSupervisor: mongoose.Types.ObjectId;
+  rotationSupervisor: mongoose.Types.ObjectId | null;
   rotationStatus: RotationStatus;
   rotationNotes: string;
   rotationActivities: {
@@ -100,6 +100,7 @@ export interface IClinicalRotation extends Document {
   studentName: string;
   supervisorName: string;
   academicYear: mongoose.Types.ObjectId;
+  generatedFromSchedule?: mongoose.Types.ObjectId | null;
 }
 
 
@@ -169,7 +170,7 @@ const ClinicalRotationSchema = new Schema({
   rotationStartDate: { type: Date, required: true },
   rotationEndDate: { type: Date, required: true },
   rotationUnit: { type: String, required: true },
-  rotationSupervisor: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  rotationSupervisor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   rotationStatus: {
     type: String,
     enum: ["pending_approval", "upcoming", "active", "completed"],
@@ -201,6 +202,7 @@ const ClinicalRotationSchema = new Schema({
   studentName: { type: String, required: true, default: "" },
   supervisorName: { type: String, required: true, default: "" },
   academicYear: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", required: true },
+  generatedFromSchedule: { type: mongoose.Schema.Types.ObjectId, ref: "RotationSchedule", default: null },
 }, {
 
   timestamps: true,

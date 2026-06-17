@@ -1,23 +1,25 @@
 import {
-  GraduationCap,
+
   Github,
   Twitter,
   Linkedin,
   ArrowUp,
+  Stethoscope,
 } from "lucide-react";
+
 
 const Footer = () => {
   return (
-    <footer className="pt-20 pb-10 border-t border-gray-200 dark:border-gray-800 transition-colors duration-300">
+    <footer className="site-footer pt-20 pb-10 transition-colors duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
           <div className="space-y-6">
             <div className="flex items-center space-x-2">
-              <div className="bg-[#3ecf8e] p-1.5 rounded-lg">
-                <GraduationCap className="text-black w-6 h-6" />
+              <div className="bg-[#6e56cf] p-1.5 rounded-lg">
+                <Stethoscope className="text-black w-6 h-6" />
               </div>
               <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white uppercase">
-                Edunexus
+                Medlog
               </span>
             </div>
             <p className="text-gray-600 dark:text-gray-500 leading-relaxed">
@@ -27,19 +29,19 @@ const Footer = () => {
             <div className="flex space-x-4">
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#3ecf8e] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
+                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#6e56cf] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
               >
                 <Twitter className="w-5 h-5" />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#3ecf8e] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
+                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#6e56cf] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
               >
                 <Linkedin className="w-5 h-5" />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#3ecf8e] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
+                className="w-10 h-10 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 flex items-center justify-center hover:bg-[#6e56cf] hover:text-black transition-all text-gray-500 dark:text-gray-400 shadow-sm"
               >
                 <Github className="w-5 h-5" />
               </a>
@@ -54,7 +56,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Undergraduate
                 </a>
@@ -62,7 +64,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Postgraduate
                 </a>
@@ -70,7 +72,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Executive Education
                 </a>
@@ -78,7 +80,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Online Courses
                 </a>
@@ -86,7 +88,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Scholarships
                 </a>
@@ -102,7 +104,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Campus Map
                 </a>
@@ -110,7 +112,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Library
                 </a>
@@ -118,7 +120,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Research Portal
                 </a>
@@ -126,7 +128,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Career Center
                 </a>
@@ -134,7 +136,7 @@ const Footer = () => {
               <li>
                 <a
                   href="#"
-                  className="text-gray-600 dark:text-gray-500 hover:text-[#3ecf8e] transition-colors"
+                  className="text-gray-600 dark:text-gray-500 hover:text-[#6e56cf] transition-colors"
                 >
                   Alumni Network
                 </a>
@@ -156,16 +158,18 @@ const Footer = () => {
                 placeholder="Email address"
                 className="bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 rounded-l-lg px-4 py-3 text-gray-900 dark:text-white focus:outline-none w-full"
               />
-              <button className="bg-[#3ecf8e] text-black px-4 py-3 rounded-r-lg font-bold hover:bg-[#34b27b] transition-colors">
+              <button className="bg-[#6e56cf] text-black px-4 py-3 rounded-r-lg font-bold hover:bg-[#34b27b] transition-colors">
                 Join
               </button>
             </div>
           </div>
         </div>
 
-        <div className="border-t border-gray-200 dark:border-gray-800 pt-8 flex flex-col md:flex-row items-center justify-between text-sm text-gray-500">
-          <p>© 2025 Edunexus University. All rights reserved.</p>
-          <div className="flex space-x-6 mt-4 md:mt-0">
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-8 flex flex-col md:flex-row items-center justify-between text-sm text-gray-500 relative">
+          <p>© 2026 Medlog LMS. All rights reserved.</p>
+
+          {/* Float policies to the right */}
+          <div className="order-3 md:absolute md:right-0 md:top-8 flex space-x-6 mt-4 md:mt-0">
             <a
               href="#"
               className="hover:text-gray-900 dark:hover:text-white transition-colors"
@@ -185,11 +189,15 @@ const Footer = () => {
               Cookie Settings
             </a>
           </div>
+
           <button
+
+            type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            className="mt-6 md:mt-0 p-3 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 hover:border-[#3ecf8e] transition-all group shadow-sm"
+            aria-label="Scroll to top"
+            className="mt-6 md:mt-0 p-3 rounded-full bg-white dark:bg-[#1c1c1c] border border-gray-200 dark:border-gray-800 hover:border-[#6e56cf] transition-all group shadow-sm"
           >
-            <ArrowUp className="w-5 h-5 group-hover:text-[#3ecf8e] text-gray-400" />
+            <ArrowUp className="w-5 h-5 group-hover:text-[#6e56cf] text-gray-400" />
           </button>
         </div>
       </div>

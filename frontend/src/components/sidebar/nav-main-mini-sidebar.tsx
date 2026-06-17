@@ -1,7 +1,7 @@
 "use client";
 
 import { type LucideIcon } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 import {
   SidebarGroup,
@@ -34,7 +34,22 @@ export function NavMainMiniSidebar({
 }) {
   const [openItem, setOpenItem] = useState<string | null>(null);
 
+  const closeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimeout = () => {
+    if (closeTimeout.current) {
+      clearTimeout(closeTimeout.current as ReturnType<typeof setTimeout>);
+      closeTimeout.current = null;
+    }
+  };
+
+  const scheduleClose = (delay = 150) => {
+    clearCloseTimeout();
+    closeTimeout.current = setTimeout(() => setOpenItem(null), delay);
+  };
+
   const handleOpenChange = useCallback((title: string, open: boolean) => {
+    clearCloseTimeout();
     setOpenItem(open ? title : null);
   }, []);
 
@@ -53,8 +68,11 @@ export function NavMainMiniSidebar({
                 >
                   <PopoverTrigger
                     asChild
-                    onMouseEnter={() => setOpenItem(item.title)}
-                    onMouseLeave={() => setOpenItem(null)}
+                    onMouseEnter={() => {
+                      clearCloseTimeout();
+                      setOpenItem(item.title);
+                    }}
+                    onMouseLeave={() => scheduleClose()}
                   >
                     <SidebarMenuButton
                       tooltip={item.title}
@@ -71,8 +89,11 @@ export function NavMainMiniSidebar({
                     align="start"
                     sideOffset={8}
                     className="w-48 border-border bg-background p-0 shadow-lg"
-                    onMouseEnter={() => setOpenItem(item.title)}
-                    onMouseLeave={() => setOpenItem(null)}
+                    onMouseEnter={() => {
+                      clearCloseTimeout();
+                      setOpenItem(item.title);
+                    }}
+                    onMouseLeave={() => scheduleClose()}
                   >
                     <div className="p-2">
                       <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
@@ -83,7 +104,10 @@ export function NavMainMiniSidebar({
                           <Link
                             key={subItem.title}
                             to={subItem.url}
-                            onClick={() => setOpenItem(null)}
+                            onClick={() => {
+                              clearCloseTimeout();
+                              setOpenItem(null);
+                            }}
                             className={cn(
                               "flex h-8 items-center rounded-md px-2 py-1.5 text-sm transition-colors",
                               "hover:bg-accent hover:text-accent-foreground",

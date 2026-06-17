@@ -206,7 +206,7 @@ export default function LogbookEntries() {
   };
 
   return (
-    <div className="space-y-6" style={{ marginLeft: "30px", marginTop: "40px" }}>
+    <div id="page-logbook-entries" className="space-y-6" style={{ marginLeft: "30px", marginTop: "40px" }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -365,7 +365,7 @@ export default function LogbookEntries() {
 
       {/* View Modal */}
       <Dialog open={showViewModal} onOpenChange={(v) => !v && setShowViewModal(false)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[712px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Logbook Entry — {viewEntry?.student?.name}</DialogTitle>
             <DialogDescription>View complete details of this logbook entry including all sections and activities.</DialogDescription>
@@ -462,7 +462,7 @@ export default function LogbookEntries() {
 
       {/* Create / Edit Modal */}
       <Dialog open={showForm} onOpenChange={(v) => !v && setShowForm(false)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[712px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingEntry ? "Edit Entry" : "New Logbook Entry"}</DialogTitle>
             <DialogDescription>{editingEntry ? "Update the details of this logbook entry." : "Fill in the details to create a new logbook entry."}</DialogDescription>
@@ -487,7 +487,8 @@ interface EntryFormProps {
 }
 
 function EntryForm({ entry, onSubmit, onClose }: EntryFormProps) {
-  const { year: currentYear } = useAuth();
+  const { year: currentYear, user } = useAuth();
+  const isStudent = user?.role === "student";
   const [form, setForm] = useState<EntryFormData>({
     rotation: entry?.rotation?._id ?? "",
     academicYear: entry?.academicYear?._id ?? currentYear?._id ?? "",
@@ -552,7 +553,7 @@ function EntryForm({ entry, onSubmit, onClose }: EntryFormProps) {
   const addDayEntry = (key: keyof EntryFormData) => {
     setForm((prev) => ({
       ...prev,
-      [key]: [...(prev[key] as DayEntry[]), { time: "", procedure: "", diagnosis: "", supervisor: "" }],
+      [key]: [...(prev[key] as DayEntry[]), { time: "", procedures: [], diagnosis: "", supervisor: "" }],
     }));
   };
 
@@ -561,6 +562,46 @@ function EntryForm({ entry, onSubmit, onClose }: EntryFormProps) {
       ...prev,
       [key]: (prev[key] as DayEntry[]).filter((_, i) => i !== idx),
     }));
+  };
+
+  const updateProcedure = (key: keyof EntryFormData, idx: number, pIdx: number, value: string) => {
+    setForm((prev) => {
+      const updated = [...(prev[key] as any[])];
+      const entry = { ...(updated[idx] || {}) };
+      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
+      procs[pIdx] = value;
+      entry.procedures = procs;
+      // remove legacy single procedure field to keep shape consistent
+      delete entry.procedure;
+      updated[idx] = entry;
+      return { ...prev, [key]: updated };
+    });
+  };
+
+  const addProcedure = (key: keyof EntryFormData, idx: number) => {
+    setForm((prev) => {
+      const updated = [...(prev[key] as any[])];
+      const entry = { ...(updated[idx] || {}) };
+      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
+      procs.push("");
+      entry.procedures = procs;
+      delete entry.procedure;
+      updated[idx] = entry;
+      return { ...prev, [key]: updated };
+    });
+  };
+
+  const removeProcedure = (key: keyof EntryFormData, idx: number, pIdx: number) => {
+    setForm((prev) => {
+      const updated = [...(prev[key] as any[])];
+      const entry = { ...(updated[idx] || {}) };
+      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
+      procs.splice(pIdx, 1);
+      entry.procedures = procs;
+      delete entry.procedure;
+      updated[idx] = entry;
+      return { ...prev, [key]: updated };
+    });
   };
 
   const updateTutorial = (idx: number, field: string, value: string) => {
@@ -712,7 +753,21 @@ function EntryForm({ entry, onSubmit, onClose }: EntryFormProps) {
               items.map((item, idx) => (
                 <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-muted/40 rounded-lg p-3">
                   <Input placeholder="Time (e.g., 08:00-12:00)" value={item.time ?? ""} onChange={(e) => updateDayEntry(key, idx, "time", e.target.value)} className="text-xs h-8" />
-                  <Input placeholder="Procedure" value={item.procedure ?? ""} onChange={(e) => updateDayEntry(key, idx, "procedure", e.target.value)} className="text-xs h-8" />
+                  <div>
+                    <div className="flex flex-col gap-2 max-h-36 overflow-auto pr-1">
+                      {( (item.procedures ?? (item.procedure ? [item.procedure] : [])) as string[] ).map((p, pIdx) => (
+                        <div key={pIdx} className="flex gap-1 items-center">
+                          <Input placeholder={`Procedure ${pIdx + 1}`} value={p ?? ""} onChange={(e) => updateProcedure(key, idx, pIdx, e.target.value)} className="text-xs h-8 flex-1" />
+                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeProcedure(key, idx, pIdx)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => addProcedure(key, idx)}>
+                        <Plus className="h-3 w-3 mr-1" /> Add Procedure
+                      </Button>
+                    </div>
+                  </div>
                   <Input placeholder="Diagnosis" value={item.diagnosis ?? ""} onChange={(e) => updateDayEntry(key, idx, "diagnosis", e.target.value)} className="text-xs h-8" />
                   <div className="flex gap-1">
                     <Input placeholder="Supervisor" value={item.supervisor ?? ""} onChange={(e) => updateDayEntry(key, idx, "supervisor", e.target.value)} className="text-xs h-8 flex-1" />

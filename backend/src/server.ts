@@ -19,13 +19,14 @@ import "./models/clinicalRotation"; // ensure ClinicalRotation mongoose model is
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
-import { generateExam, generateTimeTable, generateAttendance, bulkCreateUsers } from "./inngest/functions";
+import { generateExam, generateTimeTable, generateAttendance, bulkCreateUsers, generateRotations, rotationNotify } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
 import dashBoardRouter from "./routes/dashboard";
 import attendanceRouter from "./routes/attendance";
 import notificationRouter from "./routes/notification";
 import clinicalRotationRouter from "./routes/clinicalRotation";
+import rotationScheduleRouter from "./routes/rotationSchedule";
 import logbookEntryRouter from "./routes/logbookEntry";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
@@ -86,9 +87,10 @@ app.use("/api/attendance", attendanceRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/clinical-rotations", clinicalRotationRouter);
 app.use("/api/logbook-entries", logbookEntryRouter);
+app.use('/api/rotation-schedules', rotationScheduleRouter);
 app.use('/api/inngest', serve({
   client: inngest,
-  functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers]
+  functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, generateRotations, rotationNotify]
 })
 );
 
@@ -106,10 +108,30 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 // });
 
 // Start the server and listen on the specified port
-connectDB().then(() => {
+connectDB().then(async () => {
     const server = app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
     });
+
+    // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
+    const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";
+    if (!useInngest) {
+      try {
+        const { processDueScheduledNotifications, updateRotationStatuses } = await import('./workers/scheduledNotificationsWorker');
+        // run immediately and then every 60s
+        processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
+        // also update rotation statuses on the same cadence
+        updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+        setInterval(() => {
+          processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
+          updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+        }, 60 * 1000);
+      } catch (err) {
+        console.warn('Scheduled notifications worker not started', (err as Error).message);
+      }
+    } else {
+      console.log('Using Inngest delayed scheduling for rotation notifications; DB worker disabled.');
+    }
 
     // initialize optional WebSocket server
     try {

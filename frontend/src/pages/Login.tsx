@@ -12,7 +12,7 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-svh flex items-center justify-center bg-surface p-6">
+    <div id="page-login" className="min-h-svh flex items-center justify-center bg-surface p-6">
       <div className="w-full max-w-lg">
         <div className="flex flex-col items-center gap-6 bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-lg center-field-labels glass-card">
           <Link to="/" className="text-sm text-muted-foreground self-start">MedLog.</Link>

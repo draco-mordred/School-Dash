@@ -3,7 +3,7 @@ import { AlertTriangle, GitBranch, Home } from "lucide-react";
 
 const NotFound = () => {
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-6 py-12">
+    <div id="page-notfound" className="min-h-screen bg-background text-foreground flex items-center justify-center px-6 py-12">
       <div className="relative max-w-4xl w-full overflow-hidden rounded-[2rem] border border-muted/60 bg-card/90 p-10 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.35)] backdrop-blur-xl">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-secondary/10 opacity-90" />
         <div className="relative flex flex-col gap-8">

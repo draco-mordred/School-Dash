@@ -9,7 +9,7 @@ const materials = [
 
 const StudyMaterials = () => {
   return (
-    <div className="p-6 space-y-4">
+    <div id="page-lms-materials" className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Study Materials</h1>
         <Button onClick={() => alert("Upload material (not yet implemented)")}>Upload</Button>

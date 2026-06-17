@@ -17,6 +17,8 @@ import Attendance from "@/pages/academics/Attendance";
 import LogbookEntries from "@/pages/LogbookEntries";
 import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
+import RotationSchedules from "@/pages/rotation-schedules/RotationSchedules";
+import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleDetail";
 import Approvals from "@/pages/Approvals";
 import Reflections from "@/pages/Reflections";
 
@@ -129,6 +131,8 @@ export const router = createBrowserRouter([
             path: "clinical-rotations",
             element: <ClinicalRotations />,
           },
+          { path: "rotation-schedules", element: <RotationSchedules /> },
+          { path: "rotation-schedules/:id", element: <RotationScheduleDetail /> },
           {
             path: "approvals",
             element: <Approvals />,

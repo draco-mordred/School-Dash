@@ -357,7 +357,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="flex-1 space-y-8 p-6">
+    <div id="page-dashboard" className="flex-1 space-y-8 p-6">
       {/* ── GREETING ───────────────────────────────────────────── */}
       <div className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight">

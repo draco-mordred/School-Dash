@@ -2,6 +2,9 @@ import { type Request, type Response } from "express";
 import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest";
 import Timetable from "../models/timetable";
+import ClassModel from "../models/classes";
+import User from "../models/user";
+import mongoose from "mongoose";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin
@@ -19,6 +22,19 @@ export const generateTimeTable = async (
       return res.status(400).json({ message: "classId, academicYear, and settings are required" });
     }
 
+    // Fast-path synchronous generation: if caller requests `settings.fast === true`,
+    // run a lightweight greedy scheduler locally and return the generated timetable
+    // immediately. This avoids the external AI step (which can take many seconds)
+    // and gives a timetable within a few hundred milliseconds for typical class sizes.
+    if (settings && settings.fast) {
+      // Simple greedy generator
+      const generated = await fastGenerateAndSave(classIdValue, academicYearValue, settings);
+      const userId = (req as any).user._id;
+      await logActivity({ userId, action: `Generated timetable (fast) for class ID: ${classIdValue}` });
+      return res.status(200).json({ message: "Timetable generated (fast)", schedule: generated.schedule });
+    }
+
+    // Otherwise, enqueue the AI-based generation via Inngest (longer-running)
     await inngest.send(
       {
         name: "generate/timetable",
@@ -214,3 +230,90 @@ export const deletePeriod = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+async function fastGenerateAndSave(classId: string, academicYearId: string, settings: any) {
+  // settings: { startTime: '08:00', endTime: '16:00', periods: number }
+  // Simple round-robin assignment: gather courses and lecturers, then fill days x periods
+  const cls = await ClassModel.findById(classId).populate("courses");
+  if (!cls) throw new Error("Class not found");
+
+  const courses: any[] = (cls.courses || []).map((c: any) => ({ id: String(c._id), name: c.name }));
+  // Fetch lecturers and map by course id (teacherSubject)
+  const teachers = await User.find({ role: "teacher" }).select("_id name teacherSubject");
+  const teachersByCourse: Record<string, string[]> = {};
+  for (const t of teachers) {
+    const subs = Array.isArray((t as any).teacherSubject) ? (t as any).teacherSubject : [];
+    for (const s of subs) {
+      const key = String(s);
+      teachersByCourse[key] = teachersByCourse[key] || [];
+      teachersByCourse[key].push(String(t._id));
+    }
+  }
+
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const periodsPerDay = Number(settings?.periods) || 5;
+
+  // compute time slots by evenly splitting start-end into periods if possible
+  const parseHM = (h: string) => {
+    const [hh, mm] = h.split(":").map(Number);
+    return hh * 60 + mm;
+  };
+  const fmt = (mins: number) => {
+    const hh = Math.floor(mins / 60).toString().padStart(2, "0");
+    const mm = (mins % 60).toString().padStart(2, "0");
+    return `${hh}:${mm}`;
+  };
+  let start = parseHM(settings?.startTime || "08:00");
+  let end = parseHM(settings?.endTime || "16:00");
+  const total = Math.max(1, periodsPerDay);
+  const slotLength = Math.floor((end - start) / total) || 60;
+
+  const schedule: any[] = [];
+
+  // Distribute courses round-robin across all slots
+  const allSlots: { day: string; startTime: string; endTime: string }[] = [];
+  for (const day of days) {
+    let cur = start;
+    for (let p = 0; p < periodsPerDay; p++) {
+      const s = fmt(cur);
+      cur += slotLength;
+      const e = fmt(cur);
+      allSlots.push({ day, startTime: s, endTime: e });
+    }
+  }
+
+  let courseIdx = 0;
+  for (const day of days) {
+    const dayPeriods: any[] = [];
+    for (let p = 0; p < periodsPerDay; p++) {
+      const course = courses.length ? courses[courseIdx % courses.length] : null;
+      let lecturerId: string | null = null;
+      if (course && teachersByCourse[course.id] && teachersByCourse[course.id].length) {
+        // pick teacher round-robin
+        const list = teachersByCourse[course.id];
+        lecturerId = list[(courseIdx) % list.length] || null;
+      }
+      const slot = allSlots.find((s) => s.day === day && s.startTime === fmt(start + p * slotLength));
+      const startTime = slot ? slot.startTime : fmt(start + p * slotLength);
+      const endTime = slot ? slot.endTime : fmt(start + (p + 1) * slotLength);
+
+      dayPeriods.push({
+        subject: course ? new mongoose.Types.ObjectId(course.id) : null,
+        lecturer: lecturerId ? new mongoose.Types.ObjectId(lecturerId) : null,
+        startTime,
+        endTime,
+      });
+      courseIdx++;
+    }
+    schedule.push({ day, periods: dayPeriods });
+  }
+
+  // Persist
+  await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
+  await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
+  const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
+    .populate("schedule.periods.subject", "name code")
+    .populate("schedule.periods.lecturer", "name email idNumber");
+
+  return { success: true, schedule: saved?.schedule ?? schedule };
+}

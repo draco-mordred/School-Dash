@@ -594,7 +594,7 @@ const Account = () => {
   };
 
   return (
-    <div className="flex-1 min-h-0">
+    <div id="page-account" className="flex-1 min-h-0">
       {/* Profile header spanning full width */}
       <div className="rounded-xl bg-card p-6 max-w-[1100px] mx-auto ml-[2%]">
         <div className="flex flex-col sm:flex-row items-center gap-6">

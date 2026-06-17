@@ -91,7 +91,7 @@ export default function ActivitiesLog() {
   };
 
   return (
-    <div className="flex-1 space-y-6 p-6">
+    <div id="page-activities-log" className="flex-1 space-y-6 p-6">
       {/* HEADER */}
       <div className="flex items-center justify-between space-y-2">
         <div>

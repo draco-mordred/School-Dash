@@ -10,9 +10,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const DIALOG_GLASS_CLASS =
-  "backdrop-blur-md bg-white/10 border border-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_80px_rgba(0,0,0,0.35)]";
-
 import {
   Select,
   SelectContent,
@@ -29,6 +26,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useNavigate } from "react-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,6 +91,28 @@ interface Rotation {
   createdAt: string;
 }
 
+interface RotationGroup {
+  _id?: string;
+  name?: string;
+  students?: Array<{ _id?: string; name?: string; idNumber?: string }>;
+  supervisorName?: string;
+  supervisor?: { name?: string };
+}
+
+interface PostingEntry {
+  name?: string;
+  groups?: Array<{
+    group?: RotationGroup;
+    groupId?: string;
+    assigned?: Array<{ startDate: string; endDate: string }>;
+  }>;
+}
+
+interface RotationSchedule {
+  _id?: string;
+  postings?: PostingEntry[];
+}
+
 const ROTATION_TYPES: RotationType[] = ["medicine", "surgery", "paediatrics", "obstetrics", "psychiatry", "community", "elective"];
 const STATUS_COLORS: Record<RotationStatus, string> = {
   upcoming: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
@@ -105,7 +125,6 @@ export default function ClinicalRotations() {
   const [rotations, setRotations] = useState<Rotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RotationStatus | "all">("all");
@@ -116,6 +135,8 @@ export default function ClinicalRotations() {
   const [selectedRotation, setSelectedRotation] = useState<Rotation | null>(null);
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [noteText, setNoteText] = useState("");
+  const [schedulePostings, setSchedulePostings] = useState<PostingEntry[]>([]);
+  const [postingsLoading, setPostingsLoading] = useState(false);
 
   const limit = 15;
 
@@ -135,9 +156,9 @@ export default function ClinicalRotations() {
       if (user?.role === "parent") {
         const { data: profileData } = await api.get("/users/profile");
         const parentUser = profileData.user;
-        const childIds = (parentUser?.parentStudents ?? []).map((child: any) =>
-          typeof child === "string" ? child : child._id
-        );
+          const childIds = (parentUser?.parentStudents ?? []).map((child: unknown) =>
+            typeof child === "string" ? child : (child as { _id: string })._id
+          );
         if (childIds.length > 0) {
           params.set("studentIds", childIds.join(","));
           endpoint = `/clinical-rotations?${params}`;
@@ -146,7 +167,6 @@ export default function ClinicalRotations() {
 
       const { data } = await api.get(endpoint);
       setRotations(data.rotations ?? []);
-      setTotal(data.total ?? 0);
       setTotalPages(Math.ceil((data.total ?? 0) / limit));
     } catch (error) {
       console.error("Failed to load rotations", error);
@@ -158,6 +178,79 @@ export default function ClinicalRotations() {
   useEffect(() => {
     void fetchRotations();
   }, [fetchRotations]);
+
+  // For students, also load generated schedule postings so we can display Active/Upcoming postings
+  useEffect(() => {
+    if (user?.role !== "student") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setPostingsLoading(true);
+        // load recent schedules (global) as a fallback
+        const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 50 } });
+        const schedules = (data.schedules as RotationSchedule[]) || [];
+        // flatten postings from schedules, keep unique by name
+        const map = new Map<string, PostingEntry>();
+        for (const s of schedules) {
+          for (const p of s.postings || []) {
+            if (!p || !p.name) continue;
+            if (!map.has(p.name)) map.set(p.name, p);
+          }
+        }
+        if (!cancelled) setSchedulePostings(Array.from(map.values()));
+      } catch (e: unknown) {
+        console.error('Failed to load schedule postings', e);
+      } finally {
+        if (!cancelled) setPostingsLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [user]);
+
+  // For students, also load schedules scoped to their class(es) to show class schedule card
+  const [classPostings, setClassPostings] = useState<PostingEntry[]>([]);
+  useEffect(() => {
+    if (user?.role !== "student") return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        // attempt to derive class ids from user object; fallback to fetching profile if missing
+        let rawStudentClasses = (user as any)?.studentClasses ?? (user as any)?.studentClass ?? [];
+        if ((!rawStudentClasses || (Array.isArray(rawStudentClasses) && rawStudentClasses.length === 0)) ) {
+          try {
+            const { data: profileData } = await api.get('/users/profile');
+            rawStudentClasses = profileData.user?.studentClasses ?? profileData.user?.studentClass ?? rawStudentClasses;
+          } catch (pfErr) {
+            // ignore profile fetch errors and continue with whatever we have
+          }
+        }
+        const classIds = Array.isArray(rawStudentClasses)
+          ? rawStudentClasses.map((c: any) => (typeof c === 'string' ? c : c._id))
+          : rawStudentClasses
+            ? [ (typeof rawStudentClasses === 'string' ? rawStudentClasses : rawStudentClasses._id) ]
+            : [];
+
+        const params: any = { page: 1, limit: 50 };
+        if (classIds.length) params.classId = classIds[0];
+
+        const { data } = await api.get('/rotation-schedules', { params });
+        const schedules = (data.schedules as RotationSchedule[]) || [];
+        const map = new Map<string, PostingEntry>();
+        for (const s of schedules) {
+          for (const p of s.postings || []) {
+            if (!p || !p.name) continue;
+            if (!map.has(p.name)) map.set(p.name, p);
+          }
+        }
+        if (!cancelled) setClassPostings(Array.from(map.values()));
+      } catch (e) {
+        console.error('Failed to load class schedule postings', e);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [user]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this clinical rotation?")) return;
@@ -174,7 +267,7 @@ export default function ClinicalRotations() {
     setShowForm(true);
   };
 
-  const handleFormSubmit = async (payload: Record<string, any>) => {
+  const handleFormSubmit = async (payload: Record<string, unknown>) => {
     try {
       if (editingRotation) {
         const { data } = await api.put(`/clinical-rotations/${editingRotation._id}`, payload);
@@ -207,6 +300,7 @@ export default function ClinicalRotations() {
   const isConsultant = user?.role === "unit_consultant";
   const isResident = user?.role === "unit_resident";
   const canCreate = isAdmin || isTeacher || isConsultant || isResident;
+  const canGenerateSchedule = isAdmin || isTeacher;
 
   const [showAvailableDialog, setShowAvailableDialog] = useState(false);
   const [availableRotations, setAvailableRotations] = useState<Rotation[]>([]);
@@ -217,22 +311,131 @@ export default function ClinicalRotations() {
   const [supervisors, setSupervisors] = useState<Array<{ _id: string; name: string }>>([]);
   const [selectedSupervisor, setSelectedSupervisor] = useState<string>("");
 
+  // Generate schedule dialog
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [genAcademicYears, setGenAcademicYears] = useState<Array<{ _id: string; name: string }>>([]);
+  const [genClasses, setGenClasses] = useState<Array<{ _id: string; name: string }>>([]);
+  const [genAcademicYearId, setGenAcademicYearId] = useState<string>("");
+  const [genClassId, setGenClassId] = useState<string>("");
+  const [genLevel, setGenLevel] = useState<number>(400);
+  const [genStartDate, setGenStartDate] = useState<string>(new Date().toISOString().slice(0,10));
+
+  const openGenerateDialog = async () => {
+    setShowGenerateDialog(true);
+    try {
+      const [{ data: years }, { data: classesRes }] = await Promise.all([
+        api.get('/academic-years'),
+        api.get('/classes?limit=200')
+      ]);
+      setGenAcademicYears(Array.isArray(years) ? years : (years?.years ?? []));
+      setGenClasses(classesRes.classes ?? []);
+    } catch (e: unknown) {
+      console.error('Failed to load generation lists', e);
+    }
+  };
+
+  const confirmGenerate = async () => {
+    try {
+      await api.post('/rotation-schedules/generate', { academicYearId: genAcademicYearId, classId: genClassId, level: genLevel, options: { startDate: genStartDate } });
+      toast.success('Rotation generation started');
+      setShowGenerateDialog(false);
+      // poll for the generated schedule and navigate to its detail page
+      startPollForSchedule(genAcademicYearId, genClassId, genLevel);
+    } catch (e: unknown) {
+      console.error('Failed to start generation', e);
+      toast.error('Failed to start generation');
+    }
+  };
+
+  const navigate = useNavigate();
+  const [showGroupsModal, setShowGroupsModal] = useState(false);
+  const [groupsForRotation, setGroupsForRotation] = useState<Array<{ group?: RotationGroup; groupId?: string; assigned?: Array<{ startDate: string; endDate: string }> }> | null>(null);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+
+  const openGroupsForRotation = async (rot: Rotation) => {
+    try {
+      setGroupsLoading(true);
+      // fetch recent schedules and try to find a posting that matches this rotation name
+      const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 200 } });
+      const schedules = (data.schedules as RotationSchedule[]) || [];
+      let found: RotationSchedule | null = null;
+      for (const s of schedules) {
+        const p = (s.postings || []).find((pp) => String(pp.name) === String(rot.rotationName));
+        if (p) { found = s; break; }
+      }
+      if (!found) {
+        toast.warning('No schedule postings found for this rotation');
+        setGroupsForRotation(null);
+        setShowGroupsModal(true);
+        return;
+      }
+      const { data: detailData } = await api.get(`/rotation-schedules/${found._id}`);
+      const detail = detailData as RotationSchedule;
+      const posting = (detail.postings || []).find((pp) => String(pp.name) === String(rot.rotationName));
+      if (!posting) {
+        toast.warning('Posting not found in schedule');
+        setGroupsForRotation(null);
+        setShowGroupsModal(true);
+        return;
+      }
+      // posting.groups: array of { group: RotationGroup, assigned }
+      setGroupsForRotation(posting.groups || []);
+      setShowGroupsModal(true);
+    } catch (err: unknown) {
+      console.error('Failed to load groups', err);
+      toast.error('Failed to load groups for this rotation');
+    } finally {
+      setGroupsLoading(false);
+    }
+  };
+  // tiny helper: poll backend for schedule for this class/year/level
+  const startPollForSchedule = (ayId: string, classId: string, level: number) => {
+    const maxMs = 60 * 1000; // poll up to 60s
+    const start = Date.now();
+    const iv = setInterval(async () => {
+      try {
+        const { data } = await api.get('/rotation-schedules', { params: { academicYearId: ayId, classId, level } });
+        if (data && Array.isArray(data.schedules) && data.schedules.length > 0) {
+          clearInterval(iv);
+          const recent = data.schedules[0];
+          navigate(`/rotation-schedules/${recent._id}`);
+        } else if (Date.now() - start > maxMs) {
+          clearInterval(iv);
+          toast.warning('Schedule generation taking longer than expected. Refresh the Rotation Schedules page later.');
+        }
+      } catch {
+        // ignore transient errors
+      }
+    }, 2000);
+  };
+
   const fetchAvailable = async (q = "") => {
     try {
       setAvailableLoading(true);
-      const params: any = { page: 1, limit: 50 };
+      const params: Record<string, string | number> = { page: 1, limit: 50 };
       if (q) params.q = q;
 
       // Students browse "available" postings (batch-visibility rules) and should see computed status.
       const { data } = await api.get("/clinical-rotations/available", { params: { ...params, page: 1, limit: 50 } });
       setAvailableRotations(data.rotations ?? []);
-    } catch (e) {
+    } catch (e: unknown) {
       console.error("Failed to fetch available rotations", e);
       toast.error("Failed to fetch available postings");
     } finally {
       setAvailableLoading(false);
     }
   };
+
+  // compute active/upcoming splits for student view
+  const now = new Date();
+  const nextMonth = new Date(now);
+  nextMonth.setMonth(now.getMonth() + 1);
+  const activeRotations = rotations.filter((r) => {
+    const start = new Date(r.rotationStartDate);
+    const end = new Date(r.rotationEndDate);
+    return !(end < now || start > nextMonth);
+  });
+  const upcomingRotations = rotations.filter((r) => new Date(r.rotationStartDate) > nextMonth);
 
   const openSignupDialog = async (rotation: Rotation) => {
     setSignupRotation(rotation);
@@ -243,51 +446,423 @@ export default function ClinicalRotations() {
       setSupervisors(data.users ?? []);
       // preselect rotation's current supervisor if present
       setSelectedSupervisor(rotation.rotationSupervisor?._id ?? "");
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('Failed to load supervisors', e);
       setSupervisors([]);
     }
   };
 
+  // prepare rotations content to avoid nested JSX ternary parsing issues
+  // prepare schedule postings view for students
+  const postingViews = schedulePostings.map((p, idx) => {
+    // determine posting start/end by scanning assigned entries across groups
+    let startDate: string | null = null;
+    let endDate: string | null = null;
+    for (const g of p.groups || []) {
+      for (const a of g.assigned || []) {
+        const s = new Date(a.startDate);
+        const e = new Date(a.endDate);
+        if (!startDate || s < new Date(startDate)) startDate = a.startDate;
+        if (!endDate || e > new Date(endDate)) endDate = a.endDate;
+      }
+    }
+    const supervisorName = (p.groups && p.groups[0]?.group?.supervisorName) || p.groups?.[0]?.group?.supervisor?.name || "—";
+    return {
+      _id: `${p.name}-${idx}`,
+      rotationName: p.name || "",
+      rotationStartDate: startDate || new Date().toISOString(),
+      rotationEndDate: endDate || new Date().toISOString(),
+      rotationUnit: "—",
+      rotationSupervisor: { _id: "", name: supervisorName },
+      raw: p,
+    } as Rotation & { raw?: PostingEntry };
+  });
+
+  // transform class-specific postings into view objects
+  const classPostingViews = classPostings.map((p, idx) => {
+    let startDate: string | null = null;
+    let endDate: string | null = null;
+    for (const g of p.groups || []) {
+      for (const a of g.assigned || []) {
+        const s = new Date(a.startDate);
+        const e = new Date(a.endDate);
+        if (!startDate || s < new Date(startDate)) startDate = a.startDate;
+        if (!endDate || e > new Date(endDate)) endDate = a.endDate;
+      }
+    }
+    const supervisorName = (p.groups && p.groups[0]?.group?.supervisorName) || p.groups?.[0]?.group?.supervisor?.name || "—";
+    return {
+      _id: `${p.name}-${idx}`,
+      rotationName: p.name || "",
+      rotationStartDate: startDate || new Date().toISOString(),
+      rotationEndDate: endDate || new Date().toISOString(),
+      rotationUnit: "—",
+      rotationSupervisor: { _id: "", name: supervisorName },
+      raw: p,
+    } as Rotation & { raw?: PostingEntry };
+  });
+
+  const activeClassPostings = classPostingViews.filter((r) => {
+    const start = new Date(r.rotationStartDate);
+    const end = new Date(r.rotationEndDate);
+    return start <= now && end >= now;
+  });
+  const upcomingClassPostings = classPostingViews.filter((r) => new Date(r.rotationStartDate) > now);
+
+  // student's own rotations (persisted ClinicalRotation documents) that may have been created by the scheduler
+  const personalActiveRotations = rotations.filter((r) => r.rotationStatus === "active");
+  const personalUpcomingRotations = rotations.filter((r) => r.rotationStatus === "upcoming");
+
+  const activePostings = postingViews.filter((r) => {
+    const start = new Date(r.rotationStartDate);
+    const end = new Date(r.rotationEndDate);
+    return !(end < now || start > nextMonth);
+  });
+  const upcomingPostings = postingViews.filter((r) => new Date(r.rotationStartDate) > nextMonth);
+  const studentRotationsElement = postingsLoading ? (
+    <div className="p-4 space-y-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded-lg" />
+      ))}
+    </div>
+  ) : schedulePostings.length > 0 ? (
+    <>
+      <div>
+        <h3 className="text-lg font-semibold">Active Rotations</h3>
+        {activePostings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active rotations</p>
+        ) : (
+          <div className="grid gap-3">
+              {/* Show student's personal active rotations first */}
+              {personalActiveRotations.length > 0 && personalActiveRotations.map((rot) => (
+                <div key={`personal-${rot._id}`} className="border rounded-md p-3 flex items-start justify-between">
+                  <div>
+                    <p className="font-medium">{rot.rotationName}</p>
+                    <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                    <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit} • Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                      <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {activePostings.map((rot) => (
+              <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                <div>
+                  <p className="font-medium">{rot.rotationName}</p>
+                  <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                  <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit} • Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                    <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold">Upcoming Rotations</h3>
+        {upcomingPostings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No upcoming rotations</p>
+        ) : (
+          <div className="grid gap-3">
+            {/* Show student's personal upcoming rotations first */}
+            {personalUpcomingRotations.length > 0 && personalUpcomingRotations.map((rot) => (
+              <div key={`personal-upcoming-${rot._id}`} className="border rounded-md p-3 flex items-start justify-between">
+                <div>
+                  <p className="font-medium">{rot.rotationName}</p>
+                  <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
+                  <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                    <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {upcomingPostings.map((rot) => (
+              <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                <div>
+                  <p className="font-medium">{rot.rotationName}</p>
+                  <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
+                  <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                    <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  ) : (
+    <>
+      <div>
+        <h3 className="text-lg font-semibold">Active Rotations</h3>
+        {activeRotations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active rotations</p>
+        ) : (
+          <div className="grid gap-3">
+            {activeRotations.map((rot) => (
+              <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                <div>
+                  <p className="font-medium">{rot.rotationName}</p>
+                  <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                  <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit} • Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                    <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold">Upcoming Rotations</h3>
+        {upcomingRotations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No upcoming rotations</p>
+        ) : (
+          <div className="grid gap-3">
+            {upcomingRotations.map((rot) => (
+              <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                <div>
+                  <p className="font-medium">{rot.rotationName}</p>
+                  <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
+                  <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                    <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+  const rotationsContent = loading ? (
+    <div className="p-4 space-y-3">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded-lg" />
+      ))}
+    </div>
+  ) : rotations.length === 0 ? (
+    <div className="py-12 text-center text-muted-foreground">
+      <Stethoscope className="h-8 w-8 mx-auto mb-3 opacity-50" />
+      <p className="text-sm font-medium">No rotations found</p>
+      <p className="text-xs mt-1">Create a new rotation to get started.</p>
+    </div>
+  ) : (
+    <div className="overflow-x-auto">
+      {user?.role === "student" ? (
+        <div className="p-4">
+          <Card>
+            <CardContent>
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Class Rotation Schedule</h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <h4 className="text-sm font-medium">Active</h4>
+                    {activeClassPostings.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No active rotations for your class.</p>
+                    ) : (
+                      <div className="space-y-3 mt-2">
+                        {activeClassPostings.map((rot) => (
+                          <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                            <div>
+                              <p className="font-medium">{rot.rotationName}</p>
+                              <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                              <p className="text-xs text-muted-foreground">Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                                <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="text-sm font-medium">Upcoming</h4>
+                    {upcomingClassPostings.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No upcoming rotations for your class.</p>
+                    ) : (
+                      <div className="space-y-3 mt-2">
+                        {upcomingClassPostings.map((rot) => (
+                          <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                            <div>
+                              <p className="font-medium">{rot.rotationName}</p>
+                              <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
+                              <div className="flex gap-2">
+                                <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                                <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Rotation</TableHead>
+              <TableHead>Unit</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Supervisor</TableHead>
+              <TableHead>Student</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Activities</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rotations.map((rot) => (
+              <TableRow key={rot._id}>
+                <TableCell>
+                  <div>
+                    <p className="font-medium text-sm">{rot.rotationName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {format(new Date(rot.rotationStartDate), "MMM d, yyyy")} – {" "}
+                      {format(new Date(rot.rotationEndDate), "MMM d, yyyy")}
+                    </p>
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm">{rot.rotationUnit}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="text-xs capitalize">{rot.rotationType}</Badge>
+                </TableCell>
+                <TableCell className="text-sm">{rot.rotationSupervisor?.name ?? "—"}</TableCell>
+                <TableCell className="text-sm">{rot.student?.name ?? "—"}</TableCell>
+                <TableCell>
+                  <Badge className={`text-xs capitalize ${STATUS_COLORS[rot.rotationStatus]}`}>
+                    {rot.rotationStatus}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-2 flex-wrap text-xs text-muted-foreground">
+                    {rot.rotationActivities?.numberOfConsultantWardRound > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        <ClipboardList className="h-3 w-3" /> {rot.rotationActivities.numberOfConsultantWardRound}
+                      </span>
+                    )}
+                    {rot.rotationActivities?.numberOfClinics > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        <CalendarDays className="h-3 w-3" /> {rot.rotationActivities.numberOfClinics}
+                      </span>
+                    )}
+                    {rot.rotationActivities?.numberOfWeeks > 0 && (
+                      <span>{rot.rotationActivities.numberOfWeeks}wk</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => { setSelectedRotation(rot); setShowNotesModal(true); }}>
+                        View Notes
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openGroupsForRotation(rot)}>
+                        Groups
+                      </DropdownMenuItem>
+                      {(isAdmin || isTeacher || isConsultant || user?._id === rot.student?._id) && (
+                        <>
+                          <DropdownMenuItem onClick={() => openForm(rot)}>
+                            <Pencil className="h-3 w-3 mr-2" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
+                            <Trash2 className="h-3 w-3 mr-2" /> Delete
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+
   const confirmSignup = async () => {
     if (!signupRotation) return;
     try {
-      const payload: any = {};
-      if (selectedSupervisor) payload.rotationSupervisor = selectedSupervisor;
+      const payload: Record<string, unknown> = {};
+      if (selectedSupervisor) (payload as Record<string, unknown>).rotationSupervisor = selectedSupervisor;
       const { data } = await api.post(`/clinical-rotations/${signupRotation._id}/signup`, payload);
       toast.success('Signed up successfully');
       setAvailableRotations((prev) => prev.map((r) => (r._id === data._id ? data : r)));
       setRotations((prev) => [data, ...prev]);
       setShowSignupDialog(false);
       setSignupRotation(null);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Signup failed', e);
-      toast.error(e.response?.data?.message || 'Failed to sign up for rotation');
+      toast.error('Failed to sign up for rotation');
     }
   };
 
-  const handleSignup = async (rotationId: string) => {
-    try {
-      const { data } = await api.post(`/clinical-rotations/${rotationId}/signup`);
-      toast.success("Rotation signed up successfully");
-      // Update local lists
-      setAvailableRotations((prev) => prev.map((r) => (r._id === data._id ? data : r)));
-      setRotations((prev) => [data, ...prev]);
-    } catch (e: any) {
-      console.error("Signup failed", e);
-      toast.error(e.response?.data?.message || "Failed to sign up for rotation");
-    }
-  };
+  // handleSignup is intentionally not used; prefer using signup dialog flows.
 
   return (
-    <div className="space-y-6" style={{ marginLeft: "30px", marginTop: "40px" }}>
+    <div id="page-clinical-rotations" className="space-y-6 ml-8 mt-10">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Clinical Rotations</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage student clinical rotation schedules and records.
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">Clinical Rotations</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage student clinical rotation schedules and records.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {user?.role === "student" && (
@@ -298,12 +873,16 @@ export default function ClinicalRotations() {
           <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-0">
             <RefreshCw className="h-4 w-4 mr-2" /> Refresh
           </Button>
-          {canCreate && (
-            <Button onClick={() => openForm()} className="gap-2 ml-2">
-              <Plus className="h-4 w-4" />
-              New Rotation
+          {canGenerateSchedule && (
+            <Button variant="outline" onClick={() => openGenerateDialog()} className="ml-2">
+              <CalendarDays className="h-4 w-4 mr-2" />
+              Generate Schedule
             </Button>
           )}
+          <Button variant="secondary" onClick={() => navigate('/rotation-schedules')} className="ml-2">
+            View Schedules
+          </Button>
+          {/* Manual creation of clinical postings removed; use Generated Schedules */}
         </div>
       </div>
 
@@ -344,6 +923,60 @@ export default function ClinicalRotations() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Groups Modal (for postings) */}
+      <Dialog open={showGroupsModal} onOpenChange={(v) => !v && setShowGroupsModal(false)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Groups</DialogTitle>
+            <DialogDescription>View groupings and students for this posting.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {groupsLoading ? (
+              <div>Loading...</div>
+            ) : !groupsForRotation || groupsForRotation.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No groups found for this posting.</div>
+            ) : (
+              <div className="space-y-3">
+                {groupsForRotation.map((pg) => {
+                  const group = pg.group;
+                  const assigned = pg.assigned;
+                  return (
+                    <Card key={group?._id || pg.groupId}>
+                      <CardContent>
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="font-medium">{group?.name || 'Group'}</div>
+                            <div className="text-xs text-muted-foreground">Students: {(group?.students || []).length || 0}</div>
+                            <div className="text-xs text-muted-foreground">Supervisor: {group?.supervisorName || group?.supervisor?.name || '—'}</div>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Duration: {assigned && assigned.length ? `${new Date(assigned[0].startDate).toLocaleDateString()} — ${new Date(assigned[assigned.length-1].endDate).toLocaleDateString()}` : 'TBA'}
+                          </div>
+                        </div>
+                        <div className="mt-3">
+                          <div className="font-medium mb-2">Students</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {(group?.students || []).map((s) => (
+                              <div key={s._id} className="p-2 border rounded">
+                                <div className="font-medium">{s.name}</div>
+                                <div className="text-xs text-muted-foreground">{s.idNumber || '—'}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGroupsModal(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Available Postings Dialog (students) */}
       <Dialog open={showAvailableDialog} onOpenChange={(v) => { if (v) fetchAvailable(); else setAvailableRotations([]); setShowAvailableDialog(v); }}>
@@ -480,110 +1113,60 @@ export default function ClinicalRotations() {
         </DialogContent>
       </Dialog>
 
+      {/* Generate Schedule Dialog (admin/teacher) */}
+      <Dialog open={showGenerateDialog} onOpenChange={(v) => setShowGenerateDialog(v)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Generate Rotation Schedule</DialogTitle>
+            <DialogDescription>Choose academic year and class to generate schedules for.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs block mb-1">Academic Year</label>
+              <Select value={genAcademicYearId} onValueChange={(v) => setGenAcademicYearId(v)}>
+                <SelectTrigger><SelectValue placeholder="Select academic year" /></SelectTrigger>
+                <SelectContent>
+                  {genAcademicYears.map((y) => <SelectItem key={y._id} value={y._id}>{y.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs block mb-1">Class</label>
+              <Select value={genClassId} onValueChange={(v) => setGenClassId(v)}>
+                <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
+                <SelectContent>
+                  {genClasses.map((c) => <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs block mb-1">Level</label>
+              <Select value={String(genLevel)} onValueChange={(v) => setGenLevel(Number(v))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="400">400</SelectItem>
+                  <SelectItem value="500">500</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs block mb-1">Start Date</label>
+              <Input type="date" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Cancel</Button>
+            <Button onClick={confirmGenerate}>Start Generation</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Table */}
       <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="p-4 space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-lg" />
-              ))}
-            </div>
-          ) : rotations.length === 0 ? (
-            <div className="py-12 text-center text-muted-foreground">
-              <Stethoscope className="h-8 w-8 mx-auto mb-3 opacity-50" />
-              <p className="text-sm font-medium">No rotations found</p>
-              <p className="text-xs mt-1">Create a new rotation to get started.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rotation</TableHead>
-                    <TableHead>Unit</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Supervisor</TableHead>
-                    <TableHead>Student</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Activities</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rotations.map((rot) => (
-                    <TableRow key={rot._id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm">{rot.rotationName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {format(new Date(rot.rotationStartDate), "MMM d, yyyy")} –{" "}
-                            {format(new Date(rot.rotationEndDate), "MMM d, yyyy")}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{rot.rotationUnit}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs capitalize">{rot.rotationType}</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">{rot.rotationSupervisor?.name ?? "—"}</TableCell>
-                      <TableCell className="text-sm">{rot.student?.name ?? "—"}</TableCell>
-                      <TableCell>
-                        <Badge className={`text-xs capitalize ${STATUS_COLORS[rot.rotationStatus]}`}>
-                          {rot.rotationStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2 flex-wrap text-xs text-muted-foreground">
-                          {rot.rotationActivities?.numberOfConsultantWardRound > 0 && (
-                            <span className="flex items-center gap-0.5">
-                              <ClipboardList className="h-3 w-3" /> {rot.rotationActivities.numberOfConsultantWardRound}
-                            </span>
-                          )}
-                          {rot.rotationActivities?.numberOfClinics > 0 && (
-                            <span className="flex items-center gap-0.5">
-                              <CalendarDays className="h-3 w-3" /> {rot.rotationActivities.numberOfClinics}
-                            </span>
-                          )}
-                          {rot.rotationActivities?.numberOfWeeks > 0 && (
-                            <span>{rot.rotationActivities.numberOfWeeks}wk</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setSelectedRotation(rot); setShowNotesModal(true); }}>
-                              View Notes
-                            </DropdownMenuItem>
-                            {(isAdmin || isTeacher || isConsultant || user?._id === rot.student?._id) && (
-                              <>
-                                <DropdownMenuItem onClick={() => openForm(rot)}>
-                                  <Pencil className="h-3 w-3 mr-2" /> Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
-                                  <Trash2 className="h-3 w-3 mr-2" /> Delete
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
+        <CardContent className="p-0">{rotationsContent}</CardContent>
         {totalPages > 1 && (
           <div className="border-t px-4 py-3">
-            <CustomPagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            <CustomPagination loading={loading} page={page} setPage={setPage} totalPages={totalPages} />
           </div>
         )}
       </Card>
@@ -634,7 +1217,7 @@ export default function ClinicalRotations() {
 
 interface RotationFormProps {
   rotation: Rotation | null;
-  onSubmit: (payload: Record<string, any>) => void;
+  onSubmit: (payload: Record<string, unknown>) => void;
   onClose: () => void;
 }
 

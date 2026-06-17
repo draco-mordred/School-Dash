@@ -512,7 +512,7 @@ export default function Attendance() {
   }
 
   return (
-    <div className="p-6 space-y-4">
+    <div id="page-attendance" className="p-6 space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Attendance</h1>

@@ -19,6 +19,20 @@ export const getClassById = async (req: Request, res: Response) => {
   }
 };
 
+// @desc    Get students for a class
+// @route   GET /api/classes/:id/students
+// @access  Private (admin, teacher, student, parent)
+export const getStudentsForClass = async (req: Request, res: Response) => {
+  try {
+    const classId = req.params.id;
+    // Find users who have this class set in `studentClasses` and are students
+    const students = await UserModel.find({ studentClasses: classId, role: "student" }).select("name email idNumber studentClasses");
+    res.json({ students });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
 // @desc    Create a New Class
 // @route   POST /api/classes
 // @access  Private/Admin

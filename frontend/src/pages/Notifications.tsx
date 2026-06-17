@@ -149,7 +149,7 @@ export default function Notifications() {
 
   return (
     <>
-    <div className="flex w-full flex-col gap-4 px-6 py-6">
+    <div id="page-notifications" className="flex w-full flex-col gap-4 px-6 py-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Bell className="h-5 w-5" />
@@ -352,10 +352,7 @@ function StudentNotifications() {
             </p>
             <div className="mt-2 flex items-center gap-2">
               <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-green-500 transition-all"
-                  style={{ width: `${data.percentage}%` }}
-                />
+                <div className={`h-full rounded-full bg-green-500 transition-all w-[${data.percentage}%]`} />
               </div>
               <span className="text-sm font-semibold">{data.percentage}%</span>
             </div>
@@ -534,6 +531,9 @@ function StudentNotifications() {
 function AdminNotifications() {
   const [classes, setClasses] = useState<ClassStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [systemNotificationsAdmin, setSystemNotificationsAdmin] = useState<any[] | null>(null);
+  const [sysLoading, setSysLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const totalClasses = classes.length;
   const activeTimetables = classes.filter((cls) => cls.timetableStatus === "active").length;
@@ -554,9 +554,40 @@ function AdminNotifications() {
     }
   };
 
+  const fetchSystemNotificationsAdmin = async () => {
+    try {
+      setSysLoading(true);
+      const { data } = await api.get('/notifications/system?limit=200');
+      setSystemNotificationsAdmin(data.notifications || []);
+    } catch (err) {
+      console.error('Failed to load system notifications for admin', err);
+    } finally {
+      setSysLoading(false);
+    }
+  }
+
   useEffect(() => {
     void fetchStatus();
+    void fetchSystemNotificationsAdmin();
   }, []);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const deleteSelected = async () => {
+    const ids = Object.keys(selectedIds).filter((k) => selectedIds[k]);
+    if (ids.length === 0) return;
+    const ok = window.confirm(`Delete ${ids.length} selected notification(s)? This will remove them from the system.`);
+    if (!ok) return;
+    try {
+      await Promise.all(ids.map((id) => api.delete(`/notifications/${id}`)));
+      setSystemNotificationsAdmin((prev) => (prev || []).filter((n) => !ids.includes(n._id)));
+      setSelectedIds({});
+    } catch (err) {
+      console.error('Failed to delete selected notifications', err);
+    }
+  };
 
   return (
     <>
@@ -690,6 +721,56 @@ function AdminNotifications() {
               )}
             </CardContent>
           </Card>
+            <Card>
+              <CardHeader className="pb-3 flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">System Notifications</CardTitle>
+                  <div className="text-xs text-muted-foreground">Manage system-wide notifications</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => void fetchSystemNotificationsAdmin()}>
+                    Refresh
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={deleteSelected}>
+                    Delete Selected
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {sysLoading ? (
+                  <div className="space-y-2"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /></div>
+                ) : (systemNotificationsAdmin || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No system notifications</p>
+                ) : (
+                  <div className="space-y-2">
+                    {(systemNotificationsAdmin || []).map((n) => (
+                      <div key={n._id} className="flex items-start gap-3 border rounded-md p-3">
+                        <input aria-label={`Select notification ${n.title}`} type="checkbox" checked={!!selectedIds[n._id]} onChange={() => toggleSelect(n._id)} />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{n.title}</p>
+                              <p className="text-xs text-muted-foreground truncate">{n.message}</p>
+                            </div>
+                            <div className="text-xs text-muted-foreground ml-3 shrink-0">{new Date(n.createdAt).toLocaleString()}</div>
+                          </div>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <Button size="sm" variant="ghost" onClick={async () => {
+                            const ok = window.confirm('Delete this notification?');
+                            if (!ok) return;
+                            try {
+                              await api.delete(`/notifications/${n._id}`);
+                              setSystemNotificationsAdmin((prev) => (prev || []).filter((s) => s._id !== n._id));
+                            } catch (err) { console.error('Failed to delete notification', err); }
+                          }}>Delete</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
         </>
       )}
     </>

@@ -4,9 +4,9 @@ import StarryMedlogHero from "@/components/home/StarryMedlogHero";
 
 const Home = () => {
   return (
-    <div>
+    <div id="page-home">
       <Navbar />
-      <main>
+      <main id="page-home-main">
         <StarryMedlogHero />
       </main>
       <Footer />

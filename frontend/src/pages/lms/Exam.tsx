@@ -7,7 +7,7 @@ import {
   Clock,
   Calendar,
   Award,
-  ArrowLeft, 
+  ArrowLeft,
 } from "lucide-react";
 
 import { api } from "@/lib/api";
@@ -41,35 +41,34 @@ const Exam = () => {
   // handle fetch exam details
   const fetch = async () => {
     setLoading(true);
-    await api
-      .get(`/exams/${id}`)
-      .then((res) => {
-        setExam(res.data);
-        setLoading(false);
-      })
-      .catch(() => {
-        toast.error("Failed to load exam");
-        navigate("/lms/exams");
-        setLoading(false);
-      });
-    setLoading(true);
-    if (isStudent) {
-      await api
-        .get(`/exams/${id}/result`)
-        .then((res) => {
-          setLoading(false);
-          setSubmission(res.data);
-        })
-        .catch(() => {
-          setLoading(false);
-          setSubmission(null);
-        });
+    try {
+      const { data } = await api.get(`/exams/${id}`);
+      setExam(data);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || "Failed to load exam");
+      navigate("/lms/exams");
+      return;
     }
+
+    // Only students have a result endpoint; teachers should just see questions.
+    if (isStudent) {
+      try {
+        const { data } = await api.get(`/exams/${id}/result`);
+        setSubmission(data);
+      } catch {
+        setSubmission(null);
+      }
+    } else {
+      setSubmission(null);
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
-    if (id) fetch();
-  }, [id, navigate]);
+    if (!id) return;
+    void fetch();
+  }, [id]);
 
   if (loading) {
     return (
@@ -158,7 +157,7 @@ const Exam = () => {
     }
   };
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
+    <div id="page-lms-exam" className="mx-auto p-6 space-y-6">
       {/* Header Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">

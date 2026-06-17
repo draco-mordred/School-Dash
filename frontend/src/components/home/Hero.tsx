@@ -18,7 +18,7 @@ const Hero = () => {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3ecf8e] opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3ecf8e]"></span>
               </span>
-              <span>2025 Admissions are now open</span>
+              <span>2026 Admissions are now open</span>
             </div>
 
             <h1 className="text-5xl md:text-7xl font-extrabold text-gray-900 dark:text-white leading-tight">

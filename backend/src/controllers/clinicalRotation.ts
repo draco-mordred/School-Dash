@@ -501,7 +501,108 @@ export const getAvailableRotations = async (req: Request, res: Response) => {
     const userId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
     const { q, rotationType, rotationUnit, page = 1, limit = 20 } = req.query;
-    // Only return active rotations that are unclaimed OR claimed by the requesting student OR claimed by any student in the same class
+    // Prefer returning postings from generated rotation schedules when present.
+    // This allows students to browse generated postings instead of manually-created ClinicalRotation documents.
+
+    // Attempt to load recent rotation schedules for the student's classes (or globally) and flatten postings.
+    try {
+      const RotationSchedule = (await import("../models/rotationPlan")).default;
+
+      // If student, try to scope schedules to their class(es)
+      let scheduleFilter: any = {};
+      if (userId && userRole === "student") {
+        const rawStudentClasses = (req as any).user?.studentClasses ?? (req as any).user?.studentClass ?? [];
+        const classIds = Array.isArray(rawStudentClasses)
+          ? rawStudentClasses.map((c: any) => (typeof c === "string" ? c : c._id))
+          : rawStudentClasses
+            ? [ (typeof rawStudentClasses === "string" ? rawStudentClasses : rawStudentClasses._id) ]
+            : [];
+        if (classIds.length) scheduleFilter.class = { $in: classIds };
+      }
+
+      const schedules = await RotationSchedule.find(scheduleFilter)
+        .populate({ path: "groups", populate: { path: "supervisor", select: "name" } })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+      if (Array.isArray(schedules) && schedules.length) {
+        // Flatten postings and deduplicate by posting name
+        const map = new Map<string, any>();
+        for (const s of schedules) {
+          const postings = (s.postings || []) as any[];
+          for (const p of postings) {
+            if (!p || !p.name) continue;
+            // Build groups with populated group docs when available
+            const groups = (p.groups || []).map((pg: any) => {
+              const groupDoc = (s.groups || []).find((g: any) => String(g._id) === String(pg.groupId));
+              const supervisorName = groupDoc?.supervisor?.name || groupDoc?.supervisorName || "";
+              return { group: groupDoc ? { _id: groupDoc._id, name: groupDoc.name, students: groupDoc.students || [], supervisorName, supervisor: groupDoc.supervisor } : { _id: pg.groupId }, assigned: pg.assigned || [] };
+            });
+
+            if (!map.has(p.name)) map.set(p.name, { name: p.name, category: p.category, groups });
+            else {
+              // merge groups if posting name appears in multiple schedules
+              const existing = map.get(p.name);
+              existing.groups = existing.groups.concat(groups);
+            }
+          }
+        }
+
+        // transform map entries into rotation-like objects expected by frontend
+        const flattened = Array.from(map.values()).map((entry: any, idx: number) => {
+          // compute posting start/end from assigned ranges
+          let startDate: string | null = null;
+          let endDate: string | null = null;
+          for (const g of entry.groups || []) {
+            for (const a of g.assigned || []) {
+              const s = new Date(a.startDate);
+              const e = new Date(a.endDate);
+              if (!startDate || s < new Date(startDate)) startDate = a.startDate;
+              if (!endDate || e > new Date(endDate)) endDate = a.endDate;
+            }
+          }
+          const now = new Date();
+          const status: any = startDate && endDate ? ((new Date(startDate) <= now && new Date(endDate) >= now) ? 'active' : (new Date(startDate) > now ? 'upcoming' : 'completed')) : 'upcoming';
+
+          // derive a supervisor name from first group's supervisor if available
+          const supervisorName = (entry.groups && entry.groups[0]?.group?.supervisorName) || entry.groups?.[0]?.group?.supervisor?.name || '';
+
+          return {
+            _id: `posting:${entry.name}:${idx}`,
+            rotationName: entry.name,
+            rotationDescription: '',
+            rotationType: entry.category || 'medicine',
+            rotationStartDate: startDate || new Date().toISOString(),
+            rotationEndDate: endDate || new Date().toISOString(),
+            rotationUnit: '—',
+            rotationSupervisor: { _id: '', name: supervisorName },
+            rotationStatus: status,
+            rotationNotes: '',
+            rotationActivities: { numberOfWeeks: 0, numberOfConsultantWardRound: 0, numberOfClinics: 0, numberOfResidentWardRound: 0, numberOfCallDuty: 0, numberOfTheatreDays: 0 },
+            rotationTutorials: [],
+            rotationTutorialPersonal: '',
+            patientsClerked: [],
+            student: { _id: '', name: '' },
+            students: [],
+            academicYear: null,
+            createdAt: new Date(),
+          } as any;
+        });
+
+        // allow optional search q filtering on posting name
+        const qstr = typeof q === 'string' ? q.trim().toLowerCase() : '';
+        const filtered = qstr ? flattened.filter((f: any) => f.rotationName.toLowerCase().includes(qstr)) : flattened;
+        const start = ((+page - 1) * +limit);
+        const paged = filtered.slice(start, start + (+limit));
+        return res.json({ rotations: paged, total: filtered.length, page: +page, limit: +limit });
+      }
+    } catch (schedErr) {
+      console.error('Failed to load rotation schedules for available postings fallback', schedErr);
+      // fall through to clinical-rotation document-based listing
+    }
+
+    // Fallback: Only return active rotations that are unclaimed OR claimed by the requesting student OR claimed by any student in the same class
     const filter: any = { rotationStatus: "active" };
 
     if (userId && userRole === "student") {

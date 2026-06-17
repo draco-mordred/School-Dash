@@ -4,24 +4,34 @@ export type AttendanceStatus = "present" | "absent" | "late" | "excused";
 
 export interface IDayEntry {
   _id?: mongoose.Types.ObjectId;
-  weekNumber: number;
-  date: Date;
-  dayName: string; // e.g., "Monday", "Tuesday"
-  attendanceStatus: AttendanceStatus;
+  time?: string;
+  procedure?: string;
+  procedures?: string[];
+  diagnosis?: string;
+  supervisor?: string;
+  hours?: number;
+  location?: string;
+  outcome?: string;
+  weekNumber?: number;
+  date?: Date;
+  dayName?: string;
+  attendanceStatus?: AttendanceStatus;
   notes?: string;
 }
 
 export interface ITutorialEntry {
   _id?: mongoose.Types.ObjectId;
   topic: string;
-  date: Date;
+  date?: Date;
+  presenter?: string;
   notes?: string;
 }
 
 export interface IPersonalEntry {
   _id?: mongoose.Types.ObjectId;
-  note: string;
-  date: Date;
+  activity: string;
+  date?: Date;
+  notes?: string;
 }
 
 export interface ILogbookEntry extends Document {
@@ -43,9 +53,19 @@ export interface ILogbookEntry extends Document {
 }
 
 const DayEntrySchema = new Schema({
-  weekNumber: { type: Number, required: true },
-  date: { type: Date, required: true },
-  dayName: { type: String, required: true },
+  // Flexible day entry to support clinical logbook fields used by the frontend
+  time: { type: String, default: "" },
+  procedure: { type: String, default: "" },
+  procedures: { type: [String], default: [] },
+  diagnosis: { type: String, default: "" },
+  supervisor: { type: String, default: "" },
+  hours: { type: Number, default: 0 },
+  location: { type: String, default: "" },
+  outcome: { type: String, default: "" },
+  // Backwards-compatible attendance fields (optional)
+  weekNumber: { type: Number },
+  date: { type: Date },
+  dayName: { type: String },
   attendanceStatus: {
     type: String,
     enum: ["present", "absent", "late", "excused"],
@@ -56,13 +76,15 @@ const DayEntrySchema = new Schema({
 
 const TutorialEntrySchema = new Schema({
   topic: { type: String, required: true },
-  date: { type: Date, required: true },
+  date: { type: Date },
+  presenter: { type: String, default: "" },
   notes: { type: String, default: "" },
 }, { _id: true });
 
 const PersonalEntrySchema = new Schema({
-  note: { type: String, required: true },
-  date: { type: Date, required: true },
+  activity: { type: String, required: true },
+  date: { type: Date },
+  notes: { type: String, default: "" },
 }, { _id: true });
 
 const LogbookEntrySchema = new Schema({

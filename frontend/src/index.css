@@ -3,58 +3,83 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(0.9711 0.0074 80.7211);
-  --foreground: oklch(0.3000 0.0358 30.2042);
-  --card: oklch(0.9711 0.0074 80.7211);
-  --card-foreground: oklch(0.3000 0.0358 30.2042);
-  --popover: oklch(0.9711 0.0074 80.7211);
-  --popover-foreground: oklch(0.3000 0.0358 30.2042);
-  --primary: oklch(0.5234 0.1347 144.1672);
-  --primary-foreground: oklch(1.0000 0 0);
-  --secondary: oklch(0.9571 0.0210 147.6360);
-  --secondary-foreground: oklch(0.4254 0.1159 144.3078);
-  --muted: oklch(0.9370 0.0142 74.4218);
-  --muted-foreground: oklch(0.4495 0.0486 39.2110);
-  --accent: oklch(0.8952 0.0504 146.0366);
-  --accent-foreground: oklch(0.4254 0.1159 144.3078);
-  --destructive: oklch(0.5386 0.1937 26.7249);
-  --destructive-foreground: oklch(1.0000 0 0);
-  --border: oklch(0.8805 0.0208 74.6428);
-  --input: oklch(0.8805 0.0208 74.6428);
-  --ring: oklch(0.5234 0.1347 144.1672);
-  --chart-1: oklch(0.6731 0.1624 144.2083);
-  --chart-2: oklch(0.5752 0.1446 144.1813);
-  --chart-3: oklch(0.5234 0.1347 144.1672);
-  --chart-4: oklch(0.4254 0.1159 144.3078);
-  --chart-5: oklch(0.2157 0.0453 145.7256);
-  --sidebar: oklch(0.9370 0.0142 74.4218);
-  --sidebar-foreground: oklch(0.3000 0.0358 30.2042);
-  --sidebar-primary: oklch(0.5234 0.1347 144.1672);
-  --sidebar-primary-foreground: oklch(1.0000 0 0);
-  --sidebar-accent: oklch(0.8952 0.0504 146.0366);
-  --sidebar-accent-foreground: oklch(0.4254 0.1159 144.3078);
-  --sidebar-border: oklch(0.8805 0.0208 74.6428);
-  --sidebar-ring: oklch(0.5234 0.1347 144.1672);
-  --sidebar-width: 18rem;
-  --sidebar-width-icon: 5rem;
-  --font-sans: Inter, sans-serif;
-  --font-serif: Merriweather, serif;
-  --font-mono: Source Code Pro, monospace;
+  --background: rgb(245, 245, 255);
+  --foreground: rgb(42, 42, 74);
+
+
+  /* For screens 767px and wider: panel padding and main positioning adjustments */
+  /* Give panels a small internal padding so content isn't clipped by sidebar */
+  [data-slot="sidebar-inset"] .border.rounded-md {
+    padding: 10px !important;
+  }
+
+  /* .bg-card {
+    padding: 5px 10px 20px 10px;
+  } */
+
+  thead {
+        background: var(--background);
+  }
+
+
+  /* Position the main app area so right edge stays fixed; left adjusts with sidebar. */
+  main#app-main {
+    position: absolute !important;
+    left: 0px !important;
+    right: -10px !important;
+  }
+
+  --card: rgb(255, 255, 255);
+  --card-foreground: rgb(42, 42, 74);
+  --popover: rgb(255, 255, 255);
+  --popover-foreground: rgb(42, 42, 74);
+  --primary: rgb(110, 86, 207);
+  --primary-foreground: rgb(255, 255, 255);
+  --secondary: rgb(228, 223, 255);
+  --secondary-foreground: rgb(74, 64, 128);
+  --muted: rgb(240, 240, 250);
+  --muted-foreground: rgb(108, 108, 138);
+  --accent: rgb(216, 230, 255);
+  --accent-foreground: rgb(42, 42, 74);
+  --destructive: rgb(255, 84, 112);
+  --destructive-foreground: rgb(255, 255, 255);
+  --border: rgb(224, 224, 240);
+  --input: rgb(224, 224, 240);
+  --ring: rgb(110, 86, 207);
+  --chart-1: rgb(110, 86, 207);
+  --chart-2: rgb(158, 140, 252);
+  --chart-3: rgb(93, 95, 239);
+  --chart-4: rgb(124, 117, 250);
+  --chart-5: rgb(71, 64, 179);
+  --sidebar: rgb(240, 240, 250);
+  --sidebar-foreground: rgb(42, 42, 74);
+  --sidebar-primary: rgb(110, 86, 207);
+  --sidebar-primary-foreground: rgb(255, 255, 255);
+  --sidebar-accent: rgb(216, 230, 255);
+  --sidebar-accent-foreground: rgb(42, 42, 74);
+  --sidebar-border: rgb(224, 224, 240);
+  --sidebar-ring: rgb(110, 86, 207);
+  --sidebar-width: 16rem;
+  --sidebar-width-icon: 4rem;
+  --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Georgia, serif;
+  --font-mono: Source Code Pro, ui-monospace, monospace;
   --radius: 0.5rem;
-  --shadow-x: 2px;
-  --shadow-y: 2px;
-  --shadow-blur: 3px;
+  --topbar-height: 56px;
+  --shadow-x: 0px;
+  --shadow-y: 4px;
+  --shadow-blur: 10px;
   --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
-  --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
+  --shadow-opacity: 0.5;
+  --shadow-color: hsl(240 30% 25%);
+  --shadow-2xs: 0px 4px 10px 0px hsl(240 30% 25% / 0.06);
+  --shadow-xs: 0px 4px 10px 0px hsl(240 30% 25% / 0.06);
+  --shadow-sm: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 1px 2px -1px hsl(240 30% 25% / 0.12);
+  --shadow: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 1px 2px -1px hsl(240 30% 25% / 0.12);
+  --shadow-md: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 2px 4px -1px hsl(240 30% 25% / 0.12);
+  --shadow-lg: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 4px 6px -1px hsl(240 30% 25% / 0.12);
+  --shadow-xl: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 8px 10px -1px hsl(240 30% 25% / 0.12);
+  --shadow-2xl: 0px 4px 10px 0px hsl(240 30% 25% / 0.30);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
   --shadow-offset-x: 0;
@@ -63,57 +88,57 @@
 }
 
 .dark {
-  --background: oklch(0.2683 0.0279 150.7681);
-  --foreground: oklch(0.9423 0.0097 72.6595);
-  --card: oklch(0.3327 0.0271 146.9867);
-  --card-foreground: oklch(0.9423 0.0097 72.6595);
-  --popover: oklch(0.3327 0.0271 146.9867);
-  --popover-foreground: oklch(0.9423 0.0097 72.6595);
-  --primary: oklch(0.6731 0.1624 144.2083);
-  --primary-foreground: oklch(0.2157 0.0453 145.7256);
-  --secondary: oklch(0.3942 0.0265 142.9926);
-  --secondary-foreground: oklch(0.8970 0.0166 142.5518);
-  --muted: oklch(0.2926 0.0212 147.7496);
-  --muted-foreground: oklch(0.8579 0.0174 76.0955);
-  --accent: oklch(0.5752 0.1446 144.1813);
-  --accent-foreground: oklch(0.9423 0.0097 72.6595);
-  --destructive: oklch(0.5386 0.1937 26.7249);
-  --destructive-foreground: oklch(0.9423 0.0097 72.6595);
-  --border: oklch(0.3942 0.0265 142.9926);
-  --input: oklch(0.3942 0.0265 142.9926);
-  --ring: oklch(0.6731 0.1624 144.2083);
-  --chart-1: oklch(0.7660 0.1179 145.2950);
-  --chart-2: oklch(0.7185 0.1417 144.8887);
-  --chart-3: oklch(0.6731 0.1624 144.2083);
-  --chart-4: oklch(0.6291 0.1543 144.2031);
-  --chart-5: oklch(0.5752 0.1446 144.1813);
-  --sidebar: oklch(0.2683 0.0279 150.7681);
-  --sidebar-foreground: oklch(0.9423 0.0097 72.6595);
-  --sidebar-primary: oklch(0.6731 0.1624 144.2083);
-  --sidebar-primary-foreground: oklch(0.2157 0.0453 145.7256);
-  --sidebar-accent: oklch(0.5752 0.1446 144.1813);
-  --sidebar-accent-foreground: oklch(0.9423 0.0097 72.6595);
-  --sidebar-border: oklch(0.3942 0.0265 142.9926);
-  --sidebar-ring: oklch(0.6731 0.1624 144.2083);
-  --font-sans: Inter, sans-serif;
-  --font-serif: Merriweather, serif;
-  --font-mono: Source Code Pro, monospace;
+  --background: rgb(15, 15, 26);
+  --foreground: rgb(226, 226, 245);
+  --card: rgb(26, 26, 46);
+  --card-foreground: rgb(226, 226, 245);
+  --popover: rgb(26, 26, 46);
+  --popover-foreground: rgb(226, 226, 245);
+  --primary: rgb(164, 143, 255);
+  --primary-foreground: rgb(15, 15, 26);
+  --secondary: rgb(45, 43, 85);
+  --secondary-foreground: rgb(196, 194, 255);
+  --muted: rgb(34, 34, 68);
+  --muted-foreground: rgb(160, 160, 192);
+  --accent: rgb(48, 48, 96);
+  --accent-foreground: rgb(226, 226, 245);
+  --destructive: rgb(255, 84, 112);
+  --destructive-foreground: rgb(255, 255, 255);
+  --border: rgb(48, 48, 82);
+  --input: rgb(48, 48, 82);
+  --ring: rgb(164, 143, 255);
+  --chart-1: rgb(164, 143, 255);
+  --chart-2: rgb(121, 134, 203);
+  --chart-3: rgb(100, 181, 246);
+  --chart-4: rgb(77, 182, 172);
+  --chart-5: rgb(255, 121, 198);
+  --sidebar: rgb(26, 26, 46);
+  --sidebar-foreground: rgb(226, 226, 245);
+  --sidebar-primary: rgb(164, 143, 255);
+  --sidebar-primary-foreground: rgb(15, 15, 26);
+  --sidebar-accent: rgb(48, 48, 96);
+  --sidebar-accent-foreground: rgb(226, 226, 245);
+  --sidebar-border: rgb(48, 48, 82);
+  --sidebar-ring: rgb(164, 143, 255);
+  --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+  --font-serif: Georgia, serif;
+  --font-mono: Source Code Pro, ui-monospace, monospace;
   --radius: 0.5rem;
-  --shadow-x: 2px;
-  --shadow-y: 2px;
-  --shadow-blur: 3px;
+  --shadow-x: 0px;
+  --shadow-y: 4px;
+  --shadow-blur: 10px;
   --shadow-spread: 0px;
-  --shadow-opacity: 0.1;
-  --shadow-color: oklch(0 0 0);
-  --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-xs: 0 1px 3px 0px hsl(0 0% 0% / 0.05);
-  --shadow-sm: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.10);
-  --shadow-md: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 2px 4px -1px hsl(0 0% 0% / 0.10);
-  --shadow-lg: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 4px 6px -1px hsl(0 0% 0% / 0.10);
-  --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
-  --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
-  --shadow-offset-x: 0;
+  --shadow-opacity: 0.12;
+  --shadow-color: hsl(240 30% 25%);
+  --shadow-2xs: 0px 4px 10px 0px hsl(240 30% 25% / 0.06);
+  --shadow-xs: 0px 4px 10px 0px hsl(240 30% 25% / 0.06);
+  --shadow-sm: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 1px 2px -1px hsl(240 30% 25% / 0.12);
+  --shadow: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 1px 2px -1px hsl(240 30% 25% / 0.12);
+  --shadow-md: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 2px 4px -1px hsl(240 30% 25% / 0.12);
+  --shadow-lg: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 4px 6px -1px hsl(240 30% 25% / 0.12);
+  --shadow-xl: 0px 4px 10px 0px hsl(240 30% 25% / 0.12), 0px 8px 10px -1px hsl(240 30% 25% / 0.12);
+  --shadow-2xl: 0px 4px 10px 0px hsl(240 30% 25% / 0.30);
+    --shadow-offset-x: 0;
   --shadow-offset-y: 1px;
   --letter-spacing: 0em;
   --spacing: 0.25rem;
@@ -153,9 +178,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: Inter, sans-serif;
-  --font-mono: Source Code Pro, monospace;
-  --font-serif: Merriweather, serif;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -276,3 +301,108 @@ input[data-slot="input"]:focus {
   background: rgba(17,24,39,0.36);
   border: 1px solid rgba(255,255,255,0.06);
 }
+
+/* Debug helper: toggle with `document.documentElement.classList.add('debug-visibility-fix')`
+   Use in Chrome to quickly reveal any header/nav content if variables or hidden attributes
+   are causing elements to be invisible. Remove after debugging. */
+.debug-visibility-fix header,
+.debug-visibility-fix nav,
+.debug-visibility-fix .max-w-7xl,
+.debug-visibility-fix .max-w-7xl * {
+  color: #fff !important;
+  visibility: visible !important;
+  display: block !important;
+  opacity: 1 !important;
+}
+
+/* Radix-popover specific override requested */
+#radix-_r_88_ {
+  top: 56px !important;
+}
+
+/* Ensure the sidebar sits above other content on small screens (<=767px) */
+@media (max-width: 767px) {
+  #sidebar-container,
+  [data-slot="sidebar-container"] {
+    z-index: 60 !important;
+  }
+
+  /* Target mobile sheet sidebar variant rendered by SheetContent */
+  [data-sidebar="sidebar"][data-mobile="true"] {
+    z-index: 60 !important;
+  }
+
+  /* Make the app footer span full width on small screens */
+  #app-footer {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+  }
+}
+
+/* Theme-aware hero and nav/footer variables */
+:root {
+  /* Hero gradient stops (light mode defaults) */
+  --hero-gradient-start: rgba(96,165,250,0.12);
+  --hero-gradient-mid: rgba(96,165,250,0.06);
+  --hero-gradient-end: rgba(255,255,255,0.9);
+  --hero-star-color: rgba(30,64,175,0.9);
+  --hero-glow-color: rgba(96,165,250,0.12);
+
+  /* Navbar / Footer */
+  --nav-bg: rgba(255,255,255,0.70);
+  --nav-bg-scrolled: rgba(255,255,255,0.86);
+  --nav-text: #111827;
+  --nav-border: rgba(15,23,42,0.06);
+  --footer-bg: transparent;
+  --footer-text: #4b5563;
+}
+
+/* Dark theme overrides applied when `html` or `.dark` class is present */
+html.dark, .dark {
+  --hero-gradient-start: rgba(62,207,142,0.18);
+  --hero-gradient-mid: rgba(62,207,142,0.08);
+  --hero-gradient-end: rgba(0,0,0,0.35);
+  --hero-star-color: rgba(255,255,255,0.95);
+  --hero-glow-color: rgba(62,207,142,0.18);
+
+  --nav-bg: rgba(0,0,0,0.35);
+  --nav-bg-scrolled: rgba(0,0,0,0.55);
+  --nav-text: #ffffff;
+  --nav-border: rgba(255,255,255,0.06);
+  --footer-bg: transparent;
+  --footer-text: #9ca3af;
+}
+
+/* Navbar styling driven by CSS variables (no inline styles) */
+#top-navbar {
+  background-color: var(--nav-bg);
+  color: var(--nav-text);
+  border-bottom: 1px solid var(--nav-border);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+#top-navbar.scrolled {
+  background-color: var(--nav-bg-scrolled);
+  box-shadow: 0 6px 18px rgba(2,6,23,0.12);
+}
+
+.mobile-menu {
+  background-color: var(--nav-bg);
+  color: var(--nav-text);
+  border-top: 1px solid var(--nav-border);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.site-footer {
+  background-color: var(--footer-bg);
+  color: var(--footer-text);
+  border-top: 1px solid var(--nav-border);
+}
+
+/* Utility to apply hero CSS variables to other components if needed */
+.hero-gradient-start { color: var(--hero-gradient-start); }
+.hero-gradient-mid { color: var(--hero-gradient-mid); }
+.hero-gradient-end { color: var(--hero-gradient-end); }

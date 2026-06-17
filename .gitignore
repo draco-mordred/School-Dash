@@ -36,3 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Excel spreadsheet file and excel backup files
 .xlsx
 .xlsx.js
+
+# microsoft Word Documents and backup files
+.docx
+.docx.js

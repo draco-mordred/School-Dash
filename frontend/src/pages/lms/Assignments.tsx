@@ -9,7 +9,7 @@ const sample = [
 
 const Assignments = () => {
   return (
-    <div className="p-6 space-y-4">
+    <div id="page-lms-assignments" className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Assignments</h1>
         <Button onClick={() => alert("Create assignment (not yet implemented)")}>New Assignment</Button>
