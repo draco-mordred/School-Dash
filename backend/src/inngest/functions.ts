@@ -620,8 +620,18 @@ export const generateRotations = inngest.createFunction(
       throw new NonRetriableError("academicYearId, classId, level and generatedBy are required");
     }
 
+    const normalizedOptions = { ...(options || {}) };
+    if (normalizedOptions.startDate) {
+      const d = new Date(normalizedOptions.startDate);
+      if (isNaN(d.getTime())) {
+        throw new NonRetriableError("Invalid options.startDate — must be a valid date string or ISO date");
+      }
+      // normalize to ISO date string
+      normalizedOptions.startDate = d.toISOString();
+    }
+
     const schedule = await step.run("generate-rotation-schedule", async () => {
-      return await generateRotationSchedule(academicYearId, classId, { ...options, level, generatedBy });
+      return await generateRotationSchedule(academicYearId, classId, { ...(normalizedOptions || {}), level, generatedBy });
     });
 
     return { success: true, scheduleId: schedule._id };

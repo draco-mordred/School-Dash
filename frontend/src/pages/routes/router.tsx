@@ -21,6 +21,8 @@ import RotationSchedules from "@/pages/rotation-schedules/RotationSchedules";
 import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleDetail";
 import Approvals from "@/pages/Approvals";
 import Reflections from "@/pages/Reflections";
+import ClinicalActivities from "@/pages/ClinicalActivities";
+import StaffApprovals from "@/pages/StaffApprovals";
 
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
@@ -130,6 +132,14 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations",
             element: <ClinicalRotations />,
+          },
+          {
+            path: "clinical-activities",
+            element: <ClinicalActivities />,
+          },
+          {
+            path: "staff-approvals",
+            element: <StaffApprovals />,
           },
           { path: "rotation-schedules", element: <RotationSchedules /> },
           { path: "rotation-schedules/:id", element: <RotationScheduleDetail /> },

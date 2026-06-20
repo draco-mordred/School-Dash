@@ -31,9 +31,9 @@ async function backfill(dryRun = true) {
       if (cls && cls.classTeacher) chosen = cls.classTeacher;
     }
 
-    // fallback: find any active unit_consultant or teacher
+    // fallback: find any active supervisor (prefer higher supervisorRank)
     if (!chosen) {
-      chosen = await UserModel.findOne({ role: { $in: ["unit_consultant", "teacher"] }, isActive: true }).select("_id").lean();
+      chosen = await UserModel.findOne({ isActive: true, isSupervisor: true, role: { $in: ["unit_consultant", "teacher", "unit_resident"] } }).select("_id supervisorRank").sort({ supervisorRank: -1 }).lean();
     }
 
     if (chosen) {

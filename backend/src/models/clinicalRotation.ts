@@ -101,6 +101,10 @@ export interface IClinicalRotation extends Document {
   supervisorName: string;
   academicYear: mongoose.Types.ObjectId;
   generatedFromSchedule?: mongoose.Types.ObjectId | null;
+  // Posting-specific assignment tracking
+  postingName?: string; // Which posting: "M0", "S0", "M1", "S1", etc.
+  assignedGroup?: mongoose.Types.ObjectId | null; // Which group for this posting (dynamic per posting)
+  postingCategory?: string; // medicine, surgery, paediatrics, obstetrics, specialty, block
 }
 
 
@@ -203,6 +207,10 @@ const ClinicalRotationSchema = new Schema({
   supervisorName: { type: String, required: true, default: "" },
   academicYear: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", required: true },
   generatedFromSchedule: { type: mongoose.Schema.Types.ObjectId, ref: "RotationSchedule", default: null },
+  // Posting-specific assignment tracking
+  postingName: { type: String, default: null }, // Which posting: "M0", "S0", "M1", "S1", etc.
+  assignedGroup: { type: mongoose.Schema.Types.ObjectId, ref: "RotationGroup", default: null }, // Which group for this posting
+  postingCategory: { type: String, default: null }, // medicine, surgery, paediatrics, obstetrics, specialty, block
 }, {
 
   timestamps: true,

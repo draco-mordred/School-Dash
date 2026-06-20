@@ -33,7 +33,10 @@ export const registerUser = async (
             studentClasses,
             teacherSubject,
             parentStudents,
-            isActive
+            isActive,
+            isSupervisor,
+            supervisorRank,
+            specialties
         } = req.body;
 
         // Normalization: frontend sends arrays.
@@ -160,7 +163,10 @@ export const registerUser = async (
             studentClasses: finalStudentClass,
             teacherSubject: teacherSubjectNormalized,
             parentStudents: parentStudentsNormalized,
-            isActive 
+            isActive,
+            isSupervisor: isSupervisor || false,
+            supervisorRank: supervisorRank || 0,
+            specialties: Array.isArray(specialties) ? specialties : (specialties ? [specialties] : [])
         });
 
         if (newUser) {
@@ -200,6 +206,9 @@ export const registerUser = async (
                 teacherSubject: newUser.teacherSubject,
                 parentStudents: newUser.parentStudents,
                 isActive: newUser.isActive,
+                isSupervisor: newUser.isSupervisor,
+                supervisorRank: newUser.supervisorRank,
+                specialties: newUser.specialties,
                 message: `User '${newUser.name}' created successfully`
             });
         }else {            
@@ -460,6 +469,9 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             user.parentStudents = req.body.parentStudents || user.parentStudents;
             if (req.body.academicStatus !== undefined) user.academicStatus = req.body.academicStatus;
             if (req.body.departmentRole !== undefined) user.departmentRole = req.body.departmentRole;
+            if (req.body.isSupervisor !== undefined) user.isSupervisor = req.body.isSupervisor;
+            if (req.body.supervisorRank !== undefined) user.supervisorRank = req.body.supervisorRank;
+            if (req.body.specialties !== undefined) user.specialties = Array.isArray(req.body.specialties) ? req.body.specialties : [req.body.specialties];
 
             // Handle password change with current password verification
             if (req.body.password) {
@@ -573,6 +585,9 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                 teacherSubject: updatedUser.teacherSubject,
                 academicStatus: updatedUser.academicStatus,
                 departmentRole: updatedUser.departmentRole,
+                isSupervisor: updatedUser.isSupervisor,
+                supervisorRank: updatedUser.supervisorRank,
+                specialties: updatedUser.specialties,
                 message: `User ${updatedUser.email} (ID: ${updatedUser.idNumber}) updated successfully.`,
             })
         } else {
@@ -710,6 +725,9 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
                     parentStudents: user.parentStudents,
                     academicStatus: user.academicStatus,
                     departmentRole: user.departmentRole,
+                    isSupervisor: user.isSupervisor,
+                    supervisorRank: user.supervisorRank,
+                    specialties: user.specialties,
                 }
             })
             // if (req.user){  

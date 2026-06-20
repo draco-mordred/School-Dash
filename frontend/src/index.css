@@ -13,10 +13,6 @@
     padding: 10px !important;
   }
 
-  /* .bg-card {
-    padding: 5px 10px 20px 10px;
-  } */
-
   thead {
         background: var(--background);
   }
@@ -406,3 +402,56 @@ html.dark, .dark {
 .hero-gradient-start { color: var(--hero-gradient-start); }
 .hero-gradient-mid { color: var(--hero-gradient-mid); }
 .hero-gradient-end { color: var(--hero-gradient-end); }
+
+
+/* Custom style edits by me for personal taste */
+.space-y-4{
+  top: 100px;
+  height: 500px;
+  overflow: scroll;
+  margin: 15px 0px;
+  /* border: 1px solid var(--border); */
+  border-radius: 15px;
+}
+
+[role=dialog].bg-background {
+    top: 20%;
+    pointer-events: auto;
+    transform: translate(0, 15%);
+    margin: 0% 0px 0 0px;
+
+}
+[role=dialog].bg-background .space-y-3{
+    margin: 10px 0px 20px 0px;
+    padding: 15px 10px 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 15px;
+}
+
+  /* .bg-card {
+    padding: 5px 10px 20px 10px;
+  } */
+
+   [data-slot="card-content"].px-6 .mt-3 .space-y-3.mt-2{
+     height: 35rem;
+    overflow: scroll;
+
+   }
+
+   [data-slot="card-content"].px-6 .mt-3 .space-y-3.mt-2 .border.rounded-md{
+    padding: 0px 10px !important;
+        border-radius: 15px;
+   }
+
+   [data-slot="card-content"].px-6 .mt-3 .space-y-3.mt-2 .border.rounded-md:hover{
+    background-color: var(--muted);
+    border: 1px solid var(--muted);
+   }
+
+   [data-slot="card-content"].px-6 .mt-3 .space-y-3.mt-2 .border.rounded-md div .mt-4.space-y-3{
+        overflow: scroll;
+    height: 400px;
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    padding: 5px;
+}

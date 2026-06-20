@@ -32,6 +32,8 @@ export interface IClinicalPosting {
   unitRotationWeeks: number; // typical unit length, e.g., 4 or 2
   units: { unitName: string; unitCode?: string }[];
   groups: { groupId: mongoose.Types.ObjectId; assigned: IUnitRotation[] }[]; // group assignments with rotations
+  // Optional periods for postings that are split into sub-periods (e.g., Pediatrics/O&G halves)
+  periods?: { startDate: Date; endDate: Date; assignments: { groupId: mongoose.Types.ObjectId; category?: string; unitName: string; supervisorName?: string }[] }[];
   rules?: Record<string, any>;
 }
 
@@ -62,6 +64,8 @@ export interface IRotationSchedule extends Document {
   name: string; // e.g., "2026-07 Clinical Rotations - 400 Level"
   academicYear: mongoose.Types.ObjectId;
   class?: mongoose.Types.ObjectId;
+  startDate?: Date;
+  endDate?: Date;
   applicableLevels: number[]; // e.g., [400] or [500]
   postings: IClinicalPosting[];
   blockPostings?: IBlockPosting[];
@@ -97,6 +101,7 @@ const ClinicalPostingSchema = new Schema({
   units: [{ unitName: String, unitCode: String }],
   // groups now store groupId + assigned rotations per group
   groups: [{ groupId: { type: mongoose.Schema.Types.ObjectId, ref: "RotationGroup" }, assigned: { type: [UnitRotationSchema], default: [] } }],
+  periods: [{ startDate: { type: Date }, endDate: { type: Date }, assignments: [{ groupId: { type: mongoose.Schema.Types.ObjectId, ref: "RotationGroup" }, category: { type: String }, unitName: { type: String }, supervisorName: { type: String } }] }],
   rules: { type: Schema.Types.Mixed, default: {} },
 }, { _id: false });
 
@@ -129,6 +134,8 @@ const RotationScheduleSchema = new Schema({
   academicYear: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", required: true },
   applicableLevels: { type: [Number], default: [] },
   postings: { type: [ClinicalPostingSchema], default: [] },
+  startDate: { type: Date, default: null },
+  endDate: { type: Date, default: null },
   blockPostings: { type: [BlockPostingSchema], default: [] },
   specialtyPostings: { type: [SpecialtyPostingSchema], default: [] },
   groups: [{ type: mongoose.Schema.Types.ObjectId, ref: "RotationGroup" }],

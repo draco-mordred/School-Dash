@@ -28,6 +28,8 @@ import notificationRouter from "./routes/notification";
 import clinicalRotationRouter from "./routes/clinicalRotation";
 import rotationScheduleRouter from "./routes/rotationSchedule";
 import logbookEntryRouter from "./routes/logbookEntry";
+import hospitalDataRouter from "./routes/hospitalData";
+import activityEntryRouter from "./routes/activityEntry";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -88,6 +90,8 @@ app.use("/api/notifications", notificationRouter);
 app.use("/api/clinical-rotations", clinicalRotationRouter);
 app.use("/api/logbook-entries", logbookEntryRouter);
 app.use('/api/rotation-schedules', rotationScheduleRouter);
+app.use('/api/hospital-data', hospitalDataRouter);
+app.use('/api/activity-entries', activityEntryRouter);
 app.use('/api/inngest', serve({
   client: inngest,
   functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, generateRotations, rotationNotify]

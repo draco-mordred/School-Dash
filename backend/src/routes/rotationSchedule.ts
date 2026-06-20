@@ -11,7 +11,17 @@ router.get("/find-by-posting", protect, async (req, res, next) => {
 	const ctrl = await import("../controllers/rotationSchedule");
 	return (ctrl.findSchedulePostingByName as any)(req, res, next);
 });
+// get per-student assignments for a schedule (single call for client)
+router.get("/student-assignments", protect, async (req, res, next) => {
+  const ctrl = await import("../controllers/rotationSchedule");
+  return (ctrl.getStudentAssignments as any)(req, res, next);
+});
 router.get("/:id", protect, getRotationScheduleById);
+// export schedule and assignments
+router.get("/:id/export", protect, async (req, res, next) => {
+	const ctrl = await import("../controllers/rotationSchedule");
+	return (ctrl.exportRotationScheduleById as any)(req, res, next);
+});
 
 // update posting
 router.patch("/:id/postings/:postingName", protect, async (req, res, next) => {

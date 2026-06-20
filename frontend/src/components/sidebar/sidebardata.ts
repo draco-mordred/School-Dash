@@ -70,6 +70,8 @@ export const sidebardata = {
       roles: ["teacher", "student", "admin", "unit_consultant", "unit_resident", "parent"],
       items: [
         { title: "Clinical Rotations", url: "/clinical-rotations" },
+        { title: "Clinical Activities", url: "/clinical-activities", roles: ["student", "unit_consultant", "unit_resident"] },
+        { title: "Activity Approvals", url: "/staff-approvals", roles: ["unit_consultant", "unit_resident"] },
         { title: "Logbook Entries", url: "/logbook-entries" },
         { title: "Procedures", url: "/procedures" },
         { title: "Approvals", url: "/approvals" },

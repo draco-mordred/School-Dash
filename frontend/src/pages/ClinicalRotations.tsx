@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import {
   Select,
@@ -137,6 +138,9 @@ export default function ClinicalRotations() {
   const [noteText, setNoteText] = useState("");
   const [schedulePostings, setSchedulePostings] = useState<PostingEntry[]>([]);
   const [postingsLoading, setPostingsLoading] = useState(false);
+  const [selectedRotationIds, setSelectedRotationIds] = useState<Set<string>>(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
 
   const limit = 15;
 
@@ -178,6 +182,11 @@ export default function ClinicalRotations() {
   useEffect(() => {
     void fetchRotations();
   }, [fetchRotations]);
+
+  // Clear selection when rotations are reloaded
+  useEffect(() => {
+    setSelectedRotationIds(new Set());
+  }, [search, statusFilter, typeFilter]);
 
   // For students, also load generated schedule postings so we can display Active/Upcoming postings
   useEffect(() => {
@@ -259,6 +268,53 @@ export default function ClinicalRotations() {
       setRotations((prev) => prev.filter((r) => r._id !== id));
     } catch (error) {
       console.error("Failed to delete rotation", error);
+    }
+  };
+
+  const handleDeleteMultiple = async () => {
+    if (!confirm(`Delete ${selectedRotationIds.size} rotation(s)? This action cannot be undone.`)) return;
+    try {
+      const ids = Array.from(selectedRotationIds);
+      await Promise.all(ids.map((id) => api.delete(`/clinical-rotations/${id}`)));
+      setRotations((prev) => prev.filter((r) => !selectedRotationIds.has(r._id)));
+      setSelectedRotationIds(new Set());
+      setShowDeleteConfirm(false);
+      toast.success(`Deleted ${ids.length} rotation(s)`);
+    } catch (error) {
+      console.error("Failed to delete rotations", error);
+      toast.error("Failed to delete some rotations");
+    }
+  };
+
+  const toggleRotationSelect = (id: string) => {
+    const newSelected = new Set(selectedRotationIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedRotationIds(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedRotationIds.size === rotations.length && rotations.length > 0) {
+      setSelectedRotationIds(new Set());
+    } else {
+      setSelectedRotationIds(new Set(rotations.map((r) => r._id)));
+    }
+  };
+
+  const handleDeleteAll = async () => {
+    try {
+      const ids = rotations.map((r) => r._id);
+      await Promise.all(ids.map((id) => api.delete(`/clinical-rotations/${id}`)));
+      setRotations([]);
+      setSelectedRotationIds(new Set());
+      setShowDeleteAllConfirm(false);
+      toast.success(`Deleted ${ids.length} rotation(s)`);
+    } catch (error) {
+      console.error("Failed to delete all rotations", error);
+      toast.error("Failed to delete all rotations");
     }
   };
 
@@ -519,6 +575,124 @@ export default function ClinicalRotations() {
     return !(end < now || start > nextMonth);
   });
   const upcomingPostings = postingViews.filter((r) => new Date(r.rotationStartDate) > nextMonth);
+
+  // Component: render a student card with expandable list of rotations
+  function StudentGroupCard({ g }: { g: { student: { _id?: string; name?: string; idNumber?: string }; rotations: Rotation[] } }) {
+    const [open, setOpen] = useState(false);
+    const student = g.student;
+    const [postingGroups, setPostingGroups] = useState<Record<string, { groupName?: string; supervisorName?: string }>>({});
+    const [loadingPostingGroups, setLoadingPostingGroups] = useState(false);
+    useEffect(() => {
+      let cancelled = false;
+      const loadGroups = async () => {
+        if (!open) return;
+        setLoadingPostingGroups(true);
+        try {
+          // single call to fetch this student's assignments across schedules
+          const { data } = await api.get('/rotation-schedules/student-assignments', { params: { studentId: student._id } });
+          const map: Record<string, { groupName?: string; supervisorName?: string }> = {};
+          const assignments = data?.assignments || {};
+          for (const [postingName, info] of Object.entries(assignments)) {
+            if (!info) continue;
+            map[postingName] = { groupName: (info as any).groupName, supervisorName: (info as any).supervisorName };
+          }
+          if (!cancelled) setPostingGroups(map);
+        } catch (e) {
+          console.error('Failed to load student assignments', e);
+        } finally {
+          if (!cancelled) setLoadingPostingGroups(false);
+        }
+      };
+      void loadGroups();
+      return () => { cancelled = true; };
+    }, [open]);
+    // precompute sections JSX to avoid complex inline IIFE in JSX
+    const sectionsJsx = (() => {
+      const now = new Date();
+      const byStatus: Record<string, Rotation[]> = { active: [], upcoming: [], completed: [] };
+      for (const r of g.rotations) {
+        const start = new Date(r.rotationStartDate);
+        const end = new Date(r.rotationEndDate);
+        const status = (start <= now && end >= now) ? 'active' : (start > now ? 'upcoming' : 'completed');
+        byStatus[status].push(r);
+      }
+      const sections: Array<{ title: string; key: keyof typeof byStatus }> = [ { title: 'Active', key: 'active' }, { title: 'Upcoming', key: 'upcoming' }, { title: 'Completed', key: 'completed' } ];
+      return sections.map((sec) => (
+        <div key={sec.key} className="space-y-2">
+          <div className="text-sm font-medium">{sec.title} ({byStatus[sec.key].length})</div>
+          {byStatus[sec.key].length === 0 ? (
+            <div className="text-xs text-muted-foreground">No {sec.title.toLowerCase()} rotations</div>
+          ) : (
+            byStatus[sec.key].map((rot) => {
+              const pg = postingGroups[rot.rotationName] || {};
+              return (
+                <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between bg-white/5">
+                  <div>
+                    <p className="font-medium">{rot.rotationName}</p>
+                    <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                    <p className="text-xs text-muted-foreground">Unit: {rot.rotationUnit} • Supervisor: {pg.supervisorName ?? rot.rotationSupervisor?.name ?? '—'}</p>
+                    {pg.groupName && <p className="text-xs text-muted-foreground">Group: {pg.groupName}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <Checkbox checked={selectedRotationIds.has(rot._id)} onCheckedChange={() => toggleRotationSelect(rot._id)} aria-label={`Select ${rot.rotationName}`} />
+                    )}
+                    <Badge className={`text-xs capitalize ${STATUS_COLORS[rot.rotationStatus]}`}>{rot.rotationStatus}</Badge>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => { setSelectedRotation(rot); setShowNotesModal(true); }}>
+                          View Notes
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openGroupsForRotation(rot)}>
+                          Groups
+                        </DropdownMenuItem>
+                        {(isAdmin || isTeacher || isConsultant || user?._id === rot.student?._id) && (
+                          <>
+                            <DropdownMenuItem onClick={() => openForm(rot)}>
+                              <Pencil className="h-3 w-3 mr-2" /> Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
+                              <Trash2 className="h-3 w-3 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ));
+    })();
+
+    return (
+      <div className="border rounded-md p-4 bg-card">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium">{student?.name || 'Unknown Student'}</div>
+            <div className="text-xs text-muted-foreground">ID: {student?.idNumber || '—'}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-muted-foreground">{g.rotations.length} rotation{g.rotations.length !== 1 ? 's' : ''}</div>
+            <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'}</Button>
+          </div>
+        </div>
+        {open && (
+          <div className="mt-3 space-y-3">
+            {loadingPostingGroups && <div className="text-sm text-muted-foreground">Loading group assignments…</div>}
+            {sectionsJsx}
+          </div>
+        )}
+      </div>
+    );
+  }
   const studentRotationsElement = postingsLoading ? (
     <div className="p-4 space-y-3">
       {Array.from({ length: 3 }).map((_, i) => (
@@ -534,7 +708,7 @@ export default function ClinicalRotations() {
         ) : (
           <div className="grid gap-3">
               {/* Show student's personal active rotations first */}
-              {personalActiveRotations.length > 0 && personalActiveRotations.map((rot) => (
+              {personalActiveRotations.length > 0 ? personalActiveRotations.map((rot) => (
                 <div key={`personal-${rot._id}`} className="border rounded-md p-3 flex items-start justify-between">
                   <div>
                     <p className="font-medium">{rot.rotationName}</p>
@@ -549,7 +723,7 @@ export default function ClinicalRotations() {
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : null}
               {activePostings.map((rot) => (
               <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
                 <div>
@@ -577,7 +751,7 @@ export default function ClinicalRotations() {
         ) : (
           <div className="grid gap-3">
             {/* Show student's personal upcoming rotations first */}
-            {personalUpcomingRotations.length > 0 && personalUpcomingRotations.map((rot) => (
+            {personalUpcomingRotations.length > 0 ? personalUpcomingRotations.map((rot) => (
               <div key={`personal-upcoming-${rot._id}`} className="border rounded-md p-3 flex items-start justify-between">
                 <div>
                   <p className="font-medium">{rot.rotationName}</p>
@@ -592,7 +766,7 @@ export default function ClinicalRotations() {
                   </div>
                 </div>
               </div>
-            ))}
+            )) : null}
             {upcomingPostings.map((rot) => (
               <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
                 <div>
@@ -744,92 +918,40 @@ export default function ClinicalRotations() {
             </CardContent>
           </Card>
         </div>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Rotation</TableHead>
-              <TableHead>Unit</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Supervisor</TableHead>
-              <TableHead>Student</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Activities</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rotations.map((rot) => (
-              <TableRow key={rot._id}>
-                <TableCell>
-                  <div>
-                    <p className="font-medium text-sm">{rot.rotationName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {format(new Date(rot.rotationStartDate), "MMM d, yyyy")} – {" "}
-                      {format(new Date(rot.rotationEndDate), "MMM d, yyyy")}
-                    </p>
+          ) : (
+            // Group rotations by student for non-student users
+            <div className="space-y-4">
+              {selectedRotationIds.size > 0 && isAdmin && (
+                <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <div className="text-sm font-medium">
+                    {selectedRotationIds.size} rotation{selectedRotationIds.size !== 1 ? 's' : ''} selected
                   </div>
-                </TableCell>
-                <TableCell className="text-sm">{rot.rotationUnit}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className="text-xs capitalize">{rot.rotationType}</Badge>
-                </TableCell>
-                <TableCell className="text-sm">{rot.rotationSupervisor?.name ?? "—"}</TableCell>
-                <TableCell className="text-sm">{rot.student?.name ?? "—"}</TableCell>
-                <TableCell>
-                  <Badge className={`text-xs capitalize ${STATUS_COLORS[rot.rotationStatus]}`}>
-                    {rot.rotationStatus}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2 flex-wrap text-xs text-muted-foreground">
-                    {rot.rotationActivities?.numberOfConsultantWardRound > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <ClipboardList className="h-3 w-3" /> {rot.rotationActivities.numberOfConsultantWardRound}
-                      </span>
-                    )}
-                    {rot.rotationActivities?.numberOfClinics > 0 && (
-                      <span className="flex items-center gap-0.5">
-                        <CalendarDays className="h-3 w-3" /> {rot.rotationActivities.numberOfClinics}
-                      </span>
-                    )}
-                    {rot.rotationActivities?.numberOfWeeks > 0 && (
-                      <span>{rot.rotationActivities.numberOfWeeks}wk</span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => { setSelectedRotation(rot); setShowNotesModal(true); }}>
-                        View Notes
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => openGroupsForRotation(rot)}>
-                        Groups
-                      </DropdownMenuItem>
-                      {(isAdmin || isTeacher || isConsultant || user?._id === rot.student?._id) && (
-                        <>
-                          <DropdownMenuItem onClick={() => openForm(rot)}>
-                            <Pencil className="h-3 w-3 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
-                            <Trash2 className="h-3 w-3 mr-2" /> Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Selected
+                  </Button>
+                </div>
+              )}
+
+              {/* Build grouping */}
+              {(() => {
+                const groups = new Map<string, { student: { _id?: string; name?: string; idNumber?: string }; rotations: Rotation[] }>();
+                for (const r of rotations) {
+                  const sid = r.student?._id || 'unknown';
+                  if (!groups.has(sid)) groups.set(sid, { student: { _id: r.student?._id, name: r.student?.name, idNumber: r.student?.idNumber }, rotations: [] });
+                  groups.get(sid)!.rotations.push(r);
+                }
+                const entries = Array.from(groups.entries());
+                return entries.map(([sid, g]) => (
+                  <StudentGroupCard key={sid} g={g} />
+                ));
+              })()}
+            </div>
+          )}
     </div>
   );
 
@@ -1195,6 +1317,38 @@ export default function ClinicalRotations() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete Multiple Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={(v) => !v && setShowDeleteConfirm(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete Rotations</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedRotationIds.size} rotation{selectedRotationIds.size !== 1 ? 's' : ''}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteMultiple}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Confirmation Dialog */}
+      <Dialog open={showDeleteAllConfirm} onOpenChange={(v) => !v && setShowDeleteAllConfirm(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete All Rotations</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete all {rotations.length} rotation{rotations.length !== 1 ? 's' : ''}? This action cannot be undone and will permanently remove all clinical rotation records.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteAllConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteAll}>Delete All</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Create / Edit Modal */}
       <Dialog open={showForm} onOpenChange={(v) => !v && setShowForm(false)}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -1209,6 +1363,20 @@ export default function ClinicalRotations() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Delete All Button */}
+      {isAdmin && rotations.length > 0 && (
+        <div className="mt-8 pt-6 border-t">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setShowDeleteAllConfirm(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete All {rotations.length} Postings
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

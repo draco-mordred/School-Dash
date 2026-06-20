@@ -2,23 +2,23 @@ import mongoose, {Document, Schema} from "mongoose";
 import bcrypt from "bcryptjs";
 
 // Define the User interface that extends the Mongoose Document
-export enum UserRole {
-    ADMIN = "admin",
-    TEACHER = "teacher",
-    STUDENT = "student",
-    PARENT = "parent",
-    UNIT_CONSULTANT = "unit_consultant",
-    UNIT_RESIDENT = "unit_resident",
-}
+export const UserRole = {
+    ADMIN: "admin",
+    TEACHER: "teacher",
+    STUDENT: "student",
+    PARENT: "parent",
+    UNIT_CONSULTANT: "unit_consultant",
+    UNIT_RESIDENT: "unit_resident",
+} as const;
 
-export enum UserIDs {
-    ADMINID = "UJ0000AD0000", // Unique ID for admin
-    STUDENTID = "UJ0000ST0000", // Unique ID for students
-    TEACHERID = "UJ0000TE0000", // Unique ID for teachers
-    PARENTID = "UJ0000PA0000", // Unique ID for parents
-    UNITCONSULTANTID = "UJ0000UC0000", // Unique ID for unit consultants
-    UNITRESIDENTID = "UJ0000UR0000" // Unique ID for unit residents
-}
+export const UserIDs = {
+    ADMINID: "UJ0000AD0000",
+    STUDENTID: "UJ0000ST0000",
+    TEACHERID: "UJ0000TE0000",
+    PARENTID: "UJ0000PA0000",
+    UNITCONSULTANTID: "UJ0000UC0000",
+    UNITRESIDENTID: "UJ0000UR0000",
+} as const;
 
 export type userRoles = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident" ; // Define a type for user roles, including the unique admin and student IDs
 
@@ -49,6 +49,10 @@ export interface IUser extends Document {
     academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
     // Department role tags for teachers/lecturers
     departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
+    // Supervisor eligibility and ranking for rotation assignment
+    isSupervisor?: boolean;
+    supervisorRank?: number; // higher = more senior
+    specialties?: string[]; // e.g., ["ENT","RADIOLOGY"]
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
     attendance: mongoose.Types.ObjectId[]; // Array of attendance record IDs
@@ -116,6 +120,24 @@ const UserSchema: Schema<IUser> = new Schema({
         enum: ["head of department", "dean of faculty", "exam officer", null],
         default: null,
     }
+    ,
+    // Optional contact phone for supervisors
+    phone: {
+        type: String,
+        default: null,
+    },
+    isSupervisor: {
+        type: Boolean,
+        default: false,
+    },
+    supervisorRank: {
+        type: Number,
+        default: 0,
+    },
+    specialties: [{
+        type: String,
+        default: []
+    }]
 }, {
     timestamps: true
 });

@@ -1,13 +1,21 @@
 import { type Request, type Response } from "express";
-import ClinicalRotation from "../models/clinicalRotation";
+// ClinicalRotation model is loaded lazily to avoid module resolution errors during test bootstrapping
+async function loadClinicalRotation() {
+  return (await import("../models/clinicalRotation")).default;
+}
 import { Types } from "mongoose";
-import { logActivity } from "../utils/activitieslog";
+// lazy wrapper for activity logging to avoid import-time resolution problems in tests
+const logActivity = async (payload: any) => {
+  const mod = await import("../utils/activitieslog");
+  return mod.logActivity(payload);
+};
 
 // @desc    Create a new clinical rotation
 // @route   POST /api/clinical-rotations
 // @access  Private (Admin/Teacher/Student)
 export const createClinicalRotation = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
 
@@ -104,6 +112,7 @@ export const createClinicalRotation = async (req: Request, res: Response) => {
 // @access  Private
 export const getAllClinicalRotations = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { studentId, rotationType, rotationStatus, page = 1, limit = 20 } = req.query;
@@ -132,7 +141,7 @@ export const getAllClinicalRotations = async (req: Request, res: Response) => {
     const rotations = await ClinicalRotation.find(filter)
       .populate("student", "name idNumber email")
       .populate("students", "name idNumber email")
-      .populate("rotationSupervisor", "name email")
+      .populate("rotationSupervisor", "name email supervisorRank specialties")
       .populate("academicYear", "name")
       .sort({ createdAt: -1 })
       .skip((+page - 1) * +limit)
@@ -151,6 +160,7 @@ export const getAllClinicalRotations = async (req: Request, res: Response) => {
 // @access  Private
 export const getClinicalRotationById = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
@@ -213,6 +223,7 @@ export const getClinicalRotationById = async (req: Request, res: Response) => {
 // @access  Private (Admin/Teacher/Student own rotation)
 export const updateClinicalRotation = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
@@ -270,6 +281,7 @@ export const updateClinicalRotation = async (req: Request, res: Response) => {
 // @access  Private (Admin/Teacher)
 export const deleteClinicalRotation = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const { id } = req.params;
 
@@ -303,6 +315,7 @@ export const deleteClinicalRotation = async (req: Request, res: Response) => {
 // @access  Private
 export const addRotationNote = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const { id } = req.params;
 
@@ -341,6 +354,7 @@ export const addRotationNote = async (req: Request, res: Response) => {
 // @access  Private
 export const addPatientClerked = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const { id } = req.params;
 
@@ -381,6 +395,7 @@ export const addPatientClerked = async (req: Request, res: Response) => {
 // @access  Private (Teacher/Admin)
 export const approveRotation = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
@@ -442,6 +457,7 @@ export const approveRotation = async (req: Request, res: Response) => {
 // @access  Private
 export const getRotationStats = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
 
@@ -498,6 +514,7 @@ export const getRotationStats = async (req: Request, res: Response) => {
 // @access  Private (any authenticated user can search)
 export const getAvailableRotations = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
     const { q, rotationType, rotationUnit, page = 1, limit = 20 } = req.query;
@@ -679,6 +696,7 @@ export const getAvailableRotations = async (req: Request, res: Response) => {
 // @access  Private (Student)
 export const signupRotation = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
     const { id } = req.params;
@@ -792,6 +810,7 @@ export const signupRotation = async (req: Request, res: Response) => {
 // @access  Private
 export const listAllRotations = async (req: Request, res: Response) => {
   try {
+    const ClinicalRotation = await loadClinicalRotation();
     const userId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
     const { q, rotationType, rotationUnit, rotationStatus, page = 1, limit = 50 } = req.query;
