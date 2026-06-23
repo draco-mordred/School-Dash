@@ -20,9 +20,88 @@ export const UserIDs = {
     UNITRESIDENTID: "UJMBBSUR0000",
 } as const;
 
+export const UserDepartments = {
+    OandG: {
+        id: "og",
+        name: "Obstetrics & Gynaecology",
+        rotationDurationWeeks: 4,
+
+        units: {        
+            active: [
+                "Antenatal Clinic",
+                "Labour Ward",
+                "Postnatal Ward",
+                "Gynaecology Ward",
+                "Emergency O&G",
+                "Family Planning",
+                "Fertility / Endocrine Unit",
+                "Reproductive Medicine Unit",
+                "Gynaecologic Oncology Unit"
+            ],
+
+            reserve: [
+                "Family Medicine / Reproductive Health Unit"
+            ],
+        }
+    },
+    Pediatrics: {
+        id: "peds",
+        name: "Pediatrics",
+        rotationDurationWeeks: 2,
+
+        units: {
+            active: [
+                "Neonatology / SCBU",
+                "Paediatric Nephrology",
+                "Paediatric Infectious Diseases",
+                "Emergency Paediatrics",
+                "Nutrition Unit",
+                "Paediatric Neurology",
+                "Paediatric Cardiology",
+                "Paediatric Endocrinology",
+                "Paediatric Hemato-Oncology"
+            ],
+            reserve: [
+                "General Paediatrics"
+        
+            ]
+        }
+    }
+} as const;
+
 export type userRoles = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident" ; // Define a type for user roles, including the unique admin and student IDs
 
 export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
+// Let's map type userDepartments to UserDeparments so that Users can be assigned to OandG or Pediatrics or other Deparments, for all user roles except students and parents.
+export enum UserDepartmentName {
+    /*
+    Medicine       → 9 Units
+    Surgery        → 9 Units
+    O&G            → 8 Units
+    Paediatrics    → 8 Units
+    Psychiatry     → 6 Units
+    ENT            → 6 Units
+    Anaesthesia    → 6 Units
+    Radiology      → 6 Units
+    Ophthalmology  → 7 Units
+    Dermatology    → 5 Units
+    */
+    medicine = "Medicine",
+    surgery = "Surgery",
+    og = "O&G",
+    paediatrics = "Paediatrics",
+    psychiatry = "Psychiatry",
+    ent = "ENT",
+    anaesthesia = "Anaesthesia",
+    radiology = "Radiology",
+    ophthalmology = "Ophthalmology",
+    dermatology = "Dermatology",
+    hematology = "Hematology",
+    histopathology = "Histopathology",
+    microbiology = "Microbiology",
+    chemicalPathology = "Chemical Pathology"
+}
+// export type userDepartments = keyof typeof UserDepartments
 
 export const roleDisplayName: Record<userRoles, string> = {
     admin: "Admin",
@@ -40,6 +119,7 @@ export interface IUser extends Document {
     idNumber: string; // field for ID number
     password: string;
     role: userRoles;
+    department: string;
     isActive: boolean;
     profileImage?: string; // Base64 encoded profile image
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
@@ -54,6 +134,7 @@ export interface IUser extends Document {
     // Supervisor eligibility and ranking for rotation assignment
     isSupervisor?: boolean;
     supervisorRank?: number; // higher = more senior
+    supervisorStudents?: mongoose.Types.ObjectId[] | null; // Array of student IDs for supervisors
     specialties?: string[]; // e.g., ["ENT","RADIOLOGY"]
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
@@ -88,6 +169,10 @@ const UserSchema: Schema<IUser> = new Schema({
         required: true,
         default: UserRole.STUDENT
     },
+    department: {
+        type: String,
+        required: true
+    },
     isActive: {
         type: Boolean,
         default: true
@@ -121,8 +206,7 @@ const UserSchema: Schema<IUser> = new Schema({
         type: String,
         enum: ["head of department", "dean of faculty", "exam officer", null],
         default: null,
-    }
-    ,
+    },
     // Optional contact phone for supervisors
     phone: {
         type: String,
@@ -133,13 +217,20 @@ const UserSchema: Schema<IUser> = new Schema({
         default: false,
     },
     supervisorRank: {
+        //should return a number value based on the User's academicStatus value, let's do a little something to make that happen here: 
         type: Number,
-        default: 0,
+        default: null,
     },
+    supervisorStudents: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default:
+    }],
     specialties: [{
         type: String,
         default: []
-    }],
+    }], 
+
     attendance: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "Attendance",

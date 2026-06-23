@@ -1,7 +1,7 @@
 import { type Request, type Response } from "express";
 // ClinicalRotation model is loaded lazily to avoid module resolution errors during test bootstrapping
 async function loadClinicalRotation() {
-  return (await import("../models/clinicalRotation")).default;
+  return (await import("../models/postings")).default;
 }
 import { Types } from "mongoose";
 // lazy wrapper for activity logging to avoid import-time resolution problems in tests

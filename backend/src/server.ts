@@ -15,7 +15,7 @@ import academicYearRouter from "./routes/academicYear";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses";
 import "./models/subjects"; // ensure Subjects mongoose model is registered
-import "./models/clinicalRotation"; // ensure ClinicalRotation mongoose model is registered
+import "./models/postings"; // ensure ClinicalRotation mongoose model is registered
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";

@@ -23,3 +23,44 @@ const CourseSchema = new Schema(
 );
 
 export default mongoose.model<ICourse>("Course", CourseSchema);
+
+//display here the structure of what course looks like in the database.
+// {
+//   name: "Computer Science",
+//   code: "CS101",
+//   courseID: "CS101-2023",
+//   lecturer: ["645645645645645645645645"], // Array of lecturer IDs
+//   isActive: true,
+//   students: ["645645645645645645645645"], // Array of student IDs
+// }
+//
+//what if we remapped the course model so that each course model has an array of subjects within it, and the subjects themselves have a model? Instead of a list of Students at the Course level, we can have the COurse assigned to a CLass instead. Like:
+
+// {  
+//   name: "Pediatrics",
+//   code: "PAE",
+//   courseID: "PAE-2026",
+//   lecturer: ["645645645645645645645645"], // Array of lecturer IDs this would be gotten from the user model and mapped according to staff from "Pediatrics Department" (According to the the list of Staff Per Department)
+//   isActive: true,
+//   studentClasses: [ {
+//     classID: "645645645645645645645645",
+//     students: ["645645645645645645645645"], // Array of student IDs
+//   }],
+//   subjects: [
+//     {
+//       name: "Introduction to Computer Science",
+//       code: "CS101-1",
+//       courseID: "CS101-2023-1",
+//       lecturer: ["645645645645645645645645"], // Array of lecturer IDs
+//       isActive: true,
+//       students: ["645645645645645645645645"], // Array of student IDs
+//     }, {
+//       name: "Introduction to Computer Science",
+//       code: "CS101-2",
+//       courseID: "CS101-2023-2",
+//       lecturer: ["645645645645645645645645"], // Array of lecturer IDs
+//       isActive: true,
+//       students: ["645645645645645645645645"], // Array of student IDs
+//     }
+//   ]
+// }    

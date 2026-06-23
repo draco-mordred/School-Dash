@@ -35,7 +35,7 @@ export default processDueScheduledNotifications;
 
 export async function updateRotationStatuses() {
   const now = new Date();
-  const { default: ClinicalRotation } = await import("../models/clinicalRotation");
+  const { default: ClinicalRotation } = await import("../models/postings");
   const { Notification } = await import("../models/notification");
 
   // Promote upcoming -> active when current date overlaps start/end

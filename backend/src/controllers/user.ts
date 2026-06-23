@@ -173,7 +173,6 @@ export const registerUser = async (
             await newUser.populate("studentClasses", "name academicYear");
             // teacherSubject is populated from the Course model
             await newUser.populate("teacherSubject", "name code");
-
                         // If student, link to class students array
                         if (role === "student" && finalStudentClass) {
                             const ClassModel = require("../models/classes").default;
@@ -183,6 +182,17 @@ export const registerUser = async (
                                 { returnDocument: 'after' }
                             );
                         }
+                        //if a supevisor link to the supervisor array
+                        if (role === "supervisor") {
+                            const ClassModel = require("../models/classes").default;
+                            await ClassModel.findByIdAndUpdate(
+                                finalStudentClass,
+                                { $addToSet: 
+                                    { supervisors: newUser._id } },
+                                { returnDocument: 'after' }
+                            );
+                        }
+                        //if a supevisor, teacher, consultant, resident link to a department array
             if ((req as any).user) {
                 await logActivity({ 
                     userId: (req as any).user._id.toString(),
