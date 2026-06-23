@@ -32,12 +32,12 @@ userRoutes.post("/logout", logoutUser);
 userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route    
 userRoutes.get("/",
     protect,
-    authorize(["admin", "teacher", "parent", "student", "unit_consultant"]),
+    authorize(["admin", "teacher", "parent", "student", "unitconsultant"]),
     getUsers
 );
 userRoutes.get("/:id",
     protect,
-    authorize(["admin", "teacher", "parent", "unit_consultant"]),
+    authorize(["admin", "teacher", "parent", "unitconsultant"]),
     getUserById
 );
 // here you can use either patch or put
@@ -52,7 +52,7 @@ userRoutes.put("/update/:id",
 );
 userRoutes.delete("/delete/:id",
     protect,
-    authorize(["admin", "teacher", "unit_consultant"]),
+    authorize(["admin", "teacher", "unitconsultant"]),
     deleteUser
 );
 userRoutes.post("/bulk-upload",

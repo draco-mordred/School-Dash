@@ -6,8 +6,6 @@ import Timetable from "../models/timetable";
 import Exam from "../models/exam";
 import Course from "../models/courses";
 import Attendance from "../models/attendance";
-import generateRotationSchedule from "../services/rotationScheduler";
-
 import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
@@ -118,8 +116,69 @@ export const generateTimeTable = inngest.createFunction(
         academicYear: academicYearIdValue,
       })
 
-      // Clinical activities slot for 400/500 level classes
-      const clinicalSlotInstruction = isClinicalLevel ? `
+      // Special handling for 400 Level classes with fixed schedule
+      let prompt = "";
+      
+      if (is400Level) {
+        // Fixed 400 Level Class Schedule
+        prompt = `
+        You are a University Timetable Scheduler.
+        Generate a FIXED weekly timetable for 400 Level Class (Monday to Friday).
+
+        CONTEXT:
+        - Class: ${contextData.className}
+        - Hours: 08:00 to 17:00 (8am to 5pm)
+
+        RESOURCES:
+        - Courses: ${JSON.stringify(contextData.courses)}
+        - Lecturers: ${JSON.stringify(contextData.lecturers)}
+
+        MANDATORY FIXED SCHEDULE FOR 400 LEVEL CLASS:
+
+        MONDAY TO THURSDAY (8am-10am - FIXED):
+        - Monday & Wednesday: 
+          * 08:00-09:00: Medicine Course
+          * 09:00-10:00: Surgery Course
+        - Tuesday & Thursday:
+          * 08:00-09:00: Surgery Course
+          * 09:00-10:00: Medicine Course
+
+        CLINICAL ACTIVITIES (Monday to Friday):
+        - 10:00-12:00: Clinical Activities (use courseId: "CLINICAL_ACTIVITIES", lecturer: null)
+
+        AFTER CLINICAL (12pm-5pm):
+        - Monday: Chemical Pathology Course (12:00-14:00) + Practicals (14:00-17:00)
+        - Tuesday: Medical Microbiology Course (12:00-14:00) + Practicals (14:00-17:00)
+        - Wednesday: Hematology Course (12:00-14:00) + Practicals (14:00-17:00)
+        - Thursday: Histopathology Course (12:00-14:00) + Practicals (14:00-17:00)
+
+        FRIDAY (8am-5pm):
+        - 08:00-10:00: Community Medicine Course
+        - 10:00-14:00: Pharmacology Course
+        - 14:00-17:00: Pharmacology Practicals
+
+        IMPORTANT RULES:
+        1. STRICTLY follow the above schedule - do not deviate.
+        2. Find matching courses from the RESOURCES list (e.g., "Medicine", "Surgery", "Chemical Pathology", etc.).
+        3. For Practicals periods: use the corresponding course but mark as practical (same courseId).
+        4. Clinical Activities periods: use courseId "CLINICAL_ACTIVITIES" with lecturer null.
+        5. Match lecturer IDs from the lecturer list who teach these courses.
+        6. OUTPUT strict JSON only. Schema:
+        {
+          "schedule": [
+            {
+              "day": "Monday",
+              "periods": [
+              { "courseId": "COURSE_ID", "lecturer": "LECTURER_ID", "startTime": "HH:MM", "endTime": "HH:MM" }
+              ]
+            }
+          ]
+        }
+        Use the lecturer's id from the lecturer list. Match the courseId with the id from the courses list.
+        `;
+      } else {
+        // Original prompt for non-400 Level classes
+        const clinicalSlotInstruction = isClinicalLevel ? `
 
         CLINICAL ACTIVITIES SLOT (REQUIRED):
         - For ${contextData.className}, you MUST add a "Clinical Activities" period on EACH weekday (Monday to Friday).
@@ -130,7 +189,7 @@ export const generateTimeTable = inngest.createFunction(
         - Example period: { "courseId": "CLINICAL_ACTIVITIES", "lecturer": null, "startTime": "10:00", "endTime": "${clinicalEndTime}" }
         ` : "";
 
-        const prompt = `
+        prompt = `
         You are a University Timetable Scheduler.
         Generate a weekly timetable (Monday to Friday).
 
@@ -162,7 +221,8 @@ export const generateTimeTable = inngest.createFunction(
           ]
         }
         Use the lecturer's id from the lecturer list in the response. Not the lecturer's idNumber or name. Match the courseId with the id from the courses list in the response.
-          `;
+        `;
+      }
       const google = createGoogleGenerativeAI({
         apiKey,
       });
@@ -193,41 +253,6 @@ export const generateTimeTable = inngest.createFunction(
         class: classIdValue,
         academicYear: academicYearIdValue,
       });
-
-      // const mappedSchedule = (aiExam.schedule ?? []).map((day: any) => ({
-      //   day: day.day,
-      //   periods: (day.periods ?? []).map((period: any) => {
-      //     const subject = period.subjectId ?? period.subject;
-      //     const requestedTeacher = period.teacherId ?? period.teacher;
-      //     const requestedTeacherKey = requestedTeacher != null ? String(requestedTeacher).trim() : undefined;
-
-      //     let teacherObjectId: mongoose.Types.ObjectId | undefined;
-      //     let teacherId: string | undefined;
-
-      //     if (requestedTeacherKey) {
-      //       const foundTeacher = contextData.teachers.find((t) =>
-      //         t.id === requestedTeacherKey || t.idNumber === requestedTeacherKey ||
-      //         t.name?.trim().toLowerCase() === requestedTeacherKey.toLowerCase()
-      //       );
-
-      //       if (foundTeacher) {
-      //         teacherObjectId = new mongoose.Types.ObjectId(foundTeacher.id);
-      //         teacherId = foundTeacher.id;
-      //       } else {
-      //         teacherId = requestedTeacherKey;
-      //       }
-      //     }
-
-      //     return {
-      //       subject,
-      //       teacher: teacherObjectId,
-      //       teacherId,
-      //       startTime: period.startTime,
-      //       endTime: period.endTime,
-      //     };
-      //   }),
-      // }));
-
    
         // Map AI output to MongoDB schema: courseId -> subject, lecturer stays lecturer
         const mappedSchedule = (aiSchedule.schedule ?? []).map((day: any) => ({
@@ -608,35 +633,35 @@ export const bulkCreateUsers = inngest.createFunction(
 );
 
 // Rotation generation
-export const generateRotations = inngest.createFunction(
-  { id: "Generate-Rotations", 
-    triggers: { 
-      event: "rotation/generate"
-    } 
-  },
-  async ({ event, step }) => {
-    const { academicYearId, classId, level, options, generatedBy } = event.data as any;
-    if (!academicYearId || !classId || !level || !generatedBy) {
-      throw new NonRetriableError("academicYearId, classId, level and generatedBy are required");
-    }
+// export const generateRotations = inngest.createFunction(
+//   { id: "Generate-Rotations", 
+//     triggers: { 
+//       event: "rotation/generate"
+//     } 
+//   },
+//   async ({ event, step }) => {
+//     const { academicYearId, classId, level, options, generatedBy } = event.data as any;
+//     if (!academicYearId || !classId || !level || !generatedBy) {
+//       throw new NonRetriableError("academicYearId, classId, level and generatedBy are required");
+//     }
 
-    const normalizedOptions = { ...(options || {}) };
-    if (normalizedOptions.startDate) {
-      const d = new Date(normalizedOptions.startDate);
-      if (isNaN(d.getTime())) {
-        throw new NonRetriableError("Invalid options.startDate — must be a valid date string or ISO date");
-      }
-      // normalize to ISO date string
-      normalizedOptions.startDate = d.toISOString();
-    }
+//     const normalizedOptions = { ...(options || {}) };
+//     if (normalizedOptions.startDate) {
+//       const d = new Date(normalizedOptions.startDate);
+//       if (isNaN(d.getTime())) {
+//         throw new NonRetriableError("Invalid options.startDate — must be a valid date string or ISO date");
+//       }
+//       // normalize to ISO date string
+//       normalizedOptions.startDate = d.toISOString();
+//     }
 
-    const schedule = await step.run("generate-rotation-schedule", async () => {
-      return await generateRotationSchedule(academicYearId, classId, { ...(normalizedOptions || {}), level, generatedBy });
-    });
+//     const schedule = await step.run("generate-rotation-schedule", async () => {
+//       return await generateRotationSchedule(academicYearId, classId, { ...(normalizedOptions || {}), level, generatedBy });
+//     });
 
-    return { success: true, scheduleId: schedule._id };
-  }
-)
+//     return { success: true, scheduleId: schedule._id };
+//   }
+// )
 
 // Process delayed rotation notification events
 export const rotationNotify = inngest.createFunction(

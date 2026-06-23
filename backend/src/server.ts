@@ -19,14 +19,13 @@ import "./models/clinicalRotation"; // ensure ClinicalRotation mongoose model is
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
-import { generateExam, generateTimeTable, generateAttendance, bulkCreateUsers, generateRotations, rotationNotify } from "./inngest/functions";
+import { generateExam, generateTimeTable, generateAttendance, bulkCreateUsers, rotationNotify } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
 import dashBoardRouter from "./routes/dashboard";
 import attendanceRouter from "./routes/attendance";
 import notificationRouter from "./routes/notification";
 import clinicalRotationRouter from "./routes/clinicalRotation";
-import rotationScheduleRouter from "./routes/rotationSchedule";
 import logbookEntryRouter from "./routes/logbookEntry";
 import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
@@ -89,12 +88,11 @@ app.use("/api/attendance", attendanceRouter);
 app.use("/api/notifications", notificationRouter);
 app.use("/api/clinical-rotations", clinicalRotationRouter);
 app.use("/api/logbook-entries", logbookEntryRouter);
-app.use('/api/rotation-schedules', rotationScheduleRouter);
 app.use('/api/hospital-data', hospitalDataRouter);
 app.use('/api/activity-entries', activityEntryRouter);
 app.use('/api/inngest', serve({
   client: inngest,
-  functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, generateRotations, rotationNotify]
+  functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
 })
 );
 
@@ -143,7 +141,7 @@ connectDB().then(async () => {
       initWebSocket(server as any);
     } catch (err) {
       // not critical if ws package isn't installed
-      console.warn('WebSocket init failed or not available', err?.message || err);
+      console.warn('WebSocket init failed or not available', err);
     }
 
 })

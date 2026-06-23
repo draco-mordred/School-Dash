@@ -91,7 +91,7 @@ export const registerUser = async (
             } else {
                 // if no ID number is passed, update with the next in the sequence based on the role prefix (e.g., UJ0000ST0001 for students, UJ0000AD0001 for admins, etc.)
                 if (!idNumber) {
-                    const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : role === "unit_consultant" ? "UJ0000UC" : role === "unit_resident" ? "UJ0000UR" : "UJ0000ST"; // Default prefix for unknown roles
+                    const rolePrefix = role === "admin" ? "UJMBBSAD" : role === "teacher" ? "UJMBBSTE" : role === "student" ? "UJMBBSST" : role === "parent" ? "UJMBBSPA" : role === "unitconsultant" ? "UJMBBSUC" : role === "unitresident" ? "UJMBBSUR" : "UJMBBSST"; // Default prefix for unknown roles
                     const lastUserWithRolePrefix = await User.findOne({ idNumber: { $regex: `^${rolePrefix}` } }).sort({ createdAt: -1 });
                     if (lastUserWithRolePrefix) {
                         const lastIDNumber = lastUserWithRolePrefix.idNumber;
@@ -101,7 +101,7 @@ export const registerUser = async (
                         newIDNumber = `${prefix}${newNumericPart}`;
                     } else {
                         // If no existing user with the same role prefix is found, we can start with the first ID number in the sequence (e.g., UJ0000ST0001 for students)
-                        const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : role === "unit_consultant" ? "UJ0000UC" : role === "unit_resident" ? "UJ0000UR" : "UJ0000ST"; // Default prefix for unknown roles
+                        const rolePrefix = role === "admin" ? "UJ0000AD" : role === "teacher" ? "UJ0000TE" : role === "student" ? "UJ0000ST" : role === "parent" ? "UJ0000PA" : role === "unitconsultant" ? "UJ0000UC" : role === "unitresident" ? "UJ0000UR" : "UJ0000ST"; // Default prefix for unknown roles
                         newIDNumber = `${rolePrefix}0001`;
                     }
                 }
@@ -183,12 +183,6 @@ export const registerUser = async (
                                 { returnDocument: 'after' }
                             );
                         }
-
-
-
-
-
-
             if ((req as any).user) {
                 await logActivity({ 
                     userId: (req as any).user._id.toString(),
@@ -794,10 +788,10 @@ export const bulkUploadUsers = async (req: Request, res: Response): Promise<void
                 });
                 return;
             }
-            if (!["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"].includes(u.role)) {
+            if (!["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"].includes(u.role)) {
                 res.status(400).json({
                     status: "Error!",
-                    message: `Invalid role '${u.role}'. Must be admin, teacher, student, parent, unit_consultant, or unit_resident.`,
+                    message: `Invalid role '${u.role}'. Must be admin, teacher, student, parent, unitconsultant, or unitresident.`,
                 });
                 return;
             }

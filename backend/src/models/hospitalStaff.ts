@@ -49,8 +49,7 @@ const HospitalStaffSchema = new Schema<IHospitalStaff>(
   }
 );
 
-// Index for faster lookups
-HospitalStaffSchema.index({ fileNumber: 1 });
+// Indexes for faster lookups (fileNumber is indexed via `unique: true` on the field)
 HospitalStaffSchema.index({ department: 1, isActive: 1 });
 HospitalStaffSchema.index({ assignedUnits: 1 });
 HospitalStaffSchema.index({ systemRole: 1, canApproveLogbooks: 1 });

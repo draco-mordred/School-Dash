@@ -7,20 +7,20 @@ export const UserRole = {
     TEACHER: "teacher",
     STUDENT: "student",
     PARENT: "parent",
-    UNIT_CONSULTANT: "unit_consultant",
-    UNIT_RESIDENT: "unit_resident",
+    UNITCONSULTANT: "unitconsultant",
+    UNITRESIDENT: "unitresident",
 } as const;
 
 export const UserIDs = {
-    ADMINID: "UJ0000AD0000",
-    STUDENTID: "UJ0000ST0000",
-    TEACHERID: "UJ0000TE0000",
-    PARENTID: "UJ0000PA0000",
-    UNITCONSULTANTID: "UJ0000UC0000",
-    UNITRESIDENTID: "UJ0000UR0000",
+    ADMINID: "UJMBBSAD0000",
+    STUDENTID: "UJMBBSST0000",
+    TEACHERID: "UJMBBSTE0000",
+    PARENTID: "UJMBBSPA0000",
+    UNITCONSULTANTID: "UJMBBSUC0000",
+    UNITRESIDENTID: "UJMBBSUR0000",
 } as const;
 
-export type userRoles = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident" ; // Define a type for user roles, including the unique admin and student IDs
+export type userRoles = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident" ; // Define a type for user roles, including the unique admin and student IDs
 
 export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
 
@@ -29,8 +29,8 @@ export const roleDisplayName: Record<userRoles, string> = {
     teacher: "Teacher",
     student: "Student",
     parent: "Parent",
-    unit_consultant: "Unit Consultant",
-    unit_resident: "Unit Resident",
+    unitconsultant: "Unit Consultant",
+    unitresident: "Unit Resident",
 };
 
 export interface IUser extends Document {
@@ -42,13 +42,15 @@ export interface IUser extends Document {
     role: userRoles;
     isActive: boolean;
     profileImage?: string; // Base64 encoded profile image
-    studentClasses?: string | null; // Array of class IDs for students
-    teacherSubject?: string[] | null; // Array of class IDs for teachers
-    parentStudents?: string[] | null; // Array of student IDs for parents
+    studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
+    teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of class IDs for teachers
+    parentStudents?: mongoose.Types.ObjectId[] | null; // Array of student IDs for parents
     // Academic status tags for teachers/lecturers
     academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
     // Department role tags for teachers/lecturers
     departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
+    // Optional contact phone for supervisors
+    phone?: string | null;
     // Supervisor eligibility and ranking for rotation assignment
     isSupervisor?: boolean;
     supervisorRank?: number; // higher = more senior
@@ -136,6 +138,11 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     specialties: [{
         type: String,
+        default: []
+    }],
+    attendance: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Attendance",
         default: []
     }]
 }, {
