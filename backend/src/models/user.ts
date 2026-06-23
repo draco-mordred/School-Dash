@@ -224,7 +224,7 @@ const UserSchema: Schema<IUser> = new Schema({
     supervisorStudents: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        default:
+        default: []
     }],
     specialties: [{
         type: String,

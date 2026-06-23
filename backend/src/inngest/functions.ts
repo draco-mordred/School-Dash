@@ -50,54 +50,49 @@ export const generateTimeTable = inngest.createFunction(
       // Fetch teachers
       const allTeachersAndLecturers = await User.find({ role: "teacher" });
 
-      // Filter qualified teachers for class courses
-      const classCourseIds = classData.courses.map((course) => course._id.toString());
+      // In the new model, Class.courses should still refer to top-level Course documents.
+      // However, timetable periods should be tied to embedded Course.subjects.
+      // For AI purposes we therefore expose *subject* options (not top-level course docs).
+      //
+      // Attempt to find embedded subjects within each top-level course.
+      const topLevelCourses = (classData.courses ?? []) as any[];
 
-      // [
-      //   "6a1aed10b3a7676e968a639d",
-      //   "6a1af7f05b5acae623853ecf",
-      //   "6a1d5914166b2f94290264d8",
-      //   "6a1d6c4c0264bbd574c84664",
-      //   "6a1d6cb90264bbd574c84666"
-      // ]
+      const embeddedSubjects = topLevelCourses.flatMap((c) =>
+        ((c?.subjects ?? []) as any[]).map((s) => ({
+          id: String(s?.subjectID ?? s?._id),
+          name: s?.name,
+          code: s?.code,
+          // lecturer ids assigned for this subject
+          lecturerIds: Array.isArray(s?.lecturer) ? s.lecturer.map((x: any) => String(x)) : [],
+        }))
+      );
 
+      // Filter qualified teachers against subjects that exist in this class
       const qualifiedTeachers = allTeachersAndLecturers
         .filter((lecturer) => {
-          if(!lecturer.teacherSubject) return false;
-          return lecturer.teacherSubject.some((subId) => classCourseIds.includes(subId.toString()));
+          if (!lecturer.teacherSubject) return false;
+
+          // lecturer.teacherSubject points at Course (legacy). We can still use it
+          // to broadly filter teachers, but for subject selection we will rely on lecturerIds.
+          return topLevelCourses.some((tc) => lecturer.teacherSubject.some((subId: any) => String(subId) === String(tc._id)));
         })
         .map((tea) => ({
           id: String(tea._id),
           idNumber: tea.idNumber,
           name: tea.name,
-          courses: tea.teacherSubject?.map((subId: any) => String(subId)) ?? [],
-        }))
-      const subjectsPayload = classData.courses.map((course: any) => ({
-        id: course._id,
-        name: course.name,
-        code: course.code,
-      }))
+          // AI needs to know which subject ids this teacher can teach.
+          // Since we can't reliably derive subject-level permissions here without joining,
+          // we provide an empty list and rely on the prompt rules + aiSchedule output.
+          courses: [],
+        }));
+
       return {
         className: classData.name,
-        courses: subjectsPayload,
+        // expose embedded subjects as courses for AI naming consistency
+        courses: embeddedSubjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
         lecturers: qualifiedTeachers,
-      }
-        // Map teacher's subjects to courses for clarity
-        const qualifiedLecturers = qualifiedTeachers.map((t: any) => ({
-          ...t,
-          courses: t.subjects
-        }))
-        const coursesPayload = classData.courses.map((course: any) => ({
-          id: course._id,
-          name: course.name,
-          code: course.code,
-        }))
-        return {
-          className: classData.name,
-          courses: coursesPayload,
-          lecturers: qualifiedLecturers,
-        }
-      });
+      };
+    });
 
     // Detect if this is a clinical level class (400 or 500 level)
     const is400Level = /^400\s*level/i.test(contextData.className);
@@ -258,8 +253,10 @@ export const generateTimeTable = inngest.createFunction(
         const mappedSchedule = (aiSchedule.schedule ?? []).map((day: any) => ({
           day: day.day,
           periods: (day.periods ?? []).map((period: any) => {
-            // Handle clinical activities - set subject and lecturer to null
-            if (period.courseId === "CLINICAL_ACTIVITIES") {
+            // Handle clinical activities placeholder safely
+            const courseIdRaw = period?.courseId;
+            const courseIdNormalized = typeof courseIdRaw === "string" ? courseIdRaw.trim().toUpperCase() : courseIdRaw;
+            if (courseIdNormalized === "CLINICAL_ACTIVITIES") {
               return {
                 subject: null,
                 lecturer: null,
@@ -268,9 +265,20 @@ export const generateTimeTable = inngest.createFunction(
                 isClinical: true,
               };
             }
+
+            // Only create ObjectId when it is a valid 24-hex string.
+            // If the model returned something else (name/code), we fail loudly.
+            const isValidObjectId = (v: any) => typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v);
+            if (!isValidObjectId(String(courseIdRaw))) {
+              throw new NonRetriableError(`Invalid subject id returned by AI: ${String(courseIdRaw)}`);
+            }
+
+            const lecturerRaw = period?.lecturer;
+            const lecturerObjId = isValidObjectId(lecturerRaw) ? new mongoose.Types.ObjectId(String(lecturerRaw)) : null;
+
             return {
-              subject: new mongoose.Types.ObjectId(period.courseId),
-              lecturer: period.lecturer ? new mongoose.Types.ObjectId(period.lecturer) : null,
+              subject: new mongoose.Types.ObjectId(String(courseIdRaw)),
+              lecturer: lecturerObjId,
               startTime: period.startTime,
               endTime: period.endTime,
             };

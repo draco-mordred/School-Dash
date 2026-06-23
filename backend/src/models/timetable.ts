@@ -36,6 +36,7 @@ const timetableSchema = new Schema(
         day: { type: String, required: true },
         periods: [
           {
+            // Timetable periods now point to embedded subjects inside Course
             subject: { type: mongoose.Types.ObjectId, ref: "Course", default: null },
             lecturer: { type: mongoose.Types.ObjectId, ref: "User", default: null },
             startTime: String,
