@@ -123,7 +123,7 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       ]);
 
       const records = await Attendance.find({ student: userId })
-        .populate("course", "name code courseID")
+        .populate("course", "name code courseID subjects.subjectID")
         .populate("class", "name")
         .populate("lecturer", "name email")
         .sort({ date: -1 })
@@ -145,7 +145,7 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
     ]);
 
     const records = await Attendance.find({ lecturer: userId })
-      .populate("course", "name code courseID")
+      .populate("course", "name code courseID subjects.subjectID")
       .populate("class", "name")
       .populate("student", "name idNumber email")
       .populate("lecturer", "name email")
@@ -178,7 +178,7 @@ export const getStudentAttendanceSummary = async (req: Request, res: Response) =
     ]);
 
     const records = await Attendance.find({ student: studentId })
-      .populate("course", "name code courseID")
+      .populate("course", "name code courseID subjects.subjectID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ date: -1 })
@@ -477,7 +477,7 @@ export const getStudentAttendanceRecords = async (req: Request, res: Response) =
     }
 
     const records = await Attendance.find(filter)
-      .populate("course", "name code courseID")
+      .populate("course", "name code courseID subjects.subjectID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ date: -1 })
@@ -514,7 +514,7 @@ export const getClassSessionAttendance = async (req: Request, res: Response) => 
       date: { $gte: dateObj, $lt: nextDay },
     })
       .populate("student", "name email idNumber")
-      .populate("course", "name code")
+      .populate("course", "name code subjects.subjectID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ "student.name": 1 });
@@ -640,7 +640,7 @@ export const getAllAttendanceLists = async (req: Request, res: Response) => {
     }
 
     const records = await Attendance.find(filter)
-      .populate("course", "name code courseID")
+      .populate("course", "name code courseID subjects.subjectID")
       .populate("class", "name")
       .populate("student", "name idNumber email")
       .populate("lecturer", "name email")

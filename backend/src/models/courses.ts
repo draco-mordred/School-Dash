@@ -1,30 +1,36 @@
 import mongoose, { Schema, Document } from "mongoose";
-import User from "./user";
 
 /**
- * Course revamp:
- * - Top-level Course document represents the main course across an academic year/semester context.
- * - Embedded `subjects[]` holds the “subject instances” (per semester/year frequency) with lecturer/student assignments.
+ * Course model (revamp)
  *
- * IMPORTANT (per current requirements):
- * - Timetable periods still reference only the top-level Course document (not embedded subjects).
+ * Target structure:
+ * {
+ *   name,
+ *   code,
+ *   courseID,
+ *   department: ObjectId (Department),
+ *   unit: ObjectId (Unit),
+ *   lecturer: [ObjectId],
+ *   isActive,
+ *   studentClasses: [{ classID, students: [ObjectId] }],
+ *   subjects: [{ name, code, courseID, lecturer: [ObjectId], isActive, students: [ObjectId] }]
+ * }
  */
-
-export interface ICourseSubject extends Document {
-  name: string;
-  code?: string;
-  /**
-   * Based on academic year + semester, as provided by your convention:
-   * e.g. CS101-2023-1
-   */
-  subjectID: string;
-  lecturer: mongoose.Types.ObjectId[];
-  isActive: boolean;
-  students: mongoose.Types.ObjectId[];
-}
 
 export interface IStudentClassMembership {
   classID: mongoose.Types.ObjectId;
+  students: mongoose.Types.ObjectId[];
+}
+
+export interface ICourseSubject extends Document {
+  name: string;
+  code: string | null;
+
+  /** Embedded subject instance id string (ex: CS101-2023-1) */
+  subjectID: string;
+
+  lecturer: mongoose.Types.ObjectId[];
+  isActive: boolean;
   students: mongoose.Types.ObjectId[];
 }
 
@@ -32,14 +38,25 @@ export interface ICourse extends Document {
   name: string;
   code: string;
   courseID: string;
-  department: string;
-  semester: string;
-  year: string;
+
+  // Legacy fields used by existing UI/controller payloads
+  semester?: string;
+  year?: string;
+
+  /** Department this course belongs to (mapped to Department model) */
+  department: mongoose.Types.ObjectId;
+
+  /** Unit this course belongs to (mapped to Unit model) */
+  unit: mongoose.Types.ObjectId;
+
+
+  /** Department-level lecturers for this course (top-level) */
+  lecturer: mongoose.Types.ObjectId[];
+
   isActive: boolean;
   studentClasses: IStudentClassMembership[];
-  /**
-   * Embedded subject instances for this course.
-   */
+
+  /** Subject instances embedded under the course */
   subjects: ICourseSubject[];
 }
 
@@ -55,6 +72,8 @@ const CourseSubjectSchema = new Schema<ICourseSubject>(
   {
     name: { type: String, required: true, trim: true },
     code: { type: String, trim: true, default: null },
+
+    // Keep naming consistent with your requested output: `subjectID` inside subject
     subjectID: { type: String, required: true, trim: true },
 
     lecturer: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
@@ -64,29 +83,45 @@ const CourseSubjectSchema = new Schema<ICourseSubject>(
   { timestamps: true }
 );
 
-// Prevent duplicates inside a course for the same subjectID
-// Mongoose indexes for embedded docs can be defined, but keep them simple for compatibility.
-// CourseSubjectSchema.index({ subjectID: 1 });
-
 const CourseSchema = new Schema<ICourse>(
   {
     name: { type: String, required: true, trim: true },
-    code: { type: String, required: true, trim: true },
+    code: { type: String, required: true, trim: true, unique: true },
+
+    // Keep naming consistent with your requested output
     courseID: { type: String, required: true, trim: true },
-    // matches your example
-    department: { type: String, required: true, trim: true },
-    semester: { type: String, required: true, trim: true },
-    year: { type: String, required: true, trim: true },
+
+    semester: { type: String, required: false, trim: true, default: null },
+    year: { type: String, required: false, trim: true, default: null },
+
+    // Department + Unit references (models will be created soon)
+    department: {
+      type: Schema.Types.ObjectId,
+      ref: "Department",
+      required: true,
+      index: true,
+    },
+    unit: {
+      type: Schema.Types.ObjectId,
+      ref: "Unit",
+      required: false,
+      index: true,
+      default: null,
+    },
+
+
+    lecturer: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
     isActive: { type: Boolean, default: true },
+
     studentClasses: { type: [StudentClassMembershipSchema], default: [] },
+
     subjects: { type: [CourseSubjectSchema], default: [] },
   },
   { timestamps: true }
 );
 
-// Optional/helps keep uniqueness across an academic context.
-// If you want uniqueness differently (e.g., courseID alone), adjust this.
-CourseSchema.index({ courseID: 1, department: 1, semester: 1, year: 1 }, { unique: true });
+// Prevent duplicates for the same courseID across deployments
+CourseSchema.index({ name: 1, courseID: 1 }, { unique: true });
 
 export default mongoose.model<ICourse>("Course", CourseSchema);
 

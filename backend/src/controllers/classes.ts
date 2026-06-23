@@ -8,7 +8,7 @@ export const getClassById = async (req: Request, res: Response) => {
     const cls = await ClassModel.findById(req.params.id)
       .populate("academicYear", "name")
       .populate("classTeacher", "name email")
-      .populate("courses", "name code")
+      .populate("courses", "name code subjects.subjectID")
       .select("name academicYear classTeacher courses");
     if (!cls) {
       return res.status(404).json({ message: "Class not found" });
@@ -109,7 +109,7 @@ res: Response
       ClassModel.find(query)
         .populate("academicYear", "name")
         .populate("classTeacher", "name email")
-        .populate("courses", "name code lecturer")
+        .populate("courses", "name code subjects.subjectID lecturer")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -165,7 +165,7 @@ export const updateClass = async (
     const updatedClass = await ClassModel.findByIdAndUpdate(
       classId,
       { name, academicYear, classTeacher, capacity, courses, students: newStudentIds },
-      { new: true, runValidators: true }
+      { returnDocument: "after", runValidators: true }
     );
 
     if (!updatedClass) {

@@ -14,7 +14,6 @@ import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses";
-import "./models/subjects"; // ensure Subjects mongoose model is registered
 import "./models/postings"; // ensure ClinicalRotation mongoose model is registered
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
 import { serve } from "inngest/express";
@@ -116,33 +115,33 @@ connectDB().then(async () => {
     });
 
     // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
-    const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";
-    if (!useInngest) {
-      try {
-        const { processDueScheduledNotifications, updateRotationStatuses } = await import('./workers/scheduledNotificationsWorker');
-        // run immediately and then every 60s
-        processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
-        // also update rotation statuses on the same cadence
-        updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
-        setInterval(() => {
-          processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
-          updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
-        }, 60 * 1000);
-      } catch (err) {
-        console.warn('Scheduled notifications worker not started', (err as Error).message);
-      }
-    } else {
-      console.log('Using Inngest delayed scheduling for rotation notifications; DB worker disabled.');
-    }
+//     const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";
+//     if (!useInngest) {
+//       try {
+//         const { processDueScheduledNotifications, updateRotationStatuses } = await import('./workers/scheduledNotificationsWorker');
+//         // run immediately and then every 60s
+//         processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
+//         // also update rotation statuses on the same cadence
+//         updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+//         setInterval(() => {
+//           processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
+//           updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+//         }, 60 * 1000);
+//       } catch (err) {
+//         console.warn('Scheduled notifications worker not started', (err as Error).message);
+//       }
+//     } else {
+//       console.log('Using Inngest delayed scheduling for rotation notifications; DB worker disabled.');
+//     }
 
-    // initialize optional WebSocket server
-    try {
-      const { initWebSocket } = require('./utils/ws');
-      initWebSocket(server as any);
-    } catch (err) {
-      // not critical if ws package isn't installed
-      console.warn('WebSocket init failed or not available', err);
-    }
+//     // initialize optional WebSocket server
+//     try {
+//       const { initWebSocket } = require('./utils/ws');
+//       initWebSocket(server as any);
+//     } catch (err) {
+//       // not critical if ws package isn't installed
+//       console.warn('WebSocket init failed or not available', err);
+//     }
 
 })
 //you can use any of these scripts to run the server with nodemon or bun

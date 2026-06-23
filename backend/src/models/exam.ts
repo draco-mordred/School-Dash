@@ -11,19 +11,22 @@ export interface IQuestion {
 
 export interface IExam extends Document {
   title: string;
-  subject: mongoose.Types.ObjectId;
+  course: mongoose.Types.ObjectId;
   class: mongoose.Types.ObjectId;
   lecturer: mongoose.Types.ObjectId;
   duration: number; //in minutes
   questions: IQuestion[];
   dueDate: Date;
   isActive: boolean;
+  // here we want to target the subjects within the course so that we can use the subject names to choose which subjects we want to generate questions for
+  courseSubjects: mongoose.Types.ObjectId[];
+
 }
 
 const examSchema = new Schema(
   {
     title: { type: String, required: true },
-    subject: { type: Schema.Types.ObjectId, ref: "Course", required: true },
+    course: { type: Schema.Types.ObjectId, ref: "Course", required: true },
     class: { type: Schema.Types.ObjectId, ref: "Class", required: true },
     lecturer: { type: Schema.Types.ObjectId, ref: "User", required: true },
     duration: { type: Number, required: true },
@@ -37,7 +40,8 @@ const examSchema = new Schema(
         correctAnswer: { type: String, select: false },
         points: { type: Number, default: 1 },
       },
-  ],
+    ],
+    courseSubjects: [{ type: Schema.Types.ObjectId, ref: "Subject" }],
   },
   { timestamps: true }
 );

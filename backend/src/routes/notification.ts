@@ -2,7 +2,7 @@ import { Router } from "express";
 import { protect } from "../middleware/auth";
 import { Notification } from "../models/notification";
 import { addSSEClient } from "../utils/sse";
-import { User } from "../models/user";
+// import { User } from "../models/user";
 
 const router = Router();
 
@@ -89,7 +89,8 @@ router.patch("/:id/read", protect, async (req, res) => {
     const updated = await Notification.findOneAndUpdate(
       { _id: req.params.id, userId: user._id },
       { isRead: true },
-      { new: true }
+      // { new: true }
+      { returnDocument: "after" }
     );
     if (!updated) return res.status(404).json({ error: "Notification not found" });
     res.json({ notification: updated });

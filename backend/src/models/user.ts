@@ -115,7 +115,6 @@ export const roleDisplayName: Record<userRoles, string> = {
 export interface IUser extends Document {
     name: string;
     email: string;
-    // idNumber?: userIDs;
     idNumber: string; // field for ID number
     password: string;
     role: userRoles;

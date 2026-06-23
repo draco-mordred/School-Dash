@@ -295,7 +295,7 @@ export const generateTimeTable = inngest.createFunction(
         class: classIdValue,
         academicYear: academicYearIdValue,
       })
-        .populate("schedule.periods.subject", "name code")
+        .populate("schedule.periods.subject", "name code subjects.subjectID")
         .populate("schedule.periods.lecturer", "name email idNumber");
 
       if (!timetable) {

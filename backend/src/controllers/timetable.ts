@@ -80,7 +80,7 @@ export const getTimetable = async (
 ) => {
   try {
     const timetable = await Timetable.findOne({ class: req.params.classId })
-    .populate("schedule.periods.subject", "name code courseID")
+    .populate("schedule.periods.subject", "name code courseID subjects.subjectID")
     .populate("schedule.periods.lecturer", "name email");
 
     if (!timetable) {
@@ -125,7 +125,7 @@ export const addPeriod = async (req: Request, res: Response) => {
     await timetable.save();
 
     const updated = await Timetable.findById(timetable._id)
-      .populate("schedule.periods.subject", "name code")
+      .populate("schedule.periods.subject", "name code subjects.subjectID")
       .populate("schedule.periods.lecturer", "name email");
 
     await logActivity({
@@ -178,7 +178,7 @@ export const updatePeriod = async (req: Request, res: Response) => {
     await timetable.save();
 
     const updated = await Timetable.findById(timetable._id)
-      .populate("schedule.periods.subject", "name code")
+      .populate("schedule.periods.subject", "name code subjects.subjectID")
       .populate("schedule.periods.lecturer", "name email");
 
     await logActivity({
@@ -227,7 +227,7 @@ export const deletePeriod = async (req: Request, res: Response) => {
     await timetable.save();
 
     const updated = await Timetable.findById(timetable._id)
-      .populate("schedule.periods.subject", "name code")
+      .populate("schedule.periods.subject", "name code subjects.subjectID")
       .populate("schedule.periods.lecturer", "name email");
 
     await logActivity({
@@ -331,7 +331,7 @@ async function fastGenerateAndSave(classId: string, academicYearId: string, sett
   await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
   await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
   const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
-    .populate("schedule.periods.subject", "name code")
+    .populate("schedule.periods.subject", "name code subjects.subjectID")
     .populate("schedule.periods.lecturer", "name email idNumber");
 
   return { success: true, schedule: saved?.schedule ?? schedule };
@@ -569,7 +569,7 @@ async function generate400LevelSchedule(classId: string, academicYearId: string,
   await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
   await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
   const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
-    .populate("schedule.periods.subject", "name code")
+    .populate("schedule.periods.subject", "name code subjects.subjectID")
     .populate("schedule.periods.lecturer", "name email idNumber");
 
   return { success: true, schedule: saved?.schedule ?? schedule };

@@ -40,16 +40,17 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       code,
       courseID,
       department,
-      semester,
-      year,
+      unit,
       isActive,
+      lecturer,
       studentClasses,
       subject,
+      subjects,
     } = req.body as any;
 
-    if (!name || !code || !courseID || !department || !semester || !year) {
+    if (!name || !code || !courseID || !department || !unit) {
       return res.status(400).json({
-        message: "Missing required fields (name, code, courseID, department, semester, year).",
+        message: "Missing required fields (name, code, courseID, department, unit).",
       });
     }
 
@@ -63,7 +64,8 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     const lecturerIds = Array.isArray(subject?.lecturer) ? subject.lecturer : [];
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
 
-    const topLevelCourse = await Course.findOne({ courseID, department, semester, year });
+    // top-level course identity (new model: courseID + department + unit)
+    const topLevelCourse = await Course.findOne({ courseID, department, unit });
 
     if (!topLevelCourse) {
       const created = await Course.create({
@@ -71,10 +73,11 @@ export const createCourseSubject = async (req: Request, res: Response) => {
         code,
         courseID,
         department,
-        semester,
-        year,
+        unit,
         isActive: Boolean(isActive ?? true),
         studentClasses: Array.isArray(studentClasses) ? studentClasses : [],
+        // department-level lecturer list (optional for now)
+        lecturer: Array.isArray(lecturer) ? lecturer : [],
         subjects: [
           {
             name: subject.name,
@@ -100,7 +103,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
 
     // Prevent duplicate subjectID within this course
     const existingSubject = topLevelCourse.subjects?.some(
-      (s: any) => String(s.subjectID) === String(subject.subjectID)
+      (s: any) => String(s.courseID) === String(subject.subjectID)
     );
 
     if (existingSubject) {
@@ -120,7 +123,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     topLevelCourse.subjects.push({
       name: subject.name,
       code: subject.code ?? null,
-      subjectID: subject.subjectID,
+      courseID: subject.subjectID,
       lecturer: lecturerIds,
       isActive: Boolean(subject.isActive ?? true),
       students: studentIds,

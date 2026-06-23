@@ -163,7 +163,7 @@ export const getExams = async (
 
 
     const exams = await Exam.find(query)
-    .populate("subject", "name")
+    .populate("subject", "name subjects.subjectID")
     .populate("class", "name section")
     .select("-questions.correctAnswer");
 
@@ -185,7 +185,7 @@ export const getExamById = async (
 
     //1. Initiate the query
     let query = Exam.findById(examId)
-        .populate("subject", "name code")
+        .populate("subject", "name code subjects.subjectID")
         .populate("class", "name section")
         .populate("lecturer", "name email idNumber");
 
@@ -310,7 +310,7 @@ try {
     return res.status(400).json({ message: `You have already submitted this exam!` });
   }
   //2. Fetch full exam with answers.
-  const exam = await Exam.findById(examId).select("+questins.correctAnswers");
+  const exam = await Exam.findById(examId).select("+questions.correctAnswers");
   if (!exam) return res.status(404).json({ message: `Exam not found!`});
   
   //3. Claculate Score

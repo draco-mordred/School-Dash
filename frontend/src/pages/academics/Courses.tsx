@@ -181,7 +181,7 @@ export default function Courses() {
     }
   };
 
-  const onUpdateCourseSubmit = async (values: CreateCourseFormValues) => {
+  const onUpdateCourseSubmit = async (values: CreateCourseFormValues) => {  
     if (!editingCourse?._id) return;
     try {
       setUpdatingCourse(true);
@@ -387,47 +387,76 @@ export default function Courses() {
                 }
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {uniqueCourses.map((c) => {
-                      const lecturerArr: unknown[] = Array.isArray(c.lecturer) ? c.lecturer : [];
-                      const teacherNames = lecturerArr
-                        .map((t: any) => (typeof t === "object" && t !== null ? (t as { name?: string }).name : undefined))
-                        .filter(Boolean) as string[];
-                      const displayLecturers = teacherNames.length > 0
-                        ? teacherNames.join(", ")
-                        : lecturerArr.length > 0
-                        ? `${lecturerArr.length} lecturer${lecturerArr.length !== 1 ? "s" : ""}`
-                        : undefined;
-                      return (
-                        <div key={c._id} className="border rounded-md p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="font-medium">{c.name}</div>
-                            {(user?.role === "admin" || user?.role === "teacher") && (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditCourse(true, c)}
-                                className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
-                                title="Edit course"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <div className="text-sm text-muted-foreground">{c.code}</div>
-                          {displayLecturers && (
-                            <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
-                          )}
-                          {!c.isActive ? (
-                            <div className="mt-2">
-                              <Badge variant="destructive">Inactive</Badge>
-                            </div>
-                          ) : (
-                            <div className="mt-2">
-                              <Badge variant="default">Active</Badge>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+              {uniqueCourses.map((c) => {
+                const lecturerArr: unknown[] = Array.isArray(c.lecturer) ? c.lecturer : [];
+                const teacherNames = lecturerArr
+                  .map((t: any) => (typeof t === "object" && t !== null ? (t as { name?: string }).name : undefined))
+                  .filter(Boolean) as string[];
+                const displayLecturers = teacherNames.length > 0
+                  ? teacherNames.join(", ")
+                  : lecturerArr.length > 0
+                  ? `${lecturerArr.length} lecturer${lecturerArr.length !== 1 ? "s" : ""}`
+                  : undefined;
+
+                return (
+                  <div key={c._id} className="border rounded-md p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium">{c.name}</div>
+                      <div className="flex items-center gap-1">
+                        {(user?.role === "admin" || user?.role === "teacher") && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCourse(true, c)}
+                            className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
+                            title="Edit course"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {(user?.role === "admin" || user?.role === "teacher") && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                // No dedicated backend endpoint exists for deleting a single course from a class.
+                                // Remove it by updating the class's `courses` array.
+                                const remaining = (selectedCourses ?? [])
+                                  .filter((x) => x._id !== c._id)
+                                  .map((x) => x._id);
+
+                                await api.patch(`/classes/update/${selectedClassId}`, { courses: remaining });
+
+                                toast.success("Course removed from class");
+                                void fetchClasses();
+                              } catch {
+                                toast.error("Failed to remove course from class");
+                              }
+                            }}
+                            className="text-muted-foreground hover:text-red-600 p-1 rounded shrink-0"
+                            title="Remove from class"
+                          >
+                            {/* using simple text icon to avoid importing more icons */}
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-sm text-muted-foreground">{c.code}</div>
+                    {displayLecturers && (
+                      <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
+                    )}
+                    {!c.isActive ? (
+                      <div className="mt-2">
+                        <Badge variant="destructive">Inactive</Badge>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <Badge variant="default">Active</Badge>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
                   </div>
                 );
               })()}
