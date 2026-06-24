@@ -294,6 +294,7 @@ export default function Courses() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[360px_1fr] gap-6">
+        {/* Class cards + course dropdown (animated) will be implemented here */}
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Classes</h2>

@@ -1,0 +1,5 @@
+1. When given a task, always give a simplified expalnation on how you would carry it out, and get user confirmation be fore proceeding.
+2. Never run terminal instances without confirmation, and always close the terminal instance when done.
+3. Always back up any files (according to folder and file names) that require edits and inform the user of this before proceeding.
+4. FIles should be backed up in a folder called Blackbok backups.
+5. If you want to test the app code, you can use the open terminals (if it applies).

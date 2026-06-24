@@ -1,33 +1,58 @@
 import express from "express";
 import { authorize, protect } from "../middleware/auth";
 import {
+  addCourseSubject,
+  createCourse,
   createCourseSubject,
   deleteCourseSubjects,
+  deduplicateClassCourses,
   getAllCourseSubjects,
   updateCourseSubjects,
-  deduplicateClassCourses,
 } from "../controllers/courses";
 
 const courseRouter = express.Router();
 
 courseRouter
-.route("/create")
-.post(protect, authorize(["admin", "teacher", "unit_consultant", "unit_resident"]), createCourseSubject);
+  .route("/")
+  .post(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    createCourse
+  );
 
 courseRouter
-.route("/deduplicate-classes")
-.post(protect, authorize(["admin"]), deduplicateClassCourses);
+  .route("/create")
+  .post(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    createCourseSubject
+  );
 
 courseRouter
-.route("/")
-.get(protect, getAllCourseSubjects);
+  .route("/:courseId/subjects")
+  .post(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    addCourseSubject
+  );
 
 courseRouter
-.route("/delete/:id")
-.delete(protect,  authorize(["admin"]), deleteCourseSubjects);
+  .route("/deduplicate-classes")
+  .post(protect, authorize(["admin"]), deduplicateClassCourses);
+
+courseRouter.route("/").get(protect, getAllCourseSubjects);
 
 courseRouter
-.route("/update/:id")
-.patch(protect,  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]), updateCourseSubjects);
+  .route("/delete/:id")
+  .delete(protect, authorize(["admin"]), deleteCourseSubjects);
+
+courseRouter
+  .route("/update/:id")
+  .patch(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    updateCourseSubjects
+  );
 
 export default courseRouter;
+
