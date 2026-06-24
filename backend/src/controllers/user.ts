@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import mongoose from "mongoose";
 import User from "../models/user";
 import { Notification } from "../models/notification";
 import { sendSSE } from "../utils/sse";
@@ -251,9 +252,11 @@ export const registerPublic = async (
         const isFirst = usersCount === 0;
 
         // If not first user, restrict public-assignable roles
+        // Staff umbrella roles are allowed for self signup.
         const allowedRoles = isFirst
-            ? ["admin", "teacher"]
-            : ["student", "teacher", "parent"];
+            ? ["admin", "teacher", "unitconsultant", "unitresident"]
+            : ["student", "teacher", "parent", "unitconsultant", "unitresident"];
+
 
         if (!role || !allowedRoles.includes(role)) {
             res.status(400).json({ message: "Invalid role for public registration" });
@@ -261,9 +264,113 @@ export const registerPublic = async (
         }
 
         // Students may register without selecting a class; create account now and allow class assignment later.
-        const studentClassId = Array.isArray(studentClasses)
+        // NOTE: frontend sends studentClassName (readable), not class ObjectId.
+        const studentClassName: string | undefined = (req.body?.studentClassName as string | undefined) || undefined;
+
+        // Staff umbrella role handling: teacher/unitconsultant/unitresident should be cross-checked
+        // against HospitalStaff.
+        const normalizedName = typeof name === "string" ? name.trim() : "";
+
+        const isStaffUmbrella = role === "teacher" || role === "unitconsultant" || role === "unitresident";
+
+        if (isStaffUmbrella) {
+            // HospitalStaff has `name` + other fields; match on non-case-sensitive tokens.
+            // Rule: at least two word tokens must match.
+            const staffTokens = normalizedName
+                .toLowerCase()
+                .split(/[^a-z0-9]+/i)
+                .filter(Boolean);
+
+            const staffMatch = await (async () => {
+                const staffQuery = { isActive: true };
+                const matches = await (require("../models/hospitalStaff").default as any).find(staffQuery).select("name");
+                for (const s of matches) {
+                    const sTokens = String(s.name || "")
+                        .toLowerCase()
+                        .split(/[^a-z0-9]+/i)
+                        .filter(Boolean);
+                    const shared = new Set(sTokens.filter((t) => staffTokens.includes(t)));
+                    if (shared.size >= 2) return true;
+                }
+                return false;
+            })();
+
+            if (!staffMatch) {
+                // Notify all admins ("extra" role added later)
+                const admins = await User.find({ role: "admin" }).select("_id");
+                const unauthorizedMessage =
+                    "unauthorized to access this role and will have to await admin confirmation, Check you email in a bit for approval";
+
+                const notifications = admins.map((a) => ({
+                    userId: a._id,
+                    role: "admin",
+                    title: "Staff role authorization request",
+                    message: `${name} (${email}) requested role '${role}'. Verify staff roster and approve the registration.`,
+                    type: "system",
+                    isRead: false,
+                    metadata: {
+                        pendingUserEmail: email,
+                        pendingUserName: name,
+                        requestedRole: role,
+                        unauthorizedMessage,
+                    },
+                }));
+
+                if (notifications.length) {
+                    const inserted = await Notification.insertMany(notifications);
+                    for (const doc of inserted) {
+                        try {
+                            sendSSE("notification", doc, String(doc.userId));
+                        } catch (err) {
+                            console.error("Failed to send SSE for inserted notifications", err);
+                        }
+                    }
+                }
+
+                res.status(403).json({ message: unauthorizedMessage });
+                return;
+            }
+        }
+
+        const studentClassNameRaw: string | undefined = studentClassName;
+        // studentClassName must be one of: "400 level", "500 level", "600 level", "Final year"
+        // Map it to a Class document by Class.name.
+        let studentClassId: any = Array.isArray(studentClasses)
             ? studentClasses[0]
             : studentClasses || req.body?.classId || undefined;
+
+        if (role === "student") {
+            const candidate = (studentClassNameRaw || "").trim();
+            if (candidate) {
+                const ClassModel = require("../models/classes").default;
+                const normalizedCandidate = String(candidate).toLowerCase().replace(/\s+/g, " ").trim();
+
+                // Try exact name match first
+                const classDoc = await ClassModel.findOne({ name: { $exists: true } })
+                    .lean();
+
+                // Instead of relying on the whole collection, do deterministic queries by allowed names.
+                // Since Class.name is stored exactly, we do a normalized OR match using regex anchors.
+                const allowedNames = ["400 level", "500 level", "600 level", "final year"];
+                const mappedAllowed = allowedNames.find((n) => n === normalizedCandidate) || null;
+
+                if (mappedAllowed) {
+                    const classMatch = await ClassModel.findOne({
+                        name: { $in: ["400 level", "500 level", "600 level", "Final year"] },
+                    });
+
+                    // fallback: in case "Final year" casing differs in DB
+                    const classMatch2 = classMatch || (await ClassModel.findOne({ name: { $regex: `^${mappedAllowed}$`, $options: "i" } }));
+
+                    if (classMatch2?._id) {
+                        studentClassId = classMatch2._id;
+                    }
+                }
+            }
+        }
+
+
+
 
         const existingUser = await User.findOne({ email });
         if (existingUser) {
@@ -373,7 +480,9 @@ export const registerPublic = async (
 
         res.status(400).json({ message: 'Invalid user data' });
     } catch (error) {
-        res.status(500).json({ message: `Server error: ${error}` });
+        console.error("updateUser error:", error);
+        const err = error as any;
+        res.status(500).json({ message: "Server error", error: err?.message ?? String(err), stack: err?.stack });
     }
 };
 
@@ -463,12 +572,27 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
 
         const user = await User.findById(req.params.id);
         if (user){
+            // capture previous student class before any changes (normalize populated objects)
+            let previousStudentClass: string | undefined = undefined;
+            if (user.studentClasses) {
+                if (typeof user.studentClasses === "object" && (user.studentClasses as any)?._id) {
+                    previousStudentClass = String((user.studentClasses as any)._id);
+                } else {
+                    previousStudentClass = String(user.studentClasses);
+                }
+            }
+
             user.name = req.body.name || user.name;
             user.email = req.body.email || user.email;
             user.idNumber = req.body.idNumber || user.idNumber;
             user.role = req.body.role || user.role;
             user.isActive = req.body.isActive !== undefined ? req.body.isActive : user.isActive;
-            user.studentClasses = req.body.studentClasses || user.studentClasses;
+            // Normalize incoming student class value: accept `studentClasses`, `classId`, or an array
+            if (req.body.studentClasses !== undefined || req.body.classId !== undefined) {
+                const incoming = req.body.studentClasses !== undefined ? req.body.studentClasses : req.body.classId;
+                const normalized = Array.isArray(incoming) ? (incoming.length ? incoming[0] : undefined) : incoming;
+                user.studentClasses = normalized ?? user.studentClasses;
+            }
             user.teacherSubject = req.body.teacherSubject || user.teacherSubject;
             user.parentStudents = req.body.parentStudents || user.parentStudents;
             if (req.body.academicStatus !== undefined) user.academicStatus = req.body.academicStatus;
@@ -502,19 +626,36 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             const updater = (req as any).user;
             const userId = updater?._id?.toString?.();
                         // Handle student class changes
-                        if (user.role === "student" && req.body.studentClasses) {
+                        if (user.role === "student" && (req.body.studentClasses !== undefined || req.body.classId !== undefined)) {
                             const ClassModel = require("../models/classes").default;
-                            const oldClass = user.studentClasses?.toString();
-                            const newClass = req.body.studentClasses?.toString?.() || req.body.studentClasses;
+                            // previousStudentClass was captured before mutation
+                            const oldClass = previousStudentClass;
+                            // Determine new class from the saved user document (updatedUser) where possible
+                            let newClass: string | undefined = undefined;
+                            if (updatedUser.studentClasses) {
+                                if (typeof updatedUser.studentClasses === "object" && (updatedUser.studentClasses as any)?._id) {
+                                    newClass = String((updatedUser.studentClasses as any)._id);
+                                } else {
+                                    newClass = String(updatedUser.studentClasses);
+                                }
+                            }
 
                             // Remove from old class if different
-                            if (oldClass && oldClass !== newClass) {
-                                await ClassModel.findByIdAndUpdate(oldClass, { $pull: { students: user._id } });
+                            if (oldClass && oldClass !== newClass && mongoose.isValidObjectId(oldClass)) {
+                                try {
+                                    await ClassModel.findByIdAndUpdate(oldClass, { $pull: { students: user._id } });
+                                } catch (err) {
+                                    console.error('Failed to remove student from old class', err);
+                                }
                             }
 
                             // Add to new class
-                            if (newClass) {
-                                await ClassModel.findByIdAndUpdate(newClass, { $addToSet: { students: user._id } });
+                            if (newClass && newClass !== oldClass && mongoose.isValidObjectId(newClass)) {
+                                try {
+                                    await ClassModel.findByIdAndUpdate(newClass, { $addToSet: { students: user._id } });
+                                } catch (err) {
+                                    console.error('Failed to add student to new class', err);
+                                }
                             }
                             // If a pending admin notification exists for assigning this student, remove it
                             try {

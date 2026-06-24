@@ -12,8 +12,13 @@ import UserManagementPage from "@/pages/users";
 import Classes from "@/pages/academics/Classes";
 import { Subjects } from "@/pages/academics/Subjects";
 import Courses from "@/pages/academics/Courses";
+import StudentCourses from "@/pages/StudentCourses";
+import StudentClinicalsCurrentPosting from "@/pages/StudentClinicalsCurrentPosting";
+import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
 import Attendance from "@/pages/academics/Attendance";
+import StudentPortal from "@/pages/StudentPortal";
+import StudentSection from "@/pages/StudentSection";
 import LogbookEntries from "@/pages/LogbookEntries";
 import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
@@ -30,6 +35,13 @@ import Assignments from "@/pages/lms/Assignments";
 import StudyMaterials from "@/pages/lms/StudyMaterials";
 import Account from "@/pages/settings/Account";
 import Notifications from "@/pages/Notifications";
+import { useAuth } from "@/hooks/useAuth";
+
+// Wrapper component for courses route - renders based on user role
+const CoursesWrapper = () => {
+  const { user } = useAuth();
+  return user?.role === "student" ? <StudentCourses /> : <Courses />;
+};
 
 export const router = createBrowserRouter([
   {
@@ -111,11 +123,75 @@ export const router = createBrowserRouter([
           },
           {
             path: "courses",
-            element: <Courses />,
+            element: <CoursesWrapper />,
+          },
+          {
+            path: "student-portal",
+            element: <StudentPortal />,
+          },
+          {
+            path: "student/academics/overview",
+            element: <StudentSection title="Academics Overview" description="A student-friendly overview of your academic progress and resources." />,
           },
           {
             path: "subjects",
             element: <Subjects />,
+          },
+          {
+            path: "student/clinicals/current-posting",
+            element: <StudentClinicalsCurrentPosting />,
+          },
+          {
+            path: "student/clinicals/team",
+            element: <StudentSection title="Clinical Team" description="Meet your clinical supervisors and support team." />,
+          },
+          {
+            path: "student/clinicals/attendance",
+            element: <StudentSection title="Clinical Attendance" description="Track your clinical attendance and session status." />,
+          },
+          {
+            path: "student/clinicals/history",
+            element: <StudentSection title="Clinical History" description="Review your rotation history and past postings." />,
+          },
+          {
+            path: "student/logbook/approved",
+            element: <StudentLogbookDashboard />,
+          },
+          {
+            path: "student/logbook/statistics",
+            element: <StudentLogbookDashboard />,
+          },
+          {
+            path: "student/schedule/today",
+            element: <StudentSection title="Today" description="Your schedule and highlights for today." />,
+          },
+          {
+            path: "student/schedule/week",
+            element: <StudentSection title="This Week" description="View your schedule and key events for the current week." />,
+          },
+          {
+            path: "student/schedule/calendar",
+            element: <StudentSection title="Calendar" description="See your full academic calendar and important dates." />,
+          },
+          {
+            path: "student/schedule/upcoming",
+            element: <StudentSection title="Upcoming" description="Track upcoming sessions, rotations, and deadlines." />,
+          },
+          {
+            path: "student/timetable/download",
+            element: <StudentSection title="Download Timetable" description="Download your timetable as a PDF or calendar file." />,
+          },
+          {
+            path: "student/attendance/academic",
+            element: <StudentSection title="Academic Attendance" description="Monitor your academic attendance and class participation." />,
+          },
+          {
+            path: "student/attendance/clinical",
+            element: <StudentSection title="Clinical Attendance" description="Monitor your attendance for clinical postings." />,
+          },
+          {
+            path: "student/attendance/history",
+            element: <StudentSection title="Attendance History" description="Review your past attendance records and trends." />,
           },
           {
             path: "logbook-entries",

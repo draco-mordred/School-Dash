@@ -5,6 +5,8 @@ import Course from "../models/courses";
 import User from "../models/user";
 import ClassModel from "../models/classes";
 import AcademicYear from "../models/academicYear";
+import Department from "../models/departments";
+import Unit from "../models/units";
 
 /**
  * COURSE REVAMP CONTROLLER
@@ -55,10 +57,10 @@ export const createCourse = async (req: Request, res: Response) => {
       });
     }
 
-    const existing = await Course.findOne({ courseID, department, unit });
+    const existing = await Course.findOne({ courseID, department, unit, academicYear: academicYearId });
     if (existing) {
       return res.status(400).json({
-        message: `Course already exists for courseID=${courseID} department=${department} unit=${unit}`,
+        message: `Course already exists for courseID=${courseID}, department=${department}, unit=${unit}, academicYear=${academicYearId}`,
       });
     }
 
@@ -133,6 +135,7 @@ export const addCourseSubject = async (req: Request, res: Response) => {
       name: subject.name,
       code: subject.code ?? null,
       subjectID: subject.subjectID,
+      unit: subject.unit ?? null,
       lecturer: lecturerIds,
       isActive: Boolean(subject.isActive ?? true),
       students: studentIds,
@@ -174,6 +177,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       subject,
       semester,
       year,
+      academicYearId,
     } = req.body as any;
 
     if (!name || !code || !courseID || !department || !unit) {
@@ -189,7 +193,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       });
     }
 
-    const topLevelCourse = await Course.findOne({ courseID, department, unit });
+    const topLevelCourse = await Course.findOne({ courseID, department, unit, academicYear: academicYearId ?? null });
 
     const lecturerIds = Array.isArray(subject?.lecturer) ? subject.lecturer : [];
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
@@ -202,6 +206,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
         courseID,
         department,
         unit,
+        academicYear: academicYearId ?? null,
         semester: semester ?? null,
         year: year ?? null,
         isActive: Boolean(isActive ?? true),
@@ -212,6 +217,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
             name: subject.name,
             code: subject.code ?? null,
             subjectID: subject.subjectID,
+            unit: subject.unit ?? null,
             lecturer: lecturerIds,
             isActive: Boolean(subject.isActive ?? true),
             students: studentIds,
@@ -245,6 +251,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     topLevelCourse.name = name;
     topLevelCourse.code = code;
     topLevelCourse.isActive = Boolean(isActive ?? topLevelCourse.isActive);
+    if (academicYearId) topLevelCourse.academicYear = academicYearId;
 
     if (Array.isArray(studentClasses)) topLevelCourse.studentClasses = studentClasses;
     if (Array.isArray(lecturer)) topLevelCourse.lecturer = lecturer;
@@ -253,6 +260,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       name: subject.name,
       code: subject.code ?? null,
       subjectID: subject.subjectID,
+      unit: subject.unit ?? null,
       lecturer: lecturerIds,
       isActive: Boolean(subject.isActive ?? true),
       students: studentIds,
@@ -299,6 +307,28 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
+    const topLevelOnly = req.query.topLevel === "true";
+
+    if (topLevelOnly) {
+      const [total, courses] = await Promise.all([
+        Course.countDocuments(query),
+        Course.find(query)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .populate("department", "name departmentID code")
+          .populate("unit", "name unitID code"),
+      ]);
+
+      return res.json({
+        courses,
+        pagination: {
+          total,
+          page,
+          pages: Math.ceil(total / limit),
+        },
+      });
+    }
 
     const flattened: any[] = [];
 
@@ -374,24 +404,43 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
 };
 
 // -----------------------------
+// Course metadata for frontend forms
+// -----------------------------
+export const getCourseMeta = async (req: Request, res: Response) => {
+  try {
+    const departments = await Department.find({}).select("name departmentID code").sort({ name: 1 });
+    const units = await Unit.find({}).select("name unitID code department").sort({ name: 1 });
+    const academicYears = await AcademicYear.find({}).select("name").sort({ name: 1 });
+
+    return res.json({ departments, units, academicYears });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// -----------------------------
 // Update top-level course (legacy)
 // -----------------------------
 export const updateCourseSubjects = async (req: Request, res: Response) => {
   try {
-    const { name, isActive, code, courseID, department, semester, year, unit } = req.body as any;
+    const { name, isActive, code, courseID, department, semester, year, unit, academicYearId } = req.body as any;
+
+    const updateData: any = {
+      name,
+      isActive,
+      code,
+      courseID,
+      department,
+      unit,
+      semester,
+      year,
+    };
+    if (academicYearId) updateData.academicYear = academicYearId;
 
     const updated = await Course.findByIdAndUpdate(
       req.params.id,
-      {
-        name,
-        isActive,
-        code,
-        courseID,
-        department,
-        unit,
-        semester,
-        year,
-      },
+      updateData,
       { returnDocument: "after", runValidators: true }
     );
 
@@ -455,7 +504,7 @@ export const deduplicateClassCourses = async (req: Request, res: Response) => {
 
     for (const cls of classes) {
       const courseIds = (cls.courses ?? []).map((c: any) => String(c));
-      const uniqueIds = [...new Set(courseIds)];
+      const uniqueIds = Array.from(new Set(courseIds));
 
       if (uniqueIds.length < courseIds.length) {
         const removed = courseIds.length - uniqueIds.length;

@@ -11,7 +11,7 @@ import type { Class, courses, user } from "@/types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import Modal from "@/components/global/Modal";
@@ -19,6 +19,21 @@ import { CustomMultiSelect } from "@/components/global/CustomMultiSelect";
 import { CustomSelect } from "@/components/global/CustomSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
+
+interface Course {
+  _id: string;
+  name: string;
+  code: string;
+  subjects: Subject[];
+  // Add other relevant course properties
+}
+
+interface Subject {
+  _id: string;
+  name: string;
+  code: string;
+  // Add other relevant subject properties
+}
 
 type LoadingState = "idle" | "loading" | "error";
 
@@ -33,10 +48,42 @@ const createCourseSchema = z.object({
   name: z.string().min(1, "Course name is required"),
   code: z.string().min(1, "Course code is required"),
   courseID: z.string().min(1, "Course ID (group) is required"),
+  department: z.string().min(1, "Department is required"),
+  unit: z.string().min(1, "Unit is required"),
+  academicYearId: z.string().min(1, "Academic year is required"),
+  lecturer: z.string().optional(),
+  isActive: z.boolean().default(true),
+  assignToClass: z.boolean().default(true),
+});
+type CreateCourseFormValues = z.infer<typeof createCourseSchema>;
+
+const createSubjectSchema = z.object({
+  name: z.string().min(1, "Subject name is required"),
+  code: z.string().min(1, "Subject code is required"),
+  subjectID: z.string().min(1, "Subject ID is required"),
+  unit: z.string().optional(),
   lecturer: z.string().optional(),
   isActive: z.boolean().default(true),
 });
-type CreateCourseFormValues = z.infer<typeof createCourseSchema>;
+type CreateSubjectFormValues = z.infer<typeof createSubjectSchema>;
+
+const getApiErrorMessage = (error: unknown, fallback: string) => {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const response = (error as { response?: { data?: { message?: string } } }).response;
+    if (response?.data?.message) {
+      return response.data.message;
+    }
+  }
+  return fallback;
+};
+
+const resolveReferenceId = (value: unknown) => {
+  if (typeof value === "object" && value !== null && "_id" in value) {
+    const id = (value as { _id?: unknown })._id;
+    return typeof id === "string" ? id : "";
+  }
+  return "";
+};
 
 export default function Courses() {
   const { user } = useAuth();
@@ -58,6 +105,11 @@ export default function Courses() {
   const [deduplicating, setDeduplicating] = useState(false);
   const [teachers, setTeachers] = useState<{ _id: string; name: string; email?: string }[]>([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
+  const [departments, setDepartments] = useState<{ _id: string; name: string; departmentID: string }[]>([]);
+  const [units, setUnits] = useState<{ _id: string; name: string; unitID: string; department: string | { _id?: string } }[]>([]);
+  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+  const [subjectCourse, setSubjectCourse] = useState<{ id: string; name: string } | null>(null);
 
   const form = useForm<AddCoursesFormValues>({
     resolver: zodResolver(addCoursesSchema),
@@ -66,7 +118,29 @@ export default function Courses() {
 
   const createForm = useForm<CreateCourseFormValues>({
     resolver: zodResolver(createCourseSchema),
-    defaultValues: { name: "", code: "", courseID: "", isActive: true },
+    defaultValues: {
+      name: "",
+      code: "",
+      courseID: "",
+      department: "",
+      unit: "",
+      academicYearId: "",
+      lecturer: "",
+      isActive: true,
+      assignToClass: true,
+    },
+  });
+
+  const subjectForm = useForm<CreateSubjectFormValues>({
+    resolver: zodResolver(createSubjectSchema),
+    defaultValues: {
+      name: "",
+      code: "",
+      subjectID: "",
+      unit: "",
+      lecturer: "",
+      isActive: true,
+    },
   });
 
   const filteredClasses = useMemo(() => {
@@ -118,7 +192,7 @@ export default function Courses() {
   const fetchAllCourses = useCallback(async () => {
     try {
       setLoadingCourses(true);
-      const { data } = await api.get("/courses?page=1&limit=500");
+      const { data } = await api.get("/courses?topLevel=true&page=1&limit=500");
       setAllCourses(data.courses ?? []);
     } catch {
       toast.error("Failed to load courses");
@@ -140,6 +214,21 @@ export default function Courses() {
     }
   }, []);
 
+  const fetchCourseMeta = useCallback(async () => {
+    try {
+      const [coursesData, yearsData] = await Promise.all([
+        api.get("/courses/meta"),
+        api.get("/academic-years"),
+      ]);
+
+      setDepartments(coursesData.data.departments ?? []);
+      setUnits(coursesData.data.units ?? []);
+      setAcademicYears(yearsData.data.years ?? yearsData.data ?? []);
+    } catch {
+      toast.error("Failed to load course metadata");
+    }
+  }, []);
+
   const handleOpenAddCourse = (open: boolean) => {
     setAddCourseOpen(open);
     if (open) {
@@ -154,8 +243,19 @@ export default function Courses() {
       setEditingCourse(null);
       return;
     }
-    createForm.reset({ name: "", code: "", courseID: "", lecturer: "", isActive: true });
+    createForm.reset({
+      name: "",
+      code: "",
+      courseID: "",
+      department: "",
+      unit: "",
+      academicYearId: selectedClass?.academicYear?._id ?? "",
+      lecturer: "",
+      isActive: true,
+      assignToClass: Boolean(selectedClass),
+    });
     void fetchTeachers();
+    void fetchCourseMeta();
   };
 
   const handleOpenEditCourse = (open: boolean, course?: courses) => {
@@ -170,14 +270,24 @@ export default function Courses() {
       const lecturerId = Array.isArray(course.lecturer) && course.lecturer.length > 0
         ? (typeof course.lecturer[0] === "object" ? (course.lecturer[0] as { _id?: string })._id ?? "" : String(course.lecturer[0]))
         : "";
+      const courseWithRefs = course as courses & {
+        department?: { _id: string };
+        unit?: { _id: string };
+        academicYear?: { _id: string };
+      };
       createForm.reset({
         name: course.name ?? "",
         code: course.code ?? "",
         courseID: course.courseID ?? "",
+        department: resolveReferenceId(courseWithRefs.department),
+        unit: resolveReferenceId(courseWithRefs.unit),
+        academicYearId: resolveReferenceId(courseWithRefs.academicYear),
         lecturer: lecturerId,
         isActive: course.isActive ?? true,
+        assignToClass: Boolean(selectedClass),
       });
       void fetchTeachers();
+      void fetchCourseMeta();
     }
   };
 
@@ -198,8 +308,8 @@ export default function Courses() {
       setEditingCourse(null);
       void fetchAllCourses();
       void fetchClasses();
-    } catch (e: any) {
-      toast.error(e.response?.data?.message ?? "Failed to update course");
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Failed to update course"));
     } finally {
       setUpdatingCourse(false);
     }
@@ -226,17 +336,77 @@ export default function Courses() {
         name: values.name,
         code: values.code,
         courseID: values.courseID,
+        department: values.department,
+        unit: values.unit,
+        academicYearId: values.academicYearId,
         lecturer: values.lecturer ? [values.lecturer] : [],
         isActive: values.isActive,
       };
-      await api.post("/courses/create", payload);
+      const { data } = await api.post("/courses", payload);
+      if (values.assignToClass && selectedClassId) {
+        try {
+          const existingIds = selectedCourses.map((c) => c._id).filter(Boolean) as string[];
+          await api.patch(`/classes/update/${selectedClassId}`, { courses: [...existingIds, data._id] });
+        } catch {
+          toast.error("Course created, but failed to assign it to the selected class.");
+        }
+      }
       toast.success(`Course "${values.name}" created successfully`);
       setCreateCourseOpen(false);
       void fetchAllCourses();
-    } catch (e: any) {
-      toast.error(e.response?.data?.message ?? "Failed to create course");
+      void fetchClasses();
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Failed to create course"));
     } finally {
       setCreatingCourse(false);
+    }
+  };
+
+  const onCreateSubjectSubmit = async (values: CreateSubjectFormValues) => {
+    if (!subjectCourse?.id) return;
+    try {
+      setUpdatingCourse(true);
+      const payload = {
+        subject: {
+          name: values.name,
+          code: values.code,
+          subjectID: values.subjectID,
+          unit: values.unit || null,
+          lecturer: values.lecturer ? [values.lecturer] : [],
+          isActive: values.isActive,
+        },
+      };
+      await api.post(`/courses/${subjectCourse.id}/subjects`, payload);
+      toast.success(`Subject "${values.name}" added to ${subjectCourse.name}`);
+      setSubjectModalOpen(false);
+      setSubjectCourse(null);
+      subjectForm.reset({ name: "", code: "", subjectID: "", unit: "", lecturer: "", isActive: true });
+      void fetchAllCourses();
+      void fetchClasses();
+    } catch (e: unknown) {
+      toast.error(getApiErrorMessage(e, "Failed to add subject"));
+    } finally {
+      setUpdatingCourse(false);
+    }
+  };
+
+  const handleOpenSubjectModal = (open: boolean, course?: { id: string; name: string }) => {
+    setSubjectModalOpen(open);
+    if (!open) {
+      setSubjectCourse(null);
+      return;
+    }
+    if (course) {
+      setSubjectCourse(course);
+      subjectForm.reset({
+        name: "",
+        code: "",
+        subjectID: "",
+        unit: "",
+        lecturer: "",
+        isActive: true,
+      });
+      void fetchTeachers();
     }
   };
 
@@ -389,10 +559,14 @@ export default function Courses() {
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {uniqueCourses.map((c) => {
-                const lecturerArr: unknown[] = Array.isArray(c.lecturer) ? c.lecturer : [];
+                const lecturerArr = Array.isArray(c.lecturer) ? c.lecturer : [];
                 const teacherNames = lecturerArr
-                  .map((t: any) => (typeof t === "object" && t !== null ? (t as { name?: string }).name : undefined))
-                  .filter(Boolean) as string[];
+                  .map((t) => {
+                    if (!t || typeof t !== "object") return undefined;
+                    const maybeName = (t as { name?: string }).name;
+                    return maybeName ?? undefined;
+                  })
+                  .filter((x): x is string => typeof x === "string" && x.length > 0);
                 const displayLecturers = teacherNames.length > 0
                   ? teacherNames.join(", ")
                   : lecturerArr.length > 0
@@ -412,6 +586,16 @@ export default function Courses() {
                             title="Edit course"
                           >
                             <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {(user?.role === "admin" || user?.role === "teacher") && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenSubjectModal(true, { id: c._id ?? "", name: c.name ?? "Course" })}
+                            className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
+                            title="Add subject to course"
+                          >
+                            +
                           </button>
                         )}
                         {(user?.role === "admin" || user?.role === "teacher") && (
@@ -479,7 +663,7 @@ export default function Courses() {
           <Controller
             name="courseIds"
             control={form.control}
-            render={({ field }) => (
+            render={() => (
               <Field>
                 <FieldLabel>Select Courses</FieldLabel>
                 <CustomMultiSelect
@@ -546,6 +730,42 @@ export default function Courses() {
 
           <CustomSelect
             control={createForm.control}
+            name="department"
+            label="Department"
+            placeholder="Select department"
+            options={departments.map((dept) => ({ label: dept.name, value: dept._id }))}
+            loading={departments.length === 0}
+          />
+          {createForm.formState.errors.department && (
+            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.department.message)}</p>
+          )}
+
+          <CustomSelect
+            control={createForm.control}
+            name="unit"
+            label="Unit"
+            placeholder="Select unit"
+            options={units.map((u) => ({ label: u.name, value: u._id }))}
+            loading={units.length === 0}
+          />
+          {createForm.formState.errors.unit && (
+            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.unit.message)}</p>
+          )}
+
+          <CustomSelect
+            control={createForm.control}
+            name="academicYearId"
+            label="Academic Year"
+            placeholder="Select academic year"
+            options={academicYears.map((year) => ({ label: year.name, value: year._id }))}
+            loading={academicYears.length === 0}
+          />
+          {createForm.formState.errors.academicYearId && (
+            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.academicYearId.message)}</p>
+          )}
+
+          <CustomSelect
+            control={createForm.control}
             name="lecturer"
             label="Lecturer / Teacher"
             placeholder="Select a teacher (optional)"
@@ -553,14 +773,25 @@ export default function Courses() {
             loading={loadingTeachers}
           />
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="isActive"
-              {...createForm.register("isActive")}
-              className="h-4 w-4 rounded border-input"
-            />
-            <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="isActive"
+                {...createForm.register("isActive")}
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="assignToClass"
+                {...createForm.register("assignToClass")}
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
+            </div>
           </div>
 
           <Button
@@ -578,6 +809,83 @@ export default function Courses() {
           </Button>
         </form>
       </Modal>
+
+      {/* Create Subject Modal */}
+      <Modal
+        open={subjectModalOpen}
+        setOpen={handleOpenSubjectModal}
+        title={subjectCourse ? `Add Subject to ${subjectCourse.name}` : "Add Subject"}
+        description="Add a new subject under the selected course."
+      >
+        <form onSubmit={subjectForm.handleSubmit(onCreateSubjectSubmit)} className="space-y-4">
+          <Field>
+            <FieldLabel>Subject Name *</FieldLabel>
+            <Input
+              {...subjectForm.register("name")}
+              placeholder="e.g., Cardiology Rotation"
+            />
+            {subjectForm.formState.errors.name && (
+              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.name.message)}</p>
+            )}
+          </Field>
+
+          <Field>
+            <FieldLabel>Subject Code *</FieldLabel>
+            <Input
+              {...subjectForm.register("code")}
+              placeholder="e.g., CARD-101"
+            />
+            {subjectForm.formState.errors.code && (
+              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.code.message)}</p>
+            )}
+          </Field>
+
+          <Field>
+            <FieldLabel>Subject ID *</FieldLabel>
+            <Input
+              {...subjectForm.register("subjectID")}
+              placeholder="e.g., CARD001"
+            />
+            {subjectForm.formState.errors.subjectID && (
+              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.subjectID.message)}</p>
+            )}
+          </Field>
+
+          <CustomSelect
+            control={subjectForm.control}
+            name="unit"
+            label="Unit"
+            placeholder="Select unit (optional)"
+            options={units.map((u) => ({ label: u.name, value: u._id }))}
+            loading={units.length === 0}
+          />
+
+          <CustomSelect
+            control={subjectForm.control}
+            name="lecturer"
+            label="Lecturer / Teacher"
+            placeholder="Select a teacher (optional)"
+            options={teachers.map((t) => ({ label: t.name, value: t._id }))}
+            loading={loadingTeachers}
+          />
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="subjectIsActive"
+              {...subjectForm.register("isActive")}
+              className="h-4 w-4 rounded border-input"
+            />
+            <Label htmlFor="subjectIsActive" className="text-sm font-normal">Active</Label>
+          </div>
+
+          <Button type="submit" className="w-full" disabled={updatingCourse}
+          >
+            {updatingCourse ? "Saving..." : "Create Subject"}
+          </Button>
+        </form>
+      </Modal>
     </div>
   );
 }
+

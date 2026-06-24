@@ -31,6 +31,7 @@ export interface ICourseSubject extends Document {
   code: string | null;
   subjectID: string;
 
+  unit?: mongoose.Types.ObjectId | null;
   lecturer: mongoose.Types.ObjectId[];
   isActive: boolean;
 
@@ -79,6 +80,12 @@ const CourseSubjectSchema = new Schema<ICourseSubject>(
     // Keep naming consistent with requested output
     subjectID: { type: String, required: true, trim: true },
 
+    unit: {
+      type: Schema.Types.ObjectId,
+      ref: "Unit",
+      required: false,
+      default: null,
+    },
     lecturer: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
     isActive: { type: Boolean, default: true },
     students: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],

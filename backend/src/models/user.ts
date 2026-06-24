@@ -1,5 +1,5 @@
 import mongoose, {Document, Schema} from "mongoose";
-import bcrypt from "bcryptjs";
+import * as bcrypt from "bcryptjs";
 
 // Define the User interface that extends the Mongoose Document
 export const UserRole = {
@@ -118,7 +118,7 @@ export interface IUser extends Document {
     idNumber: string; // field for ID number
     password: string;
     role: userRoles;
-    department: string;
+    department?: string | null;
     isActive: boolean;
     profileImage?: string; // Base64 encoded profile image
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
@@ -170,7 +170,7 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     department: {
         type: String,
-        required: true
+        default: null,
     },
     isActive: {
         type: Boolean,

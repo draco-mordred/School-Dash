@@ -8,6 +8,7 @@ import {
   deduplicateClassCourses,
   getAllCourseSubjects,
   updateCourseSubjects,
+  getCourseMeta,
 } from "../controllers/courses";
 
 const courseRouter = express.Router();
@@ -19,6 +20,10 @@ courseRouter
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     createCourse
   );
+
+courseRouter
+  .route("/meta")
+  .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), getCourseMeta);
 
 courseRouter
   .route("/create")
@@ -40,7 +45,14 @@ courseRouter
   .route("/deduplicate-classes")
   .post(protect, authorize(["admin"]), deduplicateClassCourses);
 
-courseRouter.route("/").get(protect, getAllCourseSubjects);
+// backend/src/routes/courses.ts
+courseRouter
+  .route("/")
+  .get(
+    protect,
+    authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]), // Add "student"
+    getAllCourseSubjects
+  );
 
 courseRouter
   .route("/delete/:id")

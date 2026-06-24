@@ -22,7 +22,11 @@
   main#app-main {
     position: absolute !important;
     left: 0px !important;
-    right: -10px !important;
+    right: 5px !important;
+  }
+
+  main#app-main div.space-y-6 {
+  margin: 5px 0px 0px 15px;
   }
 
   --card: rgb(255, 255, 255);
@@ -284,6 +288,18 @@ input[data-slot="input"]:focus {
   border-color: rgba(99, 102, 241, 0.9); /* indigo-500 */
   box-shadow: 0 6px 18px rgba(99,102,241,0.08);
   border-radius: 14px;
+}
+
+/* Register page input styling */
+.input {
+  @apply px-4 py-3 rounded-full border border-border bg-background text-foreground transition-all duration-200;
+}
+.input::placeholder {
+  @apply text-muted-foreground text-sm;
+}
+.input:focus {
+  outline: none;
+  @apply border-primary ring-2 ring-primary/20;
 }
 
 /* Glassmorphism card style */

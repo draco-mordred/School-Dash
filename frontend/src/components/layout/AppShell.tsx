@@ -186,6 +186,14 @@ function getPageTitle(pathname: string) {
       return "Classes";
     case "courses":
       return "Courses";
+    case "student-portal":
+      return "Student Portal";
+    case "student":
+      if (!parts[1]) return "Student";
+      return parts[1]
+        .split("-")
+        .map((segment) => segment[0].toUpperCase() + segment.slice(1))
+        .join(" ");
     case "subjects":
       return "Subjects";
     case "attendance":
@@ -265,6 +273,7 @@ export default function AppShell({ children }: PropsWithChildren) {
     { role: "teacher", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
     // Student
     { role: "student", title: "Dashboard", path: "/dashboard", icon: "shield" as W11Glyph },
+    { role: "student", title: "My Portal", path: "/student-portal", icon: "book-open" as W11Glyph },
     { role: "student", title: "My Attendance", path: "/attendance", icon: "bar-chart" as W11Glyph },
     { role: "student", title: "Timetable", path: "/timetable", icon: "clock" as W11Glyph },
     { role: "student", title: "Courses", path: "/courses", icon: "book-open" as W11Glyph },
