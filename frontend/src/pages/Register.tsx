@@ -1,7 +1,7 @@
 import { User as UserIcon } from "lucide-react";
-import { Link, Navigate, useNavigate } from "react-router";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -21,6 +21,8 @@ const Register = () => {
   const [idNumber, setIdNumber] = useState("");
   const [isFirst, setIsFirst] = useState(false);
   const [role, setRole] = useState<string | undefined>(undefined);
+  const [departmentId, setDepartmentId] = useState<string>("");
+  const [departments, setDepartments] = useState<Array<{ _id: string; name: string; code: string; departmentID: string }>>([]);
 
   // Student registration only
   const [studentClassName, setStudentClassName] = useState("");
@@ -38,17 +40,33 @@ const Register = () => {
     return allowedClassNameTokens.some((t) => normalizeClassToken(t) === norm);
   };
 
-  // Early return ONLY when already authenticated (hooks are already called above).
-  if (user && !loading) {
-    return <Navigate to="/dashboard" />;
-  }
-
   const checkFirst = async () => {
     const { data } = await api.get("/users/public/is-first");
     setIsFirst(data.isFirst || false);
     setRole(data.isFirst ? "admin" : "student");
     return data.isFirst;
   };
+
+  const fetchDepartments = async () => {
+    try {
+      const { data } = await api.get("/courses/meta");
+      setDepartments(data.departments ?? []);
+    } catch (error) {
+      console.error("Failed to load departments", error);
+    }
+  };
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      await fetchDepartments();
+    };
+    void loadDepartments();
+  }, []);
+
+  // Early return ONLY when already authenticated (hooks are already called above).
+  if (user && !loading) {
+    return <Navigate to="/dashboard" />;
+  }
 
   const goToStep = (next: 1 | 2) => {
     if (next === step || transitioning) return;
@@ -88,6 +106,8 @@ const Register = () => {
         idNumber: string;
         role: string;
         studentClassName?: string;
+        departmentId?: string;
+        department?: string;
       } = {
         name,
         email,
@@ -100,11 +120,21 @@ const Register = () => {
         payload.studentClassName = studentClassName.trim();
       }
 
+      if (role === "teacher" || role === "unitconsultant" || role === "unitresident") {
+        const selectedDepartment = departments.find((dept) => dept._id === departmentId);
+        if (!selectedDepartment) {
+          return toast.error("Select your department");
+        }
+        payload.departmentId = selectedDepartment._id;
+        payload.department = selectedDepartment.name;
+      }
+
       await api.post("/users/public/register", payload);
       toast.success("Account created successfully. Please sign in.");
       navigate("/login");
     } catch (error: unknown) {
-      const msg = error?.response?.data?.message || error?.response?.data?.error || "Registration failed";
+      const err = error as { response?: { data?: { message?: string; error?: string } } };
+      const msg = err?.response?.data?.message || err?.response?.data?.error || "Registration failed";
       toast.error(msg);
     }
   };
@@ -211,27 +241,51 @@ const Register = () => {
                       id="reg-role"
                       className="input w-full"
                       value={role}
-                      onChange={(e) => setRole(e.target.value)}
+                      onChange={(e) => {
+                        setRole(e.target.value);
+                        if (!["teacher", "unitconsultant", "unitresident"].includes(e.target.value)) {
+                          setDepartmentId("");
+                        }
+                      }}
                     >
                       <option value="">Select your role</option>
                       {isFirst ? (
                         <>
                           <option value="admin">Admin</option>
                           <option value="teacher">Teacher (Staff)</option>
-                          <option value="unit_consultant">Unit Consultant (Staff)</option>
-                          <option value="unit_resident">Unit Resident (Staff)</option>
+                          <option value="unitconsultant">Unit Consultant (Staff)</option>
+                          <option value="unitresident">Unit Resident (Staff)</option>
                         </>
                       ) : (
                         <>
                           <option value="student">Student</option>
                           <option value="teacher">Teacher (Staff)</option>
-                          <option value="unit_consultant">Unit Consultant (Staff)</option>
-                          <option value="unit_resident">Unit Resident (Staff)</option>
+                          <option value="unitconsultant">Unit Consultant (Staff)</option>
+                          <option value="unitresident">Unit Resident (Staff)</option>
                           <option value="parent">Parent</option>
                         </>
                       )}
                     </select>
                   </div>
+
+                  {(role === "teacher" || role === "unitconsultant" || role === "unitresident") && (
+                    <div>
+                      <label className="text-xs font-medium mb-1 block text-center w-full" htmlFor="reg-department">Department</label>
+                      <select
+                        id="reg-department"
+                        className="input w-full"
+                        value={departmentId}
+                        onChange={(e) => setDepartmentId(e.target.value)}
+                      >
+                        <option value="">Select your department</option>
+                        {departments.map((dept) => (
+                          <option key={dept._id} value={dept._id}>
+                            {dept.name} ({dept.departmentID})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {role === "student" && (
                     <div className="space-y-1">

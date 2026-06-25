@@ -20,7 +20,7 @@ const clinicalRotationRouter = express.Router();
 clinicalRotationRouter.post(
   "/",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   createClinicalRotation
 );
 
@@ -67,7 +67,7 @@ clinicalRotationRouter.get(
 clinicalRotationRouter.put(
   "/:id",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   updateClinicalRotation
 );
 
@@ -81,7 +81,7 @@ clinicalRotationRouter.delete(
 clinicalRotationRouter.post(
   "/:id/approve",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   approveRotation
 );
 
@@ -94,7 +94,7 @@ clinicalRotationRouter.post(
 clinicalRotationRouter.post(
   "/:id/patients",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   addPatientClerked
 );
 

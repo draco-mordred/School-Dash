@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import {
@@ -310,8 +310,8 @@ export default function Dashboard() {
     const roleKey = stat._id ?? stat.role;
     const total = stat.count ?? ((stat.active ?? 0) + (stat.inactive ?? 0));
     const route =
-      roleKey === "unit_consultant" ? "unit-consultants" :
-      roleKey === "unit_resident" ? "unit-residents" :
+      roleKey === "unitconsultant" ? "unit-consultants" :
+      roleKey === "unitresident" ? "unit-residents" :
       roleKey === "admin" ? "admins" : `${roleKey}s`;
 
     return (

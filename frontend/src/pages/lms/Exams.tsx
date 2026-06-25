@@ -12,7 +12,7 @@ import {
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import type { exam } from "@/types";
 import { toast } from "sonner";
 import ExamGenerator from "@/components/lms/ExamGenerator";

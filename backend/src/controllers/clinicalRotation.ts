@@ -1,7 +1,8 @@
 import { type Request, type Response } from "express";
 // ClinicalRotation model is loaded lazily to avoid module resolution errors during test bootstrapping
 async function loadClinicalRotation() {
-  return (await import("../models/postings")).default;
+  // import the ClinicalRotation model directly
+  return (await import("../models/clinicalRotation")).default;
 }
 import { Types } from "mongoose";
 // lazy wrapper for activity logging to avoid import-time resolution problems in tests
@@ -480,7 +481,7 @@ export const getRotationStats = async (req: Request, res: Response) => {
       });
       if (studentIds.length) filter.$or = [ { student: { $in: studentIds } }, { students: { $in: studentIds } } ];
       else filter.rotationSupervisor = userId; // fallback to supervisor-owned rotations
-    } else if (userRole === "unit_consultant" || userRole === "unit_resident") {
+    } else if (userRole === "unitconsultant" || userRole === "unitresident") {
       // If users are unit-based, show rotations they supervise. If a unit mapping exists later, adapt this.
       filter.rotationSupervisor = userId;
     }

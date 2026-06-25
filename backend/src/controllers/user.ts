@@ -1,11 +1,38 @@
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import User from "../models/user";
+import Department from "../models/departments";
 import { Notification } from "../models/notification";
 import { sendSSE } from "../utils/sse";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
 import type { AuthRequest } from "../middleware/auth";
+
+const normalizeRole = (role?: string): string | undefined => {
+    if (!role) return undefined;
+    const value = String(role).trim().toLowerCase();
+    if (value === "unitconsultant" || value === "unitconsultant") return "unitconsultant";
+    if (value === "unitresident" || value === "unitresident") return "unitresident";
+    if (value === "admin") return "admin";
+    if (value === "teacher") return "teacher";
+    if (value === "student") return "student";
+    if (value === "parent") return "parent";
+    return undefined;
+};
+
+const findDepartment = async (departmentInput?: string) => {
+    if (!departmentInput) return null;
+    const identifier = String(departmentInput).trim();
+    if (mongoose.isValidObjectId(identifier)) {
+        const doc = await Department.findById(identifier);
+        if (doc) return doc;
+    }
+
+    const doc = await Department.findOne({
+        $or: [{ code: identifier }, { departmentID: identifier }, { name: identifier }],
+    });
+    return doc;
+};
 
 // Define an interface extending Express Request to handle authenticated user data cleanly
 interface AuthenticatedRequest extends Request {
@@ -25,20 +52,39 @@ export const registerUser = async (
     res: Response
 ): Promise<void> => {
     try {
-        const { 
+        const {
             name,
             email,
             password,
             idNumber,
             role,
+            departmentId,
+            department,
             studentClasses,
             teacherSubject,
             parentStudents,
             isActive,
             isSupervisor,
             supervisorRank,
-            specialties
+            specialties,
         } = req.body;
+
+        const normalizedRole = normalizeRole(role);
+        if (!normalizedRole) {
+            res.status(400).json({ status: "Error!", message: "Invalid user role" });
+            return;
+        }
+
+        const departmentDoc = await findDepartment(
+            (departmentId as string | undefined) || (department as string | undefined) ||
+            (req.body?.departmentCode as string | undefined) || (req.body?.departmentID as string | undefined)
+        );
+
+        const isStaffRole = ["teacher", "unitconsultant", "unitresident"].includes(normalizedRole);
+        if (isStaffRole && !departmentDoc) {
+            res.status(400).json({ status: "Error!", message: "Staff users must be assigned a valid department" });
+            return;
+        }
 
         // Normalization: frontend sends arrays.
         // Mongoose schema expects:
@@ -160,7 +206,9 @@ export const registerUser = async (
             email,
             password,
             idNumber: newIDNumber, // Use the newIDNumber which is now the updated sequential ID number we've updated
-            role,
+            role: normalizedRole as any,
+            department: (departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : undefined) as any,
+            departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: finalStudentClass,
             teacherSubject: teacherSubjectNormalized,
             parentStudents: parentStudentsNormalized,
@@ -168,7 +216,7 @@ export const registerUser = async (
             isSupervisor: isSupervisor || false,
             supervisorRank: supervisorRank || 0,
             specialties: Array.isArray(specialties) ? specialties : (specialties ? [specialties] : [])
-        });
+        } as any) as any;
 
         if (newUser) {
             await newUser.populate("studentClasses", "name academicYear");
@@ -241,11 +289,15 @@ export const registerPublic = async (
             password,
             idNumber,
             role,
+            departmentId,
+            department,
             studentClasses,
             teacherSubject,
             parentStudents,
             isActive,
         } = req.body;
+
+        const normalizedRole = normalizeRole(role);
 
         // Determine if first user
         const usersCount = await User.countDocuments();
@@ -257,9 +309,19 @@ export const registerPublic = async (
             ? ["admin", "teacher", "unitconsultant", "unitresident"]
             : ["student", "teacher", "parent", "unitconsultant", "unitresident"];
 
-
-        if (!role || !allowedRoles.includes(role)) {
+        if (!normalizedRole || !allowedRoles.includes(normalizedRole)) {
             res.status(400).json({ message: "Invalid role for public registration" });
+            return;
+        }
+
+        const departmentDoc = await findDepartment(
+            (departmentId as string | undefined) || (department as string | undefined) ||
+            (req.body?.departmentCode as string | undefined) || (req.body?.departmentID as string | undefined)
+        );
+
+        const isStaffUmbrella = ["teacher", "unitconsultant", "unitresident"].includes(normalizedRole);
+        if (isStaffUmbrella && !departmentDoc) {
+            res.status(400).json({ message: "Staff users must select a valid department" });
             return;
         }
 
@@ -270,8 +332,6 @@ export const registerPublic = async (
         // Staff umbrella role handling: teacher/unitconsultant/unitresident should be cross-checked
         // against HospitalStaff.
         const normalizedName = typeof name === "string" ? name.trim() : "";
-
-        const isStaffUmbrella = role === "teacher" || role === "unitconsultant" || role === "unitresident";
 
         if (isStaffUmbrella) {
             // HospitalStaff has `name` + other fields; match on non-case-sensitive tokens.
@@ -420,12 +480,14 @@ export const registerPublic = async (
             email,
             password,
             idNumber: newIDNumber,
-            role,
+            role: normalizedRole as any,
+            department: (departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : undefined) as any,
+            departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: studentClassId,
             teacherSubject: teacherSubjectNormalized,
             parentStudents: parentStudentsNormalized,
             isActive,
-        });
+        }) as any;
 
         if (newUser) {
             await newUser.populate('studentClasses', 'name academicYear');
@@ -585,7 +647,12 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             user.name = req.body.name || user.name;
             user.email = req.body.email || user.email;
             user.idNumber = req.body.idNumber || user.idNumber;
-            user.role = req.body.role || user.role;
+            if (req.body.role !== undefined) {
+                const normalizedRole = normalizeRole(req.body.role);
+                if (normalizedRole) {
+                    user.role = normalizedRole as any;
+                }
+            }
             user.isActive = req.body.isActive !== undefined ? req.body.isActive : user.isActive;
             // Normalize incoming student class value: accept `studentClasses`, `classId`, or an array
             if (req.body.studentClasses !== undefined || req.body.classId !== undefined) {
@@ -595,6 +662,16 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             }
             user.teacherSubject = req.body.teacherSubject || user.teacherSubject;
             user.parentStudents = req.body.parentStudents || user.parentStudents;
+            if (req.body.department !== undefined || req.body.departmentId !== undefined) {
+                const deptInput = req.body.departmentId ?? req.body.department;
+                const deptDoc = await findDepartment(deptInput);
+                if (deptDoc) {
+                    user.departmentId = deptDoc._id;
+                    user.department = deptDoc.name as any;
+                } else if (req.body.department !== undefined) {
+                    user.department = String(req.body.department).trim() as any;
+                }
+            }
             if (req.body.academicStatus !== undefined) user.academicStatus = req.body.academicStatus;
             if (req.body.departmentRole !== undefined) user.departmentRole = req.body.departmentRole;
             if (req.body.isSupervisor !== undefined) user.isSupervisor = req.body.isSupervisor;
@@ -668,15 +745,16 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                                 const ClassModel2 = require("../models/classes").default;
                                 const classObj = newClass ? await ClassModel2.findById(newClass).select('name') : null;
                                 try {
-                                    const created = await Notification.create({
+                                    const notificationRole = updatedUser.role === 'unitconsultant' ? 'unitconsultant' : updatedUser.role === 'unitresident' ? 'unitresident' : updatedUser.role;
+                                    const created: any = await Notification.create({
                                         userId: updatedUser._id,
-                                        role: updatedUser.role,
+                                        role: notificationRole,
                                         title: 'Assigned to class',
                                         message: classObj ? `You have been assigned to ${classObj.name}.` : 'You have been assigned to a class.',
                                         type: 'info',
                                         isRead: false,
                                         metadata: { classId: newClass, className: classObj?.name || null, updatedBy: userId },
-                                    });
+                                    }) as any;
                                     try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
                                 } catch (err) {
                                     console.error('Failed to notify user about class assignment:', err);
@@ -690,15 +768,16 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                             const updater = (req as any).user;
                             if (!isOwnProfile && updater) {
                                 try {
-                                    const created = await Notification.create({
+                                    const notificationRole = updatedUser.role === 'unitconsultant' ? 'unitconsultant' : updatedUser.role === 'unitresident' ? 'unitresident' : updatedUser.role;
+                                    const created: any = await Notification.create({
                                         userId: updatedUser._id,
-                                        role: updatedUser.role,
+                                        role: notificationRole,
                                         title: 'Profile updated',
                                         message: `Your profile was updated by ${updater.name || updater.email || 'an admin'}.`,
                                         type: 'info',
                                         isRead: false,
                                         metadata: { updatedBy: updater._id, changes: req.body },
-                                    });
+                                    }) as any;
                                     try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
                                 } catch (err) {
                                     console.error('Failed to create profile-updated notification:', err);
@@ -751,7 +830,8 @@ export const getUsers = async (req: Request, res: Response) : Promise<void> => {
     try {
         const page = parseInt(req.query.page as string) || 1; // Default to page 1 if not provided
         const limit = parseInt(req.query.limit as string) || 100;
-        const role = req.query.role as string; 
+        const role = normalizeRole(req.query.role as string);
+        const departmentQuery = req.query.department as string;
         const search = req.query.search as string;// optional: add search later
 
         const skip = (page - 1) * limit;
@@ -761,6 +841,20 @@ export const getUsers = async (req: Request, res: Response) : Promise<void> => {
 
     if (role && role !== "all" && role !== ""){
         filter.role = role;
+    }
+    if (departmentQuery && departmentQuery !== "") {
+        if (mongoose.isValidObjectId(departmentQuery)) {
+            filter.departmentId = departmentQuery;
+        } else {
+            const departmentDoc = await Department.findOne({
+                $or: [{ code: departmentQuery }, { departmentID: departmentQuery }, { name: departmentQuery }],
+            });
+            if (departmentDoc) {
+                filter.departmentId = departmentDoc._id;
+            } else {
+                filter.department = departmentQuery;
+            }
+        }
     }
     if (search){
         filter.$or = [

@@ -24,7 +24,7 @@ const attendanceRouter = express.Router();
 attendanceRouter.post(
   "/record",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   recordAttendance
 );
 attendanceRouter.get("/me", protect, getMyAttendanceSummary);
@@ -33,14 +33,14 @@ attendanceRouter.get("/me/summary", protect, getMyAttendanceSummary);
 attendanceRouter.post(  
   "/approve-excused/:attendanceId",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   approveExcusedAbsence
 );
 
 attendanceRouter.get(
   "/courses/:courseId/classes/:classId",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getCourseClassAttendance
 );
 
@@ -61,42 +61,42 @@ attendanceRouter.get(
 attendanceRouter.post(
   "/generate",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   triggerAttendanceGeneration
 );
 
 attendanceRouter.get(
   "/session",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getClassSessionAttendance
 );
 
 attendanceRouter.patch(
   "/bulk",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   bulkUpdateAttendance
 );
 
 attendanceRouter.get(
   "/timetable-check",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   checkTimetableExists
 );
 
 attendanceRouter.get(
   "/subjects",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getSubjectsAttendance
 );
 
 attendanceRouter.get(
   "/lists",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getAllAttendanceLists
 );
 
@@ -110,7 +110,7 @@ attendanceRouter.get(
 attendanceRouter.get(
   "/weekly",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getWeeklyCourseAttendance
 );
 

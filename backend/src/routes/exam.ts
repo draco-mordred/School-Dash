@@ -17,7 +17,7 @@ const examRouter = express.Router();
 examRouter.post(
   "/generate",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   triggerExamGeneration
 );
 // STudent Routes
@@ -31,14 +31,14 @@ examRouter.post(
 examRouter.patch(
   "/:id/status",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   toggleExamStatus
 );
 
 examRouter.delete(
   "/:id",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   deleteExam
 );
 
@@ -46,21 +46,21 @@ examRouter.delete(
 examRouter.get(
   "/:id/result",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   getExamResult
 );
 
 examRouter.get(
   "/:id",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   getExamById
 );
 
 examRouter.get(
   "/",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   getExams
 );
 

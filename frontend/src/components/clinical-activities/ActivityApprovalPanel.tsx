@@ -68,7 +68,7 @@ export default function ActivityApprovalPanel({ onApprovalChange }: ActivityAppr
   };
 
   useEffect(() => {
-    if (user?.role === "unit_consultant" || user?.role === "unit_resident") {
+    if (user?.role === "unitconsultant" || user?.role === "unitresident") {
       fetchPendingActivities();
     }
   }, [user, page]);
@@ -113,7 +113,7 @@ export default function ActivityApprovalPanel({ onApprovalChange }: ActivityAppr
     }
   };
 
-  if (user?.role !== "unit_consultant" && user?.role !== "unit_resident") {
+  if (user?.role !== "unitconsultant" && user?.role !== "unitresident") {
     return (
       <Card>
         <CardContent className="pt-6">

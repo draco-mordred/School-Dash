@@ -102,11 +102,11 @@ export const approveActivityEntry = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Unauthorized." });
     }
 
-    if (userRole !== "unit_consultant" && userRole !== "unit_resident") {
+    if (userRole !== "unitconsultant" && userRole !== "unitresident") {
       return res.status(403).json({ error: "Only clinical staff can approve entries." });
     }
 
-    const approverRole = userRole === "unit_consultant" ? "CONSULTANT" : "RESIDENT";
+    const approverRole = userRole === "unitconsultant" ? "CONSULTANT" : "RESIDENT";
 
     const result = await activityLogbookService.approveActivityEntry(entryId, staffId, approverRole);
     if (!result.success) {
@@ -135,7 +135,7 @@ export const rejectActivityEntry = async (req: Request, res: Response) => {
       return res.status(401).json({ error: "Unauthorized." });
     }
 
-    if (userRole !== "unit_consultant" && userRole !== "unit_resident") {
+    if (userRole !== "unitconsultant" && userRole !== "unitresident") {
       return res.status(403).json({ error: "Only clinical staff can reject entries." });
     }
 

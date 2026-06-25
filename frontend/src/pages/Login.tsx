@@ -1,7 +1,7 @@
 import UniversalUserForm from "@/components/auth/UniversalUserForm";
 import { useAuth } from "@/hooks/useAuth";
 import { User as UserIcon } from "lucide-react";
-import { Link, Navigate, useNavigate } from "react-router";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 
 const Login = () => {
   const { user, loading } = useAuth();

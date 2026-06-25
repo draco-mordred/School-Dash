@@ -33,7 +33,7 @@ async function backfill(dryRun = true) {
 
     // fallback: find any active supervisor (prefer higher supervisorRank)
     if (!chosen) {
-      chosen = await UserModel.findOne({ isActive: true, isSupervisor: true, role: { $in: ["unit_consultant", "teacher", "unit_resident"] } }).select("_id supervisorRank").sort({ supervisorRank: -1 }).lean();
+      chosen = await UserModel.findOne({ isActive: true, isSupervisor: true, role: { $in: ["unitconsultant", "teacher", "unitresident"] } }).select("_id supervisorRank").sort({ supervisorRank: -1 }).lean();
     }
 
     if (chosen) {

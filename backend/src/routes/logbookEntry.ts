@@ -13,7 +13,7 @@ const logbookEntryRouter = express.Router();
 logbookEntryRouter.post(
   "/",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   createLogbookEntry
 );
 
@@ -32,14 +32,14 @@ logbookEntryRouter.get(
 logbookEntryRouter.put(
   "/:id",
   protect,
-  authorize(["admin", "teacher", "student", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
   updateLogbookEntry
 );
 
 logbookEntryRouter.delete(
   "/:id",
   protect,
-  authorize(["admin", "teacher", "unit_consultant", "unit_resident"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   deleteLogbookEntry
 );
 

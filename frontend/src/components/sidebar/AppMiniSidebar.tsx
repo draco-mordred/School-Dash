@@ -1,6 +1,6 @@
 "use client";
 
-import { useLocation } from "react-router";
+import { useLocation } from "react-router-dom";
 
 import { NavMainMini } from "@/components/sidebar/nav-main-mini";
 import type { LucideIcon } from "lucide-react";
@@ -25,7 +25,7 @@ import { LogOut } from "lucide-react";
 import appIcon from "@/image/medlog icons2.png";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 /**

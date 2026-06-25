@@ -21,7 +21,7 @@ export const UserIDs = {
 } as const;
 
 export const UserDepartments = {
-    OandG: {
+    OBG: {
         id: "og",
         name: "Obstetrics & Gynaecology",
         rotationDurationWeeks: 4,
@@ -70,39 +70,6 @@ export const UserDepartments = {
 } as const;
 
 export type userRoles = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident" ; // Define a type for user roles, including the unique admin and student IDs
-
-export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
-// Let's map type userDepartments to UserDeparments so that Users can be assigned to OandG or Pediatrics or other Deparments, for all user roles except students and parents.
-export enum UserDepartmentName {
-    /*
-    Medicine       → 9 Units
-    Surgery        → 9 Units
-    O&G            → 8 Units
-    Paediatrics    → 8 Units
-    Psychiatry     → 6 Units
-    ENT            → 6 Units
-    Anaesthesia    → 6 Units
-    Radiology      → 6 Units
-    Ophthalmology  → 7 Units
-    Dermatology    → 5 Units
-    */
-    medicine = "Medicine",
-    surgery = "Surgery",
-    og = "O&G",
-    paediatrics = "Paediatrics",
-    psychiatry = "Psychiatry",
-    ent = "ENT",
-    anaesthesia = "Anaesthesia",
-    radiology = "Radiology",
-    ophthalmology = "Ophthalmology",
-    dermatology = "Dermatology",
-    hematology = "Hematology",
-    histopathology = "Histopathology",
-    microbiology = "Microbiology",
-    chemicalPathology = "Chemical Pathology"
-}
-// export type userDepartments = keyof typeof UserDepartments
-
 export const roleDisplayName: Record<userRoles, string> = {
     admin: "Admin",
     teacher: "Teacher",
@@ -112,22 +79,66 @@ export const roleDisplayName: Record<userRoles, string> = {
     unitresident: "Unit Resident",
 };
 
+export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
+// Let's map type userDepartments to UserDeparments so that Users can be assigned to OandG or Pediatrics or other Deparments, for all user roles except students and parents.
+export const UserDepartmentName = {
+    OBG: "Obstetrics & Gynaecology",
+    Pediatrics: "Pediatrics",
+    Medicine: "Medicine",
+    Surgery: "Surgery",
+    Psychiatry: "Psychiatry",
+    earNoseAndThroat: "Ear, Nose, and Throat",
+    Anaesthesiology: "Anaesthesiology",
+    Radiology: "Radiology",
+    Ophthalmology: "Ophthalmology",
+    Dermatology: "Dermatology",
+    Hematology: "Hematology",
+    anatomicPathology: "Anatomic Pathology",
+    chemicalPathology: "Chemical Pathology",
+    Microbiology: "Microbiology",
+} as const;
+
+export type userDepartmentName = "OBG" | "Pediatrics" | "Medicine" | "Surgery" | "Psychiatry" | "earNoseAndThroat" | "Anaesthesiology" | "Radiology" | "Ophthalmology" | "Dermatology" | "Hematology" | "anatomicPathology" | "chemicalPathology" | "Microbiology"; // Define a type for user departments
+
+export const UserAcademicStatus = {
+    professor: "Professor",
+    associateProfessor: "Associate Professor",
+    lecturerI: "Lecturer I",
+    lecturerII: "Lecturer II",
+    assistantLecturer: "Assistant Lecturer",
+    resident: "Resident",
+    student: "Student",
+} as const;
+
+export type userAcademicStatus = "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | "student" | null;
+
+export const UserDepartmentRole = {
+    headOfDepartment: "Head of Department",
+    deanOfFaculty: "Dean of Faculty",
+    examOfficer: "Exam Officer",
+    financeOfficer: "Finance Officer",
+    levelCordinator: "Level Coordinator",
+} as const;
+
+export type userDepartmentRole = "head of department" | "dean of faculty" | "exam officer" | "finance officer" | "level coordinator" | null;
+
 export interface IUser extends Document {
     name: string;
     email: string;
     idNumber: string; // field for ID number
     password: string;
     role: userRoles;
-    department?: string | null;
+    department: userDepartmentName; // Department name or ID
+    departmentId: mongoose.Types.ObjectId | null; // Department ID
     isActive: boolean;
     profileImage?: string; // Base64 encoded profile image
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
     teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of class IDs for teachers
     parentStudents?: mongoose.Types.ObjectId[] | null; // Array of student IDs for parents
     // Academic status tags for teachers/lecturers
-    academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
+    academicStatus?: userAcademicStatus | null; // e.g., "professor", "associate professor", etc.
     // Department role tags for teachers/lecturers
-    departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
+    departmentRole?: userDepartmentRole | null; // e.g., "head of department", "dean of faculty", etc.
     // Optional contact phone for supervisors
     phone?: string | null;
     // Supervisor eligibility and ranking for rotation assignment
@@ -154,8 +165,7 @@ const UserSchema: Schema<IUser> = new Schema({
         type: String,
         // unique: false,
         //enum: Object.values(UserIDs), // Ensure the idNumber can only be one of the specified values in UserIDs
-        default: UserIDs.STUDENTID, // Default to STUDENTID if not provided, but can be overridden when creating an admin user with ADMINID
-        // required: true, // Make idNumber required to ensure every user has a unique ID, but you can remove this if you want to allow users without an ID number (e.g., for testing purposes)
+        default: UserIDs.STUDENTID, // Default to STUDENTID if not provided, but can be overridden..
     },
     password: {
         type: String,
@@ -170,6 +180,12 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     department: {
         type: String,
+        enum: Object.values(UserDepartmentName),
+        default: null,
+    },
+    departmentId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Department",
         default: null,
     },
     isActive: {
@@ -198,12 +214,12 @@ const UserSchema: Schema<IUser> = new Schema({
     }],
     academicStatus: {
         type: String,
-        enum: ["professor", "associate professor", "lecturer i", "lecturer ii", "assistant lecturer", "resident", null],
+        enum: Object.values(UserAcademicStatus),
         default: null,
     },
     departmentRole: {
         type: String,
-        enum: ["head of department", "dean of faculty", "exam officer", null],
+        enum: Object.values(UserDepartmentRole),
         default: null,
     },
     // Optional contact phone for supervisors

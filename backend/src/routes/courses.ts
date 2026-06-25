@@ -4,11 +4,19 @@ import {
   addCourseSubject,
   createCourse,
   createCourseSubject,
+  createDepartment,
   deleteCourseSubjects,
   deduplicateClassCourses,
   getAllCourseSubjects,
   updateCourseSubjects,
+  updateDepartment,
+  deleteDepartment,
+  bulkUploadCourses,
+  bulkUploadDepartments,
   getCourseMeta,
+  seedDepartments,
+  getAvailableDepartments,
+  getDepartmentConstants,
 } from "../controllers/courses";
 
 const courseRouter = express.Router();
@@ -44,6 +52,36 @@ courseRouter
 courseRouter
   .route("/deduplicate-classes")
   .post(protect, authorize(["admin"]), deduplicateClassCourses);
+
+courseRouter
+  .route("/departments")
+  .get(protect, getAvailableDepartments)
+  .post(protect, authorize(["admin"]), createDepartment);
+
+courseRouter
+  .route("/departments/bulk-upload")
+  .post(protect, authorize(["admin"]), bulkUploadDepartments);
+
+courseRouter
+  .route("/departments/:id")
+  .patch(protect, authorize(["admin"]), updateDepartment)
+  .delete(protect, authorize(["admin"]), deleteDepartment);
+
+courseRouter
+  .route("/seed/departments")
+  .post(protect, authorize(["admin"]), seedDepartments);
+
+courseRouter
+  .route("/department-constants")
+  .get(protect, getDepartmentConstants);
+
+courseRouter
+  .route("/bulk-upload")
+  .post(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    bulkUploadCourses
+  );
 
 // backend/src/routes/courses.ts
 courseRouter

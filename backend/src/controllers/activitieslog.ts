@@ -80,7 +80,7 @@ export const getRoleStats = async (req: Request, res: Response): Promise<void> =
     });
 
     // Ensure known roles appear even with zero counts
-    const knownRoles = ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"];
+    const knownRoles = ["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"];
     knownRoles.forEach((r) => ensureRole(r));
 
     const stats = Object.values(roleMap);

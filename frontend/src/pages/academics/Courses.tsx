@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2, Pencil } from "lucide-react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import * as XLSX from "xlsx";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,7 +12,7 @@ import type { Class, courses, user } from "@/types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import Modal from "@/components/global/Modal";
@@ -20,20 +21,6 @@ import { CustomSelect } from "@/components/global/CustomSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
 
-interface Course {
-  _id: string;
-  name: string;
-  code: string;
-  subjects: Subject[];
-  // Add other relevant course properties
-}
-
-interface Subject {
-  _id: string;
-  name: string;
-  code: string;
-  // Add other relevant subject properties
-}
 
 type LoadingState = "idle" | "loading" | "error";
 
@@ -46,10 +33,14 @@ type AddCoursesFormValues = z.infer<typeof addCoursesSchema>;
 // Schema for creating a new course subject
 const createCourseSchema = z.object({
   name: z.string().min(1, "Course name is required"),
-  code: z.string().min(1, "Course code is required"),
-  courseID: z.string().min(1, "Course ID (group) is required"),
+  code: z
+    .string()
+    .min(1, "Course code is required")
+    .regex(/^[A-Z]{3} \d{3}$/, "Course code must be in the format PAE 501"),
+  courseID: z.string().min(1, "Course Group ID is required"),
   department: z.string().min(1, "Department is required"),
-  unit: z.string().min(1, "Unit is required"),
+  unit: z.string().optional(),
+  semester: z.enum(["First", "Second"]),
   academicYearId: z.string().min(1, "Academic year is required"),
   lecturer: z.string().optional(),
   isActive: z.boolean().default(true),
@@ -85,6 +76,49 @@ const resolveReferenceId = (value: unknown) => {
   return "";
 };
 
+type Teacher = {
+  _id: string;
+  name: string;
+  email?: string;
+  department?: string | { _id?: string; name?: string; code?: string; departmentID?: string };
+};
+
+type SubjectCourse = {
+  id: string;
+  name: string;
+  departmentId?: string;
+  departmentCode?: string;
+  departmentID?: string;
+  departmentName?: string;
+};
+
+const getTeacherDepartmentValue = (department: unknown) => {
+  if (!department) return "";
+  if (typeof department === "string") return department.trim().toLowerCase();
+  if (typeof department === "object" && department !== null) {
+    const deptObj = department as { _id?: string; name?: string; code?: string; departmentID?: string };
+    return (
+      String(deptObj._id ?? deptObj.code ?? deptObj.departmentID ?? deptObj.name ?? "").trim().toLowerCase()
+    );
+  }
+  return "";
+};
+
+const teacherBelongsToDepartment = (
+  teacher: Teacher,
+  department: { _id: string; name: string; code: string; departmentID: string } | null
+) => {
+  if (!department) return false;
+  const teacherDepartment = getTeacherDepartmentValue(teacher.department);
+  const normalizedDepartmentValues = new Set([
+    String(department._id).trim().toLowerCase(),
+    String(department.code).trim().toLowerCase(),
+    String(department.departmentID).trim().toLowerCase(),
+    String(department.name).trim().toLowerCase(),
+  ]);
+  return normalizedDepartmentValues.has(teacherDepartment);
+};
+
 export default function Courses() {
   const { user } = useAuth();
   const isAdminOrTeacher = user?.role === "admin" || user?.role === "teacher";
@@ -103,13 +137,15 @@ export default function Courses() {
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [updatingCourse, setUpdatingCourse] = useState(false);
   const [deduplicating, setDeduplicating] = useState(false);
-  const [teachers, setTeachers] = useState<{ _id: string; name: string; email?: string }[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
-  const [departments, setDepartments] = useState<{ _id: string; name: string; departmentID: string }[]>([]);
+  const [departments, setDepartments] = useState<{ _id: string; name: string; departmentID: string; code: string }[]>([]);
   const [units, setUnits] = useState<{ _id: string; name: string; unitID: string; department: string | { _id?: string } }[]>([]);
   const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
   const [subjectModalOpen, setSubjectModalOpen] = useState(false);
-  const [subjectCourse, setSubjectCourse] = useState<{ id: string; name: string } | null>(null);
+  const [subjectCourse, setSubjectCourse] = useState<SubjectCourse | null>(null);
+  const [uploadingCourses, setUploadingCourses] = useState(false);
+  const uploadCourseInputRef = useRef<HTMLInputElement | null>(null);
 
   const form = useForm<AddCoursesFormValues>({
     resolver: zodResolver(addCoursesSchema),
@@ -117,13 +153,14 @@ export default function Courses() {
   });
 
   const createForm = useForm<CreateCourseFormValues>({
-    resolver: zodResolver(createCourseSchema),
+    resolver: zodResolver(createCourseSchema) as Resolver<CreateCourseFormValues>,
     defaultValues: {
       name: "",
       code: "",
       courseID: "",
       department: "",
       unit: "",
+      semester: "First",
       academicYearId: "",
       lecturer: "",
       isActive: true,
@@ -132,7 +169,7 @@ export default function Courses() {
   });
 
   const subjectForm = useForm<CreateSubjectFormValues>({
-    resolver: zodResolver(createSubjectSchema),
+    resolver: zodResolver(createSubjectSchema) as Resolver<CreateSubjectFormValues>,
     defaultValues: {
       name: "",
       code: "",
@@ -164,6 +201,59 @@ export default function Courses() {
     if (Array.isArray(subjectsLegacy)) return subjectsLegacy;
     return [];
   }, [selectedClass]);
+
+  // Filter units by selected department
+  const selectedCourseDepartmentId = createForm.watch("department");
+
+  const filteredUnits = useMemo(() => {
+    const selectedDept = selectedCourseDepartmentId;
+    if (!selectedDept) return units;
+    return units.filter((u) => {
+      const deptId = typeof u.department === "object" ? u.department._id : u.department;
+      return String(deptId) === String(selectedDept);
+    });
+  }, [units, selectedCourseDepartmentId]);
+
+  const selectedCourseDepartment = useMemo(
+    () => departments.find((dept) => dept._id === selectedCourseDepartmentId) ?? null,
+    [departments, selectedCourseDepartmentId]
+  );
+
+  const hodOptions = useMemo(() => {
+    const filtered = selectedCourseDepartment
+      ? teachers.filter((teacher) => teacherBelongsToDepartment(teacher, selectedCourseDepartment))
+      : teachers;
+    return filtered.map((t) => ({ label: t.name, value: t._id }));
+  }, [teachers, selectedCourseDepartment]);
+
+  const selectedSubjectDepartment = useMemo(
+    () => departments.find((dept) => dept._id === subjectCourse?.departmentId) ?? null,
+    [departments, subjectCourse]
+  );
+
+  const subjectTeacherOptions = useMemo(() => {
+    const filtered = selectedSubjectDepartment
+      ? teachers.filter((teacher) => teacherBelongsToDepartment(teacher, selectedSubjectDepartment))
+      : teachers;
+    return filtered.map((t) => ({ label: t.name, value: t._id }));
+  }, [teachers, selectedSubjectDepartment]);
+
+  const subjectIdOptions = useMemo(() => {
+    if (selectedSubjectDepartment) {
+      return [
+        {
+          label: selectedSubjectDepartment.departmentID,
+          value: selectedSubjectDepartment.departmentID,
+        },
+      ];
+    }
+    return departments.map((dept) => ({ label: dept.departmentID, value: dept.departmentID }));
+  }, [departments, selectedSubjectDepartment]);
+
+  const availableCourses = useMemo(() => {
+    const assignedIds = new Set(selectedCourses.map((c) => c._id).filter(Boolean));
+    return allCourses.filter((course) => course._id && !assignedIds.has(course._id));
+  }, [allCourses, selectedCourses]);
 
   const fetchClasses = useCallback(async () => {
     try {
@@ -201,12 +291,18 @@ export default function Courses() {
     }
   }, []);
 
-  const fetchTeachers = useCallback(async () => {
+  const fetchTeachers = useCallback(async (departmentId?: string) => {
     try {
       setLoadingTeachers(true);
-      const { data } = await api.get("/users?page=1&limit=500");
-      const allUsers: user[] = data.users ?? [];
-      setTeachers(allUsers.filter((u) => u.role === "teacher" || u.role === "admin").map((u) => ({ _id: u._id, name: u.name, email: u.email })));
+      const query = new URLSearchParams({ page: "1", limit: "500", role: "teacher" });
+      if (departmentId) {
+        query.set("department", departmentId);
+      }
+      const { data } = await api.get(`/users?${query.toString()}`);
+      const allUsers = (data.users ?? []) as Array<user & { department?: string | { _id?: string; name?: string; code?: string; departmentID?: string } }>;
+      setTeachers(
+        allUsers.map((u) => ({ _id: u._id, name: u.name, email: u.email, department: u.department }))
+      );
     } catch {
       toast.error("Failed to load teachers");
     } finally {
@@ -229,6 +325,12 @@ export default function Courses() {
     }
   }, []);
 
+  useEffect(() => {
+    if (createCourseOpen) {
+      void fetchTeachers(selectedCourseDepartmentId || undefined);
+    }
+  }, [createCourseOpen, fetchTeachers, selectedCourseDepartmentId]);
+
   const handleOpenAddCourse = (open: boolean) => {
     setAddCourseOpen(open);
     if (open) {
@@ -249,6 +351,7 @@ export default function Courses() {
       courseID: "",
       department: "",
       unit: "",
+      semester: "First",
       academicYearId: selectedClass?.academicYear?._id ?? "",
       lecturer: "",
       isActive: true,
@@ -271,6 +374,8 @@ export default function Courses() {
         ? (typeof course.lecturer[0] === "object" ? (course.lecturer[0] as { _id?: string })._id ?? "" : String(course.lecturer[0]))
         : "";
       const courseWithRefs = course as courses & {
+        courseID?: string;
+        semester?: "First" | "Second";
         department?: { _id: string };
         unit?: { _id: string };
         academicYear?: { _id: string };
@@ -278,9 +383,10 @@ export default function Courses() {
       createForm.reset({
         name: course.name ?? "",
         code: course.code ?? "",
-        courseID: course.courseID ?? "",
+        courseID: courseWithRefs.courseID ?? "",
         department: resolveReferenceId(courseWithRefs.department),
         unit: resolveReferenceId(courseWithRefs.unit),
+        semester: courseWithRefs.semester ?? "First",
         academicYearId: resolveReferenceId(courseWithRefs.academicYear),
         lecturer: lecturerId,
         isActive: course.isActive ?? true,
@@ -288,6 +394,45 @@ export default function Courses() {
       });
       void fetchTeachers();
       void fetchCourseMeta();
+    }
+  };
+
+  const parseBulkUploadRows = (rows: Array<Record<string, unknown>>) =>
+    rows.map((row) => ({
+      name: String(row["Course Title"] || row["Subject"] || row["name"] || "").trim(),
+      code: String(row["Course Code"] || row["code"] || "").trim().toUpperCase(),
+      courseID: String(row["Course Group ID"] || row["courseID"] || row["Group ID"] || "").trim().toUpperCase(),
+      department: String(row["Department"] || row["Department Name"] || row["department"] || "").trim(),
+      unit: String(row["Unit"] || row["Unit Name"] || row["unit"] || "").trim(),
+      semester: String(row["Semester"] || row["semester"] || "").trim(),
+      year: String(row["Year"] || row["year"] || "").trim(),
+      academicYearId: String(row["Academic Year ID"] || row["academicYearId"] || row["academicYear"] || "").trim(),
+      lecturer: String(row["Lecturer"] || row["lecturer"] || "").trim(),
+    }));
+
+  const handleBulkUploadCourses = async (file: File) => {
+    setUploadingCourses(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const workbookSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbookSheet, { defval: "" });
+      const parsedRows = parseBulkUploadRows(rows);
+
+      if (parsedRows.length === 0) {
+        toast.error("No rows found in the uploaded file.");
+        return;
+      }
+
+      const response = await api.post("/courses/bulk-upload", { courses: parsedRows });
+      const result = response.data?.results;
+      toast.success(`Bulk upload completed. Created ${result?.created ?? 0}, skipped ${result?.skipped ?? 0}.`);
+      void fetchAllCourses();
+      void fetchClasses();
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, "Failed to upload courses"));
+    } finally {
+      setUploadingCourses(false);
     }
   };
 
@@ -299,6 +444,10 @@ export default function Courses() {
         name: values.name,
         code: values.code,
         courseID: values.courseID,
+        department: values.department,
+        unit: values.unit || null,
+        semester: values.semester,
+        academicYearId: values.academicYearId,
         lecturer: values.lecturer ? [values.lecturer] : [],
         isActive: values.isActive,
       };
@@ -337,7 +486,8 @@ export default function Courses() {
         code: values.code,
         courseID: values.courseID,
         department: values.department,
-        unit: values.unit,
+        unit: values.unit || null,
+        semester: values.semester,
         academicYearId: values.academicYearId,
         lecturer: values.lecturer ? [values.lecturer] : [],
         isActive: values.isActive,
@@ -390,7 +540,13 @@ export default function Courses() {
     }
   };
 
-  const handleOpenSubjectModal = (open: boolean, course?: { id: string; name: string }) => {
+  type CourseWithDepartment = {
+    _id?: string;
+    name?: string;
+    department?: string | { _id?: string; name?: string; code?: string; departmentID?: string };
+  };
+
+  const handleOpenSubjectModal = (open: boolean, course?: SubjectCourse) => {
     setSubjectModalOpen(open);
     if (!open) {
       setSubjectCourse(null);
@@ -401,7 +557,7 @@ export default function Courses() {
       subjectForm.reset({
         name: "",
         code: "",
-        subjectID: "",
+        subjectID: course.departmentID ?? "",
         unit: "",
         lecturer: "",
         isActive: true,
@@ -452,10 +608,34 @@ export default function Courses() {
             </Button>
           )}
           {isAdminOrTeacher && (
-            <Button variant="default" size="sm" onClick={() => handleOpenCreateCourse(true)}>
-              <PlusCircle className="mr-1 h-4 w-4" />
-              New Course
-            </Button>
+            <>
+              <input
+                ref={uploadCourseInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                aria-label="Upload courses file"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  await handleBulkUploadCourses(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => uploadCourseInputRef.current?.click()}
+                disabled={uploadingCourses}
+              >
+                <RefreshCw className="mr-1 h-4 w-4" />
+                {uploadingCourses ? "Uploading..." : "Bulk Upload"}
+              </Button>
+              <Button variant="default" size="sm" onClick={() => handleOpenCreateCourse(true)}>
+                <PlusCircle className="mr-1 h-4 w-4" />
+                New Course
+              </Button>
+            </>
           )}
           <div className="md:hidden">
             <SidebarTrigger />
@@ -591,7 +771,25 @@ export default function Courses() {
                         {(user?.role === "admin" || user?.role === "teacher") && (
                           <button
                             type="button"
-                            onClick={() => handleOpenSubjectModal(true, { id: c._id ?? "", name: c.name ?? "Course" })}
+                            onClick={() => {
+                              const courseWithDept = c as CourseWithDepartment;
+                              const department =
+                                typeof courseWithDept.department === "object"
+                                  ? courseWithDept.department
+                                  : null;
+                              const departmentId =
+                                typeof courseWithDept.department === "string"
+                                  ? courseWithDept.department
+                                  : resolveReferenceId(courseWithDept.department);
+                              handleOpenSubjectModal(true, {
+                                id: c._id ?? "",
+                                name: c.name ?? "Course",
+                                departmentId,
+                                departmentCode: department?.code ?? "",
+                                departmentID: department?.departmentID ?? "",
+                                departmentName: department?.name ?? "",
+                              });
+                            }}
                             className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
                             title="Add subject to course"
                           >
@@ -669,8 +867,9 @@ export default function Courses() {
                 <CustomMultiSelect
                   control={form.control}
                   name="courseIds"
+                  label="Select Courses"
                   placeholder="Select courses..."
-                  options={allCourses.map((c) => ({ label: c.name, value: c._id }))}
+                  options={availableCourses.map((c) => ({ label: `${c.name} ${c.code ? `(${c.code})` : ""}`.trim(), value: c._id }))}
                   loading={loadingCourses}
                 />
               </Field>
@@ -710,23 +909,38 @@ export default function Courses() {
             <FieldLabel>Course Code *</FieldLabel>
             <Input
               {...createForm.register("code")}
-              placeholder="e.g., PED-401"
+              placeholder="e.g., PAE 501"
             />
             {createForm.formState.errors.code && (
               <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.code.message)}</p>
             )}
           </Field>
 
-          <Field>
-            <FieldLabel>Course Group ID *</FieldLabel>
-            <Input
-              {...createForm.register("courseID")}
-              placeholder="e.g., PED (grouping for Pediatrics)"
-            />
-            {createForm.formState.errors.courseID && (
-              <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.courseID.message)}</p>
-            )}
-          </Field>
+          <CustomSelect
+            control={createForm.control}
+            name="courseID"
+            label="Course Group ID"
+            placeholder="Select department code"
+            options={departments.map((dept) => ({ label: dept.departmentID ?? dept.code ?? dept.name, value: dept.code }))}
+            loading={departments.length === 0}
+          />
+          {createForm.formState.errors.courseID && (
+            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.courseID.message)}</p>
+          )}
+
+          <CustomSelect
+            control={createForm.control}
+            name="semester"
+            label="Semester"
+            placeholder="Select semester"
+            options={[
+              { label: "First", value: "First" },
+              { label: "Second", value: "Second" },
+            ]}
+          />
+          {createForm.formState.errors.semester && (
+            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.semester.message)}</p>
+          )}
 
           <CustomSelect
             control={createForm.control}
@@ -743,10 +957,10 @@ export default function Courses() {
           <CustomSelect
             control={createForm.control}
             name="unit"
-            label="Unit"
+            label="Unit (optional)"
             placeholder="Select unit"
-            options={units.map((u) => ({ label: u.name, value: u._id }))}
-            loading={units.length === 0}
+            options={filteredUnits.map((u) => ({ label: u.name, value: u._id }))}
+            loading={filteredUnits.length === 0 && createForm.getValues("department") !== ""}
           />
           {createForm.formState.errors.unit && (
             <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.unit.message)}</p>
@@ -767,9 +981,9 @@ export default function Courses() {
           <CustomSelect
             control={createForm.control}
             name="lecturer"
-            label="Lecturer / Teacher"
-            placeholder="Select a teacher (optional)"
-            options={teachers.map((t) => ({ label: t.name, value: t._id }))}
+            label="Course HOD"
+            placeholder="Select HOD from selected department (optional)"
+            options={hodOptions}
             loading={loadingTeachers}
           />
 
@@ -840,16 +1054,17 @@ export default function Courses() {
             )}
           </Field>
 
-          <Field>
-            <FieldLabel>Subject ID *</FieldLabel>
-            <Input
-              {...subjectForm.register("subjectID")}
-              placeholder="e.g., CARD001"
-            />
-            {subjectForm.formState.errors.subjectID && (
-              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.subjectID.message)}</p>
-            )}
-          </Field>
+          <CustomSelect
+            control={subjectForm.control}
+            name="subjectID"
+            label="Subject ID"
+            placeholder="Select department subject ID"
+            options={subjectIdOptions}
+            loading={selectedSubjectDepartment === null && departments.length === 0}
+          />
+          {subjectForm.formState.errors.subjectID && (
+            <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.subjectID.message)}</p>
+          )}
 
           <CustomSelect
             control={subjectForm.control}
@@ -863,9 +1078,9 @@ export default function Courses() {
           <CustomSelect
             control={subjectForm.control}
             name="lecturer"
-            label="Lecturer / Teacher"
-            placeholder="Select a teacher (optional)"
-            options={teachers.map((t) => ({ label: t.name, value: t._id }))}
+            label="Subject Lecturer"
+            placeholder="Select a teacher from course department (optional)"
+            options={subjectTeacherOptions}
             loading={loadingTeachers}
           />
 

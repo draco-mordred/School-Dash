@@ -236,11 +236,11 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
     teacher: "Teacher",
     student: "Student",
     parent: "Parent",
-    unit_consultant: "Unit Consultant",
-    unit_resident: "Unit Resident",
+    unitconsultant: "Unit Consultant",
+    unitresident: "Unit Resident",
   };
 
-  const allRoles = ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"] as const;
+  const allRoles = ["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"] as const;
   const roleOptions = (() => {
     if (isUpdate && user?.role === "admin") {
       return allRoles.map((r) => ({ label: roleDisplayMap[r] ?? r, value: r }));

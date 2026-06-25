@@ -1,5 +1,5 @@
 import { useAuth } from "@/hooks/useAuth";
-import { Navigate, Outlet, useLocation } from "react-router";
+import { Navigate, Outlet } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
@@ -7,7 +7,7 @@ import AppShell from "@/components/layout/AppShell";
 
 const PrivateRoutes = () => {
   const { loading, user, year } = useAuth();
-  const location = useLocation();
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
 
   if (loading) {
     return (
@@ -26,7 +26,7 @@ const PrivateRoutes = () => {
     if (user.role === "admin") {
       // CRITICAL: Only redirect if they are NOT ALREADY on the settings page.
       // If we don't check this, it causes an infinite loop (Blank Page).
-      if (location.pathname !== "/settings/academic-years") {
+      if (pathname !== "/settings/academic-years") {
         return <Navigate to="/settings/academic-years" replace />;
       }
 

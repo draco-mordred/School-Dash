@@ -9,15 +9,15 @@ import UserDialog from "@/components/users/UserDialog";
 import type { user, UserRole } from "@/types";
 import { Pencil, Plus, ChevronDown, ChevronRight, Users } from "lucide-react";
 
-const roleOrder: UserRole[] = ["admin", "teacher", "student", "parent", "unit_consultant", "unit_resident"];
+const roleOrder: UserRole[] = ["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"];
 
 const roleDisplayName: Record<UserRole, string> = {
   admin: "Admin",
   teacher: "Teacher",
   student: "Student",
   parent: "Parent",
-  unit_consultant: "Unit Consultant",
-  unit_resident: "Unit Resident",
+  unitconsultant: "Unit Consultant",
+  unitresident: "Unit Resident",
 };
 
 const roleIcon: Record<UserRole, string> = {
@@ -25,8 +25,8 @@ const roleIcon: Record<UserRole, string> = {
   teacher: "👨‍🏫",
   student: "👨‍🎓",
   parent: "👨‍👩‍👧",
-  unit_consultant: "🏥",
-  unit_resident: "🏥",
+  unitconsultant: "🏥",
+  unitresident: "🏥",
 };
 
 function canEditUser(currentUser: user | null, targetUser: user) {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Menu, X, Stethoscope, Search, Bell } from "lucide-react";
-import { Link } from "react-router";
+import { Link } from "react-router-dom";
  
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);

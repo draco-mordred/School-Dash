@@ -14,7 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Link } from "react-router";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 export function NavMainMini({

@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router"; // Keeping your requested import
+import { createBrowserRouter } from "react-router-dom";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -8,6 +8,7 @@ import Dashboard from "@/pages/Dashboard";
 import ActivitiesLog from "@/pages/ActivitiesLog";
 import AcademicYear from "@/pages/settings/academic-year";
 import RolesPage from "@/pages/settings/Roles";
+import SchoolSettings from "@/pages/settings/General";
 import UserManagementPage from "@/pages/users";
 import Classes from "@/pages/academics/Classes";
 import { Subjects } from "@/pages/academics/Subjects";
@@ -101,7 +102,7 @@ export const router = createBrowserRouter([
             path: "users/unit-consultants",
             element: (
               <UserManagementPage
-                role="unit_consultant"
+                role="unitconsultant"
                 title="Unit Consultants"
                 description="Manage Unit Consultants."
               />
@@ -111,7 +112,7 @@ export const router = createBrowserRouter([
             path: "users/unit-residents",
             element: (
               <UserManagementPage
-                role="unit_resident"
+                role="unitresident"
                 title="Unit Residents"
                 description="Manage Unit Residents."
               />
@@ -230,6 +231,10 @@ export const router = createBrowserRouter([
           {
             path: "notifications",
             element: <Notifications />,
+          },
+          {
+            path: "settings/general",
+            element: <SchoolSettings />,
           },
           {
             path: "settings/roles",

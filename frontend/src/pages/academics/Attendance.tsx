@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { Class, courses } from "@/types";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 
 import {
   Card,

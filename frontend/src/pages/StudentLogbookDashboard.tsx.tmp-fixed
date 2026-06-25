@@ -89,9 +89,11 @@ export default function StudentLogbookDashboard() {
 
       setEntries(mappedEntries.filter((e) => e.status !== "draft"));
       setPendingApprovals(mappedEntries.filter((e) => e.status === "submitted"));
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      const msg = e.response?.data?.message;
       console.error("Failed to fetch logbook data:", err);
-      setError(err.response?.data?.message || "Failed to load logbook data");
+      setError(msg || "Failed to load logbook data");
     } finally {
       setLoading(false);
     }
@@ -114,7 +116,6 @@ export default function StudentLogbookDashboard() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold">Clinical Logbook</h1>
@@ -126,7 +127,6 @@ export default function StudentLogbookDashboard() {
         </Button>
       </div>
 
-      {/* Error Alert */}
       {error && (
         <Card className="border-destructive">
           <CardHeader>
@@ -141,7 +141,6 @@ export default function StudentLogbookDashboard() {
         </Card>
       )}
 
-      {/* Statistics */}
       {stats && (
         <div className="grid gap-4 md:grid-cols-5">
           <Card>
@@ -211,7 +210,6 @@ export default function StudentLogbookDashboard() {
         </div>
       )}
 
-      {/* Pending Approvals */}
       {pendingApprovals.length > 0 && (
         <Card>
           <CardHeader>
@@ -224,7 +222,10 @@ export default function StudentLogbookDashboard() {
           <CardContent>
             <div className="space-y-3">
               {pendingApprovals.map((entry) => (
-                <div key={entry._id} className="flex items-start justify-between p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950/20">
+                <div
+                  key={entry._id}
+                  className="flex items-start justify-between p-3 border rounded-lg bg-yellow-50 dark:bg-yellow-950/20"
+                >
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{entry.activity}</p>
@@ -244,7 +245,6 @@ export default function StudentLogbookDashboard() {
         </Card>
       )}
 
-      {/* Recent Entries */}
       {entries.length > 0 && (
         <Card>
           <CardHeader>
@@ -257,8 +257,16 @@ export default function StudentLogbookDashboard() {
             <div className="space-y-3 max-h-96 overflow-y-auto">
               {entries.map((entry) => {
                 const statusConfig = {
-                  approved: { color: "bg-green-50 dark:bg-green-950/20", badge: "success", icon: CheckCircle },
-                  rejected: { color: "bg-red-50 dark:bg-red-950/20", badge: "destructive", icon: AlertCircle },
+                  approved: {
+                    color: "bg-green-50 dark:bg-green-950/20",
+                    badge: "success",
+                    icon: CheckCircle,
+                  },
+                  rejected: {
+                    color: "bg-red-50 dark:bg-red-950/20",
+                    badge: "destructive",
+                    icon: AlertCircle,
+                  },
                   draft: { color: "bg-gray-50 dark:bg-gray-950/20", badge: "secondary", icon: null },
                 };
 
@@ -269,7 +277,10 @@ export default function StudentLogbookDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <p className="font-medium">{entry.activity}</p>
-                        <Badge variant="outline" className={config.badge === "success" ? "text-green-700 border-green-300" : ""}>
+                        <Badge
+                          variant="outline"
+                          className={config.badge === "success" ? "text-green-700 border-green-300" : ""}
+                        >
                           {entry.status.charAt(0).toUpperCase() + entry.status.slice(1)}
                         </Badge>
                       </div>
@@ -294,7 +305,6 @@ export default function StudentLogbookDashboard() {
         </Card>
       )}
 
-      {/* Empty State */}
       {entries.length === 0 && pendingApprovals.length === 0 && (
         <Card>
           <CardHeader>
@@ -312,3 +322,4 @@ export default function StudentLogbookDashboard() {
     </div>
   );
 }
+

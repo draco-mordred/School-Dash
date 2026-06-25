@@ -28,7 +28,7 @@ router.get("/", protect, authorize(["admin", "teacher"]), listActivityEntries);
  * GET /activity-entries/pending
  * Get pending entries for the authenticated staff member (staff only)
  */
-router.get("/pending", protect, authorize(["unit_consultant", "unit_resident"]), getPendingEntries);
+router.get("/pending", protect, authorize(["unitconsultant", "unitresident"]), getPendingEntries);
 
 /**
  * GET /activity-entries/:entryId
@@ -46,12 +46,12 @@ router.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
  * POST /activity-entries/:entryId/approve
  * Approve an activity entry (staff sign-off)
  */
-router.post("/:entryId/approve", protect, authorize(["unit_consultant", "unit_resident"]), approveActivityEntry);
+router.post("/:entryId/approve", protect, authorize(["unitconsultant", "unitresident"]), approveActivityEntry);
 
 /**
  * POST /activity-entries/:entryId/reject
  * Reject an activity entry
  */
-router.post("/:entryId/reject", protect, authorize(["unit_consultant", "unit_resident"]), rejectActivityEntry);
+router.post("/:entryId/reject", protect, authorize(["unitconsultant", "unitresident"]), rejectActivityEntry);
 
 export default router;

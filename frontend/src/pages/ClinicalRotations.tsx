@@ -27,7 +27,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { useNavigate } from "react-router";
+import { useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -353,8 +353,8 @@ export default function ClinicalRotations() {
 
   const isAdmin = user?.role === "admin";
   const isTeacher = user?.role === "teacher";
-  const isConsultant = user?.role === "unit_consultant";
-  const isResident = user?.role === "unit_resident";
+  const isConsultant = user?.role === "unitconsultant";
+  const isResident = user?.role === "unitresident";
   const canCreate = isAdmin || isTeacher || isConsultant || isResident;
   const canGenerateSchedule = isAdmin || isTeacher;
 

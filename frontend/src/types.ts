@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident";
+export type UserRole = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
 
 export interface pagination {
   total: number;
@@ -50,6 +50,14 @@ export interface courses {
   code: string; // "MATH101"
   lecturer?: { _id: string; name: string; email?: string }[]; // Teachers taking this course
   isActive: boolean; // Indicates if the subject is currently active
+}
+
+export interface department {
+  _id: string;
+  name: string;
+  code: string;
+  departmentID: string;
+  head?: { _id: string; name?: string } | string | null;
 }
 
 export interface question {

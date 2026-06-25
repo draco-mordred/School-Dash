@@ -196,8 +196,8 @@ export default function LogbookEntries() {
   const isAdmin = user?.role === "admin";
   const isTeacher = user?.role === "teacher";
   const isStudent = user?.role === "student";
-  const isConsultant = user?.role === "unit_consultant";
-  const isResident = user?.role === "unit_resident";
+  const isConsultant = user?.role === "unitconsultant";
+  const isResident = user?.role === "unitresident";
   const canCreate = isAdmin || isTeacher || isStudent || isConsultant || isResident;
 
   const dayCount = (entry: LogbookEntry, key: keyof LogbookEntry) => {

@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
   Home,
