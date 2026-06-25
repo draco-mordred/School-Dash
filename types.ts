@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "teacher" | "student" | "parent" | "unit_consultant" | "unit_resident";
+export type UserRole = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
 
 export interface pagination {
   total: number;

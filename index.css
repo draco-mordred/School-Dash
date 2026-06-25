@@ -346,6 +346,7 @@
 
 /* Hide all scrollbars */
 * {
+  -webkit-scrollbar-width: none;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -356,8 +357,8 @@
 /* Smooth transform utility to hint browser for GPU acceleration */
 .smooth-transform {
   will-change: transform;
-  backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   transform: translateZ(0);
 }
 
@@ -405,11 +406,16 @@ input[data-slot="input"]:focus {
 /* Glassmorphism card style */
 .glass-card {
   background: rgba(255,255,255,0.12);
-  backdrop-filter: blur(8px) saturate(120%);
   -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(8px) saturate(120%);
   border: 1px solid rgba(255,255,255,0.12);
 }
 .dark .glass-card {
   background: rgba(17,24,39,0.36);
   border: 1px solid rgba(255,255,255,0.06);
+}
+
+[data-slot='sidebar-header'] {
+  padding: 2px 2px 2px 2px;
+  height: 140px;
 }
