@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Home,
   School,
-  LayoutDashboard,
   GraduationCap,
   BookOpen,
   CalendarDays,
@@ -11,6 +10,11 @@ import {
   Users,
   Banknote,
   Settings2,
+  Shield,
+  Stethoscope,
+  BarChart3,
+  MessageSquare,
+  CheckSquare,
 } from "lucide-react";
 
 export interface NavItem {
@@ -34,22 +38,160 @@ export const sidebardata = {
     },
   ],
   navMain: [
+    // ═══════════════════════════════════════════════════════════════
+    // ADMIN ONLY MODULES (12 main sections)
+    // ═══════════════════════════════════════════════════════════════
+    {
+      title: "Dashboard",
+      url: "/dashboard",
+      icon: Home,
+      roles: ["admin"],
+    },
+    {
+      title: "Users",
+      url: "/users",
+      icon: Users,
+      roles: ["admin"],
+      items: [
+        { title: "User Management", url: "/users", roles: ["admin"] },
+        { title: "Students", url: "/users/students", roles: ["admin"] },
+        { title: "Parents", url: "/users/parents", roles: ["admin"] },
+        { title: "Teachers", url: "/users/teachers", roles: ["admin"] },
+        { title: "Unit Consultants", url: "/users/unit-consultants", roles: ["admin"] },
+        { title: "Unit Residents", url: "/users/unit-residents", roles: ["admin"] },
+        { title: "Staff", url: "/users/staff", roles: ["admin"] },
+        { title: "Administrators", url: "/users/admins", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Academics",
+      url: "#",
+      icon: GraduationCap,
+      roles: ["admin"],
+      items: [
+        { title: "Sessions", url: "/settings/academic-years", roles: ["admin"] },
+        { title: "Semesters", url: "/classes", roles: ["admin"] },
+        { title: "Classes", url: "/classes", roles: ["admin"] },
+        { title: "Courses", url: "/courses", roles: ["admin"] },
+        { title: "Subjects", url: "/subjects", roles: ["admin"] },
+        { title: "Academic Calendar", url: "/timetable", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Clinicals",
+      url: "#",
+      icon: Stethoscope,
+      roles: ["admin"],
+      items: [
+        { title: "Postings", url: "/clinical-rotations", roles: ["admin"] },
+        { title: "Departments", url: "/departments", roles: ["admin"] },
+        { title: "Units", url: "/units", roles: ["admin"] },
+        { title: "Rotation Teams", url: "/clinical-rotations", roles: ["admin"] },
+        { title: "Clinical Calendar", url: "/rotation-schedules", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Timetables",
+      url: "#",
+      icon: CalendarDays,
+      roles: ["admin"],
+      items: [
+        { title: "Schedules", url: "/timetable", roles: ["admin"] },
+        { title: "Academic Calendar", url: "/timetable/calendar", roles: ["admin"] },
+        { title: "Dates and Events", url: "/timetable/events", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Assessments",
+      url: "#",
+      icon: ClipboardList,
+      roles: ["admin"],
+      items: [
+        { title: "C.A. Tests", url: "/lms/exams", roles: ["admin"] },
+        { title: "Examinations", url: "/lms/exams/main", roles: ["admin"] },
+        { title: "Clinical Assessments", url: "/lms/exams/clinical", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Attendance",
+      url: "#",
+      icon: CheckSquare,
+      roles: ["admin"],
+      items: [
+        { title: "Lecture Attendance", url: "/attendance", roles: ["admin"] },
+        { title: "Clinical Attendance", url: "/attendance/clinical", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Logbooks",
+      url: "#",
+      icon: BookOpen,
+      roles: ["admin"],
+      items: [
+        { title: "Students Logbook Submission", url: "/logbook-entries", roles: ["admin"] },
+        { title: "Staff Logbook Approvals", url: "/logbook-entries/approvals", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Announcements",
+      url: "#",
+      icon: MessageSquare,
+      roles: ["admin"],
+      items: [
+        { title: "Admin Profile Notifications", url: "/notifications", roles: ["admin"] },
+        { title: "System Notifications", url: "/notifications/system", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Reports & Analytics",
+      url: "#",
+      icon: BarChart3,
+      roles: ["admin"],
+      items: [
+        { title: "Activities Logs", url: "/activities-log", roles: ["admin"] },
+        { title: "System Alerts", url: "/reports/system-alerts", roles: ["admin"] },
+        { title: "Priorities and Problems", url: "/reports/priorities", roles: ["admin"] },
+        { title: "Global Feedback & Complaints", url: "/reports/feedback", roles: ["admin"] },
+      ],
+    },
+    {
+      title: "Audit Logs",
+      url: "/audit-logs",
+      icon: Shield,
+      roles: ["admin"],
+    },
+    {
+      title: "Settings",
+      url: "#",
+      icon: Settings2,
+      roles: ["admin"],
+      items: [
+        { title: "School Settings", url: "/settings/general", roles: ["admin"] },
+        { title: "Academic Year Settings", url: "/settings/academic-years", roles: ["admin"] },
+        { title: "Roles & Permissions", url: "/settings/roles", roles: ["admin"] },
+        { title: "Admin Account/Profile", url: "/settings/account", roles: ["admin"] },
+      ],
+    },
+
+    // ═══════════════════════════════════════════════════════════════
+    // NON-ADMIN MODULES
+    // ═══════════════════════════════════════════════════════════════
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: Home,
       isActive: true,
-      roles: ["admin", "teacher", "student", "parent"],
+      roles: ["teacher", "student", "parent"],
       items: [
         {
           title: "Dashboard",
           url: "/dashboard",
-          roles: ["admin", "teacher", "student", "parent"],
+          roles: ["teacher", "student", "parent"],
         },
         {
           title: "Activities Log",
           url: "/activities-log",
-          roles: ["admin"],
+          roles: ["teacher"],
         },
       ],
     },
@@ -57,10 +199,10 @@ export const sidebardata = {
       title: "Academics",
       url: "#",
       icon: School,
-      roles: ["admin", "teacher"],
+      roles: ["teacher"],
       items: [
-        { title: "Classes", url: "/classes", roles: ["admin", "teacher"] },
-        { title: "Courses", url: "/courses", roles: ["admin", "teacher"] },
+        { title: "Classes", url: "/classes", roles: ["teacher"] },
+        { title: "Courses", url: "/courses", roles: ["teacher"] },
         { title: "Timetable", url: "/timetable" },
         { title: "Attendance", url: "/attendance" },
         { title: "Exams", url: "/lms/exams" },
@@ -174,21 +316,16 @@ export const sidebardata = {
       title: "People",
       url: "#",
       icon: Users,
-      roles: ["admin", "teacher"],
+      roles: ["teacher"],
       items: [
-        { title: "Students", url: "/users/students" },
-        { title: "Teachers", url: "/users/teachers", roles: ["admin"] },
-        { title: "Parents", url: "/users/parents", roles: ["admin"] },
-        { title: "Admins", url: "/users/admins", roles: ["admin"] },
-        { title: "Unit Consultants", url: "/users/unit-consultants", roles: ["admin"] },
-        { title: "Unit Residents", url: "/users/unit-residents", roles: ["admin"] },
+        { title: "Students", url: "/users/students", roles: ["teacher"] },
       ],
     },
     {
       title: "Finance",
       url: "#",
       icon: Banknote,
-      roles: ["admin"],
+      roles: ["teacher"],
       items: [
         { title: "Fee Collection", url: "/finance/fees" },
         { title: "Expenses", url: "/finance/expenses" },
@@ -199,7 +336,7 @@ export const sidebardata = {
       title: "System",
       url: "#",
       icon: Settings2,
-      roles: ["admin"],
+      roles: ["teacher"],
       items: [
         { title: "Notifications", url: "/notifications" },
         { title: "School Settings", url: "/settings/general" },

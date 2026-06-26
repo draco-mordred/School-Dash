@@ -212,7 +212,11 @@ export const DEPARTMENT_UNITS: Partial<Record<DepartmentName, DepartmentUnitsDat
         { id: "PAE08", name: "Paediatric Endocrinology" },
         { id: "PAE09", name: "Paediatric Hemato-Oncology" },
       ],
-      reserve: [{ id: "PAER01", name: "General Paediatrics" }],
+      reserve: [
+        { 
+          id: "PAER01", name: "General Paediatrics" 
+        }
+      ],
       history: [],
     },
   },

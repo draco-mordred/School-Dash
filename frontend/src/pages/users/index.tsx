@@ -1,18 +1,23 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import type { pagination, user, UserRole } from "@/types";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
 import { useAuth } from "@/hooks/useAuth";
+import { StudentsList } from "@/components/admin/users/StudentsList";
+import { UsersList } from "@/components/admin/users/UsersList";
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Upload } from "lucide-react";
+import { Plus, Upload, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import UserTable from "@/components/users/UserTable";
 import UserDialog from "@/components/users/UserDialog";
 import BulkUploadDialog from "@/components/users/BulkUploadDialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Props {
   role: UserRole;
@@ -25,6 +30,11 @@ export default function UserManagementPage({
   description,
 }: Props) {
   const { user: authUser } = useAuth();
+  
+  // Admin user management
+  const [activeTab, setActiveTab] = useState("students");
+  
+  // Regular user management
   const [users, setUsers] = useState<user[]>([]);
   const [currentParent, setCurrentParent] = useState<user | null>(null);
   const [loading, setLoading] = useState(true);
@@ -171,31 +181,199 @@ export default function UserManagementPage({
     }
   };
 
+  const mappedStudents = users.map((user) => ({
+    id: user._id,
+    name: user.name,
+    matricNumber: user.idNumber ?? "—",
+    class: typeof user.studentClasses === "object" && user.studentClasses !== null
+      ? user.studentClasses.name
+      : "Unassigned",
+    currentPosting: undefined,
+    attendancePercentage: 0,
+    status: user?.role === "student" && user?.email ? "active" : "inactive",
+    email: user.email,
+  }));
+
   return (
     <div id={`page-users-${role}`} className="p-6 space-y-6">
-      <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight capitalize">
-            {title}
-          </h1>
-          <p className="text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex gap-2">
-          <Search search={search} setSearch={setSearch} title={`${role}s`} />
-          {authUser?.role === "admin" && (
-            <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" /> Bulk Upload
-            </Button>
-          )}
-          {authUser?.role !== "parent" && (
-            <Button onClick={handleCreate}>
-              <Plus className="mr-2 h-4 w-4" /> Add{" "}
-              {role.charAt(0).toUpperCase() + role.slice(1)}
-            </Button>
-          )}
-        </div>
-      </div>
+      {authUser?.role === "admin" && role === "student" && title === "Students" && (
+        <>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Students</h1>
+            <p className="text-muted-foreground mt-2">
+              Manage all students, their classes, and academic records.
+            </p>
+          </div>
 
+          <StudentsList
+            students={mappedStudents}
+            loading={loading}
+            currentPage={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            onBulkUpload={() => setIsBulkUploadOpen(true)}
+          />
+
+          <BulkUploadDialog
+            open={isBulkUploadOpen}
+            setOpen={setIsBulkUploadOpen}
+            role="student"
+            onSuccess={fetchUsers}
+          />
+        </>
+      )}
+
+      {/* ADMIN USER MANAGEMENT VIEW */}
+      {authUser?.role === "admin" && role === "student" && title !== "Students" && (
+        <>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
+            <p className="text-muted-foreground mt-2">
+              Manage all users including students, parents, staff, and administrators
+            </p>
+          </div>
+
+          {/* Error Alert */}
+          {adminError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{adminError}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Overview Cards */}
+          <UserOverviewCards stats={adminUsers.stats} loading={adminLoading} />
+
+          {/* Users Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="students" className="relative">
+                Students
+                <Badge variant="secondary" className="ml-2">
+                  {adminUsers.stats.students}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="parents" className="relative">
+                Parents
+                <Badge variant="secondary" className="ml-2">
+                  {adminUsers.stats.parents}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="staff" className="relative">
+                Staff
+                <Badge variant="secondary" className="ml-2">
+                  {adminUsers.stats.staff}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="admins" className="relative">
+                Admins
+                <Badge variant="secondary" className="ml-2">
+                  {adminUsers.stats.administrators}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Students Tab */}
+            <TabsContent value="students" className="space-y-4">
+              <StudentsList students={adminUsers.students} loading={adminLoading} />
+            </TabsContent>
+
+            {/* Parents Tab */}
+            <TabsContent value="parents" className="space-y-4">
+              <UsersList
+                title="Parents Directory"
+                users={adminUsers.parents}
+                columns={[
+                  {
+                    key: "studentsCount",
+                    label: "Students",
+                    render: (user, value) => <span>{value}</span>,
+                  },
+                ]}
+                loading={adminLoading}
+                navigationPath="/users/parents"
+              />
+            </TabsContent>
+
+            {/* Staff Tab */}
+            <TabsContent value="staff" className="space-y-4">
+              <UsersList
+                title="Staff Directory"
+                users={adminUsers.staff}
+                columns={[
+                  {
+                    key: "department",
+                    label: "Department",
+                    render: (user, value) => <span>{value}</span>,
+                  },
+                  {
+                    key: "roles",
+                    label: "Roles",
+                    render: (user, value) => (
+                      <div className="flex flex-wrap gap-1">
+                        {Array.isArray(value) && value.length > 0 ? (
+                          value.map((role: string) => (
+                            <Badge key={role} variant="outline" className="text-xs">
+                              {role.replace(/_/g, " ")}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-sm">No roles assigned</span>
+                        )}
+                      </div>
+                    ),
+                  },
+                ]}
+                loading={adminLoading}
+                navigationPath="/users/staff"
+              />
+            </TabsContent>
+
+            {/* Administrators Tab */}
+            <TabsContent value="admins" className="space-y-4">
+              <UsersList
+                title="Administrators Directory"
+                users={adminUsers.administrators}
+                columns={[
+                  {
+                    key: "role",
+                    label: "Role",
+                    render: (user, value) => <Badge variant="secondary">{value}</Badge>,
+                  },
+                ]}
+                loading={adminLoading}
+                navigationPath="/users/admins"
+              />
+            </TabsContent>
+          </Tabs>
+        </>
+      )}
+
+      {/* REGULAR USER MANAGEMENT VIEW */}
+      {!(authUser?.role === "admin" && role === "student") && (
+        <>
+          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight capitalize">
+                {title}
+              </h1>
+              <p className="text-muted-foreground">{description}</p>
+            </div>
+            <div className="flex gap-2">
+              <Search search={search} setSearch={setSearch} title={`${role}s`} />
+              {authUser?.role === "admin" && (
+                <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" /> Bulk Upload
+                </Button>
+              )}
+              {authUser?.role !== "parent" && (
+                <Button onClick={handleCreate}>
+                  <Plus className="mr-2 h-4 w-4" /> Add{" "}
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </Button>
+              )}
+            </div>
+          </div>
       {authUser?.role === "parent" && role === "parent" && (
         <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
           <Card>
@@ -294,6 +472,8 @@ export default function UserManagementPage({
         role={role}
         onSuccess={fetchUsers}
       />
+        </>
+      )}
     </div>
   );
 }

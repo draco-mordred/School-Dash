@@ -419,3 +419,7 @@ input[data-slot="input"]:focus {
   padding: 2px 2px 2px 2px;
   height: 140px;
 }
+
+main#app-main div {
+      margin: 10px 10px 5px 25px;
+}

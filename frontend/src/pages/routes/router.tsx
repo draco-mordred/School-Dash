@@ -28,6 +28,8 @@ import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleD
 import Approvals from "@/pages/Approvals";
 import Reflections from "@/pages/Reflections";
 import ClinicalActivities from "@/pages/ClinicalActivities";
+import AdminDepartments from "@/pages/admin/AdminDepartments";
+import AdminUnits from "@/pages/admin/AdminUnits";
 import StaffApprovals from "@/pages/StaffApprovals";
 
 import Exams from "@/pages/lms/Exams";
@@ -59,6 +61,16 @@ export const router = createBrowserRouter([
           { path: "activities-log", element: <ActivitiesLog /> },
           { path: "settings/academic-years", element: <AcademicYear /> },
           {
+            path: "users",
+            element: (
+              <UserManagementPage
+                role="student"
+                title="User Management"
+                description="Manage all user role accounts."
+              />
+            ),
+          },
+          {
             path: "users/students",
             element: (
               <UserManagementPage
@@ -75,6 +87,16 @@ export const router = createBrowserRouter([
                 role="teacher"
                 title="Teachers"
                 description="Manage teaching staff."
+              />
+            ),
+          },
+          {
+            path: "users/staff",
+            element: (
+              <UserManagementPage
+                role="teacher"
+                title="Staff"
+                description="Manage staff users including teachers, unit residents, and unit consultants."
               />
             ),
           },
@@ -209,6 +231,14 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations",
             element: <ClinicalRotations />,
+          },
+          {
+            path: "departments",
+            element: <AdminDepartments />,
+          },
+          {
+            path: "units",
+            element: <AdminUnits />,
           },
           {
             path: "clinical-activities",

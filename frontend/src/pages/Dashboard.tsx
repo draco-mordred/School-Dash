@@ -25,6 +25,13 @@ import { Badge } from "@/components/ui/badge";
 import { useNotifications } from "@/hooks/useNotifications";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { useAdminDashboard } from "@/hooks/useAdminDashboard";
+import { KPICards } from "@/components/admin/dashboard/KPICards";
+import { Snapshots } from "@/components/admin/dashboard/Snapshots";
+import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlerts";
+import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
+import { QuickActions } from "@/components/admin/dashboard/QuickActions";
+import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
 
 function NotificationsCard() {
   const navigate = useNavigate();
@@ -139,6 +146,10 @@ const roleBadgeVariant = (role: string): "default" | "secondary" | "destructive"
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  
+  // Admin dashboard data
+  const { data: adminDashboardData, loading: adminLoading } = useAdminDashboard();
+  
   const [loading, setLoading] = useState(true);
   const [roleStats, setRoleStats] = useState<RoleStat[]>([]);
   const [classStatuses, setClassStatuses] = useState<ClassStatus[]>([]);
@@ -352,6 +363,46 @@ export default function Dashboard() {
           <Skeleton className="h-72 lg:col-span-3 rounded-xl" />
           <Skeleton className="h-72 lg:col-span-2 rounded-xl" />
         </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // ADMIN DASHBOARD — Specialized view for admin users
+  // ═══════════════════════════════════════════════════════════════
+  if (isAdmin && adminDashboardData) {
+    return (
+      <div className="flex-1 space-y-6 p-6">
+        {/* Page Header */}
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Institutional Operations Center</h1>
+          <p className="text-muted-foreground mt-2">
+            {new Date().toLocaleDateString("en-NG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          </p>
+        </div>
+
+        {/* KPI Cards */}
+        <KPICards stats={adminDashboardData.stats} loading={adminLoading} />
+
+        {/* Academic & Clinical Snapshots */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Snapshots.Academic loading={adminLoading} />
+          <Snapshots.Clinical loading={adminLoading} />
+        </div>
+
+        {/* Operational Alerts */}
+        <OperationalAlerts alerts={adminDashboardData?.alerts ?? []} loading={adminLoading} />
+
+        {/* Activity Feed & Quick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <RecentActivityFeed activities={adminDashboardData?.activities ?? []} loading={adminLoading} />
+          </div>
+          <QuickActions />
+        </div>
+
+        {/* Analytics Widgets */}
+        <AnalyticsWidgets />
       </div>
     );
   }
