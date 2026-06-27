@@ -57,6 +57,8 @@ interface UsersListProps {
   }>;
   loading?: boolean;
   onSelectUser?: (userId: string) => void;
+  onViewUser?: (userId: string) => void;
+  onEditUser?: (userId: string) => void;
   navigationPath?: string;
 }
 
@@ -232,7 +234,8 @@ export function UsersList({
                           <DropdownMenuItem
                             onClick={() => {
                               onSelectUser?.(user.id);
-                              if (navigationPath) {
+                              onViewUser?.(user.id);
+                              if (!onViewUser && navigationPath) {
                                 navigate(`${navigationPath}/${user.id}`);
                               }
                             }}
@@ -240,7 +243,14 @@ export function UsersList({
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              onEditUser?.(user.id);
+                              if (!onEditUser && navigationPath) {
+                                navigate(`${navigationPath}/${user.id}/edit`);
+                              }
+                            }}
+                          >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </DropdownMenuItem>

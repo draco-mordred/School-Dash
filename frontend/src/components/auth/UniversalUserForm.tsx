@@ -210,8 +210,12 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
         await api.post("/users/register", payload);
         toast.success("Account created successfully!");
         if (onSuccess) onSuccess();
-      } else if (type === "update" && initialData?._id) {
-        await api.patch(`/users/update/${initialData._id}`, payload);
+      } else if (type === "update" && initialData) {
+        const userId = (initialData as any)._id || (initialData as any).id;
+        if (!userId) {
+          throw new Error("Missing user id for update");
+        }
+        await api.patch(`/users/update/${userId}`, payload);
         toast.success("User updated successfully");
         if (onSuccess) onSuccess();
       }

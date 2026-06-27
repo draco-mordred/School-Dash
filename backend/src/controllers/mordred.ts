@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import mongoose from "mongoose";
 import MordredMessage from "../models/mordredMessenger";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai"; // Vercel AI SDK helper for structured schemas
@@ -216,11 +217,12 @@ export const dynamicAIInsights = async (
     }).limit(2).select("name attendance_percentage department");
 
     for (const student of lowAttendanceStudents) {
+      const attendanceClinical = (student as any).attendance_percentage?.clinical ?? "unknown";
       dynamicInsights.push({
         id: student._id.toString(),
         type: "WARNING",
         targetUser: "Clinical Coordinators",
-        message: `Attendance Alert: ${student.name}'s clinical attendance in ${student.department || "Wards"} has dropped to ${student.attendance_percentage?.clinical}%. Action required.`,
+        message: `Attendance Alert: ${student.name}'s clinical attendance in ${student.department || "Wards"} has dropped to ${attendanceClinical}%. Action required.`,
         timestamp: "Calculated Recently"
       });
     }
@@ -228,9 +230,9 @@ export const dynamicAIInsights = async (
     // Insight 3: Dynamic Check for any Lectures marked as unattended or missing logs
     // Look for records where the date passed but no check-in exists or completion flag is false
     const missedRotationsCount = await Attendance.countDocuments({
-      status: "ABSENT",
+      status: "absent",
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Past 24 hours
-    });
+    } as any);
 
     if (missedRotationsCount > 0) {
       dynamicInsights.push({

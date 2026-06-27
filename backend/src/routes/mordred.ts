@@ -18,29 +18,6 @@ mordredAIRouter.post(
 // Note: Replace <token> with your actual token.
 // Make sure to include the correct token in the Authorization header to authenticate the request.
 
-// Test endpoint Mocking MORDRED AI instant response behavior
-mordredAIRouter.post(
-  "/chat", 
-  (
-    req, 
-    res
-  ) => {
-  const { message } = req.body;
-  
-  // Quick logic rule emulation to verify parsing behavior
-  if (message.toLowerCase().includes("attendance")) {
-    return res.status(200).json({
-      sender: "mordred_ai",
-      reply: "System notice: I see an attendance query. Use your mobile geolocation service to verify ward placement boundaries."
-    });
-  }
-
-  return res.status(200).json({
-    sender: "mordred_ai",
-    reply: "I am MORDRED. Your request has been cataloged inside Medlog servers."
-  });
-});
-
 mordredAIRouter.post(
   "/chat/handle", 
   protect,

@@ -657,11 +657,25 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             // Normalize incoming student class value: accept `studentClasses`, `classId`, or an array
             if (req.body.studentClasses !== undefined || req.body.classId !== undefined) {
                 const incoming = req.body.studentClasses !== undefined ? req.body.studentClasses : req.body.classId;
-                const normalized = Array.isArray(incoming) ? (incoming.length ? incoming[0] : undefined) : incoming;
-                user.studentClasses = normalized ?? user.studentClasses;
+                const normalized = Array.isArray(incoming)
+                    ? incoming.length ? incoming[0] : null
+                    : incoming ?? null;
+                user.studentClasses = normalized as any;
             }
-            user.teacherSubject = req.body.teacherSubject || user.teacherSubject;
-            user.parentStudents = req.body.parentStudents || user.parentStudents;
+            if (req.body.teacherSubject !== undefined) {
+                user.teacherSubject = Array.isArray(req.body.teacherSubject)
+                    ? req.body.teacherSubject
+                    : req.body.teacherSubject
+                        ? [req.body.teacherSubject]
+                        : [];
+            }
+            if (req.body.parentStudents !== undefined) {
+                user.parentStudents = Array.isArray(req.body.parentStudents)
+                    ? req.body.parentStudents
+                    : req.body.parentStudents
+                        ? [req.body.parentStudents]
+                        : [];
+            }
             if (req.body.department !== undefined || req.body.departmentId !== undefined) {
                 const deptInput = req.body.departmentId ?? req.body.department;
                 const deptDoc = await findDepartment(deptInput);

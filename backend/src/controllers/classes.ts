@@ -156,15 +156,26 @@ export const updateClass = async (
     }
 
     const currentClass = await ClassModel.findById(classId);
-    const oldStudentIds = (currentClass?.students ?? []).map(String);
-    const newStudentIds = Array.isArray(students) ? students.map(String) : [];
+    if (!currentClass) {
+      return res.status(404).json({ message: "Class not found!" });
+    }
 
+    const oldStudentIds = (currentClass.students ?? []).map(String);
+    const newStudentIds = students === undefined ? oldStudentIds : Array.isArray(students) ? students.map(String) : [];
     const addedStudentIds = newStudentIds.filter((id) => !oldStudentIds.includes(id));
     const removedStudentIds = oldStudentIds.filter((id) => !newStudentIds.includes(id));
 
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (academicYear !== undefined) updateData.academicYear = academicYear;
+    if (classTeacher !== undefined) updateData.classTeacher = classTeacher;
+    if (capacity !== undefined) updateData.capacity = capacity;
+    if (courses !== undefined) updateData.courses = Array.isArray(courses) ? courses : [];
+    if (students !== undefined) updateData.students = newStudentIds;
+
     const updatedClass = await ClassModel.findByIdAndUpdate(
       classId,
-      { name, academicYear, classTeacher, capacity, courses, students: newStudentIds },
+      updateData,
       { returnDocument: "after", runValidators: true }
     );
 

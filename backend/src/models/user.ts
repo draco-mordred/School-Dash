@@ -149,6 +149,10 @@ export interface IUser extends Document {
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
     attendance: mongoose.Types.ObjectId[]; // Array of attendance record IDs
+    attendance_percentage?: {
+        clinical?: number;
+        [key: string]: number | undefined;
+    } | null;
     mordred_rules: {
         max_ticket_capacity: number;
         current_active_load: number;

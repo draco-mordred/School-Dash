@@ -23,6 +23,7 @@ export interface user {
   academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
   // Department role tags for teachers/lecturers
   departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
+  department?: string;
 }
 
 export type AcademicClockPhase = "phase1" | "phase2" | "phase3" | "phase4";

@@ -1,25 +1,106 @@
+import path from "path";
 import { Client, LocalAuth } from "whatsapp-web.js";
-import qrcode from "qrcode-terminal";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const qrcode = require("qrcode-terminal");
 
-// Initialize client with local persistence to avoid re-authenticating on every restart
+const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
+let isGatewayReady = false;
+let gatewayInitialization: Promise<void> | null = null;
+let resolveGatewayReady: (() => void) | null = null;
+let rejectGatewayReady: ((error: Error) => void) | null = null;
+
 const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: "./mordred_whatsapp_session" }),
+  authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
   puppeteer: {
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  }
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process",
+    ],
+  },
 });
 
-// Output setup QR code directly inside terminal shell lines during development checks
+const initializeGateway = async () => {
+  if (gatewayInitialization) return gatewayInitialization;
+
+  gatewayInitialization = new Promise<void>((resolve, reject) => {
+    resolveGatewayReady = resolve;
+    rejectGatewayReady = reject;
+    setTimeout(() => {
+      reject(new Error("WhatsApp gateway initialization timed out."));
+    }, 30000);
+  });
+
+  try {
+    client.initialize();
+  } catch (error: any) {
+    console.error("❌ Failed to initialize MORDRED WhatsApp Gateway:", error.message || error);
+    rejectGatewayReady?.(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  return gatewayInitialization;
+};
+
+const recoverGateway = async (reason: string) => {
+  console.warn(`⚠️ MORDRED WhatsApp Gateway disconnected. Reason: ${reason}`);
+  isGatewayReady = false;
+
+  try {
+    await client.destroy();
+  } catch (destroyError) {
+    console.warn("⚠️ Failed to destroy WhatsApp client cleanly:", destroyError);
+  }
+
+  setTimeout(() => {
+    console.log("🔁 Attempting to restart MORDRED WhatsApp Gateway...");
+    initializeGateway();
+  }, 5000);
+};
+
 client.on("qr", (qr) => {
   console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
   qrcode.generate(qr, { small: true });
 });
 
 client.on("ready", () => {
+  isGatewayReady = true;
   console.log("📡 MORDRED WhatsApp Gateway successfully deployed and online.");
+  resolveGatewayReady?.();
+  resolveGatewayReady = null;
+  rejectGatewayReady = null;
 });
 
-client.initialize();
+client.on("auth_failure", (message) => {
+  isGatewayReady = false;
+  console.error("❌ MORDRED WhatsApp authentication failed:", message);
+});
+
+client.on("disconnected", async (reason) => {
+  await recoverGateway(reason || "unknown");
+});
+
+client.on("change_state", (state) => {
+  console.log(`🔄 MORDRED WhatsApp Gateway state changed: ${state}`);
+});
+
+client.on("error", async (error) => {
+  console.error("❌ MORDRED WhatsApp Gateway internal error:", error?.message || error);
+  if (String(error).includes("Execution context was destroyed")) {
+    await recoverGateway("execution-context-destroyed");
+  }
+});
+
+const ensureGatewayReady = async () => {
+  if (!isGatewayReady) {
+    await initializeGateway();
+  }
+  return isGatewayReady;
+};
 
 /**
  * Sends a message to a direct phone number or accepts a group invite link, matches it, and sends the payload.
@@ -28,29 +109,36 @@ client.initialize();
  */
 export async function sendMordredWhatsAppAlert(target: string, message: string): Promise<boolean> {
   try {
-    // Logic branch evaluation: Is it a group invite URL?
+    await ensureGatewayReady();
+    if (!isGatewayReady) {
+      throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
+    }
+
     if (target.includes("://whatsapp.com")) {
       const inviteCode = target.split("://whatsapp.com/")[1]?.split(" ")[0];
       if (!inviteCode) throw new Error("Invalid WhatsApp Group Link Profile provided.");
-      
-      // MORDRED accepts the link, extracts metadata, joins the target group, and dispatches the alert
+
       const groupId = await client.acceptInvite(inviteCode);
       await client.sendMessage(groupId, message);
       console.log(`💬 MORDRED group broadcast successful.`);
       return true;
     }
 
-    // Standard routing logic fallback for testing directly to your private mobile phone number profile
-    // Formats layout cleanly adding '@c.us' suffix strings required by internal API protocols
     const cleanNumber = target.replace(/[^0-9]/g, "");
+    if (!cleanNumber) throw new Error("Invalid destination phone number.");
     const formattedId = `${cleanNumber}@c.us`;
-    
+
     await client.sendMessage(formattedId, message);
     console.log(`💬 MORDRED individual text message delivered to: ${formattedId}`);
     return true;
 
   } catch (error: any) {
-    console.error("❌ MORDRED WhatsApp Pipeline Exception Error:", error.message);
+    console.error("❌ MORDRED WhatsApp Pipeline Exception Error:", error?.message || error);
+
+    if (String(error?.message || error).includes("Execution context was destroyed")) {
+      await recoverGateway("execution-context-destroyed");
+    }
+
     return false;
   }
 }

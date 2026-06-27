@@ -39,7 +39,6 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 export interface Student {
   id: string;
@@ -59,6 +58,8 @@ interface StudentsListProps {
   totalPages?: number;
   onPageChange?: (page: number) => void;
   onSelectStudent?: (studentId: string) => void;
+  onViewStudent?: (studentId: string) => void;
+  onEditStudent?: (studentId: string) => void;
   onBulkUpload?: () => void;
 }
 
@@ -69,9 +70,10 @@ export function StudentsList({
   totalPages = 1,
   onPageChange,
   onSelectStudent,
+  onViewStudent,
+  onEditStudent,
   onBulkUpload,
 }: StudentsListProps) {
-  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClass, setSelectedClass] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
@@ -276,13 +278,13 @@ export function StudentsList({
                           <DropdownMenuItem
                             onClick={() => {
                               onSelectStudent?.(student.id);
-                              navigate(`/admin/users/students/${student.id}`);
+                              onViewStudent?.(student.id);
                             }}
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             View Details
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => navigate(`/admin/users/students/${student.id}/edit`)}>
+                          <DropdownMenuItem onClick={() => onEditStudent?.(student.id)}>
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                           </DropdownMenuItem>

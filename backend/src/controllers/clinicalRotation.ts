@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import { generate500LevelOgPaeJuniorPostingSchedule } from "../utils/clinicalPostingScheduler";
 // ClinicalRotation model is loaded lazily to avoid module resolution errors during test bootstrapping
 async function loadClinicalRotation() {
   // import the ClinicalRotation model directly
@@ -102,6 +103,42 @@ export const createClinicalRotation = async (req: Request, res: Response) => {
     }
 
     res.status(201).json(rotation);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// @desc    Generate 500-level O&G / Pediatrics clinical posting schedule
+// @route   POST /api/og-ped-rotations/oGPeds-JuniorPosting-Schedule
+// @access  Private (Admin/Teacher)
+export const generate500LevelJuniorOgPaePostingSchedule = async (req: Request, res: Response) => {
+  try {
+    const { classId, postingName, postingStartDate } = req.body;
+    const result = await generate500LevelOgPaeJuniorPostingSchedule({ classId, postingName, postingStartDate });
+
+    if (!result.validation.valid) {
+      return res.status(422).json({ message: "Schedule validation failed", validation: result.validation, schedule: result.schedule });
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Unable to generate posting schedule", error });
+  }
+};
+
+
+export const update500LevelJuniorOgPaePostingSchedule = async (req: Request, res: Response) => {
+  try {
+    const { scheduleId, updates } = req.body;
+    const ClinicalRotation = await loadClinicalRotation();
+    const schedule = await ClinicalRotation.findById(scheduleId);
+    if (!schedule) return res.status(404).json({ message: "Schedule not found" });
+
+    const updatedSchedule = await ClinicalRotation.findByIdAndUpdate(scheduleId, updates, { new: true });
+    return res.status(200).json(updatedSchedule);
+    
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });

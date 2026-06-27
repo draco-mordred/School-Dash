@@ -18,31 +18,29 @@ export function useMordred() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/mordred/chat", {
+      const res = await fetch("/api/mordred/chat/handle", {
         method: "POST",
-  
         headers: { "Content-Type": "application/json" },
-  
-        body: JSON.stringify({ message: text, studentContext: { department } })
-
+        body: JSON.stringify({ message: text, studentContext: { department } }),
       });
- 
+
+      if (!res.ok) {
+        const errorBody = await res.text();
+        console.error("MORDRED chat error", res.status, errorBody);
+        throw new Error(`MORDRED chat failed with status ${res.status}`);
+      }
+
       const data = await res.json();
-
-      // DEBUGGING LOG: Keep this open while testing so you can see exactly what Gemini returns
-
       console.log("⚔️ MORDRED Payload Raw Data:", data);
-      
-      // CRITICAL FIX: Gracefully fall back to data.reply or a system error if 'text' is missing
-
       const validatedText = data.text || data.reply || "MORDRED Engine warning: Communication stream returned an empty response cluster.";
 
-      const aiMsg: Message = { 
-        _id: data._id || String(Date.now() + 1), 
-        sender: "mordred_ai", 
-        text: validatedText, 
-        is_saved: false 
+      const aiMsg: Message = {
+        _id: data._id || String(Date.now() + 1),
+        sender: "mordred_ai",
+        text: validatedText,
+        is_saved: false,
       };
+
       setMessages((prev) => [...prev, aiMsg]);
     } catch (err) {
       console.error(err);
@@ -54,13 +52,16 @@ export function useMordred() {
   const saveMessage = async (messageId: string) => {
     const token = `TOK_${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
     try {
-      const res = await fetch("/api/mordred/save", {
+      const res = await fetch("/api/mordred/save-message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId, uniqueToken: token })
+        body: JSON.stringify({ messageId, uniqueToken: token }),
       });
       if (res.ok) {
         setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, is_saved: true } : m));
+      } else {
+        const errorBody = await res.text();
+        console.error("MORDRED save error", res.status, errorBody);
       }
     } catch (err) {
       console.error(err);

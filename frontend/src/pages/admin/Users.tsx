@@ -5,6 +5,8 @@ import { useUserManagement } from "@/hooks/useUserManagement";
 import { UserOverviewCards } from "@/components/admin/users/UserOverviewCards";
 import { StudentsList } from "@/components/admin/users/StudentsList";
 import { UsersList } from "@/components/admin/users/UsersList";
+import UserDialog from "@/components/users/UserDialog";
+import UserDetailsDialog from "@/components/users/UserDetailsDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -13,6 +15,62 @@ import { Badge } from "@/components/ui/badge";
 export default function UsersPage() {
   const { data, loading, error } = useUserManagement();
   const [activeTab, setActiveTab] = useState("students");
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  const roleMap: Record<string, "admin" | "teacher" | "student" | "parent"> = {
+    students: "student",
+    parents: "parent",
+    staff: "teacher",
+    admins: "admin",
+  };
+
+  const currentRole = roleMap[activeTab] || "student";
+
+  const getAllUsers = () => [
+    ...data.students,
+    ...data.parents,
+    ...data.staff,
+    ...data.administrators,
+  ];
+
+  const findUser = (userId: string) =>
+    getAllUsers().find((user) => user.id === userId || user._id === userId) || null;
+
+  const handleViewUser = (userId: string) => {
+    const user = findUser(userId);
+    if (!user) return;
+    setSelectedUser(user);
+    setIsDetailsOpen(true);
+  };
+
+  const handleEditUser = (userId: string) => {
+    const user = findUser(userId);
+    if (!user) return;
+    setSelectedUser(user);
+    setIsEditOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setIsEditOpen(false);
+    setIsDetailsOpen(false);
+    setSelectedUser(null);
+  };
+
+  const handleCloseEditDialog = (open: boolean) => {
+    if (!open) {
+      setIsEditOpen(false);
+      setSelectedUser(null);
+    }
+  };
+
+  const handleCloseDetailsDialog = (open: boolean) => {
+    if (!open) {
+      setIsDetailsOpen(false);
+      setSelectedUser(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -66,7 +124,12 @@ export default function UsersPage() {
 
         {/* Students Tab */}
         <TabsContent value="students" className="space-y-4">
-          <StudentsList students={data.students} loading={loading} />
+          <StudentsList
+            students={data.students}
+            loading={loading}
+            onViewStudent={handleViewUser}
+            onEditStudent={handleEditUser}
+          />
         </TabsContent>
 
         {/* Parents Tab */}
@@ -83,6 +146,8 @@ export default function UsersPage() {
             ]}
             loading={loading}
             navigationPath="/admin/users/parents"
+            onViewUser={handleViewUser}
+            onEditUser={handleEditUser}
           />
         </TabsContent>
 
@@ -117,6 +182,8 @@ export default function UsersPage() {
             ]}
             loading={loading}
             navigationPath="/admin/users/staff"
+            onViewUser={handleViewUser}
+            onEditUser={handleEditUser}
           />
         </TabsContent>
 
@@ -134,9 +201,23 @@ export default function UsersPage() {
             ]}
             loading={loading}
             navigationPath="/admin/users/admins"
+            onViewUser={handleViewUser}
+            onEditUser={handleEditUser}
           />
         </TabsContent>
       </Tabs>
+      <UserDetailsDialog
+        open={isDetailsOpen}
+        setOpen={handleCloseDetailsDialog}
+        user={selectedUser}
+      />
+      <UserDialog
+        open={isEditOpen}
+        setOpen={handleCloseEditDialog}
+        editingUser={selectedUser}
+        role={selectedUser?.role || currentRole}
+        onSuccess={handleCloseDialog}
+      />
     </div>
   );
 }

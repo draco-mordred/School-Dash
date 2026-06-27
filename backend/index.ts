@@ -21,6 +21,14 @@ dotenv.config();
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
+
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
 app.use(express.json()); // Middleware to parse JSON bodies

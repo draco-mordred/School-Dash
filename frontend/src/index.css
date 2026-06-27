@@ -234,7 +234,6 @@
 
 /* Hide all scrollbars */
 * {
-  scrollbar-width: none;
   -ms-overflow-style: none;
 }
 *::-webkit-scrollbar {
@@ -244,9 +243,13 @@
 /* Smooth transform utility to hint browser for GPU acceleration */
 .smooth-transform {
   will-change: transform;
-  backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
   transform: translateZ(0);
+}
+
+.mordred-panel-transition {
+  will-change: transform, opacity;
 }
 
 /* Bell / notification ring animation used by the AppShell bell */
@@ -305,13 +308,25 @@ input[data-slot="input"]:focus {
 /* Glassmorphism card style */
 .glass-card {
   background: rgba(255,255,255,0.12);
-  backdrop-filter: blur(8px) saturate(120%);
   -webkit-backdrop-filter: blur(8px) saturate(120%);
+  backdrop-filter: blur(8px) saturate(120%);
   border: 1px solid rgba(255,255,255,0.12);
 }
 .dark .glass-card {
   background: rgba(17,24,39,0.36);
   border: 1px solid rgba(255,255,255,0.06);
+}
+
+.mordred-loading-dots span:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.mordred-loading-dots span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.mordred-loading-dots span:nth-child(3) {
+  animation-delay: 300ms;
 }
 
 /* Debug helper: toggle with `document.documentElement.classList.add('debug-visibility-fix')`
@@ -476,21 +491,20 @@ html.dark, .dark {
     display: flex;
    }
 
-   #mordredFloatingBtn{
-        margin: 0px 0px 25px 0px;
+     #mordredFloatingBtn{
+      margin: 0px 0px 25px 0px;
     padding: 5px 2px 3px 2px;
     border-radius: 10px;
-   }
+     }
 
-   #mordredChatContainer{
+     /* Keep a subtle translucent backdrop for the chat container across themes */
+     #mordredChatContainer{
     border: 1px solid var(--border);
-    /* background should be same as the card color but with a 70% opacity and should change with the theme*/
-    background: rgb(26 26 46 / 70%);
-    /* background: rgb(26 26 46 / 71%); */
-    -webkit-backdrop-filter: blur(30px);
-    backdrop-filter: blur(30px);
-   }
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+     }
 
-   #mordredChatBox {
+     #mordredChatBox {
     background: transparent;
-   }
+     }

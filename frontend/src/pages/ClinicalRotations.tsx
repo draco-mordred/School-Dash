@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/table";
 import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
+import PostingScheduleDisplay from "@/components/ClinicalRotations/PostingScheduleDisplay";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
