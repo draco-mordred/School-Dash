@@ -105,4 +105,107 @@ const LogbookEntrySchema = new Schema({
   timestamps: true,
 });
 
-export default mongoose.model<ILogbookEntry>("LogbookEntry", LogbookEntrySchema);
+
+export const StudentLogbookEntryType = {
+  tutorialAndDemonstrations: "tutorialAndDemonstrations",
+  clinicalActivities: "clinicalActivities",
+  clinicalProcedures: "clinicalProcedures",
+  clinicalPatientPresentations: "clinicalPatientPresentations",
+} as const;
+
+export enum studentLogbookEntryType_ {
+  tutorialAndDemonstrations = "tutorialAndDemonstrations",
+  clinicalActivities = "clinicalActivities",
+  clinicalProcedures = "clinicalProcedures",
+  clinicalPatientPresentations = "clinicalPatientPresentations",
+}
+
+export type studentLogbookEntryType = "tutorialAndDemonstrations" | "clinicalActivities" | "clinicalProcedures" | "clinicalPatientPresentations";
+
+export const StudentsLogbookEntryDetails = {
+  tutorialAndDemonstrations: {
+    id: mongoose.Types.ObjectId,
+    topic: String,
+    date: Date,
+    supervisorId: mongoose.Types.ObjectId,
+    signed: Boolean,
+    postingId: mongoose.Types.ObjectId,
+    presenterId: mongoose.Types.ObjectId, //person who presented the tutorial/demonstration
+    mPointScored: (signed: boolean) => signed ? 1 : 0, // Example scoring logic
+  },
+  clinicalActivities: {
+    id: mongoose.Types.ObjectId,
+    activity: String, //e.g., "Ward Round", "Clinic", "Theatre"
+    date: Date,
+    supervisorId: mongoose.Types.ObjectId,
+    signed: Boolean,
+    postingId: mongoose.Types.ObjectId,
+    mPointScored: (signed: boolean) => signed ? 1 : 0, // Example scoring logic
+  },
+  clinicalProcedures: {
+    id: mongoose.Types.ObjectId,
+    procedure: String, //e.g., "Venipuncture", "Lumbar Puncture", "Suturing"
+    date: Date,
+    supervisorId: mongoose.Types.ObjectId, //person who supervised the procedure
+    signed: Boolean,
+    postingId: mongoose.Types.ObjectId, //id of the posting the procedure was performed in
+    mPointScored: (signed: boolean) => signed ? 1 : 0, // Example scoring logic
+    patientName: String, //name of the patient the procedure was performed on
+    patientId: mongoose.Types.ObjectId, //reference to the patient the procedure was performed on
+    hospitalNumber: String,
+    dxDiag: String, //diagnosis or differential diagnosis for the procedure
+  },
+  clinicalPatientPresentations: {
+    id: mongoose.Types.ObjectId,
+    patientName: String,
+    patientId: mongoose.Types.ObjectId,
+    hospitalNumber: String,
+    dxDiag: String,
+    date: Date,
+    supervisorId: mongoose.Types.ObjectId,
+    signed: Boolean,
+    postingId: mongoose.Types.ObjectId,
+    mPointScored: (signed: boolean) => signed ? 1 : 0, // Example scoring logic
+    clerksMan: mongoose.Types.ObjectId, //Student who presented the patient
+  },
+} as const;
+
+export type studentLogbookEntryDetails = typeof StudentsLogbookEntryDetails[studentLogbookEntryType];
+
+export interface IStudentLogBook {
+  id: mongoose.Types.ObjectId;
+  rotationId: mongoose.Types.ObjectId; //reference to the rotation unit the logbook entry belongs to
+  postingId: mongoose.Types.ObjectId; //reference to the posting the logbook entry belongs to
+  academicYearId: mongoose.Types.ObjectId;
+  studentId: mongoose.Types.ObjectId; //reference to the student the logbook entry belongs to
+  //type of logbook entry, e.g., tutorial, clinical activity, procedure, patient presentation
+  type: studentLogbookEntryType;
+  details: studentLogbookEntryDetails;
+  attendanceStatus?: AttendanceStatus; //optional field to track attendance status for the logbook entry
+}
+
+const StudentLogBookSchema = new Schema<IStudentLogBook>({
+  rotationId: { type: mongoose.Schema.Types.ObjectId, ref: "ClinicalRotation", required: true },
+  postingId: { type: mongoose.Schema.Types.ObjectId, ref: "PostingAndRotation", required: true },
+  academicYearId: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear", required: true },
+  studentId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  type: { type: String, enum: Object.values(StudentLogbookEntryType), required: true },
+  //details should return an object with the appropriate fields based on the type of logbook entry, e.g., if type is "tutorialAndDemonstrations", details should have fields: topic, date, supervisorId, signed, postingId, presenterId
+  details: { type: Schema.Types.Mixed,
+     enum: Object.values(studentLogbookEntryType_), //explain what this means: This line ensures that the `details` field can only contain an object that matches one of the defined types in `studentLogbookEntryType_`. It restricts the structure of the `details` field to be consistent with the expected fields for each logbook entry type, such as "tutorialAndDemonstrations", "clinicalActivities", "clinicalProcedures", or "clinicalPatientPresentations". This helps maintain data integrity and ensures that the logbook entries are structured correctly based on their type.
+     required: true,
+     default: {} }, // Flexible details field to accommodate different logbook entry types
+  attendanceStatus: {
+    type: String,
+    enum: ["present", "absent", "late", "excused"],
+    default: "present",
+  },
+}, {
+  timestamps: true,
+});
+
+//Students should not hsore more than 4 M points per day in the same posting, in a week a student should have a total of 20 M points, and in a rotation a student should have a total of 80 M points. The mPointScored function in the StudentsLogbookEntryDetails object can be used to calculate the M points scored for each logbook entry based on whether it was signed or not.
+
+export default mongoose.model<IStudentLogBook>("StudentLogBook", StudentLogBookSchema);
+
+// export default mongoose.model<ILogbookEntry>("LogbookEntry", LogbookEntrySchema);

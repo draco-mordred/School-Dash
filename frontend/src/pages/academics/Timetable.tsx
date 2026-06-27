@@ -354,7 +354,14 @@ const Timetable = () => {
       const { data } = await api.post("/timetables/generate", {
         classId: selectedClass,
         academicYearId: yearId,
-        settings,
+        // Send live clockPhase so backend can stay in sync with the AcademicClock.
+        // Backend will still prefer AcademicYear.clockPhase when present.
+        // If AcademicYear.clockPhase is missing/empty, backend will use this value.
+        clockPhase: (settings as any)?.clockPhase,
+        settings: {
+          ...settings,
+          fast: true,
+        },
       });
 
       toast.success(data.message || "AI Generation Started");

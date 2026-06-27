@@ -10,6 +10,7 @@ import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { logActivity } from "../utils/activitieslog";
+import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable.ts";
 // import { count } from "node:console";
 // export const inngest = new Inngest({ id: "my-app"});
 interface GenSettings {
@@ -101,7 +102,26 @@ export const generateTimeTable = inngest.createFunction(
     const clinicalEndTime = is500Level ? "13:00" : "12:00"; // 500 level: 1PM, 400 level: 12PM
 
     // Timetable generation logic would go here
-    const aiSchedule = await step.run("generate-timetable-logic", async () => {
+    const aiSchedule = await step.run("generate-timetable-logic", async () => {      if (is500Level) {
+        const plan = build500LevelTimetablePlan((settings as any)?.clockPhase, contextData.courses as any[]);
+        return {
+          schedule: plan.map(({ day, periods }) => ({
+            day,
+            periods: periods.map((period) => {
+              const course = period.courseCode ? resolve500LevelCourse(contextData.courses as any[], period.courseCode) : null;
+              return {
+                courseId: course?.id ?? null,
+                lecturer: null,
+                startTime: period.startTime,
+                endTime: period.endTime,
+                isClinical: period.kind === "clinical",
+                isOptional: period.kind === "optional" || period.isOptional,
+                displayLabel: period.displayLabel ?? (period.kind === "optional" ? "Optional Activity" : undefined),
+              };
+            }),
+          })),
+        };
+      }
       const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       if(!apiKey) {
         throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")

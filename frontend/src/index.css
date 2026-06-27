@@ -423,11 +423,11 @@ html.dark, .dark {
 /* Custom style edits by me for personal taste */
 .space-y-4{
   top: 100px;
-  height: 500px;
+  height: max-content;
   overflow: scroll;
   margin: 15px 0px;
   /* border: 1px solid var(--border); */
-  border-radius: 15px;
+  border-radius: 10px;
 }
 
 [role=dialog].bg-background {
@@ -471,3 +471,7 @@ html.dark, .dark {
     border-radius: 15px;
     padding: 5px;
 }
+
+   [data-slot="card-content"].p-0 div.grid.gap-6{
+    display: flex;
+   }

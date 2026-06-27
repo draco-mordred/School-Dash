@@ -1,4 +1,4 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, Document } from "mongoose";
 
 const RotationActivitiesSchema = new Schema(
   {
@@ -55,4 +55,69 @@ const ClinicalRotationSchema = new Schema(
 ClinicalRotationSchema.index({ rotationStatus: 1 });
 ClinicalRotationSchema.index({ student: 1 });
 
-export default mongoose.model("ClinicalRotation", ClinicalRotationSchema);
+
+
+
+
+export const ClinicalPostingType = {
+  general: "general",
+  elective: "elective",
+} as const;
+
+export const ClinicalPostingPhase = {
+  OandG_PediatricsPosting: "OG_PED",
+  SpecialtyPosting: "SPECIALTY",
+  ElectivePosting: "ELECTIVE",
+} as const;
+
+export const CurrentPosting = {
+  OandG: "O&G",
+  PED: "Pediatrics",
+  PSY: "Psychiatry",
+  ENT: "ENT",
+  RAD: "Radiology",
+  OPH: "Ophthalmology",
+  ANE: "Anesthesiology",
+  DER: "Dermatology",
+  MED: "Medicine",
+  SUR: "Surgery",
+  COM: "Community Medicine"
+}
+
+export type currentPostings = "O&G" | "Pediatrics" | "Psychiatry" | "ENT" | "Radiology" | "Ophthalmology" | "Anesthesiology" | "Dermatology" | "Medicine" | "Surgery" | "Community Medicine";
+
+export type clinicalPostingPhase = "OG_PED" | "SPECIALTY" | "ELECTIVE";
+
+export type clinicalPostingType = "general" | "elective";
+
+export interface IClinicalRotations extends Document {
+  _id: mongoose.Types.ObjectId;
+  name: string;
+  description: string;
+  department: mongoose.Types.ObjectId;
+  currentPosting: currentPostings;
+  postingType: clinicalPostingType;
+  postingPhase: clinicalPostingPhase;
+  isActive: boolean;
+  class: mongoose.Types.ObjectId;
+  unit: mongoose.Types.ObjectId;
+  totalPoints: Number;
+  startDate: Date;
+  endDate: Date;
+}
+
+const ClinicalRotationsSchema = new Schema<IClinicalRotations>({
+  name: { type: String, required: true },
+  description: { type: String, default: "" },
+  department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", required: true },
+  currentPosting: { type: String, required: true },
+  postingType: { type: String, required: true },
+  postingPhase: { type: String, required: true },
+  isActive: { type: Boolean, default: true },
+  class: { type: mongoose.Schema.Types.ObjectId, ref: "Class", required: true },
+  unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
+  totalPoints: { type: Number, default: 320 },
+  startDate: { type: Date, required: true },
+})
+
+export default mongoose.model("ClinicalRotations", ClinicalRotationsSchema);

@@ -25,12 +25,18 @@ export interface user {
   departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
 }
 
+export type AcademicClockPhase = "phase1" | "phase2" | "phase3" | "phase4";
+
 export interface academicYear {
   _id: string;
   name: string; // "2024-2025"
-  fromYear: Date; // "2024-09-01"
-  toYear: Date; // "2025-06-30"
+  fromYear: Date | string; // "2024-09-01"
+  toYear: Date | string; // "2025-06-30"
   isCurrent: boolean; // true/false
+  clockStartDate?: Date | string | null;
+  clockIsPaused?: boolean;
+  clockPausedAt?: Date | string | null;
+  clockPhase?: AcademicClockPhase | null;
 }
 
 export interface Class {
@@ -95,6 +101,8 @@ export interface period {
   startTime: string; // e.g., "08:00"
   endTime: string; // e.g., "08:45"
   isClinical?: boolean;
+  isOptional?: boolean;
+  displayLabel?: string;
 }
 
 export interface schedule {

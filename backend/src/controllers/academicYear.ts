@@ -11,38 +11,47 @@ export const createAcademicYear = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { name, fromYear, toYear, isCurrent } = req.body;
+    const { name, fromYear, toYear, isCurrent, clockPhase } = req.body;
     const existingYear = await AcademicYear.findOne({
-      fromYear, toYear
-    })
+      fromYear,
+      toYear,
+    });
     if (existingYear) {
       res.status(400).json({
-        message: "Academic Year already exists!"
+        message: "Academic Year already exists!",
       });
-      // return;
+      return;
     }
-    //if isCurrent is true, set all other academic years to false
+
+    // if isCurrent is true, set all other academic years to false
     if (isCurrent) {
       await AcademicYear.updateMany(
-        { _id: { $ne: null } }, 
-        { isCurrent: false });
-      // return; // not used since a response is sent and the function continues ...
+        { _id: { $ne: null } },
+        { isCurrent: false },
+      );
     }
+
     const academicYear = await AcademicYear.create({
-      name, 
-      fromYear, 
-      toYear, 
+      name,
+      fromYear,
+      toYear,
       isCurrent: isCurrent || false,
+      clockStartDate: fromYear,
+      clockIsPaused: false,
+      clockPausedAt: null,
+      clockPhase: clockPhase ?? null,
     });
-    await logActivity({ 
-      userId: (req as any).user._id, 
-      action: `Created academic year ${name}, with ID: ${updatedYear?._id} and it's ${(isCurrent ? "current" : "not current")}` 
+
+    await logActivity({
+      userId: (req as any).user._id,
+      action: `Created academic year ${name}, with ID: ${academicYear._id} and it's ${(isCurrent ? "current" : "not current")}`,
     });
     res.status(201).json(academicYear);
   } catch (error) {
     res.status(500).json({
-      message: "Server Error", error: `${error}`
-    })
+      message: "Server Error",
+      error: `${error}`,
+    });
   }
 }
 // @ desc Get all Academic Year (Paginated and Searchable)

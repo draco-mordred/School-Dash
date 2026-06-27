@@ -5,6 +5,7 @@ import Timetable from "../models/timetable";
 import ClassModel from "../models/classes";
 import User from "../models/user";
 import mongoose from "mongoose";
+import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable.ts";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin
@@ -246,12 +247,18 @@ async function fastGenerateAndSave(classId: string, academicYearId: string, sett
   // settings: { startTime: '08:00', endTime: '16:00', periods: number }
   // Check if this is a 400 Level class
   const is400Level = /^400\s*level/i.test(settings?.className || "");
-  
+  const is500Level = /^500\s*level/i.test(settings?.className || "");
+
   if (is400Level) {
     // Special schedule for 400 Level classes
     return await generate400LevelSchedule(classId, academicYearId, settings);
   }
-  
+
+  if (is500Level) {
+    // Phase-based schedule for 500 Level classes
+    return await generate500LevelSchedule(classId, academicYearId, settings);
+  }
+
   // Simple round-robin assignment: gather courses and lecturers, then fill days x periods
   const cls = await ClassModel.findById(classId).populate("courses");
   if (!cls) throw new Error("Class not found");
@@ -337,8 +344,67 @@ async function fastGenerateAndSave(classId: string, academicYearId: string, sett
   return { success: true, schedule: saved?.schedule ?? schedule };
 }
 
+// Specialized schedule generator for 500 Level classes (phase-based)
+async function generate500LevelSchedule(classId: string, academicYearId: string, settings: any) {
+  const cls = await ClassModel.findById(classId).populate("courses");
+  if (!cls) throw new Error("Class not found");
+
+  const academicYearDoc = await (await import("../models/academicYear")).default.findById(academicYearId);
+  const clockPhase =
+    academicYearDoc?.clockPhase ??
+    (settings?.clockPhase as string | undefined) ??
+    "phase1";
+
+  console.log(`[500-Level Timetable] Generating for class: ${cls.name}, phase: ${clockPhase}, from DB: ${academicYearDoc?.clockPhase ?? "N/A"}, from settings: ${settings?.clockPhase ?? "N/A"}`);
+
+  const teachers = await User.find({ role: "teacher" }).select("_id teacherSubject");
+  const teachersByCourse: Record<string, string[]> = {};
+  for (const t of teachers as any[]) {
+    const subs: string[] = Array.isArray(t.teacherSubject) ? t.teacherSubject.map(String) : [];
+    for (const s of subs) {
+      teachersByCourse[s] = teachersByCourse[s] || [];
+      teachersByCourse[s].push(String(t._id));
+    }
+  }
+
+  const getLecturerForCourseId = (courseDbId: string | null) => {
+    if (!courseDbId) return null;
+    const list = teachersByCourse[courseDbId] ?? [];
+    return list.length ? list[0] : null;
+  };
+
+  const plan = build500LevelTimetablePlan(clockPhase, cls.courses as any[]);
+  const schedule = plan.map(({ day, periods }) => ({
+    day,
+    periods: periods.map((period) => {
+      const course = period.courseCode ? resolve500LevelCourse(cls.courses as any[], period.courseCode) : null;
+      const courseDbId = course?._id ? String(course._id) : null;
+      const lecturerId = getLecturerForCourseId(courseDbId);
+
+      return {
+        subject: courseDbId ? new mongoose.Types.ObjectId(courseDbId) : undefined,
+        lecturer: lecturerId ? new mongoose.Types.ObjectId(lecturerId) : undefined,
+        startTime: period.startTime,
+        endTime: period.endTime,
+        ...(period.kind === "clinical" ? { isClinical: true } : {}),
+        ...(period.kind === "optional" || period.isOptional ? { isOptional: true, displayLabel: period.displayLabel ?? (period.kind === "optional" ? "Optional Activity" : undefined) } : {}),
+      };
+    }),
+  }));
+
+  await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
+  await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
+
+  const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
+    .populate("schedule.periods.subject", "name code subjects.subjectID")
+    .populate("schedule.periods.lecturer", "name email idNumber");
+
+  return { success: true, schedule: saved?.schedule ?? schedule };
+}
+
 // Specialized schedule generator for 400 Level classes
 async function generate400LevelSchedule(classId: string, academicYearId: string, settings: any) {
+
   const cls = await ClassModel.findById(classId).populate("courses");
   if (!cls) throw new Error("Class not found");
 

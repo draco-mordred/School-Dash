@@ -5,6 +5,9 @@ export interface IPeriod {
   lecturer?: mongoose.Types.ObjectId;
   startTime: string; // e.g., "08:00",
   endTime: string; // e.g., "10:00"
+  isClinical?: boolean;
+  isOptional?: boolean;
+  displayLabel?: string;
 }
 
 export interface IDaySchedule {
@@ -42,6 +45,8 @@ const timetableSchema = new Schema(
             startTime: String,
             endTime: String,
             isClinical: { type: Boolean, default: false },
+            isOptional: { type: Boolean, default: false },
+            displayLabel: { type: String, default: null },
           }
         ]
       }

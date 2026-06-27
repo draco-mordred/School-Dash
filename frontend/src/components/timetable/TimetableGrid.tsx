@@ -58,6 +58,36 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
     return startTime;
   };
 
+  const getPeriodTitle = (period: (typeof schedule)[number]["periods"][number]) => {
+    if (period.isOptional) return period.displayLabel ?? "Optional Activity";
+    if (period.isClinical) return "Clinical Activities";
+    return period.subject?.name ?? "TBD Subject";
+  };
+
+  const getPeriodBadgeText = (period: (typeof schedule)[number]["periods"][number]) => {
+    if (period.isOptional) return "OPTIONAL";
+    if (period.isClinical) return "CLINICAL";
+    return period.subject?.code ?? "";
+  };
+
+  const getPeriodBadgeClassName = (period: (typeof schedule)[number]["periods"][number]) => {
+    if (period.isOptional) return "bg-amber-100 text-amber-700 border-amber-300";
+    if (period.isClinical) return "bg-green-100 text-green-700 border-green-300";
+    return "";
+  };
+
+  const getPeriodHeadingClassName = (period: (typeof schedule)[number]["periods"][number]) => {
+    if (period.isOptional) return "text-amber-700";
+    if (period.isClinical) return "text-green-700";
+    return "text-primary";
+  };
+
+  const getPeriodCardClassName = (period: (typeof schedule)[number]["periods"][number]) => {
+    if (period.isOptional) return "border-l-amber-500 bg-amber-50";
+    if (period.isClinical) return "border-l-green-500 bg-green-50";
+    return "border-l-primary";
+  };
+
   // ─── Mobile/tablet list view ───────────────────────────────────
   const MobileList = () => (
     <div className="flex flex-col divide-y divide-border rounded-md border overflow-y-auto">
@@ -88,22 +118,16 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                     </div>
 
                     {/* Card */}
-                    <div className={`flex-1 min-w-0 rounded-md border bg-card p-2.5 border-l-4 ${period.isClinical ? "border-l-green-500 bg-green-50" : "border-l-primary"} shadow-sm`}>
+                    <div className={`flex-1 min-w-0 rounded-md border bg-card p-2.5 border-l-4 ${getPeriodCardClassName(period)} shadow-sm`}>
                       <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <h4 className={`font-semibold text-sm leading-tight truncate ${period.isClinical ? "text-green-700" : "text-primary"}`}>
-                          {period.isClinical ? "Clinical Activities" : (period.subject?.name ?? "TBD Subject")}
+                        <h4 className={`font-semibold text-sm leading-tight truncate ${getPeriodHeadingClassName(period)}`}>
+                          {getPeriodTitle(period)}
                         </h4>
-                        {period.isClinical ? (
-                          <Badge variant="outline" className="font-bold text-[10px] px-1 shrink-0 bg-green-100 text-green-700 border-green-300">
-                            CLINICAL
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="font-bold text-[10px] px-1 shrink-0">
-                            {period.subject?.code ?? ""}
-                          </Badge>
-                        )}
+                        <Badge variant="outline" className={`font-bold text-[10px] px-1 shrink-0 ${getPeriodBadgeClassName(period)}`}>
+                          {getPeriodBadgeText(period)}
+                        </Badge>
                       </div>
-                      {!period.isClinical && (
+                      {!period.isClinical && !period.isOptional && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <UserIcon className="h-3 w-3 shrink-0" />
                           <span className="truncate">{period.lecturer?.name ?? "TBD Lecturer"}</span>
@@ -152,28 +176,19 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                   className="min-w-44 flex-1 border-r p-2 last:border-r-0"
                 >
                   {period ? (
-                    <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 ${period.isClinical ? "border-l-green-500 bg-green-50" : "border-l-primary"}`}>
+                    <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          {period.isClinical ? (
-                            <Badge variant="outline" className="font-bold text-[10px] px-1.5 bg-green-100 text-green-700 border-green-300">
-                              CLINICAL
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="font-bold text-[10px] px-1.5"
-                            >
-                              {period.subject?.code ?? ""}
-                            </Badge>
-                          )}
+                          <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
+                            {getPeriodBadgeText(period)}
+                          </Badge>
                         </div>
-                        <h4 className={`font-semibold text-sm leading-tight line-clamp-2 ${period.isClinical ? "text-green-700" : "text-primary"}`}>
-                          {period.isClinical ? "Clinical Activities" : (period.subject?.name ?? "TBD Subject")}
+                        <h4 className={`font-semibold text-sm leading-tight line-clamp-2 ${getPeriodHeadingClassName(period)}`}>
+                          {getPeriodTitle(period)}
                         </h4>
                       </div>
 
-                      {!period.isClinical && (
+                      {!period.isClinical && !period.isOptional && (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
                           <UserIcon className="h-3 w-3 shrink-0" />
                           <span className="truncate max-w-35" title={period.lecturer?.name ?? ""}>
