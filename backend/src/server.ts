@@ -29,6 +29,7 @@ import clinicalRotationRouter from "./routes/clinicalRotation";
 import logbookEntryRouter from "./routes/logbookEntry";
 import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
+import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 const dns = require("dns");
@@ -95,6 +96,7 @@ app.use('/api/inngest', serve({
   functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
 })
 );
+app.use("/api/mordred", mordredAIRouter); // Mount the Mordred AI routes at /api/mordred
 
 
 //Global error handling middleware

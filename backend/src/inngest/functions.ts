@@ -11,6 +11,7 @@ import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { logActivity } from "../utils/activitieslog";
 import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable.ts";
+import { routeTaskToStaff } from "../services/mordredEngine";
 // import { count } from "node:console";
 // export const inngest = new Inngest({ id: "my-app"});
 interface GenSettings {
@@ -722,3 +723,103 @@ export const rotationNotify = inngest.createFunction(
     return { success: true };
   }
 )
+/**
+ * JOB 1: Automatic Posting Assignment Engine Notification
+ * Triggered when a new clinical rotation posting is released.
+ */
+export const automaticPostingNotification = inngest.createFunction(
+  { id: "Mordred-Auto-Posting-Assignment",
+    triggers: {
+      event: "mordred/auto-posting-assignment"
+    }
+  },
+  async ({ event, step }) => {
+
+    const { studentId, departmentName, hospitalUnitId } = event.data;
+
+    // 1. Fetch student information
+    const student = await step.run("fetch-student-profile", async () => {
+      return await User.findById(studentId).select("name email deviceToken");
+    });
+
+    if (!student) return { success: false, error: "Student not found" };
+
+    // 2. MORDRED logic automatically assigns a unit supervisor
+    const assignedStaff = await step.run("mordred-assign-supervisor", async () => {
+      return await routeTaskToStaff(departmentName, "can_approve_logbooks", hospitalUnitId);
+    });
+
+    // 3. Trigger notification step (Leveraging your notification tracking models)
+    await step.run("send-push-notifications", async () => {
+      console.log(`🤖 MORDRED: Posting established. Notified ${student.name}. Supervisor assigned: ${assignedStaff?.name || "None"}`);
+      // Integrate your Firebase Cloud Messaging or SMS gateway dispatch here
+    });
+
+    return { success: true, supervisorId: assignedStaff?._id };
+  }
+);
+
+/**
+ * JOB 2: The 12-Hour Chat Ticket Escalation Sentry
+ * Triggered when MORDRED generates an official support ticket out of a chat session.
+ */
+export const mordredTicketSentry = inngest.createFunction(
+  { id: "Mordred-Ticket-Escalation-Sentry",
+    triggers: {
+      event: "mordred/ticket-escalation-sentry"
+    }
+   },
+  async ({ event, step }) => {
+    const { ticketId, departmentName } = event.data;
+
+    // Wait exactly 12 hours before moving to the next code step execution
+    await step.sleep("wait-twelve-hours", "12h");
+
+    // Check if a human staff member took action or closed it
+    const structuralAlertNeeded = await step.run("check-ticket-status", async () => {
+      const mongoose = require("mongoose");
+      // Import dynamically to protect runtime environments
+      const Ticket = mongoose.model("mordred_tickets"); 
+      const ticket = await Ticket.findById(ticketId);
+      
+      // If the ticket is still 'OPEN' and unassigned, trigger alert criteria
+      return ticket && ticket.status === "OPEN" && !ticket.assigned_staff_id;
+    });
+
+    if (structuralAlertNeeded) {
+      await step.run("escalate-to-super-admin", async () => {
+        console.log(`🚨 MORDRED Sentry: Ticket ${ticketId} remained unresolved for 12 hours. Escalaning to Super Admin.`);
+        // Emit system alert dashboard events or high priority email pipelines here
+      });
+    }
+
+    return { evaluated: true, escalated: structuralAlertNeeded };
+  }
+);
+
+// Add this step pattern inside backend/src/inngest/functions.ts
+export const whatsappLectureAlert = inngest.createFunction(
+  { id: "mordred-whatsapp-lecture-alert",
+    triggers: { 
+      event: "medlog/lecture.updated" 
+    },
+   },
+  
+  async ({ event, step }) => {
+    const { className, lectureTitle, status, materialUrl, whatsappGroupId } = event.data;
+
+    const compiledAlertString = `🤖 *M.O.R.D.R.E.D. System Update* 🤖\n\n` +
+      `📚 *Class:* ${className}\n` +
+      `📝 *Lecture:* ${lectureTitle}\n` +
+      `⚠️ *Status Change:* ${status.toUpperCase()}\n` +
+      `${materialUrl ? `📎 *Materials:* ${materialUrl}` : ""}`;
+
+    await step.run("dispatch-whatsapp-payload", async () => {
+      // If using a custom WhatsApp Web Gateway client instance on your server:
+      // await whatsappClient.sendMessage(whatsappGroupId, compiledAlertString);
+      console.log(`📡 MORDRED broadcasted update directly to WhatsApp Group: ${whatsappGroupId}`);
+    });
+
+    return { dispatched: true };
+  }
+);

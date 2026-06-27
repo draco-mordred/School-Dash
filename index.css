@@ -423,3 +423,25 @@ input[data-slot="input"]:focus {
 main#app-main div {
       margin: 10px 10px 5px 25px;
 }
+
+footer#app-footer{
+    background: transparent;
+    -webkit-backdrop-filter: blur(30px);
+    backdrop-filter: blur(30px);
+}
+
+header {
+  left: var(--sidebar-width);
+    right: 0px;
+    width: calc
+↳
+calc(100% - 16rem)
+↳
+calc(933px - 256px)
+↳
+676.992px
+(100% - var(--sidebar-width));
+    background: transparent;
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+}

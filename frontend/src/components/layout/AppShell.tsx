@@ -32,6 +32,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/ui/sidebar-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
+import { MordredFloatingChat } from "../dashboard/mordred-floating-chat";
 
 import { cn } from "@/lib/utils";
 
@@ -524,7 +525,7 @@ export default function AppShell({ children }: PropsWithChildren) {
           )}
 
           <main id="app-main" className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
-
+          <MordredFloatingChat />
           {isProtected && (
             <footer
               id="app-footer"

@@ -4,6 +4,8 @@ import Course from "../models/courses";
 import User from "../models/user";
 import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest";
+import { validateClinicalPresence } from "../services/attendanceValidation";
+import HospitalUnit from "../models/hospitalUnit";
 
 //Fisrt we need to generate an Attendance for a class so that the teacher can record attendance for that class session, then we can update the attendance records for each student in that class session. We also need to implement a way to approve excused absences, and to get attendance records for a specific student, with pagination and filtering by date range and status (present, absent, late, excused). This should be consistent wtth the getMyAttendanceSummary controller, but with more detailed records and pagination support. The endpoint should be GET /api/attendance/student/:studentId?startDate=&endDate=&status=&page=&limit=
 // Request should be sent to inngest to biuld the attendance sheet
@@ -817,5 +819,38 @@ export const getWeeklyCourseAttendance = async (req: Request, res: Response) => 
     res.json({ records: raw, weekStart: monday.toISOString(), weekEnd: friday.toISOString() });
   } catch (error) {
     res.status(500).json({ message: "Server error", error });
+  }
+};
+
+
+export const verifyClinicalClockIn = async (req: any, res: any) => {
+  try {
+    const { studentLatitude, studentLongitude, hospitalUnitId } = req.body;
+
+    // Fetch the target clinic or hospital wing geo-coordinates
+    const unit = await HospitalUnit.findById(hospitalUnitId);
+    if (!unit || !unit.latitude || !unit.longitude) {
+      return res.status(404).json({ message: "Hospital unit location mapping profiles not found." });
+    }
+
+    // Call MORDRED validation checks
+    const geoEvaluation = await validateClinicalPresence(
+      { latitude: studentLatitude, longitude: studentLongitude },
+      { latitude: unit.latitude, longitude: unit.longitude },
+      150 // Strict 150-meter restriction geofence around ward perimeter
+    );
+
+    if (!geoEvaluation.insideGeofence) {
+      return res.status(403).json({
+        locked: true,
+        message: `MORDRED: Clock-In Denied. You are ${geoEvaluation.varianceMeters} meters away from this clinical station.`
+      });
+    }
+
+    // Procced with your standard database attendance update save logs here...
+    return res.status(200).json({ locked: false, message: "Geofence verified. Access granted." });
+
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
   }
 };

@@ -149,6 +149,17 @@ export interface IUser extends Document {
     matchPassword: (enteredPassword: string) => Promise<boolean>;
     comparePassword(candidatePassword: string): Promise<boolean>;
     attendance: mongoose.Types.ObjectId[]; // Array of attendance record IDs
+    mordred_rules: {
+        max_ticket_capacity: number;
+        current_active_load: number;
+        can_approve_logbooks: boolean;
+        can_edit_timetables: boolean;
+    };
+    mordred_assigned_tasks: {
+        task_type: string; // e.g., "LOGBOOK_REVIEW", "TICKET"
+        reference_id: mongoose.Types.ObjectId; // Reference to the related document (e.g., logbook, ticket)
+        assigned_at: Date; // Timestamp when the task was assigned
+    }[];
 }
 
 const UserSchema: Schema<IUser> = new Schema({
@@ -250,7 +261,21 @@ const UserSchema: Schema<IUser> = new Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "Attendance",
         default: []
-    }]
+    }],
+
+    // Add these fields to your existing UserSchema definition before "timestamps: true"
+    mordred_rules: {
+    max_ticket_capacity: { type: Number, default: 5 },
+    current_active_load: { type: Number, default: 0 },
+    can_approve_logbooks: { type: Boolean, default: false },
+    can_edit_timetables: { type: Boolean, default: false }
+    },
+    mordred_assigned_tasks: [{
+    task_type: { type: String, uppercase: true }, // e.g., "LOGBOOK_REVIEW", "TICKET"
+    reference_id: { type: mongoose.Schema.Types.ObjectId },
+    assigned_at: { type: Date, default: Date.now }
+}]
+
 }, {
     timestamps: true
 });
