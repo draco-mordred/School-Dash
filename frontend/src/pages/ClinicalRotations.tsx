@@ -45,6 +45,7 @@ import {
 import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
 import PostingScheduleDisplay from "@/components/ClinicalRotations/PostingScheduleDisplay";
+import { useRef } from "react";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
@@ -139,6 +140,8 @@ export default function ClinicalRotations() {
   const [noteText, setNoteText] = useState("");
   const [schedulePostings, setSchedulePostings] = useState<PostingEntry[]>([]);
   const [postingsLoading, setPostingsLoading] = useState(false);
+  const [savedSchedules, setSavedSchedules] = useState<Array<{ _id?: string; name?: string; createdAt?: string }>>([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
   const [selectedRotationIds, setSelectedRotationIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
@@ -218,8 +221,30 @@ export default function ClinicalRotations() {
     return () => { cancelled = true; };
   }, [user]);
 
+  // Load saved rotation schedules for selector (admins/teachers/students can view)
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        setSchedulesLoading(true);
+        const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 200 } });
+        if (cancelled) return;
+        setSavedSchedules(data.schedules || []);
+      } catch (e) {
+        console.error('Failed to load saved schedules', e);
+        setSavedSchedules([]);
+      } finally {
+        if (!cancelled) setSchedulesLoading(false);
+      }
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
   // For students, also load schedules scoped to their class(es) to show class schedule card
   const [classPostings, setClassPostings] = useState<PostingEntry[]>([]);
+  const [selectedPostingSchedule, setSelectedPostingSchedule] = useState<any | null>(null);
+  const scheduleRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (user?.role !== "student") return;
     let cancelled = false;
@@ -375,9 +400,15 @@ export default function ClinicalRotations() {
   const [genAcademicYearId, setGenAcademicYearId] = useState<string>("");
   const [genClassId, setGenClassId] = useState<string>("");
   const [genLevel, setGenLevel] = useState<number>(400);
+  const [genPostingScheduleType, setGenPostingScheduleType] = useState<string>("");
   const [genStartDate, setGenStartDate] = useState<string>(new Date().toISOString().slice(0,10));
 
+  const selectedGenClass = genClasses.find((c) => c._id === genClassId);
+  const className = selectedGenClass?.name?.trim().toLowerCase() ?? "";
+  const isFiveHundredLevelClass = className === '500 level' || className.includes('500 level') || genLevel === 500;
+
   const openGenerateDialog = async () => {
+    setGenPostingScheduleType("");
     setShowGenerateDialog(true);
     try {
       const [{ data: years }, { data: classesRes }] = await Promise.all([
@@ -393,10 +424,35 @@ export default function ClinicalRotations() {
 
   const confirmGenerate = async () => {
     try {
+      const selectedClass = genClasses.find((c) => c._id === genClassId);
+      const is500LevelClass = selectedClass?.name?.toLowerCase().includes('500') || genLevel === 500;
+      if (is500LevelClass) {
+        if (!genPostingScheduleType) {
+          toast.error('Please select a posting schedule type for 500 Level classes.');
+          return;
+        }
+        if (genPostingScheduleType === 'ogPedJunior') {
+          const { data } = await api.post('/og-ped-rotations/oGPeds-JuniorPosting-Schedule', {
+            classId: genClassId,
+            postingName: '500 Level O&G/Pediatrics Junior Posting Schedule',
+            postingStartDate: genStartDate,
+          });
+          if (data?.schedule) {
+            setSelectedPostingSchedule(data.schedule);
+            if (data?.saved?._id) {
+              setSavedSchedules((prev) => [data.saved, ...prev.filter((s) => s._id !== data.saved._id)]);
+            }
+            toast.success('500 Level posting schedule generated');
+            setShowGenerateDialog(false);
+            return;
+          }
+        }
+      }
+
+      // Default fallback for non-500 work (future schedule generation paths)
       await api.post('/rotation-schedules/generate', { academicYearId: genAcademicYearId, classId: genClassId, level: genLevel, options: { startDate: genStartDate } });
       toast.success('Rotation generation started');
       setShowGenerateDialog(false);
-      // poll for the generated schedule and navigate to its detail page
       startPollForSchedule(genAcademicYearId, genClassId, genLevel);
     } catch (e: unknown) {
       console.error('Failed to start generation', e);
@@ -558,6 +614,100 @@ export default function ClinicalRotations() {
       raw: p,
     } as Rotation & { raw?: PostingEntry };
   });
+
+  const mapPostingEntryToSchedule = (p: PostingEntry) => {
+    const groups = p.groups || [];
+    let start: string | null = null;
+    let end: string | null = null;
+    for (const g of groups) {
+      for (const a of g.assigned || []) {
+        if (!start || new Date(a.startDate) < new Date(start)) start = a.startDate;
+        if (!end || new Date(a.endDate) > new Date(end)) end = a.endDate;
+      }
+    }
+    const studentCategories = groups.map((g: any, i: number) => ({
+      category: g.group?.name || `Group ${i + 1}`,
+      studentCount: (g.group?.students || []).length,
+      departmentPhase1: g.group?.department || "OBG",
+      departmentPhase2: g.group?.department || "Pediatrics",
+      students: g.group?.students || [],
+    }));
+
+    const unitAssignments = groups.map((g: any, i: number) => ({
+      department: g.group?.department || "General",
+      phase: g.group?.phase || "Phase 1",
+      unit: g.group?.name || `Group ${i + 1}`,
+      unitId: g.groupId || `${i}`,
+      consultant: { _id: null, name: "TBD - Assign Later", role: "supervisor" },
+      resident: { _id: null, name: "TBD - Assign Later", role: "supervisor" },
+      students: g.group?.students || [],
+    }));
+
+    return {
+      postingName: p.name || "Posting",
+      postingType: "OG_PEDS",
+      durationWeeks: 16,
+      startDate: start || new Date().toISOString(),
+      endDate: end || new Date().toISOString(),
+      phases: ["Phase 1", "Phase 2"],
+      departments: [],
+      studentCategories,
+      unitAssignments,
+      rotationHistory: [],
+    };
+  };
+
+  const transformRotationPlanToPostingSchedule = (plan: any): any => {
+    if (!plan) return null;
+    const posting = (plan.postings && plan.postings[0]) || null;
+    const startDate = posting?.startDate || (plan.createdAt) || new Date().toISOString();
+    const endDate = posting?.endDate || new Date().toISOString();
+    const unitAssignments = (posting?.groups || []).map((g: any, i: number) => ({
+      department: g.group?.department || 'General',
+      phase: g.group?.phase || 'Phase 1',
+      unit: g.group?.name || `Unit ${i+1}`,
+      unitId: g.groupId || `unit-${i}`,
+      consultant: { _id: null, name: g.supervisorName || 'TBD - Assign Later', role: 'supervisor' },
+      resident: { _id: null, name: g.supervisorName || 'TBD - Assign Later', role: 'supervisor' },
+      students: (g.group?.students || []).map((s: any) => ({ _id: s._id || s, name: s.name || 'Student', idNumber: s.idNumber }))
+    }));
+
+    const studentCategories = [
+      {
+        category: posting?.name || plan.name || 'Generated Posting',
+        studentCount: unitAssignments.reduce((sum: number, u: any) => sum + (u.students?.length || 0), 0),
+        departmentPhase1: 'OBG',
+        departmentPhase2: 'Pediatrics',
+        students: unitAssignments.flatMap((u: any) => u.students).slice(0, 50),
+      }
+    ];
+
+    return {
+      postingName: posting?.name || plan.name || 'Posting',
+      postingType: posting?.category || 'OG_PEDS',
+      durationWeeks: 16,
+      startDate,
+      endDate,
+      phases: ['Phase 1','Phase 2'],
+      departments: [],
+      studentCategories,
+      unitAssignments,
+      rotationHistory: [],
+    };
+  };
+
+  const openSavedSchedule = async (id?: string) => {
+    if (!id) return;
+    try {
+      const { data } = await api.get(`/rotation-schedules/${id}`);
+      const schedule = transformRotationPlanToPostingSchedule(data);
+      setSelectedPostingSchedule(schedule);
+      scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch (e) {
+      console.error('Failed to load schedule detail', e);
+      toast.error('Failed to load schedule');
+    }
+  };
 
   const activeClassPostings = classPostingViews.filter((r) => {
     const start = new Date(r.rotationStartDate);
@@ -737,6 +887,12 @@ export default function ClinicalRotations() {
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
                     <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                    {rot.raw && (
+                      <Button size="sm" variant="ghost" onClick={() => {
+                        setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}>View Schedule</Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -764,6 +920,12 @@ export default function ClinicalRotations() {
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
                     <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                    {rot.raw && (
+                      <Button size="sm" variant="ghost" onClick={() => {
+                        setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}>View Schedule</Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -780,6 +942,12 @@ export default function ClinicalRotations() {
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
                     <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                    {rot.raw && (
+                      <Button size="sm" variant="ghost" onClick={() => {
+                        setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
+                      }}>View Schedule</Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -993,6 +1161,22 @@ export default function ClinicalRotations() {
               Browse Available Postings
             </Button>
           )}
+          <div className="flex items-center">
+            <Select onValueChange={(v) => { if (v && v !== 'none') openSavedSchedule(v); }}>
+              <SelectTrigger className="w-56">
+                <SelectValue placeholder={schedulesLoading ? 'Loading schedules…' : 'Select schedule to view'} />
+              </SelectTrigger>
+              <SelectContent>
+                {savedSchedules.length === 0 ? (
+                  <SelectItem value="none" disabled>No saved schedules</SelectItem>
+                ) : (
+                  savedSchedules.map((s) => (
+                    <SelectItem key={s._id} value={s._id}>{s.name || `${s._id}`}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
           <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-0">
             <RefreshCw className="h-4 w-4 mr-2" /> Refresh
           </Button>
@@ -1262,6 +1446,17 @@ export default function ClinicalRotations() {
                 </SelectContent>
               </Select>
             </div>
+            {isFiveHundredLevelClass && (
+              <div>
+                <label className="text-xs block mb-1">Posting Schedule Type</label>
+                <Select value={genPostingScheduleType} onValueChange={(v) => setGenPostingScheduleType(v)}>
+                  <SelectTrigger><SelectValue placeholder="Select posting schedule" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ogPedJunior">O&G/Pediatrics Junior Posting Schedule</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <label className="text-xs block mb-1">Level</label>
               <Select value={String(genLevel)} onValueChange={(v) => setGenLevel(Number(v))}>
@@ -1317,6 +1512,17 @@ export default function ClinicalRotations() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Posting Schedule Display */}
+      <div ref={scheduleRef}>
+        {selectedPostingSchedule ? (
+          <Card>
+            <CardContent>
+              <PostingScheduleDisplay schedule={selectedPostingSchedule} />
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
 
       {/* Delete Multiple Confirmation Dialog */}
       <Dialog open={showDeleteConfirm} onOpenChange={(v) => !v && setShowDeleteConfirm(false)}>

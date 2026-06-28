@@ -308,11 +308,15 @@ const buildUnitTimeline = (
   });
 };
 
-export async function generate500LevelOgPaeJuniorPostingSchedule(options: {
+export async function generate500LevelOgPaeJuniorPostingSchedule (
+  options: {
   classId: string;
   postingName?: string;
   postingStartDate?: string;
-}): Promise<{ schedule: PostingSchedule; validation: { valid: boolean; errors: string[] } }> {
+}): Promise<{ 
+  schedule: PostingSchedule; 
+  validation: { valid: boolean; errors: string[] } 
+}> {
   if (!options?.classId) {
     throw new Error("classId is required to generate the 500-level posting schedule.");
   }
@@ -595,3 +599,5 @@ export async function generate500LevelOgPaeJuniorPostingSchedule(options: {
 
   return { schedule, validation: scheduleValidation };
 }
+
+// add update500LevelOgPaeJuniorPostingSchedule function here..

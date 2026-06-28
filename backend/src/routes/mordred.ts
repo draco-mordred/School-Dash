@@ -1,9 +1,6 @@
-import { saveChatMessage, mordredsWords, trackMordredPerformance } from "../controllers/mordred";
+import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights } from "../controllers/mordred";
 import express from "express";
-import { protect, authorize } from "../middleware/auth";
-import User from "../models/user";
-import MordredLog from "../models/mordredLog";
-import mordredMessenger from "../models/mordredMessenger";
+import { protect } from "../middleware/auth";
 import { sendMordredWhatsAppAlert } from "../services/whatsappGateway";
 
 const mordredAIRouter = express.Router();
@@ -26,10 +23,16 @@ mordredAIRouter.post(
 // Headers:
 
 mordredAIRouter.get(
-  "admin/diagnostics",
+  "/admin/diagnostics",
   protect,
   trackMordredPerformance
-)
+);
+
+mordredAIRouter.get(
+  "/insights",
+  protect,
+  dynamicAIInsights
+);
 
 // Test endpoint to trigger WhatsApp messages
 mordredAIRouter.post("/test-whatsapp", 

@@ -375,7 +375,11 @@ export default function Dashboard() {
       <div className="flex-1 space-y-6 p-6">
         {/* Page Header */}
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Institutional Operations Center</h1>
+          <div className="text-3xl font-bold tracking-tight">INSTITUTIONAL OPERATIONS CENTER</div>
+          <br />
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {getGreeting()}, {user?.name?.split(" ")[0]} 
+          </h1>
           <p className="text-muted-foreground mt-2">
             {new Date().toLocaleDateString("en-NG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>

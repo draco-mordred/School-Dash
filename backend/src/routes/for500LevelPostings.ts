@@ -1,22 +1,22 @@
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
 import {
-  createClinicalRotation,
-  getAllClinicalRotations,
-  getClinicalRotationById,
-  updateClinicalRotation,
-  deleteClinicalRotation,
-  addRotationNote,
-  addPatientClerked,
-  approveRotation,
-  getRotationStats,
-  getAvailableRotations,
-  signupRotation,
-  listAllRotations,
+  // createClinicalRotation,
+  // getAllClinicalRotations,
+  // getClinicalRotationById,
+  // updateClinicalRotation,
+  // deleteClinicalRotation,
+  // addRotationNote,
+  // addPatientClerked,
+  // approveRotation,
+  // getRotationStats,
+  // getAvailableRotations,
+  // signupRotation,
+  // listAllRotations,
   generate500LevelJuniorOgPaePostingSchedule,
-} from "../controllers/clinicalRotation";
+} from "../controllers/for500LevelPosting";
 
-const clinicalRotationRouter = express.Router();
+// const clinicalRotationRouter = express.Router();
 
 const routerFor500LevelPostings = express.Router();
 

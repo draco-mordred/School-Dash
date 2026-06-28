@@ -31,6 +31,7 @@ interface Props {
   loading: boolean;
   onEdit: (item: courses) => void;
   onDelete: (id: string) => void;
+  showActions?: boolean;
   page: number;
   setPage: (page: number) => void;
   totalPages: number;
@@ -41,6 +42,7 @@ export function SubjectTable({
   loading,
   onEdit,
   onDelete,
+  showActions = true,
   page,
   setPage,
   totalPages,
@@ -54,7 +56,11 @@ export function SubjectTable({
             <TableHead>Subject Name</TableHead>
             <TableHead>Teachers</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            {showActions ? (
+              <TableHead className="text-right">Actions</TableHead>
+            ) : (
+              <TableHead className="text-right">Details</TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -92,25 +98,29 @@ export function SubjectTable({
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => onEdit(item)}>
-                        <Pencil className="mr-2 h-4 w-4" /> Edit Details
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => onDelete(item._id)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {showActions ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuItem onClick={() => onEdit(item)}>
+                          <Pencil className="mr-2 h-4 w-4" /> Edit Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onClick={() => onDelete(item._id)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">View only</span>
+                  )}
                 </TableCell>
               </TableRow>
             ))

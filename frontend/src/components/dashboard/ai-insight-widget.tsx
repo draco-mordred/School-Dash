@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 
 interface InsightItem {
   id: string;
@@ -14,18 +15,14 @@ export function AIInsightWidget() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/mordred/admin/diagnostics")
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not pull network audit logs.");
-        return res.json();
-      })
-      .then((data) => {
-        // Hydrate state directly from the backend calculation query array
-        setInsights(data.insights || []);
+    api
+      .get("/mordred/insights")
+      .then((response) => {
+        setInsights(response.data.insights || []);
       })
       .catch((err) => {
         console.error(err);
-        setError(err.message);
+        setError(err?.response?.data?.error ?? err.message ?? "Unable to load AI insights.");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -63,26 +60,32 @@ export function AIInsightWidget() {
       </div>
 
       <div className="space-y-3">
-        {insights.map((item) => (
-          <div key={item.id} className="flex gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100 items-start text-xs transition hover:bg-slate-100/50">
-            <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold tracking-wider border ${
-              item.type === "CRITICAL" 
-                ? "bg-rose-50 text-rose-700 border-rose-200" 
-                : item.type === "WARNING"
-                ? "bg-amber-50 text-amber-700 border-amber-200"
-                : "bg-blue-50 text-blue-700 border-blue-200"
-            }`}>
-              {item.type}
-            </span>
-            <div className="flex-1">
-              <p className="text-slate-800 font-medium leading-relaxed">{item.message}</p>
-              <div className="flex justify-between text-[10px] text-slate-400 mt-2 font-medium">
-                <span>Scope: <span className="text-slate-500 font-semibold">{item.targetUser}</span></span>
-                <span>{item.timestamp}</span>
+        {insights.length === 0 ? (
+          <div className="rounded-3xl border border-border bg-background p-4 text-sm text-muted-foreground">
+            No AI insights available right now. Check back after more timetable and attendance activity.
+          </div>
+        ) : (
+          insights.map((item) => (
+            <div key={item.id} className="flex gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100 items-start text-xs transition hover:bg-slate-100/50">
+              <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold tracking-wider border ${
+                item.type === "CRITICAL" 
+                  ? "bg-rose-50 text-rose-700 border-rose-200" 
+                  : item.type === "WARNING"
+                  ? "bg-amber-50 text-amber-700 border-amber-200"
+                  : "bg-blue-50 text-blue-700 border-blue-200"
+              }`}>
+                {item.type}
+              </span>
+              <div className="flex-1">
+                <p className="text-slate-800 font-medium leading-relaxed">{item.message}</p>
+                <div className="flex justify-between text-[10px] text-slate-400 mt-2 font-medium">
+                  <span>Scope: <span className="text-slate-500 font-semibold">{item.targetUser}</span></span>
+                  <span>{item.timestamp}</span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
     </div>
   );

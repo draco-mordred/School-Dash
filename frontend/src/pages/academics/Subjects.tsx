@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner"; 
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Plus } from "lucide-react";
 
+import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import Search from "@/components/global/Search";
@@ -12,6 +13,7 @@ import { SubjectForm } from "@/components/subjects/SubjectForm";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
 export const Subjects = () => {
+  const { user } = useAuth();
   const [subjects, setSubjects] = useState<courses[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -46,6 +48,9 @@ export const Subjects = () => {
       params.append("page", pageNum.toString());
       params.append("limit", "10");
       if (debouncedSearch) params.append("search", debouncedSearch);
+      if (isStudent && studentClassId) {
+        params.append("class", studentClassId);
+      }
 
       const { data } = (await api.get(`/courses?${params.toString()}`)) as {
         data: { courses: courses[]; pagination: pagination };
@@ -64,6 +69,19 @@ export const Subjects = () => {
       setLoading(false);
     }
   }, [pageNum, debouncedSearch]);
+
+  const isStudent = user?.role === "student";
+
+  const studentClassId = useMemo(() => {
+    const currentClass = user?.studentClasses;
+    if (!currentClass) return null;
+    if (typeof currentClass === "string") return currentClass;
+    if (Array.isArray(currentClass)) {
+      const first = currentClass[0];
+      return typeof first === "string" ? first : first?._id ?? null;
+    }
+    return typeof currentClass === "object" ? currentClass._id ?? null : null;
+  }, [user?.studentClasses]);
 
   // Trigger fetch when Page or Search changes
   useEffect(() => {
@@ -113,9 +131,11 @@ export const Subjects = () => {
         </div>
         <div className="flex gap-3">
           <Search search={search} setSearch={setSearch} title="Subject" />
-          <Button onClick={handleCreate}>
-            <Plus className="mr-2 h-4 w-4" /> Create Subject
-          </Button>
+          {!isStudent && (
+            <Button onClick={handleCreate}>
+              <Plus className="mr-2 h-4 w-4" /> Create Subject
+            </Button>
+          )}
           <div className="md:hidden">
             <SidebarTrigger />
           </div>
@@ -127,6 +147,7 @@ export const Subjects = () => {
         loading={loading}
         onEdit={handleEdit}
         onDelete={handleDeleteClick}
+        showActions={!isStudent}
         page={pageNum}
         setPage={setPageNum}
         totalPages={totalPages}

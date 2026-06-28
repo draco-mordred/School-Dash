@@ -12,6 +12,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
 
 interface LectureSummary {
   subject: { _id: string; name: string } | string | null;
@@ -37,15 +38,30 @@ interface StudentPortalSummary {
   weeklyAlerts: WeeklyAlert[];
 }
 
+interface SystemAnnouncement {
+  _id: string;
+  title: string;
+  message: string;
+  type: string;
+  createdAt: string;
+  unreadForUser?: boolean;
+}
+
 export default function StudentPortal() {
   const { user, year } = useAuth();
   const [summary, setSummary] = useState<StudentPortalSummary | null>(null);
+  const [announcements, setAnnouncements] = useState<SystemAnnouncement[]>([]);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
+  const [announcementsError, setAnnouncementsError] = useState<string | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState<number | null>(null);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user || user.role !== "student") {
       setIsLoading(false);
+      setAnnouncementsLoading(false);
       return;
     }
 
@@ -62,7 +78,35 @@ export default function StudentPortal() {
       }
     };
 
+    const loadAnnouncements = async () => {
+      try {
+        setAnnouncementsLoading(true);
+        const { data } = await api.get("/notifications/system?limit=3");
+        setAnnouncements(data.notifications || []);
+      } catch (err: any) {
+        console.error("Failed to load system announcements", err);
+        setAnnouncementsError(err?.response?.data?.error ?? "Unable to load announcements.");
+      } finally {
+        setAnnouncementsLoading(false);
+      }
+    };
+
+    const loadNotificationsCount = async () => {
+      try {
+        setNotificationsLoading(true);
+        const { data } = await api.get("/notifications/unread-count");
+        setUnreadNotifications(data.count ?? 0);
+      } catch (err: any) {
+        console.error("Failed to load unread notifications", err);
+        setUnreadNotifications(null);
+      } finally {
+        setNotificationsLoading(false);
+      }
+    };
+
     void loadSummary();
+    void loadAnnouncements();
+    void loadNotificationsCount();
   }, [user]);
 
   if (user?.role !== "student") {
@@ -110,7 +154,9 @@ export default function StudentPortal() {
             </div>
             <div className="rounded-3xl bg-background p-4 shadow-sm ring-1 ring-border">
               <p className="text-sm text-muted-foreground">Notifications</p>
-              <div className="mt-2 text-xl font-semibold text-foreground">{isLoading ? <Skeleton className="h-6 w-20" /> : "Live"}</div>
+              <div className="mt-2 text-xl font-semibold text-foreground">
+                {notificationsLoading ? <Skeleton className="h-6 w-20" /> : unreadNotifications !== null ? unreadNotifications : "—"}
+              </div>
             </div>
           </div>
         </div>
@@ -246,6 +292,47 @@ export default function StudentPortal() {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>System announcements</CardTitle>
+                <CardDescription>Latest notices from the school and rotation office.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {announcementsLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                </div>
+              ) : announcementsError ? (
+                <div className="text-sm text-destructive">{announcementsError}</div>
+              ) : announcements.length ? (
+                announcements.map((item) => (
+                  <div key={item._id} className="rounded-3xl border border-border bg-background p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{item.title}</p>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          {item.message}
+                        </p>
+                      </div>
+                      <span className="text-[11px] font-semibold uppercase text-primary">
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-3xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
+                  No announcements at the moment.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <AIInsightWidget />
 
           <Card>
             <CardHeader>

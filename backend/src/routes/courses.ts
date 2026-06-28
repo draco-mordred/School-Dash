@@ -8,6 +8,7 @@ import {
   deleteCourseSubjects,
   deduplicateClassCourses,
   getAllCourseSubjects,
+  getCourseById,
   updateCourseSubjects,
   updateDepartment,
   deleteDepartment,
@@ -47,6 +48,14 @@ courseRouter
     protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     addCourseSubject
+  );
+
+courseRouter
+  .route("/:courseId")
+  .get(
+    protect,
+    authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
+    getCourseById
   );
 
 courseRouter

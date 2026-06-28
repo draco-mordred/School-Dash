@@ -119,6 +119,30 @@ const isUserInDepartment = (user: any, departmentDoc: any) => {
   return validDeptValues.has(userDept);
 };
 
+const normalizeClassIdValue = (value: any): string | undefined => {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    if (typeof value._id === "string") return value._id;
+    if (typeof value.id === "string") return value.id;
+  }
+  return undefined;
+};
+
+const getClassCourseDocuments = async (classId: string) => {
+  if (!isObjectId(classId)) return null;
+  return await ClassModel.findById(classId).populate({
+    path: "courses",
+    select: "name code courseID lecturer isActive subjects department unit",
+    populate: [
+      { path: "department", select: "name departmentID code head" },
+      { path: "unit", select: "name unitID code" },
+      { path: "lecturer", select: "name email" },
+      { path: "subjects.lecturer", select: "name email" },
+    ],
+  });
+};
+
 const validateDepartmentLecturers = async (lecturerIds: string[], departmentDoc: any) => {
   if (!Array.isArray(lecturerIds) || lecturerIds.length === 0) return null;
 
@@ -285,10 +309,14 @@ export const createCourse = async (req: Request, res: Response) => {
       return res.status(400).json({ message: lecturerValidationError });
     }
 
-    const existing = await Course.findOne({ courseID, department: departmentDoc._id, unit: unitValue, academicYear: academicYearId });
+    const existing = await Course.findOne({
+      name: String(name).trim(),
+      code: normalizedCode,
+      department: departmentDoc._id,
+    });
     if (existing) {
       return res.status(400).json({
-        message: `Course already exists for courseID=${courseID}, department=${departmentDoc._id}, unit=${unitValue}, academicYear=${academicYearId}`,
+        message: `Course with name "${name}", code "${normalizedCode}", and department "${departmentDoc.name}" already exists.`,
       });
     }
 
@@ -576,6 +604,7 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
     const userId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
     const search = req.query.search as string | undefined;
+    const classIdQuery = (req.query.class as string | undefined) ?? (req.query.classId as string | undefined);
 
     const query: any = {};
     if (search) {
@@ -594,13 +623,45 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
     const topLevelOnly = req.query.topLevel === "true";
 
     if (topLevelOnly) {
+      if (classIdQuery || userRole === "student") {
+        let effectiveClassId = classIdQuery;
+        if (userRole === "student") {
+          const studentClassId = normalizeClassIdValue((req as any).user?.studentClasses);
+          effectiveClassId = studentClassId || effectiveClassId;
+        }
+
+        if (effectiveClassId) {
+          const classDoc = await getClassCourseDocuments(effectiveClassId);
+          let classCourses = (classDoc?.courses ?? []) as any[];
+          
+          // Deduplicate courses by name, code, and department
+          const seen = new Set<string>();
+          classCourses = classCourses.filter((course) => {
+            const key = `${String(course.name).trim().toLowerCase()}-${String(course.code).trim().toLowerCase()}-${String(course.department?._id ?? course.department ?? "")}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          
+          const total = classCourses.length;
+          return res.json({
+            courses: classCourses,
+            pagination: {
+              total,
+              page,
+              pages: Math.ceil(total / limit),
+            },
+          });
+        }
+      }
+
       const [total, courses] = await Promise.all([
         Course.countDocuments(query),
         Course.find(query)
           .sort({ createdAt: -1 })
           .skip((page - 1) * limit)
           .limit(limit)
-          .populate("department", "name departmentID code")
+          .populate("department", "name departmentID code head")
           .populate("unit", "name unitID code"),
       ]);
 
@@ -617,28 +678,36 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
     const flattened: any[] = [];
 
     let topLevelCourses: any[] = [];
-    if (userRole === "teacher") {
-      topLevelCourses = await Course.find({
-        ...query,
-        "subjects.lecturer": userId,
-      }).sort({ createdAt: -1 });
-    } else if (userRole === "student") {
-      const student = await User.findById(userId).populate({
-        path: "studentClasses",
-        populate: {
-          path: "courses",
-          select: "name code courseID lecturer isActive subjects",
-        },
-      });
+    if (classIdQuery || userRole === "student") {
+      let effectiveClassId = classIdQuery;
+      if (userRole === "student") {
+        const studentClassId = normalizeClassIdValue((req as any).user?.studentClasses);
+        effectiveClassId = studentClassId || effectiveClassId;
+      }
 
-      const studentClass = student?.studentClasses as any;
-      const classCourses = studentClass?.courses ?? [];
-      topLevelCourses = Array.isArray(classCourses) ? classCourses : [];
-    } else {
-      topLevelCourses = await Course.find(query)
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit);
+      if (effectiveClassId) {
+        const classDoc = await getClassCourseDocuments(effectiveClassId);
+        topLevelCourses = (classDoc?.courses ?? []) as any[];
+      }
+    }
+
+    if (topLevelCourses.length === 0) {
+      if (userRole === "teacher") {
+        topLevelCourses = await Course.find({
+          ...query,
+          "subjects.lecturer": userId,
+        }).sort({ createdAt: -1 });
+      } else if (userRole === "student") {
+        // If a student has no assigned classes or the class fetch failed, return an empty list.
+        topLevelCourses = [];
+      } else {
+        topLevelCourses = await Course.find(query)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .populate("department", "name departmentID code head")
+          .populate("unit", "name unitID code");
+      }
     }
 
     for (const c of topLevelCourses) {
@@ -648,7 +717,9 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
           const matches =
             String(s?.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
             String(s?.code ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            String(s?.subjectID ?? "").toLowerCase().includes(search.toLowerCase());
+            String(s?.subjectID ?? "").toLowerCase().includes(search.toLowerCase()) ||
+            String(c?.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+            String(c?.code ?? "").toLowerCase().includes(search.toLowerCase());
           if (!matches) continue;
         }
 
@@ -658,15 +729,30 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
           if (!includesTeacher) continue;
         }
 
+        const lecturerData = Array.isArray(s?.lecturer) ? s.lecturer : [];
         flattened.push({
           _id: String(s?._id ?? s?.subjectID ?? ""),
           name: s?.name,
           code: s?.code,
           isActive: Boolean(s?.isActive ?? true),
-          teacher:
-            Array.isArray(s?.lecturer) && s.lecturer.length > 0
-              ? s.lecturer.map((lid: any) => String(lid))
-              : null,
+          teacher: lecturerData.map((lect: any) =>
+            typeof lect === "object" && lect !== null
+              ? { _id: String(lect._id ?? ""), name: lect.name ?? "" }
+              : { _id: String(lect), name: "" }
+          ),
+          course: {
+            _id: String(c?._id ?? ""),
+            name: c?.name,
+            code: c?.code,
+          },
+          department: c?.department
+            ? {
+                _id: String(c.department._id ?? ""),
+                name: c.department.name,
+                code: c.department.code,
+                head: c.department.head,
+              }
+            : null,
         });
       }
     }
@@ -681,6 +767,25 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
         pages: Math.ceil(total / limit),
       },
     });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const getCourseById = async (req: Request, res: Response) => {
+  try {
+    const course = await Course.findById(req.params.courseId)
+      .populate("department", "name departmentID code head")
+      .populate("unit", "name unitID code")
+      .populate("lecturer", "name email")
+      .populate("subjects.lecturer", "name email");
+
+    if (!course) {
+      return res.status(404).json({ message: "Course not found" });
+    }
+
+    return res.json(course);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error", error });
