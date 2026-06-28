@@ -43,6 +43,15 @@ courseRouter
   );
 
 courseRouter
+  .route("/departments")
+  .get(getAvailableDepartments)
+  .post(protect, authorize(["admin"]), createDepartment);
+
+courseRouter
+  .route("/department-constants")
+  .get(protect, getDepartmentConstants);
+
+courseRouter
   .route("/:courseId/subjects")
   .post(
     protect,
@@ -61,11 +70,6 @@ courseRouter
 courseRouter
   .route("/deduplicate-classes")
   .post(protect, authorize(["admin"]), deduplicateClassCourses);
-
-courseRouter
-  .route("/departments")
-  .get(protect, getAvailableDepartments)
-  .post(protect, authorize(["admin"]), createDepartment);
 
 courseRouter
   .route("/departments/bulk-upload")

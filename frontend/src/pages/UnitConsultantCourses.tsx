@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -15,7 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
 
 interface Course {
   _id: string;
@@ -57,13 +56,14 @@ interface TimetableSchedule {
   periods: TimetablePeriod[];
 }
 
-export default function StudentCourses() {
+export default function UnitResidentCourses() {
   const { user } = useAuth();
-  const [studentClass, setStudentClass] = useState<Class | null>(null);
+  const [classes, setClasses] = useState<Class[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [loadingClass, setLoadingClass] = useState(true);
+  const [loadingClasses, setLoadingClasses] = useState(true);
   const [loadingCourses, setLoadingCourses] = useState(false);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
@@ -71,7 +71,7 @@ export default function StudentCourses() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "subjects-high" | "subjects-low">("name-asc");
-  
+
   // Hover and expand animations
   const [hoveredCourseId, setHoveredCourseId] = useState<string | null>(null);
   const [pulsingCourseId, setPulsingCourseId] = useState<string | null>(null);
@@ -92,80 +92,68 @@ export default function StudentCourses() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!subjectsPanelCourseId || !expandedCourseId) {
-      setSubjectsPanelPosition(null);
-      return;
-    }
-
-    const updatePanelPosition = () => {
-      const el = cardRefs.current[subjectsPanelCourseId];
-      if (!el) {
+    useEffect(() => {
+      if (!subjectsPanelCourseId || !expandedCourseId) {
+        setSubjectsPanelPosition(null);
         return;
       }
-
-      const rect = el.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const panelWidth = Math.min(viewportWidth * 0.3, 320);
-      const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
-      setSubjectsPanelPosition({ left, top: rect.top, height: rect.height });
-    };
-
-    updatePanelPosition();
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
-    };
-  }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible]);
   
-  // Fetch student's assigned class
+      const updatePanelPosition = () => {
+        const el = cardRefs.current[subjectsPanelCourseId];
+        if (!el) {
+          return;
+        }
+  
+        const rect = el.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const panelWidth = Math.min(viewportWidth * 0.3, 320);
+        const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
+        setSubjectsPanelPosition({ left, top: rect.top, height: rect.height });
+      };
+  
+      updatePanelPosition();
+      window.addEventListener("resize", updatePanelPosition);
+      window.addEventListener("scroll", updatePanelPosition, true);
+  
+      return () => {
+        window.removeEventListener("resize", updatePanelPosition);
+        window.removeEventListener("scroll", updatePanelPosition, true);
+      };
+    }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible]);
+
+  // Fetch classes for this unit resident
   useEffect(() => {
-    const fetchStudentClass = async () => {
+    const fetchUnitResidentClasses = async () => {
       try {
-        setLoadingClass(true);
+        setLoadingClasses(true);
         if (!user?._id) {
           setError("User not authenticated");
           return;
         }
 
-        // Use user data from auth context, which should already have studentClasses
-        const userClass = user?.studentClasses;
-
-        if (userClass) {
-          if (typeof userClass === "object" && userClass._id) {
-            setStudentClass(userClass);
-          } else if (typeof userClass === "string") {
-            // Fetch full class details if only ID is stored
-            const classData = await api.get(`/classes/${userClass}`);
-            setStudentClass(classData.data);
-          } else if (Array.isArray(userClass) && userClass.length > 0) {
-            // If it's an array, use the first class
-            const classItem = userClass[0];
-            if (typeof classItem === "object" && classItem._id) {
-              setStudentClass(classItem);
-            }
-          }
-        } else {
-          setError("No class assigned to your account");
+        // Fetch all classes - can be expanded based on how backend links unit residents to classes
+        const response = await api.get("/classes");
+        const allClasses = Array.isArray(response.data.classes) ? response.data.classes : [];
+        
+        setClasses(allClasses);
+        if (allClasses.length > 0) {
+          setSelectedClassId(allClasses[0]._id);
         }
       } catch (err: any) {
-        console.error("Failed to fetch student class:", err);
-        setError("Failed to load your class assignment");
+        console.error("Failed to fetch classes:", err);
+        setError("Failed to load classes");
       } finally {
-        setLoadingClass(false);
+        setLoadingClasses(false);
       }
     };
 
-    fetchStudentClass();
-  }, [user?._id, user?.studentClasses]);
+    fetchUnitResidentClasses();
+  }, [user?._id]);
 
-  // Fetch courses for the student's class
+  // Fetch courses for selected class
   useEffect(() => {
     const fetchCoursesForClass = async () => {
-      if (!studentClass?._id) return;
+      if (!selectedClassId) return;
 
       try {
         setLoadingCourses(true);
@@ -174,15 +162,14 @@ export default function StudentCourses() {
         setSubjects([]);
 
         const [courseResponse, timetableResponse] = await Promise.allSettled([
-          api.get(`/courses?class=${studentClass._id}&topLevel=true`),
-          api.get(`/timetables/${studentClass._id}`),
+          api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+          api.get(`/timetables/${selectedClassId}`),
         ]);
 
         if (courseResponse.status === "fulfilled") {
           setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
         } else {
           console.error("Failed to fetch courses:", courseResponse.reason);
-          setError("Failed to load courses for your class");
           setCourses([]);
         }
 
@@ -194,7 +181,6 @@ export default function StudentCourses() {
         }
       } catch (err: any) {
         console.error("Failed to fetch courses or timetable:", err);
-        setError("Failed to load courses for your class");
         setCourses([]);
         setClassSchedule([]);
       } finally {
@@ -204,7 +190,7 @@ export default function StudentCourses() {
     };
 
     fetchCoursesForClass();
-  }, [studentClass?._id]);
+  }, [selectedClassId]);
 
   const getCourseSchedule = (courseId: string) => {
     return classSchedule.flatMap((schedule) =>
@@ -223,7 +209,6 @@ export default function StudentCourses() {
     );
   };
 
-  // Filter and sort courses
   const filteredAndSortedCourses = courses
     .filter((course) => {
       if (!searchQuery.trim()) return true;
@@ -249,7 +234,6 @@ export default function StudentCourses() {
       }
     });
 
-  // Handle course card hover with a deliberate delay and one-card-at-a-time behavior
   const clearCourseHoverTimers = () => {
     Object.values(hoverTimeoutRef.current).forEach((timeout) => clearTimeout(timeout));
     hoverTimeoutRef.current = {};
@@ -480,7 +464,6 @@ export default function StudentCourses() {
   };
 
   const closeSubjectsPanel = () => {
-    setSubjectsPanelVisible(false);
     if (expandedCourseId) {
       applyExpandedCardTransform(expandedCourseId, 0);
     }
@@ -489,13 +472,13 @@ export default function StudentCourses() {
     }, 260);
   };
 
-  if (!user || user.role !== "student") {
+  if (!user || user.role !== "unitconsultant") {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-6xl flex-col items-center justify-center gap-4 px-4 py-10 text-center">
         <div className="rounded-3xl border border-border bg-muted p-10 shadow-sm">
-          <h1 className="text-2xl font-semibold">Student Courses</h1>
+          <h1 className="text-2xl font-semibold">Unit Consultant Courses</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            This page is for students only.
+            This page is for unit consultants only.
           </p>
         </div>
       </div>
@@ -504,30 +487,46 @@ export default function StudentCourses() {
 
   return (
     <div className="space-y-6 p-6">
-      {/* Header with Class Info */}
+      {/* Header with Class Selection */}
       <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-4">
           <p className="text-sm font-medium uppercase tracking-[0.24em] text-primary">
-            Your Class
+            Select Class
           </p>
         </div>
-        
-        {loadingClass ? (
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
-          </div>
-        ) : error && !studentClass ? (
+
+        {loadingClasses ? (
+          <Skeleton className="h-10 w-48" />
+        ) : error ? (
           <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
             {error}
           </div>
-        ) : studentClass ? (
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight">{studentClass.name}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Courses and subjects available for {studentClass.name}
-            </p>
+        ) : (
+          <div className="flex items-center gap-4">
+            <Select value={selectedClassId || ""} onValueChange={setSelectedClassId}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Choose a class" />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((cls) => (
+                  <SelectItem key={cls._id} value={cls._id}>
+                    {cls.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedClassId && (
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Courses and subjects available for{" "}
+                  <span className="font-semibold text-foreground">
+                    {classes.find((c) => c._id === selectedClassId)?.name}
+                  </span>
+                </p>
+              </div>
+            )}
           </div>
-        ) : null}
+        )}
       </div>
 
       {/* Search and Sort Controls */}
@@ -559,7 +558,7 @@ export default function StudentCourses() {
       </div>
 
       {/* Courses Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {loadingCourses ? (
           <>
             <Skeleton className="h-64 rounded-lg" />
@@ -724,6 +723,7 @@ export default function StudentCourses() {
           </>
         )}
       </div>
+
 
     </div>
   );

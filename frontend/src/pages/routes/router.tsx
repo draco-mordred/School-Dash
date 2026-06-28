@@ -14,6 +14,10 @@ import Classes from "@/pages/academics/Classes";
 import { Subjects } from "@/pages/academics/Subjects";
 import Courses from "@/pages/academics/Courses";
 import StudentCourses from "@/pages/StudentCourses";
+import TeacherCourses from "@/pages/TeacherCourses";
+import UnitConsultantCourses from "@/pages/UnitConsultantCourses";
+import UnitResidentCourses from "@/pages/UnitResidentCourses";
+import ParentCourses from "@/pages/ParentCourses";
 import StudentClinicalsCurrentPosting from "@/pages/StudentClinicalsCurrentPosting";
 import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
@@ -43,7 +47,23 @@ import { useAuth } from "@/hooks/useAuth";
 // Wrapper component for courses route - renders based on user role
 const CoursesWrapper = () => {
   const { user } = useAuth();
-  return user?.role === "student" ? <StudentCourses /> : <Courses />;
+  
+  switch (user?.role) {
+    case "student":
+      return <StudentCourses />;
+    case "teacher":
+      return <TeacherCourses />;
+    case "unitconsultant":
+      return <UnitConsultantCourses />;
+    case "unitresident":
+      return <UnitResidentCourses />;
+    case "parent":
+      return <ParentCourses />;
+    case "admin":
+      return <TeacherCourses />;
+    default:
+      return <Courses />;
+  }
 };
 
 export const router = createBrowserRouter([

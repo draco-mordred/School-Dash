@@ -98,7 +98,7 @@ export const UserDepartmentName = {
     Microbiology: "Microbiology",
 } as const;
 
-export type userDepartmentName = "OBG" | "Pediatrics" | "Medicine" | "Surgery" | "Psychiatry" | "earNoseAndThroat" | "Anaesthesiology" | "Radiology" | "Ophthalmology" | "Dermatology" | "Hematology" | "anatomicPathology" | "chemicalPathology" | "Microbiology"; // Define a type for user departments
+export type userDepartmentName = string; // Department name or identifier string
 
 export const UserAcademicStatus = {
     professor: "Professor",
@@ -128,9 +128,12 @@ export interface IUser extends Document {
     idNumber: string; // field for ID number
     password: string;
     role: userRoles;
-    department: userDepartmentName; // Department name or ID
+    department?: string | null; // Department name or ID
     departmentId: mongoose.Types.ObjectId | null; // Department ID
     isActive: boolean;
+    approvalStatus?: "pending" | "approved" | "rejected";
+    approvedAt?: Date | null;
+    approvedBy?: mongoose.Types.ObjectId | null;
     profileImage?: string; // Base64 encoded profile image
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
     teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of class IDs for teachers
@@ -195,7 +198,6 @@ const UserSchema: Schema<IUser> = new Schema({
     },
     department: {
         type: String,
-        enum: Object.values(UserDepartmentName),
         default: null,
     },
     departmentId: {
@@ -206,6 +208,20 @@ const UserSchema: Schema<IUser> = new Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    approvalStatus: {
+        type: String,
+        enum: ["pending", "approved", "rejected"],
+        default: "approved"
+    },
+    approvedAt: {
+        type: Date,
+        default: null,
+    },
+    approvedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
     },
     profileImage: {
         type: String,

@@ -6,10 +6,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
  
 import {
-  type Class, 
+  type Class,
   type UserRole,
   type pagination,
   type courses,
+  type department,
   type user,
 } from "@/types";
 import { FieldGroup } from "@/components/ui/field";
@@ -41,6 +42,7 @@ const createSchema = (type: FormType) => {
       role: z.string().optional(),
       academicStatus: z.string().optional(),
       departmentRole: z.string().optional(),
+      departmentId: z.string().optional(),
       password:
         type === "update"
           ? z
@@ -78,6 +80,8 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const [departments, setDepartments] = useState<department[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [subjects, setSubjects] = useState<courses[]>([]);
 
   const form = useForm<FormValues>({
@@ -91,13 +95,14 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
       subjectIds: [],
       academicStatus: undefined,
       departmentRole: undefined,
+      departmentId: undefined,
     },
   });
 
   // fetch classes
   useEffect(() => {
     const fetchClasses = async () => {
-      if (type === "login") {
+      if (isLogin) {
         setLoading(false);
         return;
       }
@@ -108,7 +113,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
         };
         setClasses(data.classes);
       } catch (error) {
-        if (type !== "login") {
+        if (!isLogin) {
           toast.error("Failed to load Classes");
           console.log(error);
         }
@@ -117,24 +122,23 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
       }
     };
     fetchClasses();
-  }, [type]);
+  }, [type, isLogin]);
 
   // Fetch subjects
   useEffect(() => {
     const fetchSubjects = async () => {
-      if (type === "login") {
+      if (isLogin) {
         setLoadingOptions(false);
         return;
       }
       try {
-        setLoadingOptions(true); 
+        setLoadingOptions(true);
         const { data } = (await api.get("/courses")) as {
           data: { courses: courses[]; pagination: pagination };
         };
         setSubjects(data.courses);
-        setLoadingOptions(false); 
       } catch (error) {
-        if (type !== "login") {
+        if (!isLogin) {
           toast.error("Failed to load subjects");
           console.log(error);
         }
@@ -143,11 +147,35 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
       }
     };
     fetchSubjects();
-  }, [type]);
+  }, [type, isLogin]);
+
+  // Fetch departments for staff assignment
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      if (isLogin) {
+        setDepartmentsLoading(false);
+        return;
+      }
+      try {
+        setDepartmentsLoading(true);
+        const { data } = await api.get("/courses/departments");
+        setDepartments(data.departments ?? []);
+      } catch (error) {
+        if (!isLogin) {
+          toast.error("Failed to load departments");
+          console.log(error);
+        }
+      } finally {
+        setDepartmentsLoading(false);
+      }
+    };
+    fetchDepartments();
+  }, [type, isLogin]);
 
   // Populate form for Update mode
   useEffect(() => {
     if (initialData && isUpdate) {
+      const initialDataWithDept = initialData as user & { departmentId?: string };
       const existingClassId =
         typeof initialData.studentClasses === "object" 
           ? initialData.studentClasses?._id
@@ -173,6 +201,7 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
         subjectIds,
         academicStatus: initialData.academicStatus || undefined,
         departmentRole: initialData.departmentRole || undefined,
+        departmentId: initialDataWithDept.departmentId || "",
       });
     }
   }, [isUpdate, initialData, form, classes]);
@@ -180,14 +209,16 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
   async function onSubmit(data: FormValues) {
     try {
       // console.log(data);
+      const { classId, subjectIds, departmentId, ...formData } = data;
       const payload = {
-        studentClasses: data.classId ? data.classId : undefined,
-        teacherSubject: data.subjectIds ? data.subjectIds : [],
+        ...formData,
+        studentClasses: classId || undefined,
+        teacherSubject: subjectIds || [],
         parentStudents: [],
         role: data.role || role,
         academicStatus: data.academicStatus || null,
         departmentRole: data.departmentRole || null,
-        ...data,
+        departmentId: departmentId || undefined,
       };
       if (isLogin) {
         const response = await api.post("/users/login", {
@@ -211,7 +242,8 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
         toast.success("Account created successfully!");
         if (onSuccess) onSuccess();
       } else if (type === "update" && initialData) {
-        const userId = (initialData as any)._id || (initialData as any).id;
+        const userRecord = initialData as user & { _id?: string; id?: string };
+        const userId = userRecord._id || userRecord.id;
         if (!userId) {
           throw new Error("Missing user id for update");
         }
@@ -235,6 +267,13 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
     ? subjects.map((s) => ({ label: s.name, value: s._id }))
     : [];
 
+  const departmentOptions = Array.isArray(departments)
+    ? departments.map((dept) => ({
+        label: `${dept.name} (${dept.departmentID})`,
+        value: dept._id,
+      }))
+    : [];
+
   const roleDisplayMap: Record<string, string> = {
     admin: "Admin",
     teacher: "Teacher",
@@ -254,11 +293,12 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
   })();
 
   const pending = form.formState.isSubmitting;
+  const userRole = role ?? form.watch("role");
   const showRoleSelector = !isLogin;
-  // you can also include teacher is needed
-  const showClassSelector = !isLogin && role === "student";
-  const showSubjectSelector = !isLogin && role === "teacher";
-  const showTeacherFields = !isLogin && role === "teacher";
+  const showClassSelector = !isLogin && userRole === "student";
+  const showSubjectSelector = !isLogin && userRole === "teacher";
+  const showTeacherFields = !isLogin && userRole === "teacher";
+  const showStaffDepartment = !isLogin && ["teacher", "unitconsultant", "unitresident"].includes(userRole || "");
 
   const gridCols = singleColumn ? "grid-cols-1" : "grid-cols-2";
 
@@ -342,6 +382,18 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
                   { label: "Exam Officer", value: "exam officer" },
                 ]}
                 disabled={pending}
+              />
+            )}
+            {/* department selector for staff */}
+            {showStaffDepartment && (
+              <CustomSelect
+                control={form.control}
+                name="departmentId"
+                label="Department"
+                placeholder="Select department"
+                options={departmentOptions}
+                disabled={pending}
+                loading={departmentsLoading}
               />
             )}
             <CustomInput

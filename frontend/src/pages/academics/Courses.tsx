@@ -122,10 +122,12 @@ const teacherBelongsToDepartment = (
 export default function Courses() {
   const { user } = useAuth();
   const isAdminOrTeacher = user?.role === "admin" || user?.role === "teacher";
+  const canManageCourses = ["admin", "teacher", "unitconsultant"].includes(user?.role ?? "");
   const isAdmin = user?.role === "admin";
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loadingState, setLoadingState] = useState<LoadingState>("idle");
+  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
 
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -607,7 +609,7 @@ export default function Courses() {
               {deduplicating ? "Cleaning..." : "Clean Duplicates"}
             </Button>
           )}
-          {isAdminOrTeacher && (
+          {canManageCourses && (
             <>
               <input
                 ref={uploadCourseInputRef}
@@ -753,25 +755,53 @@ export default function Courses() {
                   ? `${lecturerArr.length} lecturer${lecturerArr.length !== 1 ? "s" : ""}`
                   : undefined;
 
+                const departmentName = typeof c.department === "string"
+                  ? c.department
+                  : c.department?.name ?? c.department?.code ?? c.department?.departmentID ?? "";
+                const academicYearName = typeof c.academicYear === "string"
+                  ? c.academicYear
+                  : c.academicYear?.name ?? "";
+                const isExpanded = c._id === expandedCourseId;
+
                 return (
-                  <div key={c._id} className="border rounded-md p-3">
+                  <div
+                    key={c._id}
+                    className={
+                      "border rounded-md p-3 transition " +
+                      (isExpanded
+                        ? "border-primary bg-primary/5 shadow-sm"
+                        : "hover:border-muted-foreground/40 hover:shadow-sm")
+                    }
+                  >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="font-medium">{c.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCourseId((prev) => (prev === c._id ? null : c._id))}
+                        className="text-left flex-1 text-left cursor-pointer"
+                        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${c.name}`}
+                      >
+                        <div className="font-medium text-left">{c.name}</div>
+                        <div className="text-sm text-muted-foreground">{c.code}</div>
+                      </button>
                       <div className="flex items-center gap-1">
-                        {(user?.role === "admin" || user?.role === "teacher") && (
+                        {canManageCourses && (
                           <button
                             type="button"
-                            onClick={() => handleOpenEditCourse(true, c)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleOpenEditCourse(true, c);
+                            }}
                             className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
                             title="Edit course"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {(user?.role === "admin" || user?.role === "teacher") && (
+                        {canManageCourses && (
                           <button
                             type="button"
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation();
                               const courseWithDept = c as CourseWithDepartment;
                               const department =
                                 typeof courseWithDept.department === "object"
@@ -796,13 +826,12 @@ export default function Courses() {
                             +
                           </button>
                         )}
-                        {(user?.role === "admin" || user?.role === "teacher") && (
+                        {canManageCourses && (
                           <button
                             type="button"
-                            onClick={async () => {
+                            onClick={async (event) => {
+                              event.stopPropagation();
                               try {
-                                // No dedicated backend endpoint exists for deleting a single course from a class.
-                                // Remove it by updating the class's `courses` array.
                                 const remaining = (selectedCourses ?? [])
                                   .filter((x) => x._id !== c._id)
                                   .map((x) => x._id);
@@ -818,15 +847,29 @@ export default function Courses() {
                             className="text-muted-foreground hover:text-red-600 p-1 rounded shrink-0"
                             title="Remove from class"
                           >
-                            {/* using simple text icon to avoid importing more icons */}
                             ✕
                           </button>
                         )}
                       </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">{c.code}</div>
                     {displayLecturers && (
                       <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
+                    )}
+                    {isExpanded && (
+                      <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                        <div>
+                          <span className="font-medium text-slate-700">Course Group:</span> {c.courseID ?? "N/A"}
+                        </div>
+                        <div>
+                          <span className="font-medium text-slate-700">Department:</span> {departmentName || "N/A"}
+                        </div>
+                        <div>
+                          <span className="font-medium text-slate-700">Semester:</span> {c.semester ?? "N/A"}
+                        </div>
+                        <div>
+                          <span className="font-medium text-slate-700">Academic Year:</span> {academicYearName || "N/A"}
+                        </div>
+                      </div>
                     )}
                     {!c.isActive ? (
                       <div className="mt-2">

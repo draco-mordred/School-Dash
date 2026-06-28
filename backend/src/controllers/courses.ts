@@ -1104,7 +1104,16 @@ const syncDepartmentsFromConstants = async () => {
 export const getAvailableDepartments = async (req: Request, res: Response) => {
   try {
     await syncDepartmentsFromConstants();
-    const departments = await Department.find({}).sort({ name: 1 });
+    let departments = await Department.find({}).sort({ name: 1 });
+
+    if (!departments.length) {
+      const constantDepartments = getAllDepartments().map((dept) => ({
+        _id: dept.departmentID,
+        ...dept,
+      }));
+      return res.json({ departments: constantDepartments });
+    }
+
     return res.json({ departments });
   } catch (error) {
     console.error(error);

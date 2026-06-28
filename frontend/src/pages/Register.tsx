@@ -49,10 +49,11 @@ const Register = () => {
 
   const fetchDepartments = async () => {
     try {
-      const { data } = await api.get("/courses/meta");
+      const { data } = await api.get("/courses/departments");
       setDepartments(data.departments ?? []);
     } catch (error) {
       console.error("Failed to load departments", error);
+      toast.error("Failed to load departments. Please refresh the page.");
     }
   };
 
@@ -121,16 +122,28 @@ const Register = () => {
       }
 
       if (role === "teacher" || role === "unitconsultant" || role === "unitresident") {
-        const selectedDepartment = departments.find((dept) => dept._id === departmentId);
+        const selectedDepartment = departments.find((dept) => {
+          const candidateValues = [dept._id, dept.departmentID, dept.code, dept.name];
+          return candidateValues.some(
+            (value) => value && String(value).trim().toLowerCase() === String(departmentId).trim().toLowerCase()
+          );
+        });
+
         if (!selectedDepartment) {
           return toast.error("Select your department");
         }
-        payload.departmentId = selectedDepartment._id;
+
+        payload.departmentId = selectedDepartment.departmentID || selectedDepartment._id || selectedDepartment.code;
         payload.department = selectedDepartment.name;
       }
 
-      await api.post("/users/public/register", payload);
-      toast.success("Account created successfully. Please sign in.");
+      const { data } = await api.post("/users/public/register", payload);
+      const needsApproval = data?.requiresApproval || (role === "teacher" || role === "unitconsultant" || role === "unitresident");
+      toast.success(
+        needsApproval
+          ? "Account created successfully. Your request is pending admin approval."
+          : "Account created successfully. Please sign in."
+      );
       navigate("/login");
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string; error?: string } } };
@@ -279,8 +292,8 @@ const Register = () => {
                       >
                         <option value="">Select your department</option>
                         {departments.map((dept) => (
-                          <option key={dept._id} value={dept._id}>
-                            {dept.name} ({dept.departmentID})
+                          <option key={dept._id} value={dept.departmentID || dept._id}>
+                            {dept.name} ({dept.departmentID || dept._id})
                           </option>
                         ))}
                       </select>

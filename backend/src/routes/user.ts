@@ -4,6 +4,7 @@ import {
     login,
     registerUser,
     registerPublic,
+    approvePendingUser,
     updateUser,
     deleteUser,
     logoutUser,
@@ -34,6 +35,11 @@ userRoutes.get("/",
     protect,
     authorize(["admin", "teacher", "parent", "student", "unitconsultant"]),
     getUsers
+);
+userRoutes.post("/:id/approve",
+    protect,
+    authorize(["admin"]),
+    approvePendingUser
 );
 userRoutes.get("/:id",
     protect,

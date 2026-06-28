@@ -2,11 +2,14 @@ import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import User from "../models/user";
 import Department from "../models/departments";
+import { getAllDepartments } from "../constants/departments";
 import { Notification } from "../models/notification";
 import { sendSSE } from "../utils/sse";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
 import type { AuthRequest } from "../middleware/auth";
+import { getRegistrationApprovalState, requiresAdminApproval } from "../utils/registrationApproval";
+import { sendAccountApprovalEmail } from "../utils/accountApprovalEmail";
 
 const normalizeRole = (role?: string): string | undefined => {
     if (!role) return undefined;
@@ -28,9 +31,28 @@ const findDepartment = async (departmentInput?: string) => {
         if (doc) return doc;
     }
 
-    const doc = await Department.findOne({
+    let doc = await Department.findOne({
         $or: [{ code: identifier }, { departmentID: identifier }, { name: identifier }],
     });
+
+    if (doc) return doc;
+
+    const constantDept = getAllDepartments().find(
+        (d) => d.code === identifier || d.departmentID === identifier || d.name === identifier
+    );
+
+    if (!constantDept) return null;
+
+    doc = await Department.findOneAndUpdate(
+        { code: constantDept.code },
+        {
+            name: constantDept.name,
+            code: constantDept.code,
+            departmentID: constantDept.departmentID,
+        },
+        { upsert: true, returnDocument: "after" }
+    );
+
     return doc;
 };
 
@@ -325,6 +347,10 @@ export const registerPublic = async (
             return;
         }
 
+        const approvalState = getRegistrationApprovalState(normalizedRole);
+        const needsAdminApproval = requiresAdminApproval(normalizedRole);
+        const requestedActiveState = typeof isActive === "boolean" ? isActive : approvalState.isActive;
+
         // Students may register without selecting a class; create account now and allow class assignment later.
         // NOTE: frontend sends studentClassName (readable), not class ObjectId.
         const studentClassName: string | undefined = (req.body?.studentClassName as string | undefined) || undefined;
@@ -334,14 +360,12 @@ export const registerPublic = async (
         const normalizedName = typeof name === "string" ? name.trim() : "";
 
         if (isStaffUmbrella) {
-            // HospitalStaff has `name` + other fields; match on non-case-sensitive tokens.
-            // Rule: at least two word tokens must match.
             const staffTokens = normalizedName
                 .toLowerCase()
                 .split(/[^a-z0-9]+/i)
                 .filter(Boolean);
 
-            const staffMatch = await (async () => {
+            await (async () => {
                 const staffQuery = { isActive: true };
                 const matches = await (require("../models/hospitalStaff").default as any).find(staffQuery).select("name");
                 for (const s of matches) {
@@ -354,42 +378,6 @@ export const registerPublic = async (
                 }
                 return false;
             })();
-
-            if (!staffMatch) {
-                // Notify all admins ("extra" role added later)
-                const admins = await User.find({ role: "admin" }).select("_id");
-                const unauthorizedMessage =
-                    "unauthorized to access this role and will have to await admin confirmation, Check you email in a bit for approval";
-
-                const notifications = admins.map((a) => ({
-                    userId: a._id,
-                    role: "admin",
-                    title: "Staff role authorization request",
-                    message: `${name} (${email}) requested role '${role}'. Verify staff roster and approve the registration.`,
-                    type: "system",
-                    isRead: false,
-                    metadata: {
-                        pendingUserEmail: email,
-                        pendingUserName: name,
-                        requestedRole: role,
-                        unauthorizedMessage,
-                    },
-                }));
-
-                if (notifications.length) {
-                    const inserted = await Notification.insertMany(notifications);
-                    for (const doc of inserted) {
-                        try {
-                            sendSSE("notification", doc, String(doc.userId));
-                        } catch (err) {
-                            console.error("Failed to send SSE for inserted notifications", err);
-                        }
-                    }
-                }
-
-                res.status(403).json({ message: unauthorizedMessage });
-                return;
-            }
         }
 
         const studentClassNameRaw: string | undefined = studentClassName;
@@ -486,7 +474,8 @@ export const registerPublic = async (
             studentClasses: studentClassId,
             teacherSubject: teacherSubjectNormalized,
             parentStudents: parentStudentsNormalized,
-            isActive,
+            isActive: requestedActiveState,
+            approvalStatus: approvalState.approvalStatus,
         }) as any;
 
         if (newUser) {
@@ -525,6 +514,40 @@ export const registerPublic = async (
                 }
             }
 
+            if (needsAdminApproval) {
+                try {
+                    const admins = await User.find({ role: 'admin' }).select('_id');
+                    const notifications = admins.map((a) => ({
+                        userId: a._id,
+                        role: 'admin',
+                        title: 'Pending staff registration',
+                        message: `${newUser.name} (${newUser.email}) submitted a ${normalizedRole} registration and is waiting for admin approval.`,
+                        type: 'system',
+                        isRead: false,
+                        metadata: {
+                            pendingUserId: newUser._id,
+                            pendingUserEmail: newUser.email,
+                            pendingUserName: newUser.name,
+                            requestedRole: normalizedRole,
+                            approvalStatus: newUser.approvalStatus,
+                        },
+                    }));
+
+                    if (notifications.length) {
+                        const inserted = await Notification.insertMany(notifications);
+                        for (const doc of inserted) {
+                            try {
+                                sendSSE('notification', doc, String(doc.userId));
+                            } catch (err) {
+                                console.error('Failed to send SSE for pending staff notification', err);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('Failed to notify admins about pending staff registration:', err);
+                }
+            }
+
             res.status(201).json({
                 _id: newUser._id,
                 name: newUser.name,
@@ -535,7 +558,11 @@ export const registerPublic = async (
                 teacherSubject: newUser.teacherSubject,
                 parentStudents: newUser.parentStudents,
                 isActive: newUser.isActive,
-                message: `User '${newUser.name}' created successfully`,
+                approvalStatus: newUser.approvalStatus,
+                requiresApproval: needsAdminApproval,
+                message: needsAdminApproval
+                    ? `User '${newUser.name}' created successfully and is pending admin approval.`
+                    : `User '${newUser.name}' created successfully`,
             });
             return;
         }
@@ -567,6 +594,27 @@ export const login = async (
         const user = await User.findOne({ email })
         // check if user exists and password matches 
         if (user && (await user.matchPassword(password))){
+            if (user.approvalStatus !== "approved") {
+                const message = user.approvalStatus === "pending"
+                    ? "Your account is pending admin approval."
+                    : user.approvalStatus === "rejected"
+                        ? "Your account has been rejected."
+                        : "Your account is not approved.";
+                res.status(403).json({ message });
+                return;
+            }
+
+            if (!user.isActive) {
+                // Recover approved users that were accidentally left inactive
+                if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
+                    user.isActive = true;
+                    await user.save();
+                } else {
+                    res.status(403).json({ message: "Your account is inactive." });
+                    return;
+                }
+            }
+
             const token = generateToken(user.id.toString(), res);
             const responsePayload = {
                 user: {
@@ -609,6 +657,59 @@ export const login = async (
 // next we add fetch all activities(or let's do it now)
 // done!
 
+export const approvePendingUser = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+
+        if (user.approvalStatus === "approved" && user.isActive) {
+            res.status(200).json({ message: "User is already approved", user });
+            return;
+        }
+
+        user.approvalStatus = "approved";
+        user.isActive = true;
+        user.approvedAt = user.approvedAt ?? new Date();
+        user.approvedBy = user.approvedBy ?? (req as any).user?._id ?? null;
+        await user.save();
+
+        await Notification.create({
+            userId: user._id,
+            role: user.role as any,
+            title: "Account approved",
+            message: `Your account has been approved. You can now sign in with the password you created during registration.`,
+            type: "success",
+            isRead: false,
+            metadata: { approvedBy: (req as any).user?._id ?? null },
+        });
+
+        await sendAccountApprovalEmail({
+            to: user.email,
+            name: user.name,
+            loginUrl: process.env.FRONTEND_URL || "http://localhost:5173/login",
+            message: `Hi ${user.name}, your account has been approved. You can now sign in with the password you set during registration.`,
+        });
+
+        res.status(200).json({
+            message: "User approved successfully",
+            user: {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                isActive: user.isActive,
+                approvalStatus: user.approvalStatus,
+            },
+        });
+    } catch (error) {
+        console.error("approvePendingUser error:", error);
+        res.status(500).json({ message: "Server error", error: (error as any)?.message ?? String(error) });
+    }
+};
+
 // @desc    Update user (Admin or self)
 // @route   PATCH /api/users/:id
 // @access  Private
@@ -619,6 +720,11 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
         const requestedId = req.params.id;
         const currentUserId = authReq.user?._id?.toString();
         const currentUserRole = authReq.user?.role;
+
+        if (!mongoose.isValidObjectId(requestedId)) {
+            res.status(400).json({ status: "Error!", message: "Invalid user id" });
+            return;
+        }
 
         // Allow users to update their own profile, or admins/teachers to update any profile
         const isOwnProfile = currentUserId === requestedId;
@@ -659,22 +765,26 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                 const incoming = req.body.studentClasses !== undefined ? req.body.studentClasses : req.body.classId;
                 const normalized = Array.isArray(incoming)
                     ? incoming.length ? incoming[0] : null
-                    : incoming ?? null;
+                    : typeof incoming === "string"
+                        ? incoming.trim() || null
+                        : incoming ?? null;
                 user.studentClasses = normalized as any;
             }
             if (req.body.teacherSubject !== undefined) {
-                user.teacherSubject = Array.isArray(req.body.teacherSubject)
+                const normalizedTeacherSubject = Array.isArray(req.body.teacherSubject)
                     ? req.body.teacherSubject
                     : req.body.teacherSubject
                         ? [req.body.teacherSubject]
                         : [];
+                user.teacherSubject = normalizedTeacherSubject.filter((subject: any) => typeof subject !== "string" || subject.trim() !== "") as any;
             }
             if (req.body.parentStudents !== undefined) {
-                user.parentStudents = Array.isArray(req.body.parentStudents)
+                const normalizedParentStudents = Array.isArray(req.body.parentStudents)
                     ? req.body.parentStudents
                     : req.body.parentStudents
                         ? [req.body.parentStudents]
                         : [];
+                user.parentStudents = normalizedParentStudents.filter((student: any) => typeof student !== "string" || student.trim() !== "") as any;
             }
             if (req.body.department !== undefined || req.body.departmentId !== undefined) {
                 const deptInput = req.body.departmentId ?? req.body.department;
@@ -832,7 +942,9 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             res.status(404).json({ status: "Error!", message: "User not found" });
         }
     } catch (error) {
-        res.status(500).json({ message: `Server error: ${error}` });
+        console.error('updateUser error:', error);
+        const err = error as any;
+        res.status(500).json({ message: 'Server error', error: err?.message ?? String(err), stack: err?.stack });
     }
 }
 

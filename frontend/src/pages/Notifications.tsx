@@ -127,6 +127,14 @@ export default function Notifications() {
   // Handler after editing user (refresh system notifications and status)
   const onUserEditSuccess = async (removedNotificationId?: string | null) => {
     try {
+      if (editingUser?.approvalStatus === "pending" || editingUser?.isActive === false) {
+        try {
+          await api.post(`/users/${editingUser._id}/approve`);
+        } catch (approveErr) {
+          console.error('Failed to approve pending user', approveErr);
+        }
+      }
+
       // optimistic removal for snappier UX
       if (removedNotificationId) {
         setSystemNotifications((prev) => (prev || []).filter((s) => s._id !== removedNotificationId));
@@ -146,6 +154,13 @@ export default function Notifications() {
   const fetchStatusIfNeeded = async () => {
     try { await api.get('/attendance/status'); } catch {};
   }
+
+  useEffect(() => {
+    if (!editOpen) {
+      setAssignNotifId(null);
+      setEditingUser(null);
+    }
+  }, [editOpen]);
 
   return (
     <>
@@ -225,26 +240,29 @@ export default function Notifications() {
                           </div>
                                   <div className="text-xs text-muted-foreground ml-3 shrink-0 text-right flex flex-col items-end gap-2">
                                     <div>{new Date(n.createdAt).toLocaleString()}</div>
-                                    {/* If this notification references a newUserId, allow quick assign */}
-                                    {n.metadata?.newUserId && (
+                                    {/* If this notification references a pending user, allow review and approval */}
+                                    {(n.metadata?.pendingUserId || n.metadata?.newUserId) && (
                                       <Button
                                         size="sm"
                                         variant="outline"
                                         onClick={async () => {
-                                          const ok = window.confirm('Open assign dialog for this new user?');
+                                          const userId = n.metadata?.pendingUserId || n.metadata?.newUserId;
+                                          const ok = window.confirm(
+                                            n.metadata?.pendingUserId ? 'Review and approve this registration?' : 'Open assign dialog for this new user?'
+                                          );
                                           if (!ok) return;
                                           try {
-                                            const { data } = await api.get(`/users/${n.metadata.newUserId}`);
+                                            const { data } = await api.get(`/users/${userId}`);
                                             setEditingUser(data);
                                             setAssignNotifId(n._id);
                                             setEditOpen(true);
                                             try { if (n.unreadForUser) await markAsRead(n._id); } catch {};
                                           } catch (err) {
-                                            console.error('Failed to fetch user for assignment', err);
+                                            console.error('Failed to fetch user for review', err);
                                           }
                                         }}
                                       >
-                                        Assign class
+                                        {n.metadata?.pendingUserId ? 'Review & approve' : 'Assign class'}
                                       </Button>
                                     )}
                                   </div>
@@ -259,14 +277,20 @@ export default function Notifications() {
         </>
       )}
     </div>
-      <NotificationsWrapperDialog editingUser={editingUser} open={editOpen} setOpen={setEditOpen} onSuccess={onUserEditSuccess} />
+      <NotificationsWrapperDialog
+        editingUser={editingUser}
+        open={editOpen}
+        setOpen={setEditOpen}
+        assignNotifId={assignNotifId}
+        onSuccess={onUserEditSuccess}
+      />
     </>
   );
 }
 
 // Render the user edit dialog at module level so it can be toggled
 function NotificationsWrapperDialog(props: any) {
-  const { editingUser, open, setOpen, onSuccess } = props || {};
+  const { editingUser, open, setOpen, onSuccess, assignNotifId } = props || {};
   if (!editingUser) return null;
   return (
     <UserDialog
