@@ -211,24 +211,63 @@ export const updateClass = async (
 // @route   DELETE /api/classes/:id
 // @access  Private/Admin
 export const deleteClass = async (
-req: Request,
-res: Response
+  req: Request,
+  res: Response
 ) => {
   try {
-    const deletedClass = await ClassModel.findByIdAndDelete( req.params.id )
+    const deletedClass = await ClassModel.findByIdAndDelete(req.params.id);
     const userId = (req as any).user._id;
-    await logActivity({ 
-      userId, 
-      action: `Deleted ${deletedClass?.name} Class`
-    })
+    await logActivity({
+      userId,
+      action: `Deleted ${deletedClass?.name} Class`,
+    });
     if (!deletedClass) {
       return res.status(404).json({
-        message: `Class not found! - ${userId} Is ${deletedClass}.`
-      })
+        message: `Class not found! - ${userId} Is ${deletedClass}.`,
+      });
     }
-    // res.json({ message: `Class '${deletedClass?.name}' removed`})
-    res.json({ message: `Class removed!`})
+    res.json({ message: `Class removed!` });
   } catch (error: any) {
-    res.status(500).json({ message: error.message })
+    res.status(500).json({ message: error.message });
   }
-}
+};
+
+// @desc    Remove a course from a class (without deleting the course)
+// @route   DELETE /api/classes/:classId/courses/:courseId
+// @access  Private (Admin/Teacher/Unit)
+export const removeCourseFromClass = async (req: Request, res: Response) => {
+  try {
+    const { classId, courseId } = req.params as { classId: string; courseId: string };
+
+    const cls = await ClassModel.findById(classId);
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+
+    const beforeCount = (cls.courses ?? []).length;
+    cls.courses = (cls.courses ?? []).filter((c) => String(c) !== String(courseId));
+    const afterCount = (cls.courses ?? []).length;
+
+    if (beforeCount === afterCount) {
+      return res.status(404).json({ message: "Course not found in this class" });
+    }
+
+    await cls.save();
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Removed course ${courseId} from class ${cls.name}`,
+      });
+    }
+
+    return res.json({ message: "Course removed from class", classId: cls._id, courses: cls.courses });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+
+
+

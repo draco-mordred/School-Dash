@@ -139,7 +139,7 @@ export default function UnitResidentCourses() {
         if (allClasses.length > 0) {
           setSelectedClassId(allClasses[0]._id);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch classes:", err);
         setError("Failed to load classes");
       } finally {
@@ -179,7 +179,7 @@ export default function UnitResidentCourses() {
           console.warn("Unable to load class timetable:", timetableResponse.reason);
           setClassSchedule([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch courses or timetable:", err);
         setCourses([]);
         setClassSchedule([]);
@@ -382,7 +382,9 @@ export default function UnitResidentCourses() {
       return;
     }
 
-    const { dx, dy, scale, anchorX, anchorY } = transform;
+    const { dx, dy, scale, 
+      // anchorX, anchorY 
+    } = transform;
     // animate from current (dx,dy,scale) to identity with a gentle ease
     const anim = el.animate(
       [
@@ -454,7 +456,7 @@ export default function UnitResidentCourses() {
           applyExpandedCardTransform(course._id, -96);
         }
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to fetch subjects:", err);
       toast.error("Failed to load subjects for this course");
       setSubjects([]);
@@ -543,7 +545,7 @@ export default function UnitResidentCourses() {
           </div>
         </div>
         <div className="w-full md:w-48">
-          <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+          <Select value={sortBy} onValueChange={(value: typeof sortBy) => setSortBy(value)}>
             <SelectTrigger>
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
@@ -704,17 +706,73 @@ export default function UnitResidentCourses() {
                     })()
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  className={`mt-2 w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleViewSubjects(course);
-                  }}
-                >
-                  View Subjects
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  <Button
+                    variant="outline"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleViewSubjects(course);
+                    }}
+                  >
+                    View Subjects
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.message("Course edit UI not implemented yet (next patch)");
+                    }}
+                  >
+                    Edit Course Profile
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toast.message("Add subject UI not implemented yet (next patch)");
+                    }}
+                  >
+                    Add Subject
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!selectedClassId) return;
+                      const ok = window.confirm("Remove this course from the selected class?");
+                      if (!ok) return;
+                      void (async () => {
+                        try {
+                          await api.delete(`/classes/${selectedClassId}/courses/${course._id}`);
+                          const [courseResponse, timetableResponse] = await Promise.allSettled([
+                            api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+                            api.get(`/timetables/${selectedClassId}`),
+                          ]);
+                          if (courseResponse.status === "fulfilled") {
+                            setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+                          }
+                          if (timetableResponse.status === "fulfilled") {
+                            setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+                          }
+                          toast.success("Course removed from class");
+                        } catch (err: unknown) {
+                          console.error(err);
+                          toast.error("Failed to remove course from class");
+                        }
+                      })();
+                    }}
+                  >
+                    Remove from Class
+                  </Button>
+                </div>
               </CardContent>
             </Card>
                 );

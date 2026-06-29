@@ -3,11 +3,22 @@ import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronRight, BookOpen, Search as SearchIcon } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -15,6 +26,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+
+
+
+
+
+
 
 interface Course {
   _id: string;
@@ -51,12 +69,19 @@ interface TimetablePeriod {
   displayLabel?: string | null;
 }
 
+
+
+
 interface TimetableSchedule {
   day: string;
   periods: TimetablePeriod[];
 }
 
-export default function UnitResidentCourses() {
+export default function TeacherCourses() {
+  const [courseEditDialogOpen, setCourseEditDialogOpen] = useState(false);
+  const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
+  const [addSubjectDialogOpen, setAddSubjectDialogOpen] = useState(false);
+  const [courseToAddSubject, setCourseToAddSubject] = useState<Course | null>(null);
   const { user } = useAuth();
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
@@ -139,7 +164,7 @@ export default function UnitResidentCourses() {
         if (allClasses.length > 0) {
           setSelectedClassId(allClasses[0]._id);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch classes:", err);
         setError("Failed to load classes");
       } finally {
@@ -179,7 +204,7 @@ export default function UnitResidentCourses() {
           console.warn("Unable to load class timetable:", timetableResponse.reason);
           setClassSchedule([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch courses or timetable:", err);
         setCourses([]);
         setClassSchedule([]);
@@ -359,7 +384,8 @@ export default function UnitResidentCourses() {
   };
 
   // Animate collapse back to original position and clean up
-  const startCollapse = (courseId?: string) => {
+const startCollapse = (courseId?: string) => {
+
     const id = courseId ?? expandedCourseId;
     if (!id) {
       setExpandedCourseId(null);
@@ -382,7 +408,7 @@ export default function UnitResidentCourses() {
       return;
     }
 
-    const { dx, dy, scale, anchorX, anchorY } = transform;
+const { dx, dy, scale } = transform;
     // animate from current (dx,dy,scale) to identity with a gentle ease
     const anim = el.animate(
       [
@@ -454,7 +480,7 @@ export default function UnitResidentCourses() {
           applyExpandedCardTransform(course._id, -96);
         }
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to fetch subjects:", err);
       toast.error("Failed to load subjects for this course");
       setSubjects([]);
@@ -472,6 +498,136 @@ export default function UnitResidentCourses() {
     }, 260);
   };
 
+  const [courseEditForm, setCourseEditForm] = useState({
+    name: "",
+    code: "",
+    courseID: "",
+    semester: "",
+    year: "",
+    unit: "",
+    department: "",
+    isActive: true,
+  });
+
+  useEffect(() => {
+      if (!courseToEdit) return;
+    setCourseEditForm({
+      name: courseToEdit.name ?? "",
+      code: courseToEdit.code ?? "",
+      courseID: courseToEdit.courseID ?? "",
+      semester: courseToEdit.semester ?? "",
+      year: (courseToEdit as any).year ?? "",
+      unit: (courseToEdit as any).unit?._id ?? "",
+      department: courseToEdit.department?._id ?? "",
+      isActive: (courseToEdit as any).isActive ?? true,
+    });
+  }, [courseToEdit]);
+
+  const submitCourseEdit = async () => {
+    if (!courseToEdit) return;
+    try {
+      await api.patch(`/courses/update/${courseToEdit._id}`, {
+        name: courseEditForm.name,
+        code: courseEditForm.code,
+        courseID: courseEditForm.courseID,
+        semester: courseEditForm.semester || null,
+        year: courseEditForm.year || null,
+        department: courseEditForm.department || null,
+        unit: courseEditForm.unit || null,
+        isActive: courseEditForm.isActive,
+      });
+
+      toast.success("Course updated");
+      // refresh courses list for selected class
+      if (selectedClassId) {
+        const [courseResponse, timetableResponse] = await Promise.allSettled([
+          api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+          api.get(`/timetables/${selectedClassId}`),
+        ]);
+        if (courseResponse.status === "fulfilled") {
+          setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+        }
+        if (timetableResponse.status === "fulfilled") {
+          setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+        }
+      }
+
+      setCourseEditDialogOpen(false);
+      setCourseToEdit(null);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.response?.data?.message ?? "Failed to update course");
+    }
+  };
+
+  const [addSubjectForm, setAddSubjectForm] = useState({
+    subjectID: "",
+    name: "",
+    code: "",
+    lecturer: "",
+    isActive: true,
+    students: "",
+  });
+
+  useEffect(() => {
+    if (!courseToAddSubject) return;
+    setAddSubjectForm({
+      subjectID: "",
+      name: "",
+      code: "",
+      lecturer: "",
+      isActive: true,
+      students: "",
+    });
+  }, [courseToAddSubject]);
+
+  const submitAddSubject = async () => {
+    if (!courseToAddSubject) return;
+    try {
+      const lecturerIds: string[] = [];
+      const studentIds: string[] = [];
+
+
+      await api.post(`/courses/${courseToAddSubject._id}/subjects`, {
+        subject: {
+          subjectID: addSubjectForm.subjectID,
+          name: addSubjectForm.name,
+          code: addSubjectForm.code || null,
+          lecturer: lecturerIds,
+          students: studentIds,
+          isActive: addSubjectForm.isActive,
+        },
+      });
+
+      toast.success("Subject added to course");
+
+      // refresh courses + subjects panel if open
+      if (selectedClassId) {
+        const [courseResponse, timetableResponse] = await Promise.allSettled([
+          api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+          api.get(`/timetables/${selectedClassId}`),
+        ]);
+        if (courseResponse.status === "fulfilled") {
+          setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+        }
+        if (timetableResponse.status === "fulfilled") {
+          setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+        }
+      }
+
+      if (subjectsPanelCourseId === courseToAddSubject._id) {
+        const { data } = await api.get(`/courses/${courseToAddSubject._id}`);
+        setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+      }
+
+      setAddSubjectDialogOpen(false);
+      setCourseToAddSubject(null);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.response?.data?.message ?? "Failed to add subject");
+    }
+  };
+
   if (!user || user.role !== "teacher" && user.role !== "admin") {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-6xl flex-col items-center justify-center gap-4 px-4 py-10 text-center">
@@ -486,7 +642,152 @@ export default function UnitResidentCourses() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="">
+      <Dialog
+        open={courseEditDialogOpen}
+        onOpenChange={(open) => {
+          setCourseEditDialogOpen(open);
+          if (!open) {
+            setCourseToEdit(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Edit Course Profile</DialogTitle>
+            <DialogDescription>Update course metadata for this course.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="Name"
+              value={(courseEditForm?.name ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, name: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Code"
+              value={(courseEditForm?.code ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, code: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Course ID"
+              value={(courseEditForm?.courseID ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, courseID: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Semester"
+              value={(courseEditForm?.semester ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, semester: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Year"
+              value={(courseEditForm?.year ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, year: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Unit (ObjectId)"
+              value={(courseEditForm?.unit ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, unit: e.target.value }))
+              }
+            />
+            <Input
+              placeholder="Department (ObjectId)"
+              value={(courseEditForm?.department ?? "") as string}
+              onChange={(e) =>
+                setCourseEditForm((p) => ({ ...p, department: e.target.value }))
+              }
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setCourseEditDialogOpen(false);
+                setCourseToEdit(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void submitCourseEdit();
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={addSubjectDialogOpen}
+        onOpenChange={(open) => {
+          setAddSubjectDialogOpen(open);
+          if (!open) {
+            setCourseToAddSubject(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Add Subject To Course</DialogTitle>
+            <DialogDescription>Add an embedded subject to the selected course.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            {/* NOTE: This modal UI will be updated to dropdown-based selection.
+                Current patch keeps structure intact to avoid breaking build.
+                Future update will: 
+                - list eligible subjects by department code
+                - lecturer dropdown scoped to subject department
+                - confirm class availability (no student selection) */}
+            <Input
+              placeholder="Subject selection coming via dropdown"
+              value={addSubjectForm.subjectID}
+              onChange={(e) =>
+                setAddSubjectForm((p) => ({ ...p, subjectID: e.target.value }))
+              }
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAddSubjectDialogOpen(false);
+                setCourseToAddSubject(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                void submitAddSubject();
+              }}
+            >
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="space-y-6 p-6">
       {/* Header with Class Selection */}
       <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-4">
@@ -543,7 +844,7 @@ export default function UnitResidentCourses() {
           </div>
         </div>
         <div className="w-full md:w-48">
-          <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+          <Select value={sortBy} onValueChange={(value: string) => setSortBy(value as typeof sortBy)}>
             <SelectTrigger>
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
@@ -704,17 +1005,78 @@ export default function UnitResidentCourses() {
                     })()
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  className={`mt-2 w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleViewSubjects(course);
-                  }}
-                >
-                  View Subjects
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
+        <div className="mt-2 grid grid-cols-1 gap-2">
+                  <Button
+                    variant="outline"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleViewSubjects(course);
+                    }}
+                  >
+                    View Subjects
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCourseEditDialogOpen(true);
+                      setCourseToEdit(course);
+                    }}
+                  >
+                    Edit Course Profile
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddSubjectDialogOpen(true);
+                      setCourseToAddSubject(course);
+                    }}
+                  >
+                    Add Subject
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!selectedClassId) return;
+                      const ok = window.confirm("Remove this course from the selected class?");
+                      if (!ok) return;
+                      void (async () => {
+                        try {
+                          await api.delete(`/classes/${selectedClassId}/courses/${course._id}`);
+                          // refresh
+                          if (selectedClassId) {
+                            const [courseResponse, timetableResponse] = await Promise.allSettled([
+                              api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+                              api.get(`/timetables/${selectedClassId}`),
+                            ]);
+                            if (courseResponse.status === "fulfilled") {
+                              setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+                            }
+                            if (timetableResponse.status === "fulfilled") {
+                              setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+                            }
+                          }
+                          toast.success("Course removed from class");
+                        } catch (err: unknown) {
+                          console.error(err);
+                          toast.error("Failed to remove course from class");
+                        }
+                      })();
+                    }}
+                  >
+                    Remove from Class
+                  </Button>
+                    </div>
               </CardContent>
             </Card>
                 );
@@ -723,8 +1085,9 @@ export default function UnitResidentCourses() {
           </>
         )}
       </div>
-
-
+      <div />
+    </div>
     </div>
   );
 }
+

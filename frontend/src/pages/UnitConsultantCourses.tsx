@@ -139,7 +139,7 @@ export default function UnitResidentCourses() {
         if (allClasses.length > 0) {
           setSelectedClassId(allClasses[0]._id);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch classes:", err);
         setError("Failed to load classes");
       } finally {
@@ -179,7 +179,7 @@ export default function UnitResidentCourses() {
           console.warn("Unable to load class timetable:", timetableResponse.reason);
           setClassSchedule([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch courses or timetable:", err);
         setCourses([]);
         setClassSchedule([]);
@@ -382,7 +382,12 @@ export default function UnitResidentCourses() {
       return;
     }
 
-    const { dx, dy, scale, anchorX, anchorY } = transform;
+    const { 
+      dx,
+      dy, 
+      scale, 
+      //  anchorX, anchorY 
+      } = transform;
     // animate from current (dx,dy,scale) to identity with a gentle ease
     const anim = el.animate(
       [
@@ -454,7 +459,7 @@ export default function UnitResidentCourses() {
           applyExpandedCardTransform(course._id, -96);
         }
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Failed to fetch subjects:", err);
       toast.error("Failed to load subjects for this course");
       setSubjects([]);
@@ -543,7 +548,7 @@ export default function UnitResidentCourses() {
           </div>
         </div>
         <div className="w-full md:w-48">
-          <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+          <Select value={sortBy} onValueChange={(value: typeof sortBy) => setSortBy(value)}>
             <SelectTrigger>
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
