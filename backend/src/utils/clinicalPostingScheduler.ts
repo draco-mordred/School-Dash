@@ -3,6 +3,7 @@ import ClassModel from "../models/classes";
 import User from "../models/user";
 import Unit from "../models/units";
 import { DEPARTMENT_UNITS, DepartmentName } from "../constants/departments";
+import type { DepartmentUnitEntry } from "../constants/departments";
 
 export interface ScheduleStudent {
   _id: string;
@@ -101,6 +102,15 @@ export interface PostingSchedule {
   rotationHistory: StudentHistoryRecord[];
 }
 
+type AssignmentRecord = {
+  groupName: string;
+  student: ScheduleStudent;
+  phase: string;
+  department: string;
+  units: { id: string; name: string }[];
+  history: StudentHistoryRecord[];
+};
+
 interface RotationBlockTemplate {
   weeks: string;
   offsetWeeks: number;
@@ -110,7 +120,7 @@ interface RotationBlockTemplate {
 const OBG_DEPARTMENT = DepartmentName.obstetricsAndGynecology;
 const PAE_DEPARTMENT = DepartmentName.pediatrics;
 
-const departmentPhases = {
+const departmentPhases: Partial<Record<DepartmentName, RotationBlockTemplate[]>> = {
   [OBG_DEPARTMENT]: [
     { weeks: "1-4", offsetWeeks: 0, durationWeeks: 4 },
     { weeks: "5-8", offsetWeeks: 4, durationWeeks: 4 },
@@ -137,13 +147,17 @@ const buildPhaseBlocks = (department: string, phaseIndex: number): RotationBlock
   }));
 };
 
-const addWeeks = (date: Date, weeks: number) => {
+const addWeeks = (date: Date, weeks: number): Date => {
   const value = new Date(date.valueOf());
   value.setDate(value.getDate() + weeks * 7);
   return value;
 };
 
-const formatDate = (date: Date) => date.toISOString().split("T")[0];
+const formatDate = (date: Date): string => {
+  const isoString = date.toISOString();
+  const splitIndex = isoString.indexOf("T");
+  return splitIndex >= 0 ? isoString.slice(0, splitIndex) : isoString;
+};
 
 const buildSupervisorSummary = (user: any): SupervisorSummary => {
   // Allow null supervisors - they can be assigned later
@@ -172,20 +186,23 @@ const buildStudentSummary = (student: any): ScheduleStudent => ({
   department: student.department ?? undefined,
 });
 
-const splitStudentsIntoCategories = (students: ScheduleStudent[]) => {
-  const categoryA: ScheduleStudent[] = [];
-  const categoryB: ScheduleStudent[] = [];
+const splitStudentsIntoGroups = (students: ScheduleStudent[]) => {
+  const groupA: ScheduleStudent[] = [];
+  const groupB: ScheduleStudent[] = [];
 
   students.forEach((student, index) => {
-    if (index % 2 === 0) categoryA.push(student);
-    else categoryB.push(student);
+    if (index % 2 === 0) groupA.push(student);
+    else groupB.push(student);
   });
 
   return {
-    categoryA,
-    categoryB,
+    groupA,
+    groupB,
   };
 };
+
+const normalizeDepartmentUnitEntries = (units: DepartmentUnitEntry[]): { id: string; name: string }[] =>
+  units.map((unit) => (typeof unit === "string" ? { id: unit, name: unit } : unit));
 
 const chooseResidentPool = async (departmentKey: string) => {
   const userDepartment = departmentKey === OBG_DEPARTMENT ? "OBG" : departmentKey === PAE_DEPARTMENT ? "Pediatrics" : departmentKey;
@@ -225,17 +242,17 @@ const buildUnitSupervisors = async (departmentKey: DepartmentName) => {
   });
 };
 
-const chooseTwoOgUnits = (studentIndex: number, units: { id: string; name: string }[]) => {
+const chooseTwoOgUnits = (studentIndex: number, units: { id: string; name: string }[]): { id: string; name: string }[] => {
   const unitCount = units.length;
   const firstIndex = studentIndex % unitCount;
   const secondIndex = (firstIndex + 1 + Math.floor(studentIndex / unitCount)) % unitCount;
-  return [units[firstIndex], units[secondIndex]];
+  return [units[firstIndex]!, units[secondIndex]!];
 };
 
-const chooseFourPaeUnits = (studentIndex: number, units: { id: string; name: string }[]) => {
+const chooseFourPaeUnits = (studentIndex: number, units: { id: string; name: string }[]): { id: string; name: string }[] => {
   const unitCount = units.length;
   const offsets = [0, 1, 2, 3];
-  return offsets.map((offset) => units[(studentIndex + offset) % unitCount]);
+  return offsets.map((offset) => units[(studentIndex + offset) % unitCount]!);
 };
 
 const buildStudentHistoryForDepartment = (
@@ -248,19 +265,19 @@ const buildStudentHistoryForDepartment = (
   phaseIndex: number
 ): StudentHistoryRecord[] => {
   const blocks = buildPhaseBlocks(departmentName, phaseIndex);
-  const unitNames = unitEntries.map((u) => u.name);
-
   const historyBlocks: RotationBlock[] = blocks.map((block, index) => {
-    const unit = unitEntries[index];
-    const supervisor = supervisors.find((s) => s.unitId === unit.id) ?? supervisors[index % supervisors.length];
+    const unit = unitEntries[index] ?? { id: "unknown", name: "Unknown Unit" };
+    const matchingSupervisor = supervisors.find((s) => s.unitId === unit.id);
+    const consultant = matchingSupervisor?.consultant ?? buildSupervisorSummary(null);
+    const resident = matchingSupervisor?.resident ?? buildSupervisorSummary(null);
     const blockStartDate = formatDate(addWeeks(startDate, block.offsetWeeks));
     const blockEndDate = formatDate(addWeeks(startDate, block.offsetWeeks + block.durationWeeks));
 
     return {
       unit: unit.name,
       unitId: unit.id,
-      consultant: supervisor.consultant,
-      resident: supervisor.resident,
+      consultant,
+      resident,
       startDate: blockStartDate,
       endDate: blockEndDate,
       weeks: block.weeks,
@@ -287,7 +304,12 @@ const buildUnitTimeline = (
   supervisors: { unitId: string; unitName: string; consultant: SupervisorSummary; resident: SupervisorSummary }[]
 ) => {
   return blocks.map((block, blockIndex) => {
-    const unitEntry = supervisors[blockIndex];
+    const unitEntry = supervisors[blockIndex] ?? {
+      unitId: "unknown",
+      unitName: "Unknown Unit",
+      consultant: buildSupervisorSummary(null),
+      resident: buildSupervisorSummary(null),
+    };
     return {
       phase,
       department,
@@ -304,6 +326,56 @@ const buildUnitTimeline = (
           students: studentsByBlock[unitEntry.unitId] ?? [],
         },
       ],
+    };
+  });
+};
+
+const buildRotationTimelineForSection = (
+  sectionAssignments: AssignmentRecord[],
+  phaseIndex: number,
+  postingStartDate: Date,
+  supervisors: { unitId: string; unitName: string; consultant: SupervisorSummary; resident: SupervisorSummary }[]
+) => {
+  const firstAssignment = sectionAssignments[0];
+  if (!firstAssignment) return [];
+
+  const department = firstAssignment.department;
+  const phase = firstAssignment.phase;
+  const category = firstAssignment.groupName;
+  const blocks = buildPhaseBlocks(department, phaseIndex);
+
+  return blocks.map((block, blockIndex) => {
+    const studentsByUnit: Record<string, ScheduleStudent[]> = {};
+
+    sectionAssignments.forEach((assignment) => {
+      const unit = assignment.units[blockIndex];
+      if (!unit) return;
+
+      const studentsForUnit = studentsByUnit[unit.id] ?? [];
+      studentsForUnit.push(assignment.student);
+      studentsByUnit[unit.id] = studentsForUnit;
+    });
+
+    return {
+      phase,
+      department,
+      category,
+      weeks: block.weeks,
+      units: Object.entries(studentsByUnit).map(([unitId, students]) => {
+        const matchingSupervisor = supervisors.find((s) => s.unitId === unitId);
+        const consultant = matchingSupervisor?.consultant ?? buildSupervisorSummary(null);
+        const resident = matchingSupervisor?.resident ?? buildSupervisorSummary(null);
+        const unitName = matchingSupervisor?.unitName ?? unitId;
+        return {
+          unit: unitName,
+          unitId,
+          startDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks)),
+          endDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks + block.durationWeeks)),
+          consultant,
+          resident,
+          students,
+        };
+      }),
     };
   });
 };
@@ -336,10 +408,10 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
 
   const postingStartDate = options.postingStartDate ? new Date(options.postingStartDate) : new Date();
   const postingEndDate = formatDate(addWeeks(postingStartDate, 16));
-  const categories = splitStudentsIntoCategories(students);
+  const groups = splitStudentsIntoGroups(students);
 
-  const categoryA = categories.categoryA;
-  const categoryB = categories.categoryB;
+  const groupA = groups.groupA;
+  const groupB = groups.groupB;
 
   const departmentConfigObg = DEPARTMENT_UNITS[OBG_DEPARTMENT];
   const departmentConfigPae = DEPARTMENT_UNITS[PAE_DEPARTMENT];
@@ -353,82 +425,77 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
 
   const categoriesOutput = [
     {
-      category: "Category A",
-      //only one half of the class should be here, so we divide by 2
-      studentCount: Math.floor(categoryA.length / 2),
-      // studentCount: categoryA.length,
+      category: "Group A",
+      studentCount: groupA.length,
       departmentPhase1: "OBG",
       departmentPhase2: "Pediatrics",
-      students: categoryA,
+      students: groupA,
     },
     {
-      category: "Category B",
-      //only one half of the class should be here, so we divide by 2
-      studentCount: Math.floor(categoryB.length / 2),
-      // studentCount: categoryB.length,
+      category: "Group B",
+      studentCount: groupB.length,
       departmentPhase1: "Pediatrics",
       departmentPhase2: "OBG",
-      students: categoryB,
+      students: groupB,
     },
   ];
 
-  const buildAssignments = async (category: string, studentsInCategory: ScheduleStudent[], departmentName: DepartmentName, phaseIndex: number) => {
-    const activeUnits = departmentName === OBG_DEPARTMENT ? departmentConfigObg.units.active : departmentConfigPae.units.active;
+  const buildAssignments = async (
+    groupName: string,
+    studentsInGroup: ScheduleStudent[],
+    departmentName: DepartmentName,
+    phaseIndex: number
+  ): Promise<AssignmentRecord[]> => {
+    const activeUnitsRaw = departmentName === OBG_DEPARTMENT ? departmentConfigObg.units.active : departmentConfigPae.units.active;
+    const activeUnits = normalizeDepartmentUnitEntries(activeUnitsRaw);
     const supervisors = departmentName === OBG_DEPARTMENT ? unitSupervisorsObg : unitSupervisorsPae;
     const phaseName = phaseNameForWeekOffset(phaseIndex);
 
-    const assignments: {
-      student: ScheduleStudent;
-      phase: string;
-      department: string;
-      units: { id: string; name: string }[];
-      history: StudentHistoryRecord[];
-    }[] = [];
-
-    studentsInCategory.forEach((student, index) => {
-      const assignedUnits = departmentName === OBG_DEPARTMENT
+    return studentsInGroup.map((student, index) => {
+      const assignedUnits: { id: string; name: string }[] = departmentName === OBG_DEPARTMENT
         ? chooseTwoOgUnits(index, activeUnits)
         : chooseFourPaeUnits(index, activeUnits);
 
-      const history = buildStudentHistoryForDepartment(student, departmentName, phaseName, assignedUnits, supervisors, postingStartDate, phaseIndex);
-      assignments.push({ student, phase: phaseName, department: departmentName, units: assignedUnits, history });
+        const history = buildStudentHistoryForDepartment(student, departmentName, phaseName, assignedUnits, supervisors, postingStartDate, phaseIndex);
+      return { groupName, student, phase: phaseName, department: departmentName, units: assignedUnits, history };
     });
-
-    return assignments;
   };
 
-  const phase1A = await buildAssignments("Category A", categoryA, OBG_DEPARTMENT, 0);
-  const phase1B = await buildAssignments("Category B", categoryB, PAE_DEPARTMENT, 0);
-  const phase2A = await buildAssignments("Category A", categoryA, PAE_DEPARTMENT, 1);
-  const phase2B = await buildAssignments("Category B", categoryB, OBG_DEPARTMENT, 1);
+  const phase1A = await buildAssignments("Group A", groupA, OBG_DEPARTMENT, 0);
+  const phase1B = await buildAssignments("Group B", groupB, PAE_DEPARTMENT, 0);
+  const phase2A = await buildAssignments("Group A", groupA, PAE_DEPARTMENT, 1);
+  const phase2B = await buildAssignments("Group B", groupB, OBG_DEPARTMENT, 1);
 
   const allAssignments = [...phase1A, ...phase1B, ...phase2A, ...phase2B];
 
   const buildUnitAssignmentRecords = (
     departmentName: string,
     phase: string,
-    assignments: ReturnType<typeof buildAssignments>[0][]
+    assignments: AssignmentRecord[]
   ) => {
     const unitsMap: Record<string, ScheduleStudent[]> = {};
     const supervisors = departmentName === OBG_DEPARTMENT ? unitSupervisorsObg : unitSupervisorsPae;
 
     assignments.forEach((assignment) => {
       assignment.units.forEach((unit) => {
-        unitsMap[unit.id] = unitsMap[unit.id] ?? [];
-        unitsMap[unit.id].push(assignment.student);
+        const studentsList = unitsMap[unit.id] ?? [];
+        studentsList.push(assignment.student);
+        unitsMap[unit.id] = studentsList;
       });
     });
 
     return Object.entries(unitsMap).map(([unitId, studentsList]) => {
-      const supervisor = supervisors.find((s) => s.unitId === unitId) ?? supervisors[0];
-      const unitName = supervisor?.unitName ?? (departmentName === OBG_DEPARTMENT ? "Unknown OBG Unit" : "Unknown Pediatrics Unit");
+      const matchingSupervisor = supervisors.find((s) => s.unitId === unitId);
+      const consultant = matchingSupervisor?.consultant ?? buildSupervisorSummary(null);
+      const resident = matchingSupervisor?.resident ?? buildSupervisorSummary(null);
+      const unitName = matchingSupervisor?.unitName ?? (departmentName === OBG_DEPARTMENT ? "Unknown OBG Unit" : "Unknown Pediatrics Unit");
       return {
         department: departmentName,
         phase,
         unit: unitName,
         unitId,
-        consultant: supervisor.consultant,
-        resident: supervisor.resident,
+        consultant,
+        resident,
         students: studentsList,
       };
     });
@@ -454,72 +521,10 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
   const rotationTeams = createRotationTeams(unitAssignments);
 
   const rotationTimeline = [
-    ...[phase1A, phase1B].flatMap((section) => {
-      if (!section.length) return [];
-      const department = section[0].department;
-      const phase = section[0].phase;
-      const blocks = buildPhaseBlocks(department, 0);
-      const studentsByUnit: Record<string, ScheduleStudent[]> = {};
-      section.forEach((assignment) => {
-        assignment.units.forEach((unit) => {
-          studentsByUnit[unit.id] = studentsByUnit[unit.id] ?? [];
-          studentsByUnit[unit.id].push(assignment.student);
-        });
-      });
-      return blocks.map((block, blockIndex) => {
-        const supervisor = (department === OBG_DEPARTMENT ? unitSupervisorsObg : unitSupervisorsPae)[blockIndex];
-        return {
-          phase,
-          department,
-          category: section === phase1A ? "Category A" : "Category B",
-          weeks: block.weeks,
-          units: [
-            {
-              unit: supervisor.unitName,
-              unitId: supervisor.unitId,
-              startDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks)),
-              endDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks + block.durationWeeks)),
-              consultant: supervisor.consultant,
-              resident: supervisor.resident,
-              students: studentsByUnit[supervisor.unitId] ?? [],
-            },
-          ],
-        };
-      });
-    }),
-    ...[phase2A, phase2B].flatMap((section) => {
-      if (!section.length) return [];
-      const department = section[0].department;
-      const phase = section[0].phase;
-      const blocks = buildPhaseBlocks(department, 1);
-      const studentsByUnit: Record<string, ScheduleStudent[]> = {};
-      section.forEach((assignment) => {
-        assignment.units.forEach((unit) => {
-          studentsByUnit[unit.id] = studentsByUnit[unit.id] ?? [];
-          studentsByUnit[unit.id].push(assignment.student);
-        });
-      });
-      return blocks.map((block, blockIndex) => {
-        const supervisor = (department === OBG_DEPARTMENT ? unitSupervisorsObg : unitSupervisorsPae)[blockIndex];
-        return {
-          phase,
-          department,
-          category: section === phase2A ? "Category A" : "Category B",
-          weeks: block.weeks,
-          units: [
-            {
-              unit: supervisor.unitName,
-              unitId: supervisor.unitId,
-              startDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks)),
-              endDate: formatDate(addWeeks(postingStartDate, block.offsetWeeks + block.durationWeeks)),
-              consultant: supervisor.consultant,
-              resident: supervisor.resident,
-              students: studentsByUnit[supervisor.unitId] ?? [],
-            },
-          ],
-        };
-      });
-    }),
+    ...buildRotationTimelineForSection(phase1A, 0, postingStartDate, unitSupervisorsObg),
+    ...buildRotationTimelineForSection(phase1B, 0, postingStartDate, unitSupervisorsPae),
+    ...buildRotationTimelineForSection(phase2A, 1, postingStartDate, unitSupervisorsPae),
+    ...buildRotationTimelineForSection(phase2B, 1, postingStartDate, unitSupervisorsObg),
   ];
 
   const rotationHistory = allAssignments.flatMap((assignment) => assignment.history);
@@ -566,8 +571,8 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
 
   const validationErrors: string[] = [];
 
-  const balancedCategories = Math.abs(categoryA.length - categoryB.length) <= 1;
-  if (!balancedCategories) validationErrors.push("Category sizes differ by more than one student.");
+  const balancedCategories = Math.abs(groupA.length - groupB.length) <= 1;
+  if (!balancedCategories) validationErrors.push("Group sizes differ by more than one student.");
 
   const totalAssignedStudents = new Set(rotationHistory.map((record) => record.student._id));
   if (totalAssignedStudents.size !== students.length) {
@@ -579,6 +584,41 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
     return new Set(units).size !== units.length;
   });
   if (repeatedUnits) validationErrors.push("A student has repeated units in the same posting phase.");
+
+  const assignmentsByStudent: Record<string, AssignmentRecord[]> = {};
+  allAssignments.forEach((assignment) => {
+    const studentAssignments = assignmentsByStudent[assignment.student._id] ?? [];
+    studentAssignments.push(assignment);
+    assignmentsByStudent[assignment.student._id] = studentAssignments;
+  });
+
+  Object.values(assignmentsByStudent).forEach((studentAssignments) => {
+    const firstAssignment = studentAssignments[0];
+    if (!firstAssignment) return;
+    const student = firstAssignment.student;
+    const obgUnits = new Set(
+      studentAssignments
+        .filter((assignment) => assignment.department === OBG_DEPARTMENT)
+        .flatMap((assignment) => assignment.units.map((unit) => unit.id))
+    );
+    const paeUnits = new Set(
+      studentAssignments
+        .filter((assignment) => assignment.department === PAE_DEPARTMENT)
+        .flatMap((assignment) => assignment.units.map((unit) => unit.id))
+    );
+
+    if (obgUnits.size !== 2) {
+      validationErrors.push(`Student ${student.name} must have exactly 2 distinct O&G units assigned.`);
+    }
+    if (paeUnits.size !== 4) {
+      validationErrors.push(`Student ${student.name} must have exactly 4 distinct Pediatrics units assigned.`);
+    }
+    const hasObg = studentAssignments.some((assignment) => assignment.department === OBG_DEPARTMENT);
+    const hasPae = studentAssignments.some((assignment) => assignment.department === PAE_DEPARTMENT);
+    if (!hasObg || !hasPae) {
+      validationErrors.push(`Student ${student.name} must rotate through both O&G and Pediatrics phases.`);
+    }
+  });
 
   // Supervisors are optional and can be assigned later on rotation teams
   // Removed validation requiring all supervisors to be assigned at schedule generation
@@ -600,4 +640,15 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
   return { schedule, validation: scheduleValidation };
 }
 
-// add update500LevelOgPaeJuniorPostingSchedule function here..
+export async function update500LevelOgPaeJuniorPostingSchedule(
+  scheduleId: string,
+  updates: any
+) {
+  const RotationPlan = (await import("../models/rotationPlan")).default;
+  return RotationPlan.findByIdAndUpdate(scheduleId, updates, { returnDocument: "after" }).lean();
+}
+
+export async function delete500LevelOgPaeJuniorPostingSchedule(scheduleId: string) {
+  const RotationPlan = (await import("../models/rotationPlan")).default;
+  return RotationPlan.findByIdAndDelete(scheduleId).lean();
+}

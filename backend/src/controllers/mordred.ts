@@ -10,6 +10,7 @@ import Attendance from "../models/attendance";
 import MordredLog from "../models/mordredLog";
 import User from "../models/user";
 import { createNotificationIfUnique } from "../utils/notificationUtils";
+import { buildMordredFallbackResponse } from "../utils/mordredFallback";
 
 const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent"]);
 const systemActionType = z.enum([
@@ -84,140 +85,150 @@ export const mordredsWords = async (req: Request, res: Response) => {
     const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
     const canExecuteSystemActions = isAdminRole(userRole);
 
-    // 1. Get the key from process.env
-    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
+    const apiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || "").trim();
 
-    // 2. Add an explicit runtime guard block so your logs catch missing keys immediately
     if (!apiKey) {
-      console.error("❌ MORDRED Configuration Error: GOOGLE_GENERATIVE_AI_API_KEY is missing from environment variables.");
-      return res.status(500).json({ 
-        error: "System configuration error. MORDRED AI initialization failed due to missing credentials." 
-      });
-    }
-
-    // 3. Initialize the Vercel AI SDK provider with the verified string key
-    const googleAI = createGoogleGenerativeAI({ apiKey: apiKey });
-    const activeModel = googleAI("gemini-3-flash-preview");
-    // We force Gemini to respond using a strict JSON schema so our backend can process it
-    const { object: mordredDecision } = await generateObject({
-      model: activeModel,
-      system: `
-      You are MORDRED (Medlog Operational Rotation, Dialogue, & Record Engagement Director).
-      Your persona is a vigilant, polite, and clinically precise digital steward.
-      
-      Your job is to read student messages and do one of two things:
-      1. ANSWER directly if it's a general question about medical school policies, rotations, or tips.
-      2. ESCALATE by creating a ticket if they are reporting a software bug, hardware issue, missing attendance logs, or a direct complaint that requires human admin intervention.
-      // We provide a strict schema to ensure MORDRED's responses are machine-readable and actionable and also limit the scope of the AI's responses to avoid hallucinations or irrelevant answers, and each student can only have one active ticket at a time, so MORDRED should check for existing tickets before creating a new one. and Limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
-      3. The schema is designed to ensure that MORDRED's responses are structured and actionable, allowing the backend to process them effectively.
-      4. If the student is asking about attendance, logbook issues, or timetable conflicts, MORDRED should always escalate to a human staff member and not attempt to answer directly.
-      5. If the student is asking about general questions, MORDRED should answer directly and not escalate.
-      6. If the student is asking about a bug or issue, MORDRED should escalate to a human staff member and not answer directly.
-      7. If the student is asking about a timetable conflict, MORDRED should escalate to a human staff member and not answer directly.
-      8. MORDRED should always be polite, professional, and concise in its responses, and should never provide medical advice or diagnosis.
-      9. MORDRED should always check for existing tickets before creating a new one, and should only create a new ticket if there are no existing tickets for the student.
-      10. MORDRED should always limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
-      
-      user: 
-      User ID: ${(req as any).user._id}. 
-      User Name: ${(req as any).user.name}. 
-      User Email: ${(req as any).user.email}. 
-      User Role: ${userRole}. 
-      User Permissions: ${canExecuteSystemActions ? "admin system actions allowed" : "non-admin profile/role requests only"}. 
-      Student Department: ${studentContext.department}. 
-      Student Rotation Unit: ${studentContext.rotationUnit}. 
-      Student Rotation Start Date: ${studentContext.rotationStartDate}. 
-      Student Rotation End Date: ${studentContext.rotationEndDate}.,
-      input: 'Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}.',
-      `,
-      
-      schema: z.object({
-        reply: z.string().describe("Your conversational response back to the student."),
-        shouldEscalate: z.boolean().describe("Set to true ONLY if a human staff member needs to fix a bug, logbook issue, or attendance error."),
-        issueCategory: z.enum(["NONE", "ATTENDANCE_BUG", "LOGBOOK_ERROR", "TIMETABLE_CONFLICT", "OTHER"]).describe("The classification category of the problem."),
-        systemAction: z
-          .object({
-            actionType: systemActionType,
-            details: z.string().optional(),
-          })
-          .optional()
-          .describe("Structured system action request. Only admins may execute real system actions."),
-      }),
-      prompt: `Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}`,
-    });
-
-    const systemAction = mordredDecision.systemAction ?? { actionType: "NONE" };
-
-    // Non-admin users may not execute real system-level actions.
-    if (!canExecuteSystemActions && systemAction.actionType !== "NONE") {
-      mordredDecision.reply = `As a non-admin user, I cannot execute system-level changes. ${mordredDecision.reply}`;
-      systemAction.actionType = "NONE";
-      systemAction.details = undefined;
-    }
-
-    // Handle automated backend actions based on MORDRED's intelligence decisions
-    if (mordredDecision.shouldEscalate) {
-      // 1. Kick off your smart workload assignment engine
-      const assignedStaff = await routeTaskToStaff(
-        studentContext.department,
-        "is_available_for_escalations",
-        (req as any).user._id // Links the user profile reference
+      console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using fallback response.");
+      return res.status(200).json(
+        buildMordredFallbackResponse(
+          "missing credentials",
+          message,
+          studentContext,
+          userRole
+        )
       );
+    }
 
-      // 2. Broadcast an event to Inngest to trigger the 12-hour ticket safety tracker we built earlier
-      await inngest.send({
-        name: "mordred/ticket.created",
-        data: {
-          ticketId: (req as any).user._id,
-          departmentName: studentContext.department,
-          assignedTo: assignedStaff?._id || "SUPER_ADMIN",
-        },
+    try {
+      const googleAI = createGoogleGenerativeAI({ apiKey });
+      const activeModel = googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash");
+      const { object: mordredDecision } = await generateObject({
+        model: activeModel,
+        system: `
+        You are MORDRED (Medlog Operational Rotation, Dialogue, & Record Engagement Director).
+        Your persona is a vigilant, polite, and clinically precise digital steward.
+        
+        Your job is to read student messages and do one of two things:
+        1. ANSWER directly if it's a general question about medical school policies, rotations, or tips.
+        2. ESCALATE by creating a ticket if they are reporting a software bug, hardware issue, missing attendance logs, or a direct complaint that requires human admin intervention.
+        // We provide a strict schema to ensure MORDRED's responses are machine-readable and actionable and also limit the scope of the AI's responses to avoid hallucinations or irrelevant answers, and each student can only have one active ticket at a time, so MORDRED should check for existing tickets before creating a new one. and Limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
+        3. The schema is designed to ensure that MORDRED's responses are structured and actionable, allowing the backend to process them effectively.
+        4. If the student is asking about attendance, logbook issues, or timetable conflicts, MORDRED should always escalate to a human staff member and not attempt to answer directly.
+        5. If the student is asking about general questions, MORDRED should answer directly and not escalate.
+        6. If the student is asking about a bug or issue, MORDRED should escalate to a human staff member and not answer directly.
+        7. If the student is asking about a timetable conflict, MORDRED should escalate to a human staff member and not answer directly.
+        8. MORDRED should always be polite, professional, and concise in its responses, and should never provide medical advice or diagnosis.
+        9. MORDRED should always check for existing tickets before creating a new one, and should only create a new ticket if there are no existing tickets for the student.
+        10. MORDRED should always limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
+        
+        user: 
+        User ID: ${(req as any).user._id}. 
+        User Name: ${(req as any).user.name}. 
+        User Email: ${(req as any).user.email}. 
+        User Role: ${userRole}. 
+        User Permissions: ${canExecuteSystemActions ? "admin system actions allowed" : "non-admin profile/role requests only"}. 
+        Student Department: ${studentContext.department}. 
+        Student Rotation Unit: ${studentContext.rotationUnit}. 
+        Student Rotation Start Date: ${studentContext.rotationStartDate}. 
+        Student Rotation End Date: ${studentContext.rotationEndDate}.,
+        input: 'Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}.',
+        `,
+        
+        schema: z.object({
+          reply: z.string().describe("Your conversational response back to the student."),
+          shouldEscalate: z.boolean().describe("Set to true ONLY if a human staff member needs to fix a bug, logbook issue, or attendance error."),
+          issueCategory: z.enum(["NONE", "ATTENDANCE_BUG", "LOGBOOK_ERROR", "TIMETABLE_CONFLICT", "OTHER"]).describe("The classification category of the problem."),
+          systemAction: z
+            .object({
+              actionType: systemActionType,
+              details: z.string().optional(),
+            })
+            .optional()
+            .describe("Structured system action request. Only admins may execute real system actions."),
+        }),
+        prompt: `Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}`,
       });
 
-      // Append a system note to the text reply to give the user visibility
-      mordredDecision.reply += ` [System Notice: I have flagged this anomaly and routed a ticket to ${assignedStaff?.name || "the admin desk"}.]`;
+      const systemAction = mordredDecision.systemAction ?? { actionType: "NONE" };
 
-      // Notify all active admin users immediately when MORDRED flags an anomaly
-      const actorName = "MORDRED AI";
-      const requestedBy = (req as any).user?.name || (req as any).user?.email || "A user";
-      const notificationMessage = `MORDRED flagged an anomaly for ${requestedBy} and routed a ticket to ${assignedStaff?.name || "the admin desk"}.`;
-      const adminUsers = await User.find({ role: "admin", isActive: true }).select("_id").lean();
-      if (adminUsers.length > 0) {
-        await Promise.all(
-          adminUsers.map((admin) =>
-            createNotificationIfUnique({
-              userId: admin._id,
-              role: "admin",
-              title: "MORDRED Alert: Anomaly Ticket Routed",
-              message: notificationMessage,
-              type: "system",
-              actorName,
-              actorRole: "admin",
-              metadata: {
-                studentId: (req as any).user?._id,
-                assignedStaffId: assignedStaff?._id,
-                issueCategory: mordredDecision.issueCategory,
-              },
-            })
-          )
-        );
+      if (!canExecuteSystemActions && systemAction.actionType !== "NONE") {
+        mordredDecision.reply = `As a non-admin user, I cannot execute system-level changes. ${mordredDecision.reply}`;
+        systemAction.actionType = "NONE";
+        systemAction.details = undefined;
       }
+
+      if (mordredDecision.shouldEscalate) {
+        try {
+          const assignedStaff = await routeTaskToStaff(
+            studentContext.department,
+            "is_available_for_escalations",
+            (req as any).user._id
+          );
+
+          await inngest.send({
+            name: "mordred/ticket.created",
+            data: {
+              ticketId: (req as any).user._id,
+              departmentName: studentContext.department,
+              assignedTo: assignedStaff?._id || "SUPER_ADMIN",
+            },
+          });
+
+          mordredDecision.reply += ` [System Notice: I have flagged this anomaly and routed a ticket to ${assignedStaff?.name || "the admin desk"}.]`;
+
+          const actorName = "MORDRED AI";
+          const requestedBy = (req as any).user?.name || (req as any).user?.email || "A user";
+          const notificationMessage = `MORDRED flagged an anomaly for ${requestedBy} and routed a ticket to ${assignedStaff?.name || "the admin desk"}.`;
+          const adminUsers = await User.find({ role: "admin", isActive: true }).select("_id").lean();
+          if (adminUsers.length > 0) {
+            await Promise.all(
+              adminUsers.map((admin) =>
+                createNotificationIfUnique({
+                  userId: admin._id,
+                  role: "admin",
+                  title: "MORDRED Alert: Anomaly Ticket Routed",
+                  message: notificationMessage,
+                  type: "system",
+                  actorName,
+                  actorRole: "admin",
+                  metadata: {
+                    studentId: (req as any).user?._id,
+                    assignedStaffId: assignedStaff?._id,
+                    issueCategory: mordredDecision.issueCategory,
+                  },
+                })
+              )
+            );
+          }
+        } catch (escalationError) {
+          console.error("⚠️ MORDRED escalation flow failed, continuing with fallback response.", escalationError);
+        }
+      }
+
+      let adminActionNote = "";
+      if (canExecuteSystemActions && systemAction.actionType !== "NONE") {
+        adminActionNote = await handleAdminSystemAction(systemAction, (req as any).user);
+      }
+
+      return res.status(200).json({
+        _id: new mongoose.Types.ObjectId(),
+        sender: "mordred_ai",
+        text: `${mordredDecision.reply}${adminActionNote}`.trim(),
+        is_ticket_created: mordredDecision.shouldEscalate,
+        systemAction: canExecuteSystemActions ? systemAction : undefined,
+      });
+    } catch (error: any) {
+      console.error("⚠️ MORDRED AI request failed, returning a safe fallback response.", error);
+      return res.status(200).json(
+        buildMordredFallbackResponse(
+          error?.message || "AI request failed",
+          message,
+          studentContext,
+          userRole
+        )
+      );
     }
 
-    let adminActionNote = "";
-    if (canExecuteSystemActions && systemAction.actionType !== "NONE") {
-      adminActionNote = await handleAdminSystemAction(systemAction, (req as any).user);
-    }
-
-    return res.status(200).json({
-      _id: new mongoose.Types.ObjectId(),
-      sender: "mordred_ai",
-      text: `${mordredDecision.reply}${adminActionNote}`.trim(),
-      is_ticket_created: mordredDecision.shouldEscalate,
-      systemAction: canExecuteSystemActions ? systemAction : undefined,
-    });
-
-    // Inside your handleMordredChat try/catch block:
  } catch (error: any) {
   if (error.message.includes("API key") || error.message.includes("identity")) {
     await MordredLog.create({
@@ -226,7 +237,7 @@ export const mordredsWords = async (req: Request, res: Response) => {
       details: error.message
     });
   }
-  return res.status(500).json({ error: error.message });
+  return res.status(200).json(buildMordredFallbackResponse(error?.message || "unexpected error", message, studentContext, userRole));
 }
 };
 // Show me how to run this and test in Thunder Client:

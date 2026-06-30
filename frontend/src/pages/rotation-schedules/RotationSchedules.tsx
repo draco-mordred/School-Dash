@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -129,6 +129,7 @@ export default function RotationSchedules() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Generate Rotation Schedule</DialogTitle>
+            <DialogDescription>Create a new rotation schedule for the selected academic year, class, and level.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -166,6 +167,7 @@ export default function RotationSchedules() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Delete Rotation Schedule</DialogTitle>
+            <DialogDescription>This action permanently deletes the selected rotation schedule.</DialogDescription>
           </DialogHeader>
           <div>
             <p>Are you sure you want to delete the schedule <strong>{deleteTarget?.name || ''}</strong>? This action cannot be undone.</p>

@@ -196,7 +196,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
         </div>
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <div className="font-semibold">JUTH Class-Level Clock</div>
+            <div className="font-semibold">JUTH Class Clocks</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <div>
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">

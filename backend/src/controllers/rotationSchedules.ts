@@ -49,6 +49,19 @@ export const getRotationScheduleById = async (req: Request, res: Response) => {
   }
 };
 
+// DELETE /api/rotation-schedules/:id
+export const deleteRotationSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const doc = await RotationPlan.findByIdAndDelete(id).lean();
+    if (!doc) return res.status(404).json({ message: 'Schedule not found' });
+    res.json({ message: 'Schedule deleted' });
+  } catch (err) {
+    console.error('deleteRotationSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
 // GET /api/rotation-schedules/student-assignments?studentId=...
 export const getStudentAssignments = async (req: Request, res: Response) => {
   try {

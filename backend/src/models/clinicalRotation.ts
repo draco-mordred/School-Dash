@@ -22,56 +22,63 @@ const PatientClerkedSchema = new Schema(
   { _id: false }
 );
 
-const ClinicalRotationSchema = new Schema(
+export const procredureAction = {
+  performed: "performed",
+  assisted: "assisted",
+  watched: "watched"
+} as const;
+
+const ProceduresWatchedAssistedOrPerformedSchema = new Schema(
   {
-    rotationName: { type: String, required: true },
-    rotationDescription: { type: String, default: "" },
-    rotationType: { type: String, default: "general" },
-    rotationStartDate: { type: Date },
-    rotationEndDate: { type: Date },
-    rotationUnit: { type: String },
-    rotationSupervisor: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    rotationStatus: { type: String, default: "pending_approval" },
-    rotationNotes: { type: String, default: "" },
-    rotationActivities: { type: RotationActivitiesSchema, default: () => ({}) },
-    rotationTutorials: { type: [Schema.Types.Mixed], default: [] },
-    rotationTutorialPersonal: { type: String, default: "" },
-    patientsClerked: { type: [PatientClerkedSchema], default: [] },
-    clinicDays: { type: [Date], default: [] },
-    theatreDays: { type: [Date], default: [] },
-    cwrDays: { type: [Date], default: [] },
-    rwrDays: { type: [Date], default: [] },
-    callDays: { type: [Date], default: [] },
-    otherDays: { type: [Date], default: [] },
-    student: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    students: { type: [mongoose.Schema.Types.ObjectId], ref: "User", default: [] },
-    academicYear: { type: mongoose.Schema.Types.ObjectId, ref: "AcademicYear" },
-    studentName: { type: String, default: "" },
-    supervisorName: { type: String, default: "" },
+    procedureName: { type: String, required: true, default: "" },
+    action: {
+      type: String,
+      enum: Object.values(procredureAction),
+      required: true,
+      default: procredureAction.watched,
+    },
+    date: { type: Date, default: () => new Date(), required: true },
+    notes: { type: String, default: "" },
   },
-  { timestamps: true }
+  { _id: false }
+);
+  
+
+const PracticalsPerformedSchema = new Schema(
+  {
+    practicalName: { type: String, required: true, default: "" },
+    coursseId: { type: mongoose.Schema.Types.ObjectId, ref: "Course", required: true },
+    performedAt: { type: Date, default: () => new Date(), required: true },
+    notes: { type: String, default: "" },
+  },
+  { _id: false }
 );
 
-ClinicalRotationSchema.index({ rotationStatus: 1 });
-ClinicalRotationSchema.index({ student: 1 });
-
-
-
+const UnitActivitiesSchema = new Schema(
+  {
+    unitId: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
+    activities: { type: RotationActivitiesSchema, default: () => ({}) },
+    patientsClerked: { type: [PatientClerkedSchema], default: [] },
+    proceduresWatchedAssistedOrPerformed: { type: [ProceduresWatchedAssistedOrPerformedSchema], default: [] },
+  },
+  { _id: false }
+);
 
 
 export const ClinicalPostingType = {
-  general: "general",
-  elective: "elective",
+  acedemic: "academic",
+  clinical: "clinical",
 } as const;
 
 export const ClinicalPostingPhase = {
-  OandG_PediatricsPosting: "OG_PED",
+  OandGAndPediatricsPosting: "OG_PED",
   SpecialtyPosting: "SPECIALTY",
   ElectivePosting: "ELECTIVE",
+  MedicineAndSurgeryPosting: "MED_SUR",
 } as const;
 
 export const CurrentPosting = {
-  OandG: "O&G",
+  OBG: "O&G",
   PED: "Pediatrics",
   PSY: "Psychiatry",
   ENT: "ENT",
@@ -86,19 +93,22 @@ export const CurrentPosting = {
 
 export type currentPostings = "O&G" | "Pediatrics" | "Psychiatry" | "ENT" | "Radiology" | "Ophthalmology" | "Anesthesiology" | "Dermatology" | "Medicine" | "Surgery" | "Community Medicine";
 
-export type clinicalPostingPhase = "OG_PED" | "SPECIALTY" | "ELECTIVE";
+export type clinicalPostingPhase = "OG_PED" | "SPECIALTY" | "ELECTIVE" | "MED_SUR";
 
-export type clinicalPostingType = "general" | "elective";
+export type clinicalPostingType = "academic" | "clinical";
 
 export interface IClinicalRotations extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
   description: string;
   department: mongoose.Types.ObjectId;
+  supervisor?: mongoose.Types.ObjectId;
   currentPosting: currentPostings;
   postingType: clinicalPostingType;
   postingPhase: clinicalPostingPhase;
   isActive: boolean;
+  practicalActivities?: typeof PracticalsPerformedSchema[];// for Block postings, this will be an array of practicals performed during the posting
+  unitActivities?: typeof UnitActivitiesSchema[]; //
   class: mongoose.Types.ObjectId;
   unit: mongoose.Types.ObjectId;
   totalPoints: Number;
@@ -110,14 +120,18 @@ const ClinicalRotationsSchema = new Schema<IClinicalRotations>({
   name: { type: String, required: true },
   description: { type: String, default: "" },
   department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", required: true },
+  supervisor: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   currentPosting: { type: String, required: true },
   postingType: { type: String, required: true },
   postingPhase: { type: String, required: true },
   isActive: { type: Boolean, default: true },
+  practicalActivities: { type: [PracticalsPerformedSchema], default: [] },
+  unitActivities: { type: [UnitActivitiesSchema], default: [] },
   class: { type: mongoose.Schema.Types.ObjectId, ref: "Class", required: true },
   unit: { type: mongoose.Schema.Types.ObjectId, ref: "Unit", required: true },
   totalPoints: { type: Number, default: 320 },
   startDate: { type: Date, required: true },
+  endDate: { type: Date, required: true }
 })
 
 export default mongoose.model("ClinicalRotations", ClinicalRotationsSchema);

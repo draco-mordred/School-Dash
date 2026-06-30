@@ -190,7 +190,7 @@ export const DepartmentUnitsSection = ({ search }: { search: string }) => {
               const reserveUnits = unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean);
 
               return (
-                <div key={unitMeta.id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
+                <div key={unitMeta.id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition duration-200 hover:shadow-lg hover:scale-100 hover:-translate-y-1">
                   <button
                     type="button"
                     onClick={() => setExpandedUnits((prev) => ({ ...prev, [unitMeta.id]: !prev[unitMeta.id] }))}
@@ -490,7 +490,7 @@ const AdminDepartments = () => {
                   const isOpen = expandedDepartments[department._id] ?? false;
 
                   return (
-                    <div key={department._id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
+                    <div key={department._id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition duration-200 hover:shadow-lg hover:scale-101 hover:-translate-y-1">
                       <button
                         type="button"
                         onClick={() => setExpandedDepartments((prev) => ({ ...prev, [department._id]: !prev[department._id] }))}
