@@ -8,6 +8,8 @@ import ClassModel from "../models/classes";
 import AcademicYear from "../models/academicYear";
 import Department from "../models/departments";
 import Unit from "../models/units";
+import Subjects from "../services/subjects";
+import Exam from "../models/exam";
 import {
   getAllDepartments,
   getDepartmentUnits,
@@ -117,6 +119,13 @@ const isUserInDepartment = (user: any, departmentDoc: any) => {
     String(departmentDoc.name).trim().toLowerCase(),
   ]);
   return validDeptValues.has(userDept);
+};
+
+const generateSubjectUID = (subject: any) => {
+  if (subject && typeof subject.subjectUID === "string" && subject.subjectUID.trim() !== "") {
+    return String(subject.subjectUID).trim();
+  }
+  return new mongoose.Types.ObjectId().toHexString();
 };
 
 const normalizeClassIdValue = (value: any): string | undefined => {
@@ -391,25 +400,29 @@ export const addCourseSubject = async (req: Request, res: Response) => {
     }
 
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
+    const subjectUID = generateSubjectUID(subject);
 
-    // Prevent duplicate subjectID within this course
-    const existingSubject = (topLevelCourse.subjects ?? []).some(
-      (s: any) => String(s.subjectID) === String(subject.subjectID)
+    const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
+      String(s.subjectUID) === String(subjectUID) ||
+      (String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() &&
+        String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())
     );
 
     if (existingSubject) {
       return res.status(400).json({
-        message: `Subject with subjectID (${subject.subjectID}) already exists for this course.`,
+        message: `A subject with this identifier or matching name/code already exists for this course.`,
       });
     }
 
     topLevelCourse.subjects.push({
+      subjectUID,
       name: subject.name,
       code: subject.code ?? null,
       subjectID: subject.subjectID,
       unit: subject.unit ?? null,
       lecturer: lecturerIds,
       isActive: Boolean(subject.isActive ?? true),
+      semester: subject.semester ?? null,
       students: studentIds,
     } as any);
 
@@ -424,6 +437,77 @@ export const addCourseSubject = async (req: Request, res: Response) => {
     }
 
     return res.status(200).json(topLevelCourse);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// -----------------------------
+// Delete embedded subject
+// -----------------------------
+//  @desc    Delete an embedded subject from a course and cascade cleanup
+//  @route   DELETE /api/courses/:courseId/subjects/:subjectId
+//  @access  Private (Admin/Teacher/Unit)
+export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
+  try {
+    const { courseId, subjectId } = req.params as { courseId: string; subjectId: string };
+    const topLevelCourse = await Course.findById(courseId);
+    if (!topLevelCourse) {
+      return res.status(404).json({ message: `Course ${courseId} not found` });
+    }
+
+    // Try find by embedded _id first
+    // Note: Mongoose subdocs allow .id()
+    let subdoc: any = (topLevelCourse.subjects as any).id
+      ? (topLevelCourse.subjects as any).id(subjectId)
+      : null;
+
+    if (!subdoc) {
+      // Try match by embedded subject UID, subjectID, name or code
+      subdoc = (topLevelCourse.subjects ?? []).find((s: any) =>
+        String(s._id) === String(subjectId) ||
+        String(s.subjectUID) === String(subjectId) ||
+        String(s.subjectID) === String(subjectId) ||
+        String(s.name) === String(subjectId) ||
+        String(s.code ?? "") === String(subjectId)
+      );
+    }
+
+    if (!subdoc) {
+      return res.status(404).json({ message: `Subject ${subjectId} not found in course ${courseId}` });
+    }
+
+    const removed = {
+      _id: String(subdoc._id),
+      name: subdoc.name,
+      code: subdoc.code ?? null,
+      subjectID: subdoc.subjectID ?? null,
+    };
+
+    // Remove the subdocument
+    topLevelCourse.subjects = (topLevelCourse.subjects ?? []).filter((s: any) => String(s._id) !== String(removed._id));
+    await topLevelCourse.save();
+
+    // Cascade clean-up: remove matching top-level Subjects documents
+    try {
+      await Subjects.deleteMany({
+        courseID: topLevelCourse.courseID,
+        $or: [{ name: removed.name }, { code: removed.code ?? "" }],
+      });
+    } catch (e) {
+      console.warn("Subjects cascade delete failed", e);
+    }
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Deleted subject ${removed.name} from course ${topLevelCourse.name} (${topLevelCourse.courseID}).`,
+      });
+    }
+
+    return res.json({ message: "Subject removed", subject: removed, course: topLevelCourse });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error", error });
@@ -509,7 +593,6 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     }
 
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
-
     // Create course + subject if missing
     if (!topLevelCourse) {
       const created = await Course.create({
@@ -526,12 +609,14 @@ export const createCourseSubject = async (req: Request, res: Response) => {
         lecturer: Array.isArray(lecturer) ? lecturer : [],
         subjects: [
           {
+            subjectUID,
             name: subject.name,
             code: subject.code ?? null,
             subjectID: subject.subjectID,
             unit: subject.unit ?? null,
             lecturer: subjectLecturerIds,
             isActive: Boolean(subject.isActive ?? true),
+            semester: subject.semester ?? null,
             students: studentIds,
           },
         ],
@@ -548,14 +633,17 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       return res.status(201).json(created);
     }
 
-    // Prevent duplicate subjectID within this course
-    const existingSubject = (topLevelCourse.subjects ?? []).some(
-      (s: any) => String(s.subjectID) === String(subject.subjectID)
+    const subjectUID = generateSubjectUID(subject);
+
+    const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
+      String(s.subjectUID) === String(subjectUID) ||
+      (String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() &&
+        String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())
     );
 
     if (existingSubject) {
       return res.status(400).json({
-        message: `Subject with subjectID (${subject.subjectID}) already exists for this course.`,
+        message: `A subject with this identifier or matching name/code already exists for this course.`,
       });
     }
 
@@ -569,12 +657,14 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     if (Array.isArray(lecturer)) topLevelCourse.lecturer = lecturer;
 
     topLevelCourse.subjects.push({
+      subjectUID,
       name: subject.name,
       code: subject.code ?? null,
       subjectID: subject.subjectID,
       unit: subject.unit ?? null,
       lecturer: subjectLecturerIds,
       isActive: Boolean(subject.isActive ?? true),
+      semester: subject.semester ?? null,
       students: studentIds,
     } as any);
 
@@ -815,7 +905,7 @@ export const getCourseMeta = async (req: Request, res: Response) => {
 // -----------------------------
 export const updateCourseSubjects = async (req: Request, res: Response) => {
   try {
-    const { name, isActive, code, courseID, department, semester, year, unit, academicYearId } = req.body as any;
+    const { name, isActive, code, courseID, department, semester, year, unit, academicYearId, subjects, lecturer } = req.body as any;
 
     const updateData: any = {
       name,
@@ -830,6 +920,20 @@ export const updateCourseSubjects = async (req: Request, res: Response) => {
       updateData.unit = unit === "" ? null : unit;
     }
     if (academicYearId) updateData.academicYear = academicYearId;
+    if (lecturer !== undefined) {
+      updateData.lecturer = Array.isArray(lecturer) ? lecturer : [];
+    }
+    if (subjects !== undefined) {
+      updateData.subjects = (Array.isArray(subjects) ? subjects : []).map((subject: any) => ({
+        name: subject.name,
+        code: subject.code ?? null,
+        subjectID: subject.subjectID ?? subject.code ?? "",
+        lecturer: Array.isArray(subject.lecturer) ? subject.lecturer : [],
+        students: Array.isArray(subject.students) ? subject.students : [],
+        isActive: Boolean(subject.isActive ?? true),
+        semester: subject.semester ?? null,
+      }));
+    }
 
     const updated = await Course.findByIdAndUpdate(
       req.params.id,
@@ -863,16 +967,18 @@ export const deleteCourseSubjects = async (req: Request, res: Response) => {
   try {
     const deleted = await Course.findByIdAndDelete(req.params.id);
 
+    if (!deleted) {
+      return res.status(404).json({ message: `Course with ID ${req.params.id} not found!` });
+    }
+
+    await Subjects.deleteMany({ courseID: deleted.courseID });
+
     const userId = (req as any).user?._id;
-    if (userId && deleted) {
+    if (userId) {
       await logActivity({
         userId,
         action: `Course ${deleted.name} was deleted successfully.`,
       });
-    }
-
-    if (!deleted) {
-      return res.status(404).json({ message: `Course with ID ${req.params.id} not found!` });
     }
 
     return res.json({

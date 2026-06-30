@@ -29,6 +29,12 @@ const NotificationSchema = new Schema<INotification>(
       enum: ["info", "warning", "success", "error", "attendance", "timetable", "system"],
       default: "info",
     },
+    actorName: { type: String, index: true },
+    actorRole: {
+      type: String,
+      enum: ["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"],
+      index: true,
+    },
     isRead: { type: Boolean, default: false, index: true },
     link: { type: String },
     metadata: { type: Schema.Types.Mixed },

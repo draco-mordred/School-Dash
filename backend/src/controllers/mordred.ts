@@ -9,6 +9,46 @@ import { inngest } from "../inngest/client";
 import Attendance from "../models/attendance";
 import MordredLog from "../models/mordredLog";
 import User from "../models/user";
+import { createNotificationIfUnique } from "../utils/notificationUtils";
+
+const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent"]);
+const systemActionType = z.enum([
+  "NONE",
+  "UPDATE_PROFILE",
+  "REQUEST_ROLE_CHANGE",
+  "CREATE_USER",
+  "DELETE_USER",
+  "SEND_ALERT",
+  "ESCALATE_TO_ADMIN",
+]);
+
+const isAdminRole = (role?: string) => String(role ?? "").trim().toLowerCase() === "admin";
+const isInsightRole = (role?: string) => permittedInsightRoles.has(String(role ?? "").trim().toLowerCase());
+
+const handleAdminSystemAction = async (action: any, user: any) => {
+  if (!action || action.actionType === "NONE") return "";
+
+  // Placeholder system-action handling for admin requests. This can be extended
+  // to invoke actual admin workflows such as profile updates, role changes, or alerts.
+  console.log(`MORDRED system action requested by admin ${user?.email || user?._id}:`, action);
+
+  switch (action.actionType) {
+    case "UPDATE_PROFILE":
+      return ` System action prepared: update profile request recorded.`;
+    case "REQUEST_ROLE_CHANGE":
+      return ` System action prepared: role change request recorded.`;
+    case "CREATE_USER":
+      return ` System action prepared: user creation workflow flagged.`;
+    case "DELETE_USER":
+      return ` System action prepared: user deletion workflow flagged.`;
+    case "SEND_ALERT":
+      return ` System action prepared: alert dispatch request recorded.`;
+    case "ESCALATE_TO_ADMIN":
+      return ` System action prepared: escalation workflow queued.`;
+    default:
+      return "";
+  }
+};
 
 export const saveChatMessage = async (
   req: Request, 
@@ -28,7 +68,7 @@ export const saveChatMessage = async (
           expires_at: null // Setting to null clears the TTL deletion timer completely
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!savedLog) return res.status(404).json({ message: "Message link not found." });
@@ -41,6 +81,9 @@ export const saveChatMessage = async (
 export const mordredsWords = async (req: Request, res: Response) => {
   try {
     const { message, studentContext } = req.body;
+    const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
+    const canExecuteSystemActions = isAdminRole(userRole);
+
     // 1. Get the key from process.env
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY || "";
 
@@ -76,9 +119,11 @@ export const mordredsWords = async (req: Request, res: Response) => {
       10. MORDRED should always limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
       
       user: 
-      Student ID: ${(req as any).user._id}. 
-      Student Name: ${(req as any).user.name}. 
-      Student Email: ${(req as any).user.email}. 
+      User ID: ${(req as any).user._id}. 
+      User Name: ${(req as any).user.name}. 
+      User Email: ${(req as any).user.email}. 
+      User Role: ${userRole}. 
+      User Permissions: ${canExecuteSystemActions ? "admin system actions allowed" : "non-admin profile/role requests only"}. 
       Student Department: ${studentContext.department}. 
       Student Rotation Unit: ${studentContext.rotationUnit}. 
       Student Rotation Start Date: ${studentContext.rotationStartDate}. 
@@ -89,17 +134,33 @@ export const mordredsWords = async (req: Request, res: Response) => {
       schema: z.object({
         reply: z.string().describe("Your conversational response back to the student."),
         shouldEscalate: z.boolean().describe("Set to true ONLY if a human staff member needs to fix a bug, logbook issue, or attendance error."),
-        issueCategory: z.enum(["NONE", "ATTENDANCE_BUG", "LOGBOOK_ERROR", "TIMETABLE_CONFLICT", "OTHER"]).describe("The classification category of the problem.")
+        issueCategory: z.enum(["NONE", "ATTENDANCE_BUG", "LOGBOOK_ERROR", "TIMETABLE_CONFLICT", "OTHER"]).describe("The classification category of the problem."),
+        systemAction: z
+          .object({
+            actionType: systemActionType,
+            details: z.string().optional(),
+          })
+          .optional()
+          .describe("Structured system action request. Only admins may execute real system actions."),
       }),
       prompt: `Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}`,
     });
+
+    const systemAction = mordredDecision.systemAction ?? { actionType: "NONE" };
+
+    // Non-admin users may not execute real system-level actions.
+    if (!canExecuteSystemActions && systemAction.actionType !== "NONE") {
+      mordredDecision.reply = `As a non-admin user, I cannot execute system-level changes. ${mordredDecision.reply}`;
+      systemAction.actionType = "NONE";
+      systemAction.details = undefined;
+    }
 
     // Handle automated backend actions based on MORDRED's intelligence decisions
     if (mordredDecision.shouldEscalate) {
       // 1. Kick off your smart workload assignment engine
       const assignedStaff = await routeTaskToStaff(
-        studentContext.department, 
-        "is_available_for_escalations", 
+        studentContext.department,
+        "is_available_for_escalations",
         (req as any).user._id // Links the user profile reference
       );
 
@@ -107,21 +168,53 @@ export const mordredsWords = async (req: Request, res: Response) => {
       await inngest.send({
         name: "mordred/ticket.created",
         data: {
-          ticketId: (req as any).user._id, // Replace with your real generated Ticket Object ID
+          ticketId: (req as any).user._id,
           departmentName: studentContext.department,
-          assignedTo: assignedStaff?._id || "SUPER_ADMIN"
-        }
+          assignedTo: assignedStaff?._id || "SUPER_ADMIN",
+        },
       });
-      
+
       // Append a system note to the text reply to give the user visibility
       mordredDecision.reply += ` [System Notice: I have flagged this anomaly and routed a ticket to ${assignedStaff?.name || "the admin desk"}.]`;
+
+      // Notify all active admin users immediately when MORDRED flags an anomaly
+      const actorName = "MORDRED AI";
+      const requestedBy = (req as any).user?.name || (req as any).user?.email || "A user";
+      const notificationMessage = `MORDRED flagged an anomaly for ${requestedBy} and routed a ticket to ${assignedStaff?.name || "the admin desk"}.`;
+      const adminUsers = await User.find({ role: "admin", isActive: true }).select("_id").lean();
+      if (adminUsers.length > 0) {
+        await Promise.all(
+          adminUsers.map((admin) =>
+            createNotificationIfUnique({
+              userId: admin._id,
+              role: "admin",
+              title: "MORDRED Alert: Anomaly Ticket Routed",
+              message: notificationMessage,
+              type: "system",
+              actorName,
+              actorRole: "admin",
+              metadata: {
+                studentId: (req as any).user?._id,
+                assignedStaffId: assignedStaff?._id,
+                issueCategory: mordredDecision.issueCategory,
+              },
+            })
+          )
+        );
+      }
+    }
+
+    let adminActionNote = "";
+    if (canExecuteSystemActions && systemAction.actionType !== "NONE") {
+      adminActionNote = await handleAdminSystemAction(systemAction, (req as any).user);
     }
 
     return res.status(200).json({
- _id: new mongoose.Types.ObjectId(), // Send a real ID back for React keys
-  sender: "mordred_ai",
-  text: mordredDecision.reply, // Ensure this matches 'text'
-  is_ticket_created: mordredDecision.shouldEscalate
+      _id: new mongoose.Types.ObjectId(),
+      sender: "mordred_ai",
+      text: `${mordredDecision.reply}${adminActionNote}`.trim(),
+      is_ticket_created: mordredDecision.shouldEscalate,
+      systemAction: canExecuteSystemActions ? systemAction : undefined,
     });
 
     // Inside your handleMordredChat try/catch block:
@@ -194,6 +287,11 @@ export const dynamicAIInsights = async (
   res: Response
 ) => {
    try {
+    const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
+    if (!isInsightRole(userRole)) {
+      return res.status(403).json({ message: "Access denied. MORDRED insights are only available to admin, teacher, unitconsultant, unitresident, and parent users." });
+    }
+
     const dynamicInsights = [];
 
     // Insight 1: Check for any API failures logged by MORDRED's runtime engines

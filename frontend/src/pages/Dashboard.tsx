@@ -32,6 +32,7 @@ import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlert
 import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
 import { QuickActions } from "@/components/admin/dashboard/QuickActions";
 import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
+import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
 
 function NotificationsCard() {
   const navigate = useNavigate();
@@ -277,6 +278,7 @@ export default function Dashboard() {
   const isTeacher = user?.role === "teacher";
   const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
+  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent;
 
   // Derived UI values for class overview
   const classesWithTimetableCount = classStatuses.filter((c) => c.timetableStatus === "active").length;
@@ -579,6 +581,12 @@ export default function Dashboard() {
           ))}
         </div>
       </div>
+
+      {canViewMordredInsights && (
+        <div className="grid grid-cols-1 gap-6">
+          <AIInsightWidget />
+        </div>
+      )}
 
       {/* ══ MAIN CONTENT GRID ══════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

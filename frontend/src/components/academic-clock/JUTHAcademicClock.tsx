@@ -1,12 +1,11 @@
 import { differenceInCalendarDays, format } from "date-fns";
-import type { FC } from "react";
+import { useEffect, useRef, type FC } from "react";
 import type { AcademicClockPhase } from "@/types";
 import {
   ACADEMIC_CLOCK_DAYS_PER_MONTH,
   ACADEMIC_CLOCK_PHASES,
-  TOTAL_ACADEMIC_CLOCK_DAYS,
-  TOTAL_ACADEMIC_CLOCK_MONTHS,
   getClockPhaseId,
+  type AcademicClockPhaseDefinition,
 } from "@/lib/academicClock";
 
 interface JUTHAcademicClockProps {
@@ -14,11 +13,13 @@ interface JUTHAcademicClockProps {
   currentDate: Date;
   isPaused: boolean;
   currentPhaseId?: AcademicClockPhase | null;
+  phasePlan?: AcademicClockPhaseDefinition[];
+  onComplete?: () => void;
 }
 
-const RADIUS = 150;
+const RADIUS = Math.round(150 * 0.75); // reduced by 25%
 const CENTER = 200;
-const STROKE_WIDTH = 32;
+const STROKE_WIDTH = Math.round(32 * 0.75);
 
 const getCoordinatesForPercent = (percent: number) => {
   const x = CENTER + RADIUS * Math.cos(2 * Math.PI * (percent - 0.25));
@@ -34,45 +35,53 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   currentDate,
   isPaused,
   currentPhaseId,
+  phasePlan,
+  onComplete,
 }) => {
+  const plan = phasePlan ?? ACADEMIC_CLOCK_PHASES;
+  const completionTriggeredRef = useRef(false);
+
+  const totalMonths = plan.reduce((s, p) => s + p.durationMonths, 0);
+  const totalDays = totalMonths * ACADEMIC_CLOCK_DAYS_PER_MONTH;
+
   const elapsedDays = clamp(
     differenceInCalendarDays(currentDate, startDate),
     0,
-    TOTAL_ACADEMIC_CLOCK_DAYS,
+    totalDays,
   );
 
   const progressMonths = elapsedDays / ACADEMIC_CLOCK_DAYS_PER_MONTH;
-  const currentMonth = clamp(progressMonths, 0, TOTAL_ACADEMIC_CLOCK_MONTHS);
+  const currentMonth = clamp(progressMonths, 0, totalMonths);
   const currentMonthLabel = Math.max(1, Math.ceil(currentMonth));
 
-  const arcs = ACADEMIC_CLOCK_PHASES.reduce(
+  const arcs = plan.reduce(
     (acc, phase) => {
       const startMonths = acc.accumulatedMonths;
       const endMonths = startMonths + phase.durationMonths;
       acc.arcs.push({
         phase,
-        startPercent: startMonths / TOTAL_ACADEMIC_CLOCK_MONTHS,
-        endPercent: endMonths / TOTAL_ACADEMIC_CLOCK_MONTHS,
+        startPercent: startMonths / totalMonths,
+        endPercent: endMonths / totalMonths,
       });
       acc.accumulatedMonths = endMonths;
       return acc;
     },
     { accumulatedMonths: 0, arcs: [] as Array<{
-      phase: (typeof ACADEMIC_CLOCK_PHASES)[number];
+      phase: (typeof plan)[number];
       startPercent: number;
       endPercent: number;
     }> },
   ).arcs;
 
-  const resolvedPhaseId = currentPhaseId ?? getClockPhaseId(startDate, currentDate);
-  let currentPhase = ACADEMIC_CLOCK_PHASES.find((phase) => phase.id === resolvedPhaseId) ?? ACADEMIC_CLOCK_PHASES[ACADEMIC_CLOCK_PHASES.length - 1];
+  const resolvedPhaseId = currentPhaseId ?? getClockPhaseId(startDate, currentDate, plan as any);
+  let currentPhase = plan.find((phase) => phase.id === resolvedPhaseId) ?? plan[plan.length - 1];
   let currentPosting = currentPhase.subPostings[0];
   let localMonth = currentMonth;
   let phaseStartMonths = 0;
   let handAngle = 0;
 
-  for (const phase of ACADEMIC_CLOCK_PHASES) {
-    if (localMonth < phase.durationMonths || phase === ACADEMIC_CLOCK_PHASES[ACADEMIC_CLOCK_PHASES.length - 1]) {
+  for (const phase of plan) {
+    if (localMonth < phase.durationMonths || phase === plan[plan.length - 1]) {
       currentPhase = phase;
       const monthlyStep = phase.durationMonths / phase.subPostings.length;
       const postingIndex = Math.min(
@@ -80,31 +89,43 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
         Math.floor(localMonth / monthlyStep),
       );
       currentPosting = phase.subPostings[postingIndex] ?? phase.name;
-      handAngle = ((phaseStartMonths + localMonth) / TOTAL_ACADEMIC_CLOCK_MONTHS) * 360;
+      handAngle = ((phaseStartMonths + localMonth) / totalMonths) * 360;
       break;
     }
     localMonth -= phase.durationMonths;
     phaseStartMonths += phase.durationMonths;
   }
 
+  useEffect(() => {
+    if (elapsedDays < totalDays) {
+      completionTriggeredRef.current = false;
+      return;
+    }
+
+    if (!onComplete || isPaused || completionTriggeredRef.current) return;
+
+    completionTriggeredRef.current = true;
+    onComplete();
+  }, [elapsedDays, isPaused, onComplete, totalDays]);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_1fr]">
       <div className="rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
         <div className="flex flex-col items-center gap-3">
           <div className="relative h-[400px] w-full max-w-[420px]">
-            <svg viewBox="0 0 400 400" className="w-full h-full">
+            <svg viewBox="0 0 400 400" className="h-full w-full text-slate-900 dark:text-slate-100">
               <circle
                 cx={CENTER}
                 cy={CENTER}
                 r={RADIUS + STROKE_WIDTH / 2 + 12}
                 fill="none"
-                stroke="rgba(148,167,194,0.16)"
+                stroke="rgba(167, 167, 167, 0.16)"
                 strokeWidth="12"
               />
               {arcs.map(({ phase, startPercent, endPercent }) => {
                 const [startX, startY] = getCoordinatesForPercent(startPercent);
                 const [endX, endY] = getCoordinatesForPercent(endPercent);
-                const largeArcFlag = phase.durationMonths / TOTAL_ACADEMIC_CLOCK_MONTHS > 0.5 ? 1 : 0;
+                const largeArcFlag = phase.durationMonths / totalMonths > 0.5 ? 1 : 0;
                 const pathData = `M ${startX} ${startY} A ${RADIUS} ${RADIUS} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
                 return (
                   <path
@@ -117,8 +138,8 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                   />
                 );
               })}
-              {[...Array(TOTAL_ACADEMIC_CLOCK_MONTHS)].map((_, index) => {
-                const angle = 2 * Math.PI * (index / TOTAL_ACADEMIC_CLOCK_MONTHS - 0.25);
+              {[...Array(Math.max(1, totalMonths))].map((_, index) => {
+                const angle = 2 * Math.PI * (index / Math.max(1, totalMonths) - 0.25);
                 const innerRadius = RADIUS - 18;
                 const outerRadius = RADIUS + 18;
                 const x1 = CENTER + innerRadius * Math.cos(angle);
@@ -132,7 +153,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke={index % 4 === 0 ? "#334155" : "#94a3b8"}
+                    stroke={index % 4 === 0 ? "#FFFFFF" : "#000000"}
                     strokeWidth={index % 4 === 0 ? 3 : 1.5}
                     opacity="0.85"
                   />
@@ -143,38 +164,39 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                 y1={CENTER}
                 x2={CENTER}
                 y2={CENTER - RADIUS + 22}
-                stroke="#111827"
-                strokeWidth="5"
+                stroke="currentColor"
+                strokeWidth="6"
                 strokeLinecap="round"
                 transform={`rotate(${handAngle} ${CENTER} ${CENTER})`}
               />
-              <circle cx={CENTER} cy={CENTER} r="26" fill="#111827" />
-              <circle cx={CENTER} cy={CENTER} r="14" fill="#f8fafc" />
+              <circle cx={CENTER} cy={CENTER} r="26" fill="currentColor" />
+              <circle cx={CENTER} cy={CENTER} r="14" fill="#0f0f1a" />
               <text
                 x={CENTER}
-                y={CENTER - 10}
+                y={CENTER + 50}
                 textAnchor="middle"
                 fontSize="18"
                 fontWeight="700"
-                fill="#ffffff"
+                fill="currentColor"
               >
                 {currentMonthLabel}
               </text>
               <text
                 x={CENTER}
-                y={CENTER + 15}
+                y={CENTER + 65}
                 textAnchor="middle"
-                fontSize="11"
-                fill="#cbd5e1"
+                fontSize="12"
+                fill="currentColor"
+                opacity="1"
               >
-                / 16 months
+                / {totalMonths} month{totalMonths === 1 ? "" : "s"}
               </text>
             </svg>
           </div>
         </div>
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <div className="font-semibold">JUTH 500-Level Clock</div>
+            <div className="font-semibold">JUTH Class-Level Clock</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <div>
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
@@ -203,7 +225,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            {ACADEMIC_CLOCK_PHASES.map((phase) => (
+            {plan.map((phase) => (
               <div key={phase.id} className="rounded-2xl border p-4">
                 <div className="flex items-center gap-2">
                   <svg className="h-3 w-3" viewBox="0 0 8 8" aria-hidden="true">
@@ -229,7 +251,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
             {isPaused ? "Paused for break or review." : "Running live against the selected start date."}
           </p>
           <p className="mt-2 text-[0.85rem] text-slate-500">
-            The 16-month clock maps every month to 22.5° of the circle.
+            The clock maps each month to a segment of the circle based on the selected class phase plan.
           </p>
         </div>
       </div>

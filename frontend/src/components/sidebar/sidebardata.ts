@@ -70,11 +70,11 @@ export const sidebardata = {
       roles: ["admin"],
       items: [
         { title: "Sessions", url: "/settings/academic-years", roles: ["admin"] },
-        { title: "Semesters", url: "/classes", roles: ["admin"] },
+        { title: "Semesters", url: "/semesters", roles: ["admin"] },
         { title: "Classes", url: "/classes", roles: ["admin"] },
         { title: "Courses", url: "/courses", roles: ["admin"] },
         { title: "Subjects", url: "/subjects", roles: ["admin"] },
-        { title: "Academic Calendar", url: "/timetable", roles: ["admin"] },
+        { title: "Academic Calendar", url: "/academic-calendar", roles: ["admin"] },
       ],
     },
     {
@@ -97,7 +97,7 @@ export const sidebardata = {
       roles: ["admin"],
       items: [
         { title: "Schedules", url: "/timetable", roles: ["admin"] },
-        { title: "Academic Calendar", url: "/timetable/calendar", roles: ["admin"] },
+        { title: "Academic Calendar", url: "/academic-calendar", roles: ["admin"] },
         { title: "Dates and Events", url: "/timetable/events", roles: ["admin"] },
       ],
     },
@@ -340,7 +340,7 @@ export const sidebardata = {
       items: [
         { title: "Notifications", url: "/notifications" },
         { title: "School Settings", url: "/settings/general" },
-        { title: "Academic Years", url: "/settings/academic-years" },
+        { title: "Academic Years", url: "/timetable/calendar" },
         { title: "Roles & Permissions", url: "/settings/roles" },
       ],
     },

@@ -29,8 +29,8 @@ export function AIInsightWidget() {
 
   if (loading) {
     return (
-      <div className="p-6 border border-slate-200 rounded-xl bg-white text-sm text-slate-400 flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>
+      <div className="p-6 border border-border rounded-xl bg-card text-sm text-muted-foreground flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
         MORDRED Engine is auditing database log matrices...
       </div>
     );
@@ -38,15 +38,15 @@ export function AIInsightWidget() {
 
   if (error) {
     return (
-      <div className="p-6 border border-rose-200 rounded-xl bg-rose-50 text-xs text-rose-700 font-medium">
+      <div className="p-6 border border-destructive/20 rounded-xl bg-destructive/10 text-xs text-destructive-foreground font-medium">
         ⚠️ MORDRED Dashboard Sync Interruption: {error}
       </div>
     );
   }
 
   return (
-    <div className="p-6 border border-slate-200 rounded-xl bg-white shadow-sm font-sans">
-      <div className="flex items-center justify-between mb-4 border-b pb-3">
+    <div className="p-6 border border-border rounded-xl bg-card shadow-sm font-sans text-slate-900">
+      <div className="flex items-center justify-between mb-4 border-b border-border pb-3">
         <div className="flex items-center gap-2">
           <span className="flex h-2 w-2 relative">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -66,20 +66,20 @@ export function AIInsightWidget() {
           </div>
         ) : (
           insights.map((item) => (
-            <div key={item.id} className="flex gap-3 p-3 rounded-lg bg-slate-50 border border-slate-100 items-start text-xs transition hover:bg-slate-100/50">
+            <div key={item.id} className="flex gap-3 p-3 rounded-lg bg-surface border border-border items-start text-xs transition hover:bg-muted">
               <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold tracking-wider border ${
-                item.type === "CRITICAL" 
-                  ? "bg-rose-50 text-rose-700 border-rose-200" 
+                item.type === "CRITICAL"
+                  ? "bg-destructive/10 text-destructive-foreground border-destructive/20"
                   : item.type === "WARNING"
-                  ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-blue-50 text-blue-700 border-blue-200"
+                  ? "bg-warning/10 text-warning-foreground border-warning/20"
+                  : "bg-primary/10 text-primary-foreground border-primary/20"
               }`}>
                 {item.type}
               </span>
               <div className="flex-1">
-                <p className="text-slate-800 font-medium leading-relaxed">{item.message}</p>
-                <div className="flex justify-between text-[10px] text-slate-400 mt-2 font-medium">
-                  <span>Scope: <span className="text-slate-500 font-semibold">{item.targetUser}</span></span>
+                <p className="text-foreground font-medium leading-relaxed">{item.message}</p>
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-2 font-medium">
+                  <span>Scope: <span className="text-foreground font-semibold">{item.targetUser}</span></span>
                   <span>{item.timestamp}</span>
                 </div>
               </div>

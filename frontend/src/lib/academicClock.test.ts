@@ -17,4 +17,16 @@ describe("getClockPhaseId", () => {
 
     expect(getClockPhaseId(startDate, phaseOneDate)).toBe("phase1");
   });
+
+  it("uses a class-specific phase plan when provided", () => {
+    const startDate = new Date("2024-01-01T00:00:00.000Z");
+    const phaseOneDate = new Date("2024-11-01T00:00:00.000Z");
+
+    const classPhasePlan = [
+      { id: "phase1", durationMonths: 12 },
+      { id: "phase2", durationMonths: 2 },
+    ] as const;
+
+    expect(getClockPhaseId(startDate, phaseOneDate, classPhasePlan)).toBe("phase1");
+  });
 });

@@ -1,35 +1,19 @@
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  Loader2,
-  UserIcon,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ArrowUpDown, Download, Pencil, Trash2 } from "lucide-react";
 import type { user } from "@/types";
 import CustomPagination from "@/components/global/CustomPagination";
 import CustomAlert from "@/components/global/CustomAlert";
-import { api } from "@/lib/api";
 
-// ?page=${pageNum}&limit=10
 interface Props {
   role: string;
   loading: boolean;
@@ -44,6 +28,11 @@ interface Props {
   showDeleteAction?: boolean;
   onBulkDelete?: (ids: string[]) => Promise<void>;
 }
+
+const sortOptions = [
+  { value: "name", label: "Name" },
+  { value: "group", label: "Class / Department" },
+];
 
 const UserTable = ({
   role,
@@ -60,28 +49,91 @@ const UserTable = ({
   onBulkDelete,
 }: Props) => {
   const [selected, setSelected] = useState<string[]>([]);
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+
+  const groupLabel = role === "student" ? "Class" : "Department";
+
+  const getGroupValue = (user: user) => {
+    if (role === "student") {
+      const cls = user.studentClasses as { name?: string } | undefined;
+      return cls?.name || "Unassigned";
+    }
+    return (user.department as string) || "General";
+  };
+
+  const statusOptions = useMemo(
+    () => Array.from(new Set(users.map((user) => user.status || "unknown"))),
+    [users]
+  );
+
+  const groupOptions = useMemo(
+    () => Array.from(new Set(users.map(getGroupValue))).sort(),
+    [users]
+  );
+
+  const filteredUsers = useMemo(() => {
+    return users
+      .filter((user) => {
+        const matchesGroup = groupFilter === "all" || getGroupValue(user) === groupFilter;
+        const matchesStatus = statusFilter === "all" || user.status === statusFilter;
+        return matchesGroup && matchesStatus;
+      })
+      .sort((a, b) => {
+        const primary = sortBy === "group" ? getGroupValue(a) : a.name;
+        const secondary = sortBy === "group" ? getGroupValue(b) : b.name;
+        if (primary < secondary) return sortDirection === "asc" ? -1 : 1;
+        if (primary > secondary) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+  }, [users, groupFilter, statusFilter, sortBy, sortDirection]);
+
+  const groupedUsers = useMemo(() => {
+    return filteredUsers.reduce<Record<string, user[]>>((acc, user) => {
+      const groupValue = getGroupValue(user);
+      acc[groupValue] = acc[groupValue] || [];
+      acc[groupValue].push(user);
+      return acc;
+    }, {});
+  }, [filteredUsers]);
 
   const toggleSelectAll = (checked: boolean) => {
-    if (checked) setSelected(users.map((u) => u._id));
+    if (checked) setSelected(filteredUsers.map((u) => u._id));
     else setSelected([]);
   };
 
   const toggleSelectOne = (id: string, checked: boolean) => {
-    if (checked) setSelected((s) => [...s, id]);
-    else setSelected((s) => s.filter((x) => x !== id));
+    if (checked) setSelected((prev) => [...prev, id]);
+    else setSelected((prev) => prev.filter((x) => x !== id));
   };
 
-  const handleBulkDelete = async () => {
-    if (!selected.length) return;
-    // open confirmation dialog
-    setIsBulkDeleteOpen(true);
+  const handleExport = () => {
+    if (filteredUsers.length === 0) return;
+    const rows = filteredUsers.map((user) => ({
+      Name: user.name,
+      Email: user.email,
+      Status: user.status,
+      Group: getGroupValue(user),
+      Role: user.role || "",
+    }));
+    const csv = [Object.keys(rows[0]).join(","), ...rows.map((row) => Object.values(row).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `users-${role}-${Date.now()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
-  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
 
   const confirmBulkDelete = async () => {
     try {
       if (onBulkDelete) await onBulkDelete(selected);
-      else await Promise.all(selected.map((id) => (api.delete as any)(`/users/delete/${id}`)));
       setSelected([]);
       setIsBulkDeleteOpen(false);
     } catch (err) {
@@ -89,23 +141,187 @@ const UserTable = ({
       alert("Bulk delete failed");
     }
   };
-  const handleEdit = (user: user) => {
-    setEditingUser(user);
-    setIsFormOpen(true);
+
+  const getStatusClass = (status?: string) => {
+    switch (status) {
+      case "active":
+        return "bg-emerald-100 text-emerald-800";
+      case "inactive":
+        return "bg-slate-100 text-slate-700";
+      case "suspended":
+        return "bg-rose-100 text-rose-800";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
   };
 
   return (
-    <div className="border rounded-md">
-      {selected.length > 0 && (
-        <div className="flex items-center justify-between p-3 border-b bg-muted rounded-t-md">
-          <div className="text-sm">{selected.length} selected</div>
-          <div>
-            <Button variant="destructive" onClick={handleBulkDelete}>
-              Delete Selected
+    <Card>
+      <CardHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-lg">{role.charAt(0).toUpperCase() + role.slice(1)} Directory</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Browse users by {groupLabel.toLowerCase()}, filter by status, and manage profiles.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+                <Download className="h-4 w-4" /> Export
+              </Button>
+              {selected.length > 0 && (
+                <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
+                  Delete {selected.length}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <Select value={groupFilter} onValueChange={setGroupFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder={`All ${groupLabel}s`} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All {groupLabel}s</SelectItem>
+                {groupOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                {statusOptions.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status.charAt(0).toUpperCase() + status.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                {sortOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"))}
+            >
+              <ArrowUpDown className="h-4 w-4" /> {sortDirection === "asc" ? "A-Z" : "Z-A"}
             </Button>
           </div>
         </div>
-      )}
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        {Object.entries(groupedUsers).length === 0 ? (
+          <div className="rounded-3xl border border-border bg-background p-6 text-center text-sm text-muted-foreground">
+            No users match this filter.
+          </div>
+        ) : (
+          Object.entries(groupedUsers).map(([groupName, groupUsers]) => (
+            <div key={groupName} className="space-y-4">
+              <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface p-4">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{groupName}</p>
+                  <p className="text-xs text-muted-foreground">{groupUsers.length} user(s)</p>
+                </div>
+                <span className="text-xs text-muted-foreground">{role === "student" ? "Class" : "Department"}</span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {groupUsers.map((user) => (
+                  <div key={user._id} className="user-card overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{groupLabel}</p>
+                        <p className="text-lg font-semibold text-foreground">{user.name}</p>
+                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                      </div>
+                      <div className="space-y-2 text-right">
+                        <Badge className={getStatusClass(user.status)}>
+                          {user.status?.charAt(0).toUpperCase() + user.status?.slice(1)}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground">{getGroupValue(user)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+                      {role === "student" && (
+                        <div>
+                          <p className="font-medium text-foreground">Matric No.</p>
+                          <p>{user.idNumber || "N/A"}</p>
+                        </div>
+                      )}
+                      {role !== "student" && (user.department || user.role) && (
+                        <div>
+                          <p className="font-medium text-foreground">Details</p>
+                          <p>{user.department || user.role}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-0 transition-opacity duration-200">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => {
+                          setEditingUser(user);
+                          setIsFormOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" /> Edit
+                      </Button>
+                      {showDeleteAction !== false && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => {
+                            setDeleteId(user._id);
+                            setIsDeleteOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+
+        {users.length > 10 && (
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Showing {filteredUsers.length} of {users.length} users
+            </p>
+            <CustomPagination loading={loading} page={pageNum} setPage={setPageNum} totalPages={totalPages} />
+          </div>
+        )}
+      </CardContent>
 
       <CustomAlert
         isOpen={isBulkDeleteOpen}
@@ -114,131 +330,7 @@ const UserTable = ({
         title={`Delete ${selected.length} users?`}
         description="This will permanently delete the selected users from the system."
       />
-
-      <div className="w-full overflow-x-auto">
-        <Table className="min-w-full">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">
-                <Checkbox
-                  checked={selected.length > 0 && selected.length === users.length}
-                  onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
-                />
-              </TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              {role === "teacher" && <TableHead>Subjects</TableHead>}
-              {role === "student" && <TableHead>Class</TableHead>}
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center">
-                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-                </TableCell>
-              </TableRow>
-            ) : users.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  No {role}s found.
-                </TableCell>
-              </TableRow>
-            ) : (
-              users.map((user) => (
-                <TableRow key={user._id}>
-                  <TableCell>
-                    <Checkbox
-                      checked={selected.includes(user._id)}
-                      onCheckedChange={(v) => toggleSelectOne(user._id, Boolean(v))}
-                    />
-                  </TableCell>
-
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <div className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
-                        <UserIcon className="h-4 w-4 text-slate-500" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{user.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">{user.idNumber ?? "N/A"}</div>
-                      </div>
-                    </div>
-                  </TableCell>
-
-                  <TableCell>{user.email}</TableCell>
-
-                  {role === "teacher" && (
-                    <TableCell>
-                      {user.teacherSubjects?.length ? (
-                        <div className="flex gap-1">
-                          {user.teacherSubjects.map((subject) => (
-                            <Badge variant="outline" key={subject._id} className="py-0.5 px-2 text-sm">
-                              {subject.name}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground italic text-sm">Unassigned</span>
-                      )}
-                    </TableCell>
-                  )}
-
-                  {role === "student" && (
-                    <TableCell>
-                      {(() => {
-                        const studentClass = user.studentClasses as
-                          | { _id?: string; name?: string }
-                          | undefined;
-
-                        return studentClass && studentClass._id ? (
-                          <Badge variant="outline" className="py-0.5 px-2 text-sm">{studentClass.name}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground italic text-sm">Unassigned</span>
-                        );
-                      })()}
-                    </TableCell>
-                  )}
-
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => handleEdit(user)}>
-                          <Pencil className="mr-2 h-4 w-4" /> Edit
-                        </DropdownMenuItem>
-                        {showDeleteAction !== false && (
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() => {
-                              setDeleteId(user._id);
-                              setIsDeleteOpen(true);
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {users.length > 10 && (
-        <CustomPagination loading={loading} page={pageNum} setPage={setPageNum} totalPages={totalPages} />
-      )}
-    </div>
+    </Card>
   );
 };
 

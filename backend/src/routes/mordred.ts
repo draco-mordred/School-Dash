@@ -1,6 +1,6 @@
 import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights } from "../controllers/mordred";
 import express from "express";
-import { protect } from "../middleware/auth";
+import { protect, authorize } from "../middleware/auth";
 import { sendMordredWhatsAppAlert } from "../services/whatsappGateway";
 
 const mordredAIRouter = express.Router();
@@ -25,12 +25,14 @@ mordredAIRouter.post(
 mordredAIRouter.get(
   "/admin/diagnostics",
   protect,
+  authorize(["admin"]),
   trackMordredPerformance
 );
 
 mordredAIRouter.get(
   "/insights",
   protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident", "parent"]),
   dynamicAIInsights
 );
 

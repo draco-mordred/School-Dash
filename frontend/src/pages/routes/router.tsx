@@ -303,6 +303,18 @@ export const router = createBrowserRouter([
             element: <Timetable />,
           },
           {
+            path: "academic-calendar",
+            element: <StudentSection title="Academic Calendar" description="See your full academic calendar and important dates." />,
+          },
+          {
+            path: "semesters",
+            element: <StudentSection title="Semesters" description="Manage and view semesters." />,
+          },
+          {
+            path: "timetable/calendar",
+            element: <Timetable />,
+          },
+          {
             path: "settings/account",
             element: <Account />,
           },

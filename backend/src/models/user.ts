@@ -101,23 +101,23 @@ export const UserDepartmentName = {
 export type userDepartmentName = string; // Department name or identifier string
 
 export const UserAcademicStatus = {
-    professor: "Professor",
-    associateProfessor: "Associate Professor",
-    lecturerI: "Lecturer I",
-    lecturerII: "Lecturer II",
-    assistantLecturer: "Assistant Lecturer",
-    resident: "Resident",
-    student: "Student",
+    professor: "professor",
+    associateProfessor: "associate professor",
+    lecturerI: "lecturer i",
+    lecturerII: "lecturer ii",
+    assistantLecturer: "assistant lecturer",
+    resident: "resident",
+    student: "student",
 } as const;
 
 export type userAcademicStatus = "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | "student" | null;
 
 export const UserDepartmentRole = {
-    headOfDepartment: "Head of Department",
-    deanOfFaculty: "Dean of Faculty",
-    examOfficer: "Exam Officer",
-    financeOfficer: "Finance Officer",
-    levelCordinator: "Level Coordinator",
+    headOfDepartment: "head of department",
+    deanOfFaculty: "dean of faculty",
+    examOfficer: "exam officer",
+    financeOfficer: "finance officer",
+    levelCordinator: "level coordinator",
 } as const;
 
 export type userDepartmentRole = "head of department" | "dean of faculty" | "exam officer" | "finance officer" | "level coordinator" | null;

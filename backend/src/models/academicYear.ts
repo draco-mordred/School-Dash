@@ -1,4 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
+import type { classLevel } from "./academicClock";
+
+  
 
 export interface IAcademicYear extends Document {
   name: string; // 2026-2027
@@ -9,6 +12,26 @@ export interface IAcademicYear extends Document {
   clockIsPaused?: boolean;
   clockPausedAt?: Date | null;
   clockPhase?: "phase1" | "phase2" | "phase3" | "phase4" | null;
+  classClockData?: Record<
+    string,
+    {
+      classId: mongoose.Types.ObjectId;
+      classLevel?: classLevel | null;
+      clockStartDate?: Date | null;
+      clockIsPaused?: boolean;
+      clockPausedAt?: Date | null;
+      clockPhase?: "phase1" | "phase2" | "phase3" | "phase4" | null;
+      phaseConfig?: Record<
+        string,
+        {
+          name: string;
+          duration: number;
+          postingType: string | null;
+          postingId?: mongoose.Types.ObjectId | null;
+        }
+      >;
+    }
+  >;
 }
 
 const academicYearSchema = new Schema(
@@ -24,9 +47,14 @@ const academicYearSchema = new Schema(
       type: String,
       default: null,
     },
+    classClockData: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
   },
   { timestamps: true }
-);
+)
+academicYearSchema.index({ name: 1 }, { unique: true });
 
 export default mongoose.model<IAcademicYear>(
   "AcademicYear",

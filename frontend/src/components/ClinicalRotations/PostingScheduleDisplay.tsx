@@ -92,7 +92,7 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
     return (
       <Card className="w-full">
         <CardContent className="pt-6">
-          <p className="text-gray-500">No posting schedule data available</p>
+          <p className="text-muted-foreground">No posting schedule data available</p>
         </CardContent>
       </Card>
     );
@@ -109,15 +109,15 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
   };
 
   return (
-    <Card className="w-full border-2 border-blue-200 bg-gradient-to-br from-blue-50 to-white">
-      <CardHeader className="bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-lg">
+    <Card className="w-full border border-border bg-card">
+      <CardHeader className="bg-card text-slate-900 rounded-t-lg">
         <div className="flex items-start justify-between">
           <div>
             <CardTitle className="text-2xl">{schedule.postingName}</CardTitle>
-            <p className="text-sm text-blue-100 mt-2">
+            <p className="text-sm text-muted-foreground mt-2">
               Type: {schedule.postingType} | Duration: {schedule.durationWeeks} weeks
             </p>
-            <p className="text-sm text-blue-100">
+            <p className="text-sm text-muted-foreground">
               {getDates(schedule.startDate, schedule.endDate)}
             </p>
           </div>
@@ -125,7 +125,7 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
             <Badge variant="secondary" className="mb-2">
               {schedule.phases.join(" → ")}
             </Badge>
-            <p className="text-sm text-blue-100">
+            <p className="text-sm text-muted-foreground">
               Students: {schedule.studentCategories.reduce((sum, cat) => sum + cat.studentCount, 0)}
             </p>
           </div>
@@ -134,9 +134,9 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
 
       <CardContent className="pt-6 space-y-6">
         {validation && !validation.valid && validation.errors.length > 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <p className="font-semibold text-yellow-800 mb-2">Validation Warnings:</p>
-            <ul className="list-disc list-inside space-y-1 text-yellow-700 text-sm">
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+            <p className="font-semibold text-destructive-foreground mb-2">Validation Warnings:</p>
+            <ul className="list-disc list-inside space-y-1 text-destructive text-sm">
               {validation.errors.map((error, idx) => (
                 <li key={idx}>{error}</li>
               ))}
@@ -147,16 +147,16 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
         {/* Student Categories Overview */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {schedule.studentCategories.map((category) => (
-            <div key={category.category} className="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-lg p-4">
-              <h4 className="font-semibold text-purple-900 mb-2">{category.category}</h4>
-              <div className="space-y-2 text-sm">
-                <p className="text-purple-700">
+            <div key={category.category} className="bg-surface border border-border rounded-lg p-4">
+              <h4 className="font-semibold text-slate-900 mb-2">{category.category}</h4>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
                   <span className="font-medium">Students:</span> {category.studentCount}
                 </p>
-                <p className="text-purple-700">
+                <p>
                   <span className="font-medium">Phase 1:</span> {category.departmentPhase1}
                 </p>
-                <p className="text-purple-700">
+                <p>
                   <span className="font-medium">Phase 2:</span> {category.departmentPhase2}
                 </p>
               </div>
@@ -166,24 +166,24 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
 
         {/* Departments and Units */}
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <Stethoscope className="w-5 h-5" /> Departments & Assignments
+          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <Stethoscope className="w-5 h-5 text-primary" /> Departments & Assignments
           </h3>
 
           {schedule.departments.map((dept) => (
-            <Card key={dept.department} className="border-l-4 border-l-green-500">
+            <Card key={dept.department} className="border-l-4 border-primary/70 bg-surface">
               <CardHeader
-                className="cursor-pointer hover:bg-gray-50 py-3"
+                className="cursor-pointer hover:bg-muted py-3"
                 onClick={() =>
                   setExpandedDept(expandedDept === dept.department ? null : dept.department)
                 }
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-lg text-green-700">
+                    <CardTitle className="text-lg text-primary">
                       {dept.department}
                     </CardTitle>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       Code: {dept.departmentCode} | Duration: {dept.rotationDurationWeeks} weeks
                     </p>
                   </div>
@@ -215,10 +215,10 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                     .map((unit, idx) => (
                       <Card
                         key={`${unit.unitId}-${unit.phase}-${idx}`}
-                        className="border-l-4 border-l-orange-400"
+                        className="border-l-4 border-secondary/70 bg-surface"
                       >
                         <CardHeader
-                          className="cursor-pointer hover:bg-gray-50 py-3"
+                          className="cursor-pointer hover:bg-muted py-3"
                           onClick={() => {
                             const unitKey = `${unit.unitId}-${unit.phase}`;
                             setExpandedCategory(
@@ -228,10 +228,10 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                         >
                           <div className="flex items-center justify-between">
                             <div>
-                              <CardTitle className="text-base text-orange-700">
+                              <CardTitle className="text-base text-secondary">
                                 {unit.unit} - {unit.phase}
                               </CardTitle>
-                              <p className="text-sm text-gray-600 mt-1">
+                              <p className="text-sm text-muted-foreground mt-1">
                                 Consultant: {unit.consultant.name || "TBD"} | Resident:{" "}
                                 {unit.resident.name || "TBD"}
                               </p>
@@ -249,31 +249,31 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                         {expandedCategory === `${unit.unitId}-${unit.phase}` && (
                           <CardContent className="space-y-3">
                             {/* Supervisors */}
-                            <div className="bg-blue-50 border border-blue-200 rounded p-3">
-                              <p className="text-sm font-semibold text-blue-900 mb-2">
+                            <div className="bg-surface border border-border rounded p-3">
+                              <p className="text-sm font-semibold text-slate-900 mb-2">
                                 👨‍⚕️ Supervisors
                               </p>
-                              <div className="space-y-1 text-sm text-blue-800">
+                              <div className="space-y-1 text-sm text-muted-foreground">
                                 <p>
-                                  <span className="font-medium">Consultant:</span>{" "}
+                                  <span className="font-medium text-slate-900">Consultant:</span>{" "}
                                   {unit.consultant.name || "TBD"}
                                   {unit.consultant.email && (
-                                    <span className="text-gray-600"> ({unit.consultant.email})</span>
+                                    <span className="text-muted-foreground"> ({unit.consultant.email})</span>
                                   )}
                                 </p>
                                 <p>
-                                  <span className="font-medium">Resident:</span>{" "}
+                                  <span className="font-medium text-slate-900">Resident:</span>{" "}
                                   {unit.resident.name || "TBD"}
                                   {unit.resident.email && (
-                                    <span className="text-gray-600"> ({unit.resident.email})</span>
+                                    <span className="text-muted-foreground"> ({unit.resident.email})</span>
                                   )}
                                 </p>
                               </div>
                             </div>
 
                             {/* Student List */}
-                            <div className="bg-green-50 border border-green-200 rounded p-3">
-                              <p className="text-sm font-semibold text-green-900 mb-2 flex items-center gap-2">
+                            <div className="bg-surface border border-border rounded p-3">
+                              <p className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
                                 <Users className="w-4 h-4" /> Assigned Students ({unit.students.length})
                               </p>
                               {unit.students.length > 0 ? (
@@ -281,17 +281,17 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                                   {unit.students.map((student) => (
                                     <div
                                       key={student._id}
-                                      className="text-sm text-green-800 bg-white rounded px-2 py-1 flex justify-between"
+                                      className="text-sm text-slate-900 bg-background rounded px-2 py-1 flex justify-between border border-border"
                                     >
                                       <span>{student.name}</span>
                                       {student.idNumber && (
-                                        <span className="text-gray-500">ID: {student.idNumber}</span>
+                                        <span className="text-muted-foreground">ID: {student.idNumber}</span>
                                       )}
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-sm text-green-600">No students assigned</p>
+                                <p className="text-sm text-muted-foreground">No students assigned</p>
                               )}
                             </div>
 
@@ -305,21 +305,21 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                               .map((history) => (
                                 <div
                                   key={`timeline-${history.student._id}`}
-                                  className="bg-amber-50 border border-amber-200 rounded p-3"
+                                  className="bg-surface border border-border rounded p-3"
                                 >
-                                  <p className="text-sm font-semibold text-amber-900 mb-2 flex items-center gap-2">
-                                    <Calendar className="w-4 h-4" /> Rotation Timeline
+                                  <p className="text-sm font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-primary" /> Rotation Timeline
                                   </p>
                                   <div className="space-y-2">
                                     {history.blocks.map((block, blockIdx) => (
                                       <div
                                         key={blockIdx}
-                                        className="text-sm bg-white rounded px-2 py-1 border-l-2 border-l-amber-400"
+                                        className="text-sm bg-background rounded px-2 py-1 border-l-2 border-l-primary"
                                       >
-                                        <p className="font-medium text-amber-900">
+                                        <p className="font-medium text-slate-900">
                                           Weeks {block.weeks} - {block.unit}
                                         </p>
-                                        <p className="text-gray-600 text-xs">
+                                        <p className="text-muted-foreground text-xs">
                                           {getDates(block.startDate, block.endDate)}
                                         </p>
                                       </div>

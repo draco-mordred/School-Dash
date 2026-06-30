@@ -2,6 +2,7 @@ import express from "express";
 import { authorize, protect } from "../middleware/auth";
 import {
   addCourseSubject,
+  deleteEmbeddedSubject,
   createCourse,
   createCourseSubject,
   createDepartment,
@@ -57,6 +58,15 @@ courseRouter
     protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     addCourseSubject
+  );
+
+// Delete a single embedded subject by its subdocument _id or subjectID
+courseRouter
+  .route("/:courseId/subjects/:subjectId")
+  .delete(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    deleteEmbeddedSubject
   );
 
 courseRouter

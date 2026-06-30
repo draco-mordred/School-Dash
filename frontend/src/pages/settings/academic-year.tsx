@@ -1,15 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, CalendarIcon, Pause, Play, RotateCcw } from "lucide-react";
+import { Plus, CalendarIcon, Pause, Play, RotateCcw, Trash2, Check } from "lucide-react";
 import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { academicYear, AcademicClockPhase } from "@/types";
 import { api } from "@/lib/api";
-import { getClockPhaseId } from "@/lib/academicClock";
+import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
 import AcademicYearTable from "@/components/academic-year/academic-year-table";
 import Search from "@/components/global/Search";
 import AcademicYearForm from "@/components/academic-year/AcademicYearForm";
@@ -36,10 +43,15 @@ const AcademicYear = () => {
 
   const [currentAcademicYear, setCurrentAcademicYear] = useState<academicYear | null>(null);
   const [clockStartDate, setClockStartDate] = useState<Date>(new Date());
+  const [classes, setClasses] = useState<Array<{ _id: string; name: string }>>([]);
+  const [selectedClockClassId, setSelectedClockClassId] = useState<string>("");
   const [clockNow, setClockNow] = useState<Date>(new Date());
   const [isClockPaused, setIsClockPaused] = useState(false);
   const [clockPausedAt, setClockPausedAt] = useState<Date | null>(null);
   const [clockPhase, setClockPhase] = useState<AcademicClockPhase>("phase1");
+  const [hasClassClock, setHasClassClock] = useState<boolean>(false);
+  const [selectedClockDocId, setSelectedClockDocId] = useState<string | null>(null);
+  const [isStartPopoverOpen, setIsStartPopoverOpen] = useState(false);
 
   //   Fetch Years
   const fetchYears = useCallback(async () => {
@@ -138,19 +150,62 @@ const AcademicYear = () => {
       }
     };
 
+    const loadClasses = async () => {
+      try {
+        const { data } = await api.get("/classes");
+        const classList = Array.isArray(data.classes) ? data.classes : [];
+        setClasses(classList);
+        if (classList.length > 0 && !selectedClockClassId) {
+          setSelectedClockClassId(classList[0]._id);
+        }
+      } catch {
+        setClasses([]);
+      }
+    };
+
     void loadActiveYear();
-  }, []);
+    void loadClasses();
+  }, [selectedClockClassId]);
 
   const activeYear = currentAcademicYear || currentYear;
   const activeStartDate = clockStartDate;
+  const selectedClass = useMemo(
+    () => classes.find((cls) => cls._id === selectedClockClassId) ?? null,
+    [classes, selectedClockClassId],
+  );
+  const selectedClassPhasePlan = useMemo(
+    () => getClassLevelPhasePlan(selectedClass?.name),
+    [selectedClass?.name],
+  );
+
+  const getClassLevelFromName = (className?: string | null) => {
+    const normalized = (className ?? "").toLowerCase();
+
+    if (normalized.includes("500") || normalized.includes("fifth")) return "fifth";
+    if (normalized.includes("400") || normalized.includes("fourth")) return "fourth";
+    if (normalized.includes("300") || normalized.includes("third")) return "third";
+    if (normalized.includes("600") || normalized.includes("sixth")) return "sixth";
+    if (normalized.includes("final")) return "final";
+
+    return null;
+  };
+
+  type ClassClockPayload = {
+    clockStartDate?: string | null;
+    clockIsPaused?: boolean;
+    clockPausedAt?: string | null;
+    clockPhase?: AcademicClockPhase | null;
+    classLevel?: string | null;
+    phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null }>;
+  };
 
   const normalizeClockUpdate = (data: {
     clockStartDate?: Date | null;
     clockIsPaused?: boolean;
     clockPausedAt?: Date | null;
     clockPhase?: AcademicClockPhase | null;
-  }) => {
-    const payload: Record<string, unknown> = {};
+  }): ClassClockPayload => {
+    const payload: ClassClockPayload = {};
 
     if (Object.prototype.hasOwnProperty.call(data, "clockStartDate")) {
       payload.clockStartDate = data.clockStartDate
@@ -175,6 +230,34 @@ const AcademicYear = () => {
     return payload;
   };
 
+  const buildClassClockPayload = (data: {
+    clockStartDate?: Date | null;
+    clockIsPaused?: boolean;
+    clockPausedAt?: Date | null;
+    clockPhase?: AcademicClockPhase | null;
+  }): ClassClockPayload => {
+    const payload = normalizeClockUpdate({
+      ...data,
+      clockPhase: data.clockPhase ?? clockPhase,
+    });
+
+    const phaseConfig = selectedClassPhasePlan.reduce<Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null }>>((acc, phase) => {
+      acc[phase.id] = {
+        name: phase.name,
+        duration: phase.durationMonths,
+        postingType: null,
+        postingId: null,
+      };
+      return acc;
+    }, {});
+
+    return {
+      ...payload,
+      classLevel: getClassLevelFromName(selectedClass?.name),
+      phaseConfig,
+    };
+  };
+
   const saveClockState = async (data: {
     clockStartDate?: Date | null;
     clockIsPaused?: boolean;
@@ -184,16 +267,99 @@ const AcademicYear = () => {
     if (!activeYear) return;
 
     try {
-      const payload = normalizeClockUpdate({
+      const payload = buildClassClockPayload({
         ...data,
         clockPhase: data.clockPhase ?? clockPhase,
       });
-      await api.patch(`/academic-years/update/${activeYear._id}`, payload);
+
+      if (selectedClockClassId) {
+        const existingMap = (activeYear as academicYear & { classClockData?: Record<string, unknown> }).classClockData || {};
+        const merged = { ...(existingMap || {}), [selectedClockClassId]: payload };
+        await api.patch(`/academic-years/update/${activeYear._id}`, { classClockData: merged });
+
+        const clockPayload = {
+          academicYearId: activeYear._id,
+          classId: selectedClockClassId,
+          clockStartDate: payload.clockStartDate ?? null,
+          clockIsPaused: payload.clockIsPaused ?? false,
+          clockPausedAt: payload.clockPausedAt ?? null,
+          clockPhase: payload.clockPhase ?? null,
+          classLevel: payload.classLevel ?? null,
+          phaseConfig: payload.phaseConfig ?? {},
+        };
+
+        if (selectedClockDocId) {
+          await api.patch(`/academic-clocks/update/${selectedClockDocId}`, clockPayload);
+        } else {
+          const { data: createdClock } = await api.post("/academic-clocks/create", clockPayload);
+          setSelectedClockDocId(createdClock?._id ?? null);
+        }
+      } else {
+        await api.patch(`/academic-years/update/${activeYear._id}`, payload);
+      }
       await fetchYears();
     } catch {
       toast.error("Failed to save clock state");
     }
   };
+
+  // When current academic year or selected class changes, load class-specific clock data
+  useEffect(() => {
+    if (!currentAcademicYear || !selectedClockClassId) {
+      setSelectedClockDocId(null);
+      setHasClassClock(false);
+      return;
+    }
+
+    const loadSelectedClassClock = async () => {
+      try {
+        const { data } = await api.get(`/academic-clocks?academicYearId=${currentAcademicYear._id}&classId=${selectedClockClassId}`);
+        const existingClock = Array.isArray(data?.clocks) ? data.clocks[0] : null;
+
+        if (existingClock) {
+          setSelectedClockDocId(existingClock._id);
+          setHasClassClock(true);
+          setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear.fromYear));
+          setIsClockPaused(Boolean(existingClock.clockIsPaused));
+          setClockPausedAt(existingClock.clockPausedAt ? new Date(existingClock.clockPausedAt) : null);
+          setClockPhase((existingClock.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
+            existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear.fromYear),
+            new Date(),
+            selectedClassPhasePlan,
+          ));
+          return;
+        }
+      } catch {
+        // fall back to the saved academic-year class clock data below
+      }
+
+      const classData = (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData
+        ? (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData?.[selectedClockClassId]
+        : undefined;
+
+      if (classData) {
+        setSelectedClockDocId(null);
+        setHasClassClock(true);
+        setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear.fromYear));
+        setIsClockPaused(Boolean(classData.clockIsPaused));
+        setClockPausedAt(classData.clockPausedAt ? new Date(classData.clockPausedAt) : null);
+        setClockPhase((classData.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
+          classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear.fromYear),
+          new Date(),
+          selectedClassPhasePlan,
+        ));
+      } else {
+        setSelectedClockDocId(null);
+        setHasClassClock(false);
+        setClockStartDate(new Date(currentAcademicYear.fromYear));
+        setIsClockPaused(false);
+        setClockPausedAt(null);
+        setClockPhase("phase1");
+      }
+    };
+
+    void loadSelectedClassClock();
+  }, [currentAcademicYear, selectedClockClassId, selectedClassPhasePlan]);
 
   useEffect(() => {
     if (!activeYear) return;
@@ -204,7 +370,7 @@ const AcademicYear = () => {
 
     setClockStartDate(startDate);
 
-    const nextPhase = getClockPhaseId(startDate, new Date());
+    const nextPhase = getClockPhaseId(startDate, new Date(), selectedClassPhasePlan);
     setClockPhase(nextPhase);
 
     if (activeYear.clockIsPaused && activeYear.clockPausedAt) {
@@ -217,17 +383,17 @@ const AcademicYear = () => {
       setClockPausedAt(null);
       setIsClockPaused(Boolean(activeYear.clockIsPaused));
     }
-  }, [activeYear]);
+  }, [activeYear, selectedClassPhasePlan]);
 
   useEffect(() => {
     if (isClockPaused) return undefined;
     const timer = window.setInterval(() => {
       const nextDate = new Date();
       setClockNow(nextDate);
-      setClockPhase(getClockPhaseId(clockStartDate, nextDate));
+      setClockPhase(getClockPhaseId(clockStartDate, nextDate, selectedClassPhasePlan));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [isClockPaused, clockStartDate]);
+  }, [isClockPaused, clockStartDate, selectedClassPhasePlan]);
 
   const handlePauseToggle = async () => {
     if (!activeYear) return;
@@ -240,7 +406,7 @@ const AcademicYear = () => {
         : 0;
       const newStartDate = new Date(clockStartDate.getTime() + shiftMs);
 
-      const nextPhase = getClockPhaseId(newStartDate, resumeDate);
+      const nextPhase = getClockPhaseId(newStartDate, resumeDate, selectedClassPhasePlan);
 
       setClockStartDate(newStartDate);
       setClockNow(resumeDate);
@@ -257,7 +423,7 @@ const AcademicYear = () => {
     } else {
       const pauseDate = new Date();
 
-      const nextPhase = getClockPhaseId(clockStartDate, pauseDate);
+      const nextPhase = getClockPhaseId(clockStartDate, pauseDate, selectedClassPhasePlan);
 
       setClockNow(pauseDate);
       setIsClockPaused(true);
@@ -278,7 +444,7 @@ const AcademicYear = () => {
       : new Date();
 
     const resetDateNow = new Date();
-    const nextPhase = getClockPhaseId(resetDate, resetDateNow);
+    const nextPhase = getClockPhaseId(resetDate, resetDateNow, selectedClassPhasePlan);
 
     setClockStartDate(resetDate);
     setClockNow(resetDateNow);
@@ -294,7 +460,42 @@ const AcademicYear = () => {
     });
   };
 
-  //   console.log(years);
+  const handleDeleteClassClock = async () => {
+    if (!activeYear || !selectedClockClassId) return;
+
+    const confirmed = window.confirm("Delete the clock for the selected class?");
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/academic-clocks/delete/by-class?academicYearId=${activeYear._id}&classId=${selectedClockClassId}`);
+      setSelectedClockDocId(null);
+      setHasClassClock(false);
+      setClockStartDate(new Date(activeYear.fromYear));
+      setClockNow(new Date());
+      setIsClockPaused(false);
+      setClockPausedAt(null);
+      setClockPhase("phase1");
+      await fetchYears();
+      toast.success("Class clock deleted");
+    } catch {
+      toast.error("Failed to delete class clock");
+    }
+  };
+
+  const handleClockComplete = async () => {
+    if (!activeYear || !selectedClockClassId) return;
+
+    try {
+      await api.post(`/academic-clocks/complete/by-class`, { academicYearId: activeYear._id, classId: selectedClockClassId });
+      setIsClockPaused(true);
+      const lastPhase = selectedClassPhasePlan[selectedClassPhasePlan.length - 1];
+      if (lastPhase) setClockPhase(lastPhase.id);
+      toast.success("Class academic clock completed and admins notified.");
+    } catch (err) {
+      toast.error("Failed to notify completion");
+    }
+  };
+
   return (
     <div id="page-academic-years" className="p-6 space-y-6">
       {/* header */}
@@ -304,85 +505,145 @@ const AcademicYear = () => {
           <p className="text-muted-foreground">Manage school sessions.</p>
         </div>
         <div className="flex gap-3">
-          <Search search={search} setSearch={setSearch} title="Academic Year" />
+          <Search value={search} onChange={setSearch} placeholder="Academic Year" />
           <Button onClick={handleCreate}>
             <Plus className="mr-2 h-4 w-4" /> Add New Year
           </Button>
         </div>
       </div>
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.85fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.25fr]">
         <Card className="rounded-3xl border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/90">
           <CardHeader className="gap-2 p-0">
-            <CardTitle className="text-lg font-semibold">JUTH 500-Level Academic Clock</CardTitle>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Track the 16-month clinical rotation timeline with a live SVG clock, start date controls, pause, and reset.
-            </p>
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-lg font-semibold">Class Academic Clocks</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Track the class-level clinical rotation timeline with a live SVG clock and controls.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Clock scope</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Preview the academic clock for a selected class.</p>
+                </div>
+                <Select value={selectedClockClassId} onValueChange={setSelectedClockClassId}>
+                  <SelectTrigger className="w-full sm:w-56">
+                    <SelectValue placeholder="Choose a class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map((cls) => (
+                      <SelectItem key={cls._id} value={cls._id}>
+                        {cls.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
-            <JUTHAcademicClock
-              startDate={activeStartDate}
-              currentDate={clockNow}
-              isPaused={isClockPaused}
-              currentPhaseId={clockPhase}
-            />
-          </CardContent>
-        </Card>
-        <Card className="rounded-3xl border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/90">
-          <CardHeader className="gap-2 p-0">
-            <CardTitle className="text-lg font-semibold">Clock Controls</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 p-0 pt-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Active Academic Year</p>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-                {activeYear ? activeYear.name : "No active academic year selected."}
-              </p>
-            </div>
-            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Start date</p>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {format(clockStartDate, "PPP")}
-                    <CalendarIcon className="h-4 w-4" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={clockStartDate}
-                    onSelect={async (date) => {
-                      if (!date) return;
-                      const nextPhase = getClockPhaseId(date, clockNow);
-                      setClockStartDate(date);
-                      setClockPhase(nextPhase);
-                      await saveClockState({ clockStartDate: date, clockPhase: nextPhase });
-                    }}
-                    disabled={(date) =>
-                      activeYear ? date > new Date(activeYear.toYear) : false
-                    }
-                  />
-                </PopoverContent>
-              </Popover>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Set the academic clock start date. If there is an active academic year, this defaults to its start.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button onClick={handlePauseToggle} className="w-full">
-                {isClockPaused ? (
-                  <>
-                    <Play className="mr-2 h-4 w-4" /> Resume
-                  </>
-                ) : (
-                  <>
-                    <Pause className="mr-2 h-4 w-4" /> Pause
-                  </>
-                )}
-              </Button>
-              <Button variant="secondary" className="w-full" onClick={resetClock}>
-                <RotateCcw className="mr-2 h-4 w-4" /> Reset
-              </Button>
+            {hasClassClock ? (
+              <JUTHAcademicClock
+                startDate={activeStartDate}
+                currentDate={clockNow}
+                isPaused={isClockPaused}
+                currentPhaseId={clockPhase}
+                phasePlan={selectedClassPhasePlan}
+                onComplete={handleClockComplete}
+              />
+            ) : (
+              <div className="p-6 text-center text-sm text-muted-foreground">No class clock configured for the selected class.</div>
+            )}
+
+            {/* Controls moved into the clock card */}
+            <div className="mt-5 space-y-4 p-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Active Academic Year</p>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                  {activeYear ? activeYear.name : "No active academic year selected."}
+                </p>
+              </div>
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Start date</p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {format(clockStartDate, "PPP")}
+                      <CalendarIcon className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={clockStartDate}
+                      onSelect={async (date) => {
+                        if (!date) return;
+                        const nextPhase = getClockPhaseId(date, clockNow, selectedClassPhasePlan);
+                        setClockStartDate(date);
+                        setClockPhase(nextPhase);
+                        await saveClockState({ clockStartDate: date, clockPhase: nextPhase });
+                      }}
+                      disabled={(date) =>
+                        activeYear ? date > new Date(activeYear.toYear) : false
+                      }
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Popover open={isStartPopoverOpen} onOpenChange={setIsStartPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full">
+                      <Play className="mr-2 h-4 w-4" /> Start clock
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={clockStartDate}
+                      onSelect={async (date) => {
+                        if (!date) return;
+                        const nextPhase = getClockPhaseId(date, new Date(), selectedClassPhasePlan);
+                        setClockStartDate(date);
+                        setClockNow(date);
+                        setIsClockPaused(false);
+                        setClockPausedAt(null);
+                        setClockPhase(nextPhase);
+                        setIsStartPopoverOpen(false);
+                        await saveClockState({ clockStartDate: date, clockIsPaused: false, clockPausedAt: null, clockPhase: nextPhase });
+                      }}
+                      disabled={(date) =>
+                        activeYear ? date > new Date(activeYear.toYear) : false
+                      }
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Set the academic clock start date. If there is an active academic year, this defaults to its start.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button onClick={handlePauseToggle} className="w-full">
+                  {isClockPaused ? (
+                    <>
+                      <Play className="mr-2 h-4 w-4" /> Resume
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="mr-2 h-4 w-4" /> Pause
+                    </>
+                  )}
+                </Button>
+                <Button variant="secondary" className="w-full" onClick={resetClock}>
+                  <RotateCcw className="mr-2 h-4 w-4" /> Reset
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button variant="destructive" className="w-full" onClick={handleDeleteClassClock}>
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete clock
+                </Button>
+                <Button variant="ghost" className="w-full" onClick={handleClockComplete}>
+                  <Check className="mr-2 h-4 w-4" /> Mark complete
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

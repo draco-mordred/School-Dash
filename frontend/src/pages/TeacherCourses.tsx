@@ -1,10 +1,10 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type MouseEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
+import { Checkbox } from "@/components/ui/checkbox";
 
 import {
   Dialog,
@@ -41,19 +41,34 @@ interface Course {
   courseID: string;
   unit?: { _id: string; name: string };
   semester?: string;
+  academicYear?: { _id: string; name?: string } | null;
   department?: {
     _id: string;
     name?: string;
     code?: string;
+    departmentID?: string;
     head?: { _id: string; name?: string };
   };
+  lecturer?: Array<{ _id: string; name?: string; email?: string }>;
   subjects?: Subject[];
 }
 
 interface Subject {
   _id: string;
   name: string;
-  code: string;
+  code?: string;
+  subjectID?: string;
+  semester?: string;
+}
+
+interface SubjectOption {
+  _id: string;
+  name: string;
+  code?: string;
+  subjectID?: string;
+  courseId?: string;
+  courseName?: string;
+  departmentId?: string;
 }
 
 interface Class {
@@ -107,6 +122,7 @@ export default function TeacherCourses() {
   const [subjectsPanelPosition, setSubjectsPanelPosition] = useState<{ left: number; top: number; height: number } | null>(null);
   const hoverTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const subjectsPanelAnchorRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const cardTransforms = useRef<Record<string, { dx: number; dy: number; scale: number; anchorX: number; anchorY: number }>>({});
   const pointerRef = useRef<Record<string, { x: number; y: number }>>({});
 
@@ -124,17 +140,33 @@ export default function TeacherCourses() {
       }
   
       const updatePanelPosition = () => {
-        const el = cardRefs.current[subjectsPanelCourseId];
-        if (!el) {
-          return;
-        }
-  
-        const rect = el.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        const panelWidth = Math.min(viewportWidth * 0.3, 320);
-        const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
-        setSubjectsPanelPosition({ left, top: rect.top, height: rect.height });
-      };
+          const anchor = subjectsPanelAnchorRef.current;
+          const viewportWidth = window.innerWidth;
+          const viewportHeight = window.innerHeight;
+          const panelWidth = Math.min(viewportWidth * 0.36, 420);
+          const panelHeight = Math.min(viewportHeight * 0.8, 720);
+          const fallbackEl = cardRefs.current[subjectsPanelCourseId];
+          const rect = fallbackEl?.getBoundingClientRect();
+
+          // Estimate content height based on subjects count so the panel grows to fit items when possible
+          const itemHeight = 64; // estimate per-subject item height
+          const headerHeight = 92; // space for header and controls
+          const contentDesired = Math.min(panelHeight, (subjects.length || 0) * itemHeight + headerHeight);
+
+          if (anchor) {
+            const left = Math.min(anchor.left + anchor.width + 16, viewportWidth - panelWidth - 16);
+            const top = Math.max(16, Math.min(anchor.top, viewportHeight - panelHeight - 16));
+            setSubjectsPanelPosition({ left, top, height: Math.min(Math.max(anchor.height + 24, contentDesired), panelHeight) });
+            return;
+          }
+
+          if (!rect) {
+            return;
+          }
+
+          const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
+          setSubjectsPanelPosition({ left, top: rect.top, height: Math.min(Math.max(rect.height, contentDesired), panelHeight) });
+        };
   
       updatePanelPosition();
       window.addEventListener("resize", updatePanelPosition);
@@ -144,7 +176,7 @@ export default function TeacherCourses() {
         window.removeEventListener("resize", updatePanelPosition);
         window.removeEventListener("scroll", updatePanelPosition, true);
       };
-    }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible]);
+    }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible, subjects]);
 
   // Fetch classes for this unit resident
   useEffect(() => {
@@ -283,14 +315,14 @@ export default function TeacherCourses() {
 
     const pulseTimer = window.setTimeout(() => {
       setPulsingCourseId(courseId);
-    }, 900);
+    }, 300);
     hoverTimeoutRef.current[`${courseId}-pulse`] = pulseTimer;
 
-    // Expand after two pulses (pulse animation is 1.5s, started at 900ms)
+    // Expand shortly after pulse
     const expandTimer = window.setTimeout(() => {
       setPulsingCourseId(null);
       startExpand(courseId);
-    }, 3900);
+    }, 1200);
     hoverTimeoutRef.current[`${courseId}-expand`] = expandTimer;
   };
 
@@ -313,7 +345,7 @@ export default function TeacherCourses() {
     startCollapse();
   };
 
-  // Start expand animation by measuring the card and animating it to right-side center
+  // Start expand animation by measuring the card and animating it around the cursor
   const startExpand = (courseId: string) => {
     const el = cardRefs.current[courseId];
     if (!el) {
@@ -325,26 +357,19 @@ export default function TeacherCourses() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const baseTargetWidth = vw < 768 ? Math.min(vw * 0.92, 560) : Math.min(vw * 0.42, 640);
-    const targetWidth = Math.max(rect.width * 1.16, baseTargetWidth);
+    const targetWidth = Math.max(rect.width * 1.08, baseTargetWidth);
     const pointer = pointerRef.current[courseId];
-    // Use page coordinates if available, otherwise fall back to viewport center of card
-    const pointerX = pointer ? pointer.x : window.scrollX + rect.left + rect.width / 2;
-    const pointerY = pointer ? pointer.y : window.scrollY + rect.top + rect.height / 2;
+    const pointerX = pointer ? pointer.x : rect.left + rect.width / 2;
+    const pointerY = pointer ? pointer.y : rect.top + rect.height / 2;
     const scale = targetWidth / rect.width;
-    const expandedHeight = rect.height * scale;
-    const minLeft = vw - targetWidth - 32;
-    
-    // Position card so pointer ends up in center of expanded card, but keep on right side
-    // Convert to viewport coordinates since we're using getBoundingClientRect
-    let targetLeft = pointerX - window.scrollX - targetWidth / 2;
-    let targetTop = pointerY - window.scrollY - expandedHeight / 2;
-    
-    // Clamp to keep card on the right side and within viewport
-    targetLeft = Math.max(minLeft, Math.min(targetLeft, vw - 32));
-    targetTop = Math.max(32, Math.min(targetTop, vh - expandedHeight - 32));
-    
+    const expandedHeight = Math.min(vh - 32, rect.height * 1.08 + 120);
+    const maxLeft = Math.max(16, vw - targetWidth - 16);
+    const targetLeft = Math.min(Math.max(16, pointerX - rect.width * 0.3), maxLeft);
+    const targetTop = Math.min(Math.max(16, pointerY - rect.height * 0.3), Math.max(16, vh - expandedHeight - 16));
     const dx = targetLeft - rect.left;
     const dy = targetTop - rect.top;
+    const originX = Math.min(Math.max(pointerX - rect.left, 24), rect.width - 24);
+    const originY = Math.min(Math.max(pointerY - rect.top, 24), rect.height - 24);
 
     // Fix the element in place at its current position so it doesn't jump
     el.style.position = "fixed";
@@ -354,7 +379,7 @@ export default function TeacherCourses() {
     el.style.height = `${rect.height}px`;
     el.style.margin = "0";
     el.style.zIndex = "50";
-    el.style.transformOrigin = "center center";
+    el.style.transformOrigin = `${originX}px ${originY}px`;
     // store measured transform for collapse
     cardTransforms.current[courseId] = { dx, dy, scale, anchorX: targetWidth / 2, anchorY: expandedHeight / 2 };
 
@@ -365,11 +390,11 @@ export default function TeacherCourses() {
     const anim = el.animate(
       [
         { transform: `translate(0px, 0px) scale(1)` },
-        { transform: `translate(${dx * 0.85}px, ${dy * 0.85}px) scale(${scale * 1.03})` },
+        { transform: `translate(${dx * 0.6}px, ${dy * 0.55}px) scale(${scale * 1.01})` },
         { transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
       ],
       {
-        duration: 600,
+        duration: 340,
         easing: "cubic-bezier(0.22, 1, 0.36, 1)",
         fill: "forwards",
       }
@@ -401,10 +426,10 @@ const startCollapse = (courseId?: string) => {
     const transform = cardTransforms.current[id];
     if (!transform) {
       // fallback: just clear
-      el.style.transition = "transform 300ms ease";
+      el.style.transition = "transform 200ms ease";
       el.style.transform = `translate(0px, 0px) scale(1)`;
       el.style.boxShadow = "";
-      setTimeout(() => setExpandedCourseId(null), 320);
+      setTimeout(() => setExpandedCourseId(null), 220);
       return;
     }
 
@@ -417,7 +442,7 @@ const { dx, dy, scale } = transform;
         { transform: `translate(0px, 0px) scale(1)` },
       ],
       {
-        duration: 500,
+        duration: 300,
         easing: "cubic-bezier(0.22, 1, 0.36, 1)",
         fill: "forwards",
       }
@@ -455,14 +480,26 @@ const { dx, dy, scale } = transform;
     }
 
     const { dx, dy, scale } = transform;
-    el.style.transition = "transform 360ms cubic-bezier(0.22, 1, 0.36, 1)";
+    el.style.transition = "transform 220ms cubic-bezier(0.22, 1, 0.36, 1)";
     el.style.transform = `translate(${dx + offsetX}px, ${dy}px) scale(${scale})`;
   };
 
-  const handleViewSubjects = async (course: Course) => {
+  const handleViewSubjects = async (course: Course, event?: MouseEvent<HTMLButtonElement>) => {
     setSelectedCourse(course);
     setLoadingSubjects(true);
     setError(null);
+
+    if (event?.currentTarget) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      subjectsPanelAnchorRef.current = {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    } else {
+      subjectsPanelAnchorRef.current = null;
+    }
 
     try {
       if (Array.isArray(course.subjects) && course.subjects.length > 0) {
@@ -493,6 +530,7 @@ const { dx, dy, scale } = transform;
     if (expandedCourseId) {
       applyExpandedCardTransform(expandedCourseId, 0);
     }
+    subjectsPanelAnchorRef.current = null;
     window.setTimeout(() => {
       setSubjectsPanelCourseId(null);
     }, 260);
@@ -501,40 +539,131 @@ const { dx, dy, scale } = transform;
   const [courseEditForm, setCourseEditForm] = useState({
     name: "",
     code: "",
-    courseID: "",
     semester: "",
-    year: "",
-    unit: "",
-    department: "",
-    isActive: true,
+    academicYear: "",
+    departmentCode: "",
+    departmentName: "",
+    className: "",
+    hodId: "",
+    selectedSubjectIds: [] as string[],
   });
+  const [courseSubjectOptions, setCourseSubjectOptions] = useState<SubjectOption[]>([]);
+  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [departmentTeachers, setDepartmentTeachers] = useState<Array<{ _id: string; name: string; email?: string; role?: string }>>([]);
 
   useEffect(() => {
-      if (!courseToEdit) return;
+    const loadCourseMeta = async () => {
+      try {
+        const { data } = await api.get("/courses/meta");
+        setAcademicYears(Array.isArray(data.academicYears) ? data.academicYears : []);
+      } catch (error) {
+        console.error("Failed to load course meta", error);
+      }
+    };
+
+    void loadCourseMeta();
+  }, []);
+
+  useEffect(() => {
+    if (!courseToEdit) return;
+
+    const loadSubjectOptions = async () => {
+      try {
+        const { data } = await api.get("/courses?topLevel=true&limit=200");
+        const allCourses = Array.isArray(data.courses)
+          ? (data.courses as Array<{
+              _id: string;
+              name: string;
+              department?: { _id?: string };
+              subjects?: Array<{ _id?: string; name: string; code?: string; subjectID?: string }>;
+            }>)
+          : [];
+
+        const options = allCourses.flatMap((courseDoc) => {
+          const sameDepartment = String(courseDoc.department?._id ?? "") === String(courseToEdit.department?._id ?? "");
+          if (!sameDepartment) return [];
+
+          return (Array.isArray(courseDoc.subjects) ? courseDoc.subjects : []).map((subject) => ({
+            _id: String(subject._id ?? `${courseDoc._id}-${subject.subjectID ?? subject.name}`),
+            name: subject.name,
+            code: subject.code ?? "",
+            subjectID: subject.subjectID,
+            courseId: courseDoc._id,
+            courseName: courseDoc.name,
+            departmentId: courseDoc.department?._id,
+          }));
+        });
+
+        const uniqueOptions = Array.from(new Map(options.map((option) => [option._id, option])).values()) as SubjectOption[];
+        setCourseSubjectOptions(uniqueOptions);
+      } catch (error) {
+        console.error("Failed to load department subject options", error);
+        setCourseSubjectOptions([]);
+      }
+    };
+
+    void loadSubjectOptions();
+
+    const departmentIdentifier = courseToEdit.department?.departmentID ?? courseToEdit.department?.code ?? courseToEdit.department?._id ?? "";
+    const loadDepartmentTeachers = async () => {
+      if (!departmentIdentifier) {
+        setDepartmentTeachers([]);
+        return;
+      }
+
+      try {
+        const { data } = await api.get(`/users?role=teacher&page=1&limit=200&department=${encodeURIComponent(departmentIdentifier)}`);
+        const users = Array.isArray(data.users) ? data.users : [];
+        setDepartmentTeachers(users.filter((user: { role?: string }) => !user.role || user.role === "teacher" || user.role === "admin"));
+      } catch (error) {
+        console.error("Failed to load department teachers", error);
+        setDepartmentTeachers([]);
+      }
+    };
+
+    void loadDepartmentTeachers();
+
+    const existingHodId = Array.isArray(courseToEdit.lecturer)
+      ? (typeof courseToEdit.lecturer[0] === "string" ? courseToEdit.lecturer[0] : courseToEdit.lecturer[0]?._id ?? "")
+      : "";
+
     setCourseEditForm({
       name: courseToEdit.name ?? "",
       code: courseToEdit.code ?? "",
-      courseID: courseToEdit.courseID ?? "",
       semester: courseToEdit.semester ?? "",
-      year: (courseToEdit as any).year ?? "",
-      unit: (courseToEdit as any).unit?._id ?? "",
-      department: courseToEdit.department?._id ?? "",
-      isActive: (courseToEdit as any).isActive ?? true,
+      academicYear: typeof courseToEdit.academicYear === "object" ? courseToEdit.academicYear?._id ?? "" : "",
+      departmentCode: courseToEdit.department?.code ?? "",
+      departmentName: courseToEdit.department?.name ?? "",
+      className: selectedClassId ? classes.find((cls) => cls._id === selectedClassId)?.name ?? "" : "",
+      hodId: existingHodId || courseToEdit.department?.head?._id || "",
+      selectedSubjectIds: (courseToEdit.subjects ?? []).map((subject) => subject._id),
     });
-  }, [courseToEdit]);
+  }, [courseToEdit, classes, selectedClassId]);
 
   const submitCourseEdit = async () => {
     if (!courseToEdit) return;
     try {
+      const selectedSubjects = courseSubjectOptions
+        .filter((subject) => courseEditForm.selectedSubjectIds.includes(subject._id))
+        .map((subject) => ({
+          name: subject.name,
+          code: subject.code ?? null,
+          subjectID: subject.subjectID ?? subject.code ?? "",
+          lecturer: [],
+          students: [],
+          isActive: true,
+          semester: courseToEdit.subjects?.find((current) => current._id === subject._id)?.semester ?? null,
+        }));
+
       await api.patch(`/courses/update/${courseToEdit._id}`, {
         name: courseEditForm.name,
         code: courseEditForm.code,
-        courseID: courseEditForm.courseID,
         semester: courseEditForm.semester || null,
-        year: courseEditForm.year || null,
-        department: courseEditForm.department || null,
-        unit: courseEditForm.unit || null,
-        isActive: courseEditForm.isActive,
+        academicYearId: courseEditForm.academicYear || null,
+        department: courseToEdit.department?._id || null,
+        unit: courseToEdit.unit?._id || null,
+        lecturer: courseEditForm.hodId ? [courseEditForm.hodId] : [],
+        subjects: selectedSubjects,
       });
 
       toast.success("Course updated");
@@ -554,48 +683,79 @@ const { dx, dy, scale } = transform;
 
       setCourseEditDialogOpen(false);
       setCourseToEdit(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err?.response?.data?.message ?? "Failed to update course");
+      toast.error("Failed to update course");
     }
   };
 
   const [addSubjectForm, setAddSubjectForm] = useState({
-    subjectID: "",
     name: "",
     code: "",
-    lecturer: "",
-    isActive: true,
-    students: "",
+    semester: "First",
+    lecturerId: "",
   });
 
   useEffect(() => {
     if (!courseToAddSubject) return;
+
+    const departmentIdentifier = courseToAddSubject.department?.departmentID ?? courseToAddSubject.department?.code ?? courseToAddSubject.department?._id ?? "";
+    const loadDepartmentTeachers = async () => {
+      if (!departmentIdentifier) {
+        setDepartmentTeachers([]);
+        return;
+      }
+
+      try {
+        const { data } = await api.get(`/users?role=teacher&page=1&limit=200&department=${encodeURIComponent(departmentIdentifier)}`);
+        const users = Array.isArray(data.users) ? data.users : [];
+        setDepartmentTeachers(users.filter((user: { role?: string }) => !user.role || user.role === "teacher" || user.role === "admin"));
+      } catch (error) {
+        console.error("Failed to load department teachers", error);
+        setDepartmentTeachers([]);
+      }
+    };
+
+    void loadDepartmentTeachers();
     setAddSubjectForm({
-      subjectID: "",
       name: "",
       code: "",
-      lecturer: "",
-      isActive: true,
-      students: "",
+      semester: "First",
+      lecturerId: "",
     });
   }, [courseToAddSubject]);
 
   const submitAddSubject = async () => {
     if (!courseToAddSubject) return;
     try {
-      const lecturerIds: string[] = [];
-      const studentIds: string[] = [];
+      let departmentIdentifier =
+        courseToAddSubject.department?.departmentID ??
+        courseToAddSubject.department?.code ??
+        courseToAddSubject.department?._id ??
+        courseToAddSubject.department?.name ??
+        "";
 
+      // If departmentIdentifier appears to be a Mongo id or we don't have a departmentID/code, fetch the course to get the department doc
+      const looksLikeObjectId = typeof departmentIdentifier === "string" && /^[0-9a-fA-F]{24}$/.test(departmentIdentifier);
+      if (!departmentIdentifier || looksLikeObjectId) {
+        try {
+          const { data } = await api.get(`/courses/${courseToAddSubject._id}`);
+          const dept = data?.department;
+          departmentIdentifier = dept?.departmentID ?? dept?.code ?? dept?._id ?? dept?.name ?? departmentIdentifier;
+        } catch (err) {
+          // fallback to previously-determined identifier
+        }
+      }
 
       await api.post(`/courses/${courseToAddSubject._id}/subjects`, {
         subject: {
-          subjectID: addSubjectForm.subjectID,
+          subjectID: departmentIdentifier,
           name: addSubjectForm.name,
           code: addSubjectForm.code || null,
-          lecturer: lecturerIds,
-          students: studentIds,
-          isActive: addSubjectForm.isActive,
+          semester: addSubjectForm.semester || null,
+          lecturer: addSubjectForm.lecturerId ? [addSubjectForm.lecturerId] : [],
+          students: [],
+          isActive: true,
         },
       });
 
@@ -622,9 +782,9 @@ const { dx, dy, scale } = transform;
 
       setAddSubjectDialogOpen(false);
       setCourseToAddSubject(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      toast.error(err?.response?.data?.message ?? "Failed to add subject");
+      toast.error("Failed to add subject");
     }
   };
 
@@ -660,54 +820,95 @@ const { dx, dy, scale } = transform;
 
           <div className="grid gap-3 py-2">
             <Input
-              placeholder="Name"
-              value={(courseEditForm?.name ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, name: e.target.value }))
-              }
+              placeholder="Course Name"
+              value={courseEditForm.name}
+              onChange={(e) => setCourseEditForm((p) => ({ ...p, name: e.target.value }))}
             />
             <Input
-              placeholder="Code"
-              value={(courseEditForm?.code ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, code: e.target.value }))
-              }
+              placeholder="Course Code"
+              value={courseEditForm.code}
+              onChange={(e) => setCourseEditForm((p) => ({ ...p, code: e.target.value }))}
             />
             <Input
-              placeholder="Course ID"
-              value={(courseEditForm?.courseID ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, courseID: e.target.value }))
-              }
+              placeholder="Course Department Code"
+              value={courseEditForm.departmentCode}
+              readOnly
             />
             <Input
-              placeholder="Semester"
-              value={(courseEditForm?.semester ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, semester: e.target.value }))
-              }
+              placeholder="Course Department Name"
+              value={courseEditForm.departmentName}
+              readOnly
             />
+            <Select
+              value={courseEditForm.academicYear}
+              onValueChange={(value) => setCourseEditForm((p) => ({ ...p, academicYear: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select academic year" />
+              </SelectTrigger>
+              <SelectContent>
+                {academicYears.map((year) => (
+                  <SelectItem key={year._id} value={year._id}>
+                    {year.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={courseEditForm.hodId}
+              onValueChange={(value) => setCourseEditForm((p) => ({ ...p, hodId: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select course H.O.D." />
+              </SelectTrigger>
+              <SelectContent>
+                {departmentTeachers.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No department lecturers found.</div>
+                ) : (
+                  departmentTeachers.map((teacher) => (
+                    <SelectItem key={teacher._id} value={teacher._id}>
+                      {teacher.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
             <Input
-              placeholder="Year"
-              value={(courseEditForm?.year ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, year: e.target.value }))
-              }
+              placeholder="Class"
+              value={courseEditForm.className}
+              readOnly
             />
-            <Input
-              placeholder="Unit (ObjectId)"
-              value={(courseEditForm?.unit ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, unit: e.target.value }))
-              }
-            />
-            <Input
-              placeholder="Department (ObjectId)"
-              value={(courseEditForm?.department ?? "") as string}
-              onChange={(e) =>
-                setCourseEditForm((p) => ({ ...p, department: e.target.value }))
-              }
-            />
+            <div className="rounded-lg border border-border p-3">
+              <p className="mb-2 text-sm font-medium">Subjects</p>
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {courseSubjectOptions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No department-scoped subjects are available for this course yet.</p>
+                ) : (
+                  courseSubjectOptions.map((subject) => {
+                    const isSelected = courseEditForm.selectedSubjectIds.includes(subject._id);
+                    return (
+                      <label key={subject._id} className="flex items-start gap-2 rounded-md border border-border/60 p-2">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => {
+                            setCourseEditForm((p) => ({
+                              ...p,
+                              selectedSubjectIds: checked
+                                ? [...p.selectedSubjectIds, subject._id]
+                                : p.selectedSubjectIds.filter((id) => id !== subject._id),
+                            }));
+                          }}
+                        />
+                        <div>
+                          <p className="text-sm font-medium">{subject.name}</p>
+                          <p className="text-xs text-muted-foreground">{subject.code || subject.subjectID || "No code"}</p>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
 
           <DialogFooter>
@@ -749,19 +950,57 @@ const { dx, dy, scale } = transform;
           </DialogHeader>
 
           <div className="grid gap-3 py-2">
-            {/* NOTE: This modal UI will be updated to dropdown-based selection.
-                Current patch keeps structure intact to avoid breaking build.
-                Future update will: 
-                - list eligible subjects by department code
-                - lecturer dropdown scoped to subject department
-                - confirm class availability (no student selection) */}
             <Input
-              placeholder="Subject selection coming via dropdown"
-              value={addSubjectForm.subjectID}
-              onChange={(e) =>
-                setAddSubjectForm((p) => ({ ...p, subjectID: e.target.value }))
-              }
+              placeholder="Subject Name"
+              value={addSubjectForm.name}
+              onChange={(e) => setAddSubjectForm((p) => ({ ...p, name: e.target.value }))}
             />
+            <Input
+              placeholder="Subject Code"
+              value={addSubjectForm.code}
+              onChange={(e) => setAddSubjectForm((p) => ({ ...p, code: e.target.value }))}
+            />
+            <Input
+              placeholder="Course Name"
+              value={courseToAddSubject?.name ?? ""}
+              readOnly
+            />
+            <Input
+              placeholder="Course Department"
+              value={courseToAddSubject?.department?.name ?? ""}
+              readOnly
+            />
+            <Select
+              value={addSubjectForm.lecturerId}
+              onValueChange={(value) => setAddSubjectForm((p) => ({ ...p, lecturerId: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select lecturer" />
+              </SelectTrigger>
+              <SelectContent>
+                {departmentTeachers.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No department lecturers found.</div>
+                ) : (
+                  departmentTeachers.map((teacher) => (
+                    <SelectItem key={teacher._id} value={teacher._id}>
+                      {teacher.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <Select
+              value={addSubjectForm.semester}
+              onValueChange={(value) => setAddSubjectForm((p) => ({ ...p, semester: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select semester" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="First">First</SelectItem>
+                <SelectItem value="Second">Second</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter>
@@ -1011,7 +1250,7 @@ const { dx, dy, scale } = transform;
                     className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void handleViewSubjects(course);
+                      void handleViewSubjects(course, e);
                     }}
                   >
                     View Subjects

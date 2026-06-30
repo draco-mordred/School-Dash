@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type MouseEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -6,8 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronRight, BookOpen, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -23,19 +32,34 @@ interface Course {
   courseID: string;
   unit?: { _id: string; name: string };
   semester?: string;
+  academicYear?: { _id: string; name?: string } | null;
   department?: {
     _id: string;
     name?: string;
     code?: string;
+    departmentID?: string;
     head?: { _id: string; name?: string };
   };
+  lecturer?: Array<{ _id: string; name?: string; email?: string }>;
   subjects?: Subject[];
 }
 
 interface Subject {
   _id: string;
   name: string;
-  code: string;
+  code?: string;
+  subjectID?: string;
+  semester?: string;
+}
+
+interface SubjectOption {
+  _id: string;
+  name: string;
+  code?: string;
+  subjectID?: string;
+  courseId?: string;
+  courseName?: string;
+  departmentId?: string;
 }
 
 interface Class {
@@ -71,6 +95,30 @@ export default function UnitResidentCourses() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "subjects-high" | "subjects-low">("name-asc");
+  const [courseEditDialogOpen, setCourseEditDialogOpen] = useState(false);
+  const [courseToEdit, setCourseToEdit] = useState<Course | null>(null);
+  const [addSubjectDialogOpen, setAddSubjectDialogOpen] = useState(false);
+  const [courseToAddSubject, setCourseToAddSubject] = useState<Course | null>(null);
+  const [courseEditForm, setCourseEditForm] = useState({
+    name: "",
+    code: "",
+    semester: "",
+    academicYear: "",
+    departmentCode: "",
+    departmentName: "",
+    className: "",
+    hodId: "",
+    selectedSubjectIds: [] as string[],
+  });
+  const [courseSubjectOptions, setCourseSubjectOptions] = useState<SubjectOption[]>([]);
+  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [departmentTeachers, setDepartmentTeachers] = useState<Array<{ _id: string; name: string; email?: string; role?: string }>>([]);
+  const [addSubjectForm, setAddSubjectForm] = useState({
+    name: "",
+    code: "",
+    semester: "First",
+    lecturerId: "",
+  });
 
   // Hover and expand animations
   const [hoveredCourseId, setHoveredCourseId] = useState<string | null>(null);
@@ -82,6 +130,7 @@ export default function UnitResidentCourses() {
   const [subjectsPanelPosition, setSubjectsPanelPosition] = useState<{ left: number; top: number; height: number } | null>(null);
   const hoverTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const subjectsPanelAnchorRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const cardTransforms = useRef<Record<string, { dx: number; dy: number; scale: number; anchorX: number; anchorY: number }>>({});
   const pointerRef = useRef<Record<string, { x: number; y: number }>>({});
 
@@ -99,16 +148,31 @@ export default function UnitResidentCourses() {
       }
   
       const updatePanelPosition = () => {
-        const el = cardRefs.current[subjectsPanelCourseId];
-        if (!el) {
+        const anchor = subjectsPanelAnchorRef.current;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const panelWidth = Math.min(viewportWidth * 0.36, 420);
+        const panelHeight = Math.min(viewportHeight * 0.8, 720);
+        const fallbackEl = cardRefs.current[subjectsPanelCourseId];
+        const rect = fallbackEl?.getBoundingClientRect();
+
+        const itemHeight = 64;
+        const headerHeight = 92;
+        const contentDesired = Math.min(panelHeight, (subjects.length || 0) * itemHeight + headerHeight);
+
+        if (anchor) {
+          const left = Math.min(anchor.left + anchor.width + 16, viewportWidth - panelWidth - 16);
+          const top = Math.max(16, Math.min(anchor.top, viewportHeight - panelHeight - 16));
+          setSubjectsPanelPosition({ left, top, height: Math.min(Math.max(anchor.height + 24, contentDesired), panelHeight) });
           return;
         }
-  
-        const rect = el.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        const panelWidth = Math.min(viewportWidth * 0.3, 320);
+
+        if (!rect) {
+          return;
+        }
+
         const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
-        setSubjectsPanelPosition({ left, top: rect.top, height: rect.height });
+        setSubjectsPanelPosition({ left, top: rect.top, height: Math.min(Math.max(rect.height, contentDesired), panelHeight) });
       };
   
       updatePanelPosition();
@@ -119,7 +183,218 @@ export default function UnitResidentCourses() {
         window.removeEventListener("resize", updatePanelPosition);
         window.removeEventListener("scroll", updatePanelPosition, true);
       };
-    }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible]);
+    }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible, subjects]);
+
+  useEffect(() => {
+    const loadCourseMeta = async () => {
+      try {
+        const { data } = await api.get("/courses/meta");
+        setAcademicYears(Array.isArray(data.academicYears) ? data.academicYears : []);
+      } catch (error) {
+        console.error("Failed to load course meta", error);
+      }
+    };
+
+    void loadCourseMeta();
+  }, []);
+
+  useEffect(() => {
+    if (!courseToEdit) return;
+
+    const loadSubjectOptions = async () => {
+      try {
+        const { data } = await api.get("/courses?topLevel=true&limit=200");
+        const allCourses = Array.isArray(data.courses)
+          ? (data.courses as Array<{
+              _id: string;
+              name: string;
+              department?: { _id?: string };
+              subjects?: Array<{ _id?: string; name: string; code?: string; subjectID?: string }>;
+            }>)
+          : [];
+
+        const options = allCourses.flatMap((courseDoc) => {
+          const sameDepartment = String(courseDoc.department?._id ?? "") === String(courseToEdit.department?._id ?? "");
+          if (!sameDepartment) return [];
+
+          return (Array.isArray(courseDoc.subjects) ? courseDoc.subjects : []).map((subject) => ({
+            _id: String(subject._id ?? `${courseDoc._id}-${subject.subjectID ?? subject.name}`),
+            name: subject.name,
+            code: subject.code ?? "",
+            subjectID: subject.subjectID,
+            courseId: courseDoc._id,
+            courseName: courseDoc.name,
+            departmentId: courseDoc.department?._id,
+          }));
+        });
+
+        const uniqueOptions = Array.from(new Map(options.map((option) => [option._id, option])).values()) as SubjectOption[];
+        setCourseSubjectOptions(uniqueOptions);
+      } catch (error) {
+        console.error("Failed to load department subject options", error);
+        setCourseSubjectOptions([]);
+      }
+    };
+
+    void loadSubjectOptions();
+
+    const departmentIdentifier = courseToEdit.department?.departmentID ?? courseToEdit.department?.code ?? courseToEdit.department?._id ?? "";
+    const loadDepartmentTeachers = async () => {
+      if (!departmentIdentifier) {
+        setDepartmentTeachers([]);
+        return;
+      }
+
+      try {
+        const { data } = await api.get(`/users?role=teacher&page=1&limit=200&department=${encodeURIComponent(departmentIdentifier)}`);
+        const users = Array.isArray(data.users) ? data.users : [];
+        setDepartmentTeachers(users.filter((user: { role?: string }) => !user.role || user.role === "teacher" || user.role === "admin"));
+      } catch (error) {
+        console.error("Failed to load department teachers", error);
+        setDepartmentTeachers([]);
+      }
+    };
+
+    void loadDepartmentTeachers();
+
+    const existingHodId = Array.isArray(courseToEdit.lecturer)
+      ? (typeof courseToEdit.lecturer[0] === "string" ? courseToEdit.lecturer[0] : courseToEdit.lecturer[0]?._id ?? "")
+      : "";
+
+    setCourseEditForm({
+      name: courseToEdit.name ?? "",
+      code: courseToEdit.code ?? "",
+      semester: courseToEdit.semester ?? "",
+      academicYear: typeof courseToEdit.academicYear === "object" ? courseToEdit.academicYear?._id ?? "" : "",
+      departmentCode: courseToEdit.department?.code ?? "",
+      departmentName: courseToEdit.department?.name ?? "",
+      className: selectedClassId ? classes.find((cls) => cls._id === selectedClassId)?.name ?? "" : "",
+      hodId: existingHodId || courseToEdit.department?.head?._id || "",
+      selectedSubjectIds: (courseToEdit.subjects ?? []).map((subject) => subject._id),
+    });
+  }, [courseToEdit, classes, selectedClassId]);
+
+  useEffect(() => {
+    if (!courseToAddSubject) return;
+
+    const departmentIdentifier = courseToAddSubject.department?.departmentID ?? courseToAddSubject.department?.code ?? courseToAddSubject.department?._id ?? "";
+    const loadDepartmentTeachers = async () => {
+      if (!departmentIdentifier) {
+        setDepartmentTeachers([]);
+        return;
+      }
+
+      try {
+        const { data } = await api.get(`/users?role=teacher&page=1&limit=200&department=${encodeURIComponent(departmentIdentifier)}`);
+        const users = Array.isArray(data.users) ? data.users : [];
+        setDepartmentTeachers(users.filter((user: { role?: string }) => !user.role || user.role === "teacher" || user.role === "admin"));
+      } catch (error) {
+        console.error("Failed to load department teachers", error);
+        setDepartmentTeachers([]);
+      }
+    };
+
+    void loadDepartmentTeachers();
+    setAddSubjectForm({
+      name: "",
+      code: "",
+      semester: "First",
+      lecturerId: "",
+    });
+  }, [courseToAddSubject]);
+
+  const submitCourseEdit = async () => {
+    if (!courseToEdit) return;
+    try {
+      const selectedSubjects = courseSubjectOptions
+        .filter((subject) => courseEditForm.selectedSubjectIds.includes(subject._id))
+        .map((subject) => ({
+          name: subject.name,
+          code: subject.code ?? null,
+          subjectID: subject.subjectID ?? subject.code ?? "",
+          lecturer: [],
+          students: [],
+          isActive: true,
+          semester: courseToEdit.subjects?.find((current) => current._id === subject._id)?.semester ?? null,
+        }));
+
+      await api.patch(`/courses/update/${courseToEdit._id}`, {
+        name: courseEditForm.name,
+        code: courseEditForm.code,
+        semester: courseEditForm.semester || null,
+        academicYearId: courseEditForm.academicYear || null,
+        department: courseToEdit.department?._id || null,
+        unit: courseToEdit.unit?._id || null,
+        lecturer: courseEditForm.hodId ? [courseEditForm.hodId] : [],
+        subjects: selectedSubjects,
+      });
+
+      toast.success("Course updated");
+      if (selectedClassId) {
+        const [courseResponse, timetableResponse] = await Promise.allSettled([
+          api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+          api.get(`/timetables/${selectedClassId}`),
+        ]);
+        if (courseResponse.status === "fulfilled") {
+          setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+        }
+        if (timetableResponse.status === "fulfilled") {
+          setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+        }
+      }
+
+      setCourseEditDialogOpen(false);
+      setCourseToEdit(null);
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error("Failed to update course");
+    }
+  };
+
+  const submitAddSubject = async () => {
+    if (!courseToAddSubject) return;
+    try {
+      const departmentIdentifier = courseToAddSubject.department?.departmentID ?? courseToAddSubject.department?.code ?? courseToAddSubject.department?._id ?? "";
+
+      await api.post(`/courses/${courseToAddSubject._id}/subjects`, {
+        subject: {
+          subjectID: departmentIdentifier,
+          name: addSubjectForm.name,
+          code: addSubjectForm.code || null,
+          semester: addSubjectForm.semester || null,
+          lecturer: addSubjectForm.lecturerId ? [addSubjectForm.lecturerId] : [],
+          students: [],
+          isActive: true,
+        },
+      });
+
+      toast.success("Subject added to course");
+
+      if (selectedClassId) {
+        const [courseResponse, timetableResponse] = await Promise.allSettled([
+          api.get(`/courses?class=${selectedClassId}&topLevel=true`),
+          api.get(`/timetables/${selectedClassId}`),
+        ]);
+        if (courseResponse.status === "fulfilled") {
+          setCourses(Array.isArray(courseResponse.value.data.courses) ? courseResponse.value.data.courses : []);
+        }
+        if (timetableResponse.status === "fulfilled") {
+          setClassSchedule(Array.isArray(timetableResponse.value.data.schedule) ? timetableResponse.value.data.schedule : []);
+        }
+      }
+
+      if (subjectsPanelCourseId === courseToAddSubject._id) {
+        const { data } = await api.get(`/courses/${courseToAddSubject._id}`);
+        setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+      }
+
+      setAddSubjectDialogOpen(false);
+      setCourseToAddSubject(null);
+    } catch (err: unknown) {
+      console.error(err);
+      toast.error("Failed to add subject");
+    }
+  };
 
   // Fetch classes for this unit resident
   useEffect(() => {
@@ -288,7 +563,7 @@ export default function UnitResidentCourses() {
     startCollapse();
   };
 
-  // Start expand animation by measuring the card and animating it to right-side center
+  // Start expand animation by measuring the card and animating it around the cursor
   const startExpand = (courseId: string) => {
     const el = cardRefs.current[courseId];
     if (!el) {
@@ -300,28 +575,20 @@ export default function UnitResidentCourses() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const baseTargetWidth = vw < 768 ? Math.min(vw * 0.92, 560) : Math.min(vw * 0.42, 640);
-    const targetWidth = Math.max(rect.width * 1.16, baseTargetWidth);
+    const targetWidth = Math.max(rect.width * 1.08, baseTargetWidth);
     const pointer = pointerRef.current[courseId];
-    // Use page coordinates if available, otherwise fall back to viewport center of card
-    const pointerX = pointer ? pointer.x : window.scrollX + rect.left + rect.width / 2;
-    const pointerY = pointer ? pointer.y : window.scrollY + rect.top + rect.height / 2;
+    const pointerX = pointer ? pointer.x : rect.left + rect.width / 2;
+    const pointerY = pointer ? pointer.y : rect.top + rect.height / 2;
     const scale = targetWidth / rect.width;
-    const expandedHeight = rect.height * scale;
-    const minLeft = vw - targetWidth - 32;
-    
-    // Position card so pointer ends up in center of expanded card, but keep on right side
-    // Convert to viewport coordinates since we're using getBoundingClientRect
-    let targetLeft = pointerX - window.scrollX - targetWidth / 2;
-    let targetTop = pointerY - window.scrollY - expandedHeight / 2;
-    
-    // Clamp to keep card on the right side and within viewport
-    targetLeft = Math.max(minLeft, Math.min(targetLeft, vw - 32));
-    targetTop = Math.max(32, Math.min(targetTop, vh - expandedHeight - 32));
-    
+    const expandedHeight = Math.min(vh - 32, rect.height * 1.08 + 120);
+    const maxLeft = Math.max(16, vw - targetWidth - 16);
+    const targetLeft = Math.min(Math.max(16, pointerX - rect.width * 0.3), maxLeft);
+    const targetTop = Math.min(Math.max(16, pointerY - rect.height * 0.3), Math.max(16, vh - expandedHeight - 16));
     const dx = targetLeft - rect.left;
     const dy = targetTop - rect.top;
+    const originX = Math.min(Math.max(pointerX - rect.left, 24), rect.width - 24);
+    const originY = Math.min(Math.max(pointerY - rect.top, 24), rect.height - 24);
 
-    // Fix the element in place at its current position so it doesn't jump
     el.style.position = "fixed";
     el.style.left = `${rect.left}px`;
     el.style.top = `${rect.top}px`;
@@ -329,18 +596,16 @@ export default function UnitResidentCourses() {
     el.style.height = `${rect.height}px`;
     el.style.margin = "0";
     el.style.zIndex = "50";
-    el.style.transformOrigin = "center center";
-    // store measured transform for collapse
+    el.style.transformOrigin = `${originX}px ${originY}px`;
     cardTransforms.current[courseId] = { dx, dy, scale, anchorX: targetWidth / 2, anchorY: expandedHeight / 2 };
 
-    // Use Web Animations API to create an overshooting, smooth animation (Windows Store-like)
     el.style.transform = `translate(0px, 0px) scale(1)`;
     el.style.boxShadow = "0 24px 60px rgba(2,6,23,0.28)";
 
     const anim = el.animate(
       [
         { transform: `translate(0px, 0px) scale(1)` },
-        { transform: `translate(${dx * 0.85}px, ${dy * 0.85}px) scale(${scale * 1.03})` },
+        { transform: `translate(${dx * 0.6}px, ${dy * 0.55}px) scale(${scale * 1.01})` },
         { transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
       ],
       {
@@ -351,7 +616,6 @@ export default function UnitResidentCourses() {
     );
 
     anim.onfinish = () => {
-      // keep final state and mark expanded
       el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
       setExpandedCourseId(courseId);
       setShowExpandedActions(true);
@@ -435,10 +699,22 @@ export default function UnitResidentCourses() {
     el.style.transform = `translate(${dx + offsetX}px, ${dy}px) scale(${scale})`;
   };
 
-  const handleViewSubjects = async (course: Course) => {
+  const handleViewSubjects = async (course: Course, event?: MouseEvent<HTMLButtonElement>) => {
     setSelectedCourse(course);
     setLoadingSubjects(true);
     setError(null);
+
+    if (event?.currentTarget) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      subjectsPanelAnchorRef.current = {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    } else {
+      subjectsPanelAnchorRef.current = null;
+    }
 
     try {
       if (Array.isArray(course.subjects) && course.subjects.length > 0) {
@@ -469,6 +745,7 @@ export default function UnitResidentCourses() {
     if (expandedCourseId) {
       applyExpandedCardTransform(expandedCourseId, 0);
     }
+    subjectsPanelAnchorRef.current = null;
     window.setTimeout(() => {
       setSubjectsPanelCourseId(null);
     }, 260);
@@ -489,6 +766,184 @@ export default function UnitResidentCourses() {
 
   return (
     <div className="space-y-6 p-6">
+      <Dialog
+        open={courseEditDialogOpen}
+        onOpenChange={(open) => {
+          setCourseEditDialogOpen(open);
+          if (!open) {
+            setCourseToEdit(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Edit Course Profile</DialogTitle>
+            <DialogDescription>Update course metadata for this course.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="Course Name"
+              value={courseEditForm.name}
+              onChange={(e) => setCourseEditForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Course Code"
+              value={courseEditForm.code}
+              onChange={(e) => setCourseEditForm((p) => ({ ...p, code: e.target.value }))}
+            />
+            <Input placeholder="Course Department Code" value={courseEditForm.departmentCode} readOnly />
+            <Input placeholder="Course Department Name" value={courseEditForm.departmentName} readOnly />
+            <Select
+              value={courseEditForm.academicYear}
+              onValueChange={(value) => setCourseEditForm((p) => ({ ...p, academicYear: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select academic year" />
+              </SelectTrigger>
+              <SelectContent>
+                {academicYears.map((year) => (
+                  <SelectItem key={year._id} value={year._id}>
+                    {year.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={courseEditForm.hodId}
+              onValueChange={(value) => setCourseEditForm((p) => ({ ...p, hodId: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select course H.O.D." />
+              </SelectTrigger>
+              <SelectContent>
+                {departmentTeachers.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No department lecturers found.</div>
+                ) : (
+                  departmentTeachers.map((teacher) => (
+                    <SelectItem key={teacher._id} value={teacher._id}>
+                      {teacher.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <Input placeholder="Class" value={courseEditForm.className} readOnly />
+            <div className="rounded-lg border border-border p-3">
+              <p className="mb-2 text-sm font-medium">Subjects</p>
+              <div className="max-h-48 space-y-2 overflow-y-auto pr-1">
+                {courseSubjectOptions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No department-scoped subjects are available for this course yet.</p>
+                ) : (
+                  courseSubjectOptions.map((subject) => {
+                    const isSelected = courseEditForm.selectedSubjectIds.includes(subject._id);
+                    return (
+                      <label key={subject._id} className="flex items-start gap-2 rounded-md border border-border/60 p-2">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => {
+                            setCourseEditForm((p) => ({
+                              ...p,
+                              selectedSubjectIds: checked
+                                ? [...p.selectedSubjectIds, subject._id]
+                                : p.selectedSubjectIds.filter((id) => id !== subject._id),
+                            }));
+                          }}
+                        />
+                        <div>
+                          <p className="text-sm font-medium">{subject.name}</p>
+                          <p className="text-xs text-muted-foreground">{subject.code || subject.subjectID || "No code"}</p>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setCourseEditDialogOpen(false); setCourseToEdit(null); }}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => { void submitCourseEdit(); }}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={addSubjectDialogOpen}
+        onOpenChange={(open) => {
+          setAddSubjectDialogOpen(open);
+          if (!open) {
+            setCourseToAddSubject(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>Add Subject To Course</DialogTitle>
+            <DialogDescription>Add an embedded subject to the selected course.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <Input
+              placeholder="Subject Name"
+              value={addSubjectForm.name}
+              onChange={(e) => setAddSubjectForm((p) => ({ ...p, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Subject Code"
+              value={addSubjectForm.code}
+              onChange={(e) => setAddSubjectForm((p) => ({ ...p, code: e.target.value }))}
+            />
+            <Input placeholder="Course Name" value={courseToAddSubject?.name ?? ""} readOnly />
+            <Input placeholder="Course Department" value={courseToAddSubject?.department?.name ?? ""} readOnly />
+            <Select
+              value={addSubjectForm.lecturerId}
+              onValueChange={(value) => setAddSubjectForm((p) => ({ ...p, lecturerId: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select lecturer" />
+              </SelectTrigger>
+              <SelectContent>
+                {departmentTeachers.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No department lecturers found.</div>
+                ) : (
+                  departmentTeachers.map((teacher) => (
+                    <SelectItem key={teacher._id} value={teacher._id}>
+                      {teacher.name}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            <Select
+              value={addSubjectForm.semester}
+              onValueChange={(value) => setAddSubjectForm((p) => ({ ...p, semester: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select semester" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="First">First</SelectItem>
+                <SelectItem value="Second">Second</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setAddSubjectDialogOpen(false); setCourseToAddSubject(null); }}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => { void submitAddSubject(); }}>
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Header with Class Selection */}
       <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-4">
@@ -712,7 +1167,7 @@ export default function UnitResidentCourses() {
                     className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void handleViewSubjects(course);
+                      void handleViewSubjects(course, e);
                     }}
                   >
                     View Subjects
@@ -724,7 +1179,8 @@ export default function UnitResidentCourses() {
                     className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toast.message("Course edit UI not implemented yet (next patch)");
+                      setCourseToEdit(course);
+                      setCourseEditDialogOpen(true);
                     }}
                   >
                     Edit Course Profile
@@ -735,7 +1191,8 @@ export default function UnitResidentCourses() {
                     className={`w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toast.message("Add subject UI not implemented yet (next patch)");
+                      setCourseToAddSubject(course);
+                      setAddSubjectDialogOpen(true);
                     }}
                   >
                     Add Subject

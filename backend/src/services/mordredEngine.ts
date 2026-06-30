@@ -34,7 +34,7 @@ export async function routeTaskToStaff(departmentName: string, taskType: string,
           }
         }
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     return assignedStaff; // Returns the updated staff User document or null if full

@@ -9,6 +9,8 @@ import Search from "@/components/global/Search";
 import { useAuth } from "@/hooks/useAuth";
 import { StudentsList } from "@/components/admin/users/StudentsList";
 import { UsersList } from "@/components/admin/users/UsersList";
+import { UserOverviewCards } from "@/components/admin/users/UserOverviewCards";
+import { useUserManagement } from "@/hooks/useUserManagement";
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -30,7 +32,9 @@ export default function UserManagementPage({
   description,
 }: Props) {
   const { user: authUser } = useAuth();
-  
+  const { data: adminData, loading: adminLoading, error: adminError } = useUserManagement();
+  const adminUsers = adminData;
+
   // Admin user management
   const [activeTab, setActiveTab] = useState("students");
   

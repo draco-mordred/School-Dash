@@ -96,7 +96,7 @@ export const updateHospitalUnit = async (req: Request, res: Response) => {
     const unit = await HospitalUnitModel.findByIdAndUpdate(
       unitId,
       { name, description, supervisors, isActive },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!unit) {
@@ -210,7 +210,7 @@ export const updateHospitalStaff = async (req: Request, res: Response) => {
     const staff = await HospitalStaffModel.findByIdAndUpdate(
       staffId,
       { assignedUnits, email, phone, isActive, canApproveLogbooks },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!staff) {

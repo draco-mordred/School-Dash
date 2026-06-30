@@ -77,7 +77,7 @@ import { generate500LevelOgPaeJuniorPostingSchedule } from "../utils/clinicalPos
     const schedule = await ClinicalRotation.findById(scheduleId);
     if (!schedule) return res.status(404).json({ message: "Schedule not found" });
 
-    const updatedSchedule = await ClinicalRotation.findByIdAndUpdate(scheduleId, updates, { new: true });
+    const updatedSchedule = await ClinicalRotation.findByIdAndUpdate(scheduleId, updates, { returnDocument: 'after' });
     return res.status(200).json(updatedSchedule);
     
   } catch (error) {

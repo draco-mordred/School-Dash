@@ -702,14 +702,26 @@ export default function Courses() {
             <div className="flex items-center gap-2">
               <Badge variant="secondary">{selectedCourses.length}</Badge>
               {selectedClass && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleOpenAddCourse(true)}
-                >
-                  <PlusCircle className="mr-1 h-4 w-4" />
-                  Add
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenAddCourse(true)}
+                  >
+                    <PlusCircle className="mr-1 h-4 w-4" />
+                    Add
+                  </Button>
+                  {canManageCourses && (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleOpenCreateCourse(true)}
+                    >
+                      <PlusCircle className="mr-1 h-4 w-4" />
+                      New Course
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </div>

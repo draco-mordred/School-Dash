@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import type { user } from "@/types";
 
 export interface UserStats {
   students: number;
@@ -10,140 +11,73 @@ export interface UserStats {
 
 export interface UserData {
   stats: UserStats;
-  students: any[];
-  parents: any[];
-  staff: any[];
-  administrators: any[];
+  students: Array<{
+    id: string;
+    name: string;
+    matricNumber: string;
+    class: string;
+    currentPosting?: string;
+    attendancePercentage: number;
+    status: "active" | "inactive" | "graduated";
+    email: string;
+  }>;
+  parents: Array<user & { studentsCount?: number; status: string }>;
+  staff: Array<user & { status: string; roles?: string[] }>;
+  administrators: Array<user & { status: string }>;
 }
 
-const mockData: UserData = {
-  stats: {
-    students: 450,
-    parents: 380,
-    staff: 65,
-    administrators: 8,
-  },
-  students: [
-    {
-      id: "std001",
-      name: "Ahmed Hassan",
-      matricNumber: "2024/001",
-      class: "Year 3",
-      currentPosting: "Pediatrics",
-      attendancePercentage: 92,
-      status: "active",
-      email: "ahmed@medlog.edu",
-    },
-    {
-      id: "std002",
-      name: "Fatima Mohammed",
-      matricNumber: "2024/002",
-      class: "Year 2",
-      currentPosting: "Surgery",
-      attendancePercentage: 85,
-      status: "active",
-      email: "fatima@medlog.edu",
-    },
-    {
-      id: "std003",
-      name: "Muhammad Ali",
-      matricNumber: "2024/003",
-      class: "Year 1",
-      currentPosting: undefined,
-      attendancePercentage: 78,
-      status: "active",
-      email: "muhammadali@medlog.edu",
-    },
-    {
-      id: "std004",
-      name: "Amina Ismail",
-      matricNumber: "2024/004",
-      class: "Year 4",
-      currentPosting: "Internal Medicine",
-      attendancePercentage: 88,
-      status: "active",
-      email: "amina@medlog.edu",
-    },
-    {
-      id: "std005",
-      name: "Ibrahim Okafor",
-      matricNumber: "2024/005",
-      class: "Year 3",
-      currentPosting: "Orthopedics",
-      attendancePercentage: 65,
-      status: "inactive",
-      email: "ibrahim@medlog.edu",
-    },
-  ],
-  parents: [
-    {
-      id: "par001",
-      name: "Dr. Hassan Ahmed",
-      email: "hassan.ahmed@email.com",
-      status: "active",
-      joinDate: "2024-01-15",
-      studentsCount: 2,
-    },
-    {
-      id: "par002",
-      name: "Mrs. Aisha Mohammed",
-      email: "aisha.mohammed@email.com",
-      status: "active",
-      joinDate: "2024-02-20",
-      studentsCount: 1,
-    },
-  ],
-  staff: [
-    {
-      id: "stf001",
-      name: "Prof. Chioma Adeyemi",
-      email: "chioma.adeyemi@medlog.edu",
-      status: "active",
-      joinDate: "2020-09-01",
-      department: "Internal Medicine",
-      roles: ["lecturer", "course_coordinator"],
-    },
-    {
-      id: "stf002",
-      name: "Dr. Eze Okonkwo",
-      email: "eze.okonkwo@medlog.edu",
-      status: "active",
-      joinDate: "2021-03-15",
-      department: "Pediatrics",
-      roles: ["lecturer", "consultant"],
-    },
-    {
-      id: "stf003",
-      name: "Dr. Ngozi Eze",
-      email: "ngozi.eze@medlog.edu",
-      status: "active",
-      joinDate: "2022-01-10",
-      department: "Surgery",
-      roles: ["consultant", "unit_coordinator"],
-    },
-  ],
-  administrators: [
-    {
-      id: "adm001",
-      name: "David Chen",
-      email: "david.chen@medlog.edu",
-      status: "active",
-      joinDate: "2020-01-01",
-      role: "System Administrator",
-    },
-    {
-      id: "adm002",
-      name: "Sarah Okonkwo",
-      email: "sarah.okonkwo@medlog.edu",
-      status: "active",
-      joinDate: "2021-06-15",
-      role: "Academic Administrator",
-    },
-  ],
+const normalizeStatus = (user: user) => {
+  if ((user as any).status) return (user as any).status;
+  return (user as any).isActive === false ? "inactive" : "active";
 };
 
+const mapStudent = (user: user) => ({
+  id: user._id,
+  name: user.name,
+  matricNumber: user.idNumber || "—",
+  class:
+    typeof user.studentClasses === "object" && user.studentClasses !== null
+      ? (user.studentClasses as any).name || "Unassigned"
+      : String(user.studentClasses || "Unassigned"),
+  currentPosting: undefined,
+  attendancePercentage: 0,
+  status: normalizeStatus(user) as "active" | "inactive" | "graduated",
+  email: user.email,
+});
+
+const mapParent = (user: user) => ({
+  ...user,
+  status: normalizeStatus(user),
+  studentsCount: Array.isArray(user.parentStudents) ? user.parentStudents.length : 0,
+});
+
+const mapStaff = (user: user) => ({
+  ...user,
+  status: normalizeStatus(user),
+  roles: [
+    user.departmentRole || undefined,
+    user.academicStatus || undefined,
+  ].filter(Boolean) as string[],
+});
+
+const mapAdmin = (user: user) => ({
+  ...user,
+  status: normalizeStatus(user),
+});
+
 export function useUserManagement() {
-  const [data, setData] = useState<UserData>(mockData);
+  const [data, setData] = useState<UserData>({
+    stats: {
+      students: 0,
+      parents: 0,
+      staff: 0,
+      administrators: 0,
+    },
+    students: [],
+    parents: [],
+    staff: [],
+    administrators: [],
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,16 +85,40 @@ export function useUserManagement() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // Replace with actual API calls when available
-        // const response = await api.get("/admin/users/all");
-        // setData(response);
-        
-        // For now, use mock data
-        setData(mockData);
+        const [studentsRes, parentsRes, staffRes, adminsRes] = await Promise.all([
+          api.get("/users?page=1&limit=50&role=student"),
+          api.get("/users?page=1&limit=50&role=parent"),
+          api.get("/users?page=1&limit=50&role=teacher"),
+          api.get("/users?page=1&limit=50&role=admin"),
+        ]);
+
+        const students = Array.isArray(studentsRes.data.users)
+          ? studentsRes.data.users.map(mapStudent)
+          : [];
+        const parents = Array.isArray(parentsRes.data.users)
+          ? parentsRes.data.users.map(mapParent)
+          : [];
+        const staff = Array.isArray(staffRes.data.users)
+          ? staffRes.data.users.map(mapStaff)
+          : [];
+        const administrators = Array.isArray(adminsRes.data.users)
+          ? adminsRes.data.users.map(mapAdmin)
+          : [];
+
+        setData({
+          stats: {
+            students: studentsRes.data.pagination?.total ?? students.length,
+            parents: parentsRes.data.pagination?.total ?? parents.length,
+            staff: staffRes.data.pagination?.total ?? staff.length,
+            administrators: adminsRes.data.pagination?.total ?? administrators.length,
+          },
+          students,
+          parents,
+          staff,
+          administrators,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch user data");
-        // Fall back to mock data on error
-        setData(mockData);
       } finally {
         setLoading(false);
       }

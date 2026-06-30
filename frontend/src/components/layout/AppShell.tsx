@@ -179,6 +179,8 @@ function getPageTitle(pathname: string) {
       return "Activities Log";
     case "settings":
       return parts[1] === "academic-years" ? "Academic Years" : "Settings";
+    case "timetable":
+      return parts[1] === "calendar" ? "Academic Calendar" : "Timetable";
     case "users":
       return parts[1]
         ? parts[1].replace(/-/g, " ").replace(/\b\w/g, (value) => value.toUpperCase())
@@ -261,7 +263,7 @@ export default function AppShell({ children }: PropsWithChildren) {
     { role: "admin", title: "Attendance", path: "/attendance", icon: "clipboard-list" as W11Glyph },
     { role: "admin", title: "Timetable", path: "/timetable", icon: "clock" as W11Glyph },
     { role: "admin", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
-    { role: "admin", title: "Academic Years", path: "/settings/academic-years", icon: "info" as W11Glyph },
+    { role: "admin", title: "Academic Years", path: "/timetable/calendar", icon: "info" as W11Glyph },
     { role: "admin", title: "Notifications", path: "/notifications", icon: "bell" as W11Glyph },
     { role: "admin", title: "Activities Log", path: "/activities-log", icon: "shield" as W11Glyph },
     // Teacher

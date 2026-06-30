@@ -556,7 +556,7 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
         const record = await Attendance.findByIdAndUpdate(
           attendanceId,
           updateData,
-          { new: true, runValidators: true }
+          { returnDocument: 'after', runValidators: true }
         );
         return record;
       })

@@ -12,6 +12,7 @@ import { connectDB } from "./config/db"; //import the connectDB function to conn
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
+import academicClockRouter from "./routes/academicClock";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses";
 import "./models/postings"; // ensure postings models are registered
@@ -80,6 +81,7 @@ app.get("/", (req: Request, res: Response) => {
 app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
 app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
+app.use("/api/academic-clocks", academicClockRouter);
 app.use('/api/classes', classRouter);
 // Courses API (was previously also mounted at /api/subjects)
 app.use('/api/courses', courseRouter);
