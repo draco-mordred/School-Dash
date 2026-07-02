@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
 import { MoreHorizontal, Plus, Pencil, Trash2, ClipboardList, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
 import PostingScheduleDisplay from "@/components/ClinicalRotations/PostingScheduleDisplay";
 import { useRef } from "react";
+import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
@@ -116,6 +117,21 @@ interface RotationSchedule {
   postings?: PostingEntry[];
 }
 
+interface ClassOption {
+  _id: string;
+  name: string;
+  academicYearId?: string;
+}
+
+interface AcademicClockSummary {
+  _id?: string;
+  classId?: string;
+  classLevel?: string | null;
+  clockPhase?: string | null;
+  clockStartDate?: string | null;
+  phaseConfig?: Record<string, { name?: string; duration?: number; postingType?: string | null; postingId?: string | null } | null>;
+}
+
 const ROTATION_TYPES: RotationType[] = ["medicine", "surgery", "paediatrics", "obstetrics", "psychiatry", "community", "elective"];
 const STATUS_COLORS: Record<RotationStatus, string> = {
   upcoming: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
@@ -123,9 +139,188 @@ const STATUS_COLORS: Record<RotationStatus, string> = {
   completed: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
 };
 
+const samplePostingSchedule = {
+  postingName: "Dummy Junior O&G & Paediatrics Posting",
+  postingType: "Combined clinical posting",
+  durationWeeks: 12,
+  startDate: "2026-07-06T00:00:00.000Z",
+  endDate: "2026-09-28T00:00:00.000Z",
+  phases: ["Phase 1", "Phase 2"],
+  departments: [
+    {
+      department: "Obstetrics & Gynaecology",
+      departmentCode: "OG",
+      rotationDurationWeeks: 6,
+      activeUnits: [
+        { id: "og-1", name: "Ward Unit" },
+        { id: "og-2", name: "Labour Ward" },
+      ],
+      supervisors: [
+        {
+          unit: "Ward Unit",
+          consultant: { _id: "sup-1", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org", department: "OG" },
+          resident: { _id: "res-1", name: "Dr. M. Otieno", role: "Resident", department: "OG" },
+        },
+      ],
+    },
+    {
+      department: "Paediatrics",
+      departmentCode: "PED",
+      rotationDurationWeeks: 6,
+      activeUnits: [
+        { id: "ped-1", name: "Children's Ward" },
+        { id: "ped-2", name: "Neonatal Unit" },
+      ],
+      supervisors: [
+        {
+          unit: "Children's Ward",
+          consultant: { _id: "sup-2", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org", department: "PED" },
+          resident: { _id: "res-2", name: "Dr. T. Kimani", role: "Resident", department: "PED" },
+        },
+      ],
+    },
+  ],
+  studentCategories: [
+    {
+      category: "Junior O&G",
+      studentCount: 8,
+      departmentPhase1: "Obstetrics & Gynaecology",
+      departmentPhase2: "Obstetrics & Gynaecology",
+      students: [
+        { _id: "st-1", name: "Alice Wanjiku" },
+        { _id: "st-2", name: "Brian Oduor" },
+      ],
+    },
+    {
+      category: "Junior Paediatrics",
+      studentCount: 8,
+      departmentPhase1: "Paediatrics",
+      departmentPhase2: "Paediatrics",
+      students: [
+        { _id: "st-3", name: "Cynthia Mugo" },
+        { _id: "st-4", name: "Daniel Kiptoo" },
+      ],
+    },
+  ],
+  unitAssignments: [
+    {
+      department: "Obstetrics & Gynaecology",
+      phase: "Phase 1",
+      unit: "Ward Unit",
+      unitId: "og-1",
+      consultant: { _id: "sup-1", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
+      resident: { _id: "res-1", name: "Dr. M. Otieno", role: "Resident" },
+      students: [
+        { _id: "st-1", name: "Alice Wanjiku", idNumber: "2024001" },
+        { _id: "st-2", name: "Brian Oduor", idNumber: "2024002" },
+      ],
+    },
+    {
+      department: "Paediatrics",
+      phase: "Phase 1",
+      unit: "Children's Ward",
+      unitId: "ped-1",
+      consultant: { _id: "sup-2", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org" },
+      resident: { _id: "res-2", name: "Dr. T. Kimani", role: "Resident" },
+      students: [
+        { _id: "st-3", name: "Cynthia Mugo", idNumber: "2024003" },
+        { _id: "st-4", name: "Daniel Kiptoo", idNumber: "2024004" },
+      ],
+    },
+  ],
+  nestedSchedule: {
+    phase1: {
+      groupA: {
+        posting: "Ward rotation",
+        duration: 3,
+        totalNumberofUnitsPerStudent: 2,
+        units: {
+          week1: {
+            unit1: {
+              name: "Ward Unit",
+              unitId: "og-1",
+              duration: 3,
+              postingType: "Ward",
+              students: [{ _id: "st-1", name: "Alice Wanjiku" }],
+              supervisor: { _id: "sup-1", name: "Dr. A. Njeri", role: "Consultant" },
+            },
+          },
+        },
+      },
+      groupB: {
+        posting: "Clinic rotation",
+        duration: 3,
+        totalNumberofUnitsPerStudent: 2,
+        units: {
+          week1: {
+            unit1: {
+              name: "Children's Ward",
+              unitId: "ped-1",
+              duration: 3,
+              postingType: "Ward",
+              students: [{ _id: "st-3", name: "Cynthia Mugo" }],
+              supervisor: { _id: "sup-2", name: "Dr. S. Mwangi", role: "Consultant" },
+            },
+          },
+        },
+      },
+    },
+    phase2: {
+      groupA: {
+        posting: "Labour ward",
+        duration: 3,
+        totalNumberofUnitsPerStudent: 2,
+        units: {
+          week1: {
+            unit1: {
+              name: "Labour Ward",
+              unitId: "og-2",
+              duration: 3,
+              postingType: "Labour",
+              students: [{ _id: "st-2", name: "Brian Oduor" }],
+              supervisor: { _id: "sup-1", name: "Dr. A. Njeri", role: "Consultant" },
+            },
+          },
+        },
+      },
+      groupB: {
+        posting: "Neonatal unit",
+        duration: 3,
+        totalNumberofUnitsPerStudent: 2,
+        units: {
+          week1: {
+            unit1: {
+              name: "Neonatal Unit",
+              unitId: "ped-2",
+              duration: 3,
+              postingType: "Neonatal",
+              students: [{ _id: "st-4", name: "Daniel Kiptoo" }],
+              supervisor: { _id: "sup-2", name: "Dr. S. Mwangi", role: "Consultant" },
+            },
+          },
+        },
+      },
+    },
+  },
+  rotationHistory: [
+    {
+      student: { _id: "st-1", name: "Alice Wanjiku" },
+      department: "Obstetrics & Gynaecology",
+      phase: "Phase 1",
+      blocks: [
+        { unit: "Ward Unit", weeks: "1-3", startDate: "2026-07-06T00:00:00.000Z", endDate: "2026-07-24T00:00:00.000Z", completed: false, unitId: "og-1", consultant: { _id: "sup-1", name: "Dr. A. Njeri", role: "Consultant" }, resident: { _id: "res-1", name: "Dr. M. Otieno", role: "Resident" } },
+      ],
+    },
+  ],
+};
+
 export default function ClinicalRotations() {
-  const { user } = useAuth();
+  const { user, year: currentYear } = useAuth();
   const [rotations, setRotations] = useState<Rotation[]>([]);
+  const [availableClasses, setAvailableClasses] = useState<Array<{ _id: string; name: string; academicYearId?: string }>>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [selectedClock, setSelectedClock] = useState<AcademicClockSummary | null>(null);
+  const [clockLoading, setClockLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -147,6 +342,71 @@ export default function ClinicalRotations() {
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
 
   const limit = 15;
+
+  useEffect(() => {
+    const loadClasses = async () => {
+      try {
+        const { data } = await api.get("/classes?limit=200");
+        const classList = Array.isArray(data) ? data : (data?.classes ?? data?.data ?? []);
+        const mappedClasses = (classList as Array<{ _id?: string; name?: string; academicYear?: string | { _id?: string } }> || [])
+          .filter((cls) => cls?._id)
+          .map((cls) => ({
+            _id: cls._id!,
+            name: cls.name ?? "Untitled class",
+            academicYearId: typeof cls.academicYear === "string" ? cls.academicYear : cls.academicYear?._id,
+          }));
+
+        setAvailableClasses(mappedClasses);
+        if (!selectedClassId && mappedClasses[0]?._id) {
+          setSelectedClassId(mappedClasses[0]._id);
+        }
+      } catch (error) {
+        console.error("Failed to load classes", error);
+      }
+    };
+
+    loadClasses();
+  }, []);
+
+  useEffect(() => {
+    const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId);
+    const academicYearId = selectedClass?.academicYearId;
+
+    if (!selectedClassId || !academicYearId) {
+      setSelectedClock(null);
+      return;
+    }
+
+    let isActive = true;
+
+    const loadClock = async () => {
+      setClockLoading(true);
+      try {
+        const { data } = await api.get(`/academic-clocks?academicYearId=${academicYearId}&classId=${selectedClassId}`);
+        const clocks = Array.isArray(data) ? data : (data?.data ?? data?.clocks ?? data?.academicClocks ?? []);
+        const clock = Array.isArray(clocks) ? clocks[0] ?? null : null;
+
+        if (isActive) {
+          setSelectedClock(clock as AcademicClockSummary | null);
+        }
+      } catch (error) {
+        console.error("Failed to load academic clock", error);
+        if (isActive) {
+          setSelectedClock(null);
+        }
+      } finally {
+        if (isActive) {
+          setClockLoading(false);
+        }
+      }
+    };
+
+    loadClock();
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedClassId, currentYear?._id]);
 
   const fetchRotations = useCallback(async () => {
     try {
@@ -183,109 +443,118 @@ export default function ClinicalRotations() {
     }
   }, [page, search, statusFilter, typeFilter, user]);
 
-  useEffect(() => {
-    void fetchRotations();
-  }, [fetchRotations]);
+  // Disabled initial data fetch on page load.
+  // useEffect(() => {
+  //   void fetchRotations();
+  // }, [fetchRotations]);
 
-  // Clear selection when rotations are reloaded
-  useEffect(() => {
-    setSelectedRotationIds(new Set());
-  }, [search, statusFilter, typeFilter]);
+  // Disabled selection-reset effect on page load.
+  // useEffect(() => {
+  //   setSelectedRotationIds(new Set());
+  // }, [search, statusFilter, typeFilter]);
 
-  // For students, also load generated schedule postings so we can display Active/Upcoming postings
-  useEffect(() => {
-    if (user?.role !== "student") return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setPostingsLoading(true);
-        // load recent schedules (global) as a fallback
-        const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 50 } });
-        const schedules = (data.schedules as RotationSchedule[]) || [];
-        // flatten postings from schedules, keep unique by name
-        const map = new Map<string, PostingEntry>();
-        for (const s of schedules) {
-          for (const p of s.postings || []) {
-            if (!p || !p.name) continue;
-            if (!map.has(p.name)) map.set(p.name, p);
-          }
-        }
-        if (!cancelled) setSchedulePostings(Array.from(map.values()));
-      } catch (e: unknown) {
-        console.error('Failed to load schedule postings', e);
-      } finally {
-        if (!cancelled) setPostingsLoading(false);
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [user]);
+  // Disabled generated schedule postings load on page load.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   const load = async () => {
+  //     try {
+  //       setPostingsLoading(true);
+  //       // load recent schedules (global) as a fallback
+  //       const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 50 } });
+  //       const schedules = (data.schedules as RotationSchedule[]) || [];
+  //       // flatten postings from schedules, keep unique by name
+  //       const map = new Map<string, PostingEntry>();
+  //       for (const s of schedules) {
+  //         for (const p of s.postings || []) {
+  //           if (!p || !p.name) continue;
+  //           if (!map.has(p.name)) map.set(p.name, p);
+  //         }
+  //       }
+  //       if (!cancelled) setSchedulePostings(Array.from(map.values()));
+  //     } catch (e: unknown) {
+  //       console.error('Failed to load schedule postings', e);
+  //     } finally {
+  //       if (!cancelled) setPostingsLoading(false);
+  //     }
+  //   };
+  //   void load();
+  //   return () => { cancelled = true; };
+  // }, [user]);
 
-  // Load saved rotation schedules for selector (admins/teachers/students can view)
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        setSchedulesLoading(true);
-        const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 200 } });
-        if (cancelled) return;
-        setSavedSchedules(data.schedules || []);
-      } catch (e) {
-        console.error('Failed to load saved schedules', e);
-        setSavedSchedules([]);
-      } finally {
-        if (!cancelled) setSchedulesLoading(false);
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, []);
+  // Disabled saved schedules load on page load.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   const load = async () => {
+  //     try {
+  //       setSchedulesLoading(true);
+  //       const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 200 } });
+  //       if (cancelled) return;
+  //       setSavedSchedules(data.schedules || []);
+  //     } catch (e) {
+  //       console.error('Failed to load saved schedules', e);
+  //       setSavedSchedules([]);
+  //     } finally {
+  //       if (!cancelled) setSchedulesLoading(false);
+  //     }
+  //   };
+  //   void load();
+  //   return () => { cancelled = true; };
+  // }, []);
 
   // For students, also load schedules scoped to their class(es) to show class schedule card
   const [classPostings, setClassPostings] = useState<PostingEntry[]>([]);
   const [selectedPostingSchedule, setSelectedPostingSchedule] = useState<any | null>(null);
+  const [selectedPostingId, setSelectedPostingId] = useState<string>("");
+  const [selectedSixthPostingId, setSelectedSixthPostingId] = useState<string>("");
+  const [selectedFourthPostingId, setSelectedFourthPostingId] = useState<string>("");
+  const [showPostingGenerateDialog, setShowPostingGenerateDialog] = useState(false);
+  const [postingGenerateLevel, setPostingGenerateLevel] = useState<string>("");
+  const [postingGenerateName, setPostingGenerateName] = useState<string>("");
+  const [postingGenerateStartDate, setPostingGenerateStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
   const scheduleRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (user?.role !== "student") return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        // attempt to derive class ids from user object; fallback to fetching profile if missing
-        let rawStudentClasses = (user as any)?.studentClasses ?? (user as any)?.studentClass ?? [];
-        if ((!rawStudentClasses || (Array.isArray(rawStudentClasses) && rawStudentClasses.length === 0)) ) {
-          try {
-            const { data: profileData } = await api.get('/users/profile');
-            rawStudentClasses = profileData.user?.studentClasses ?? profileData.user?.studentClass ?? rawStudentClasses;
-          } catch (pfErr) {
-            // ignore profile fetch errors and continue with whatever we have
-          }
-        }
-        const classIds = Array.isArray(rawStudentClasses)
-          ? rawStudentClasses.map((c: any) => (typeof c === 'string' ? c : c._id))
-          : rawStudentClasses
-            ? [ (typeof rawStudentClasses === 'string' ? rawStudentClasses : rawStudentClasses._id) ]
-            : [];
+  // Disabled student class schedule load on page load.
+  // useEffect(() => {
+  //   if (user?.role !== "student") return;
+  //   let cancelled = false;
+  //   const load = async () => {
+  //     try {
+  //       // attempt to derive class ids from user object; fallback to fetching profile if missing
+  //       let rawStudentClasses = (user as any)?.studentClasses ?? (user as any)?.studentClass ?? [];
+  //       if ((!rawStudentClasses || (Array.isArray(rawStudentClasses) && rawStudentClasses.length === 0)) ) {
+  //         try {
+  //           const { data: profileData } = await api.get('/users/profile');
+  //           rawStudentClasses = profileData.user?.studentClasses ?? profileData.user?.studentClass ?? rawStudentClasses;
+  //         } catch (pfErr) {
+  //           // ignore profile fetch errors and continue with whatever we have
+  //         }
+  //       }
+  //       const classIds = Array.isArray(rawStudentClasses)
+  //         ? rawStudentClasses.map((c: any) => (typeof c === 'string' ? c : c._id))
+  //         : rawStudentClasses
+  //           ? [ (typeof rawStudentClasses === 'string' ? rawStudentClasses : rawStudentClasses._id) ]
+  //           : [];
 
-        const params: any = { page: 1, limit: 50 };
-        if (classIds.length) params.classId = classIds[0];
+  //       const params: any = { page: 1, limit: 50 };
+  //       if (classIds.length) params.classId = classIds[0];
 
-        const { data } = await api.get('/rotation-schedules', { params });
-        const schedules = (data.schedules as RotationSchedule[]) || [];
-        const map = new Map<string, PostingEntry>();
-        for (const s of schedules) {
-          for (const p of s.postings || []) {
-            if (!p || !p.name) continue;
-            if (!map.has(p.name)) map.set(p.name, p);
-          }
-        }
-        if (!cancelled) setClassPostings(Array.from(map.values()));
-      } catch (e) {
-        console.error('Failed to load class schedule postings', e);
-      }
-    };
-    void load();
-    return () => { cancelled = true; };
-  }, [user]);
+  //       const { data } = await api.get('/rotation-schedules', { params });
+  //       const schedules = (data.schedules as RotationSchedule[]) || [];
+  //       const map = new Map<string, PostingEntry>();
+  //       for (const s of schedules) {
+  //         for (const p of s.postings || []) {
+  //           if (!p || !p.name) continue;
+  //           if (!map.has(p.name)) map.set(p.name, p);
+  //         }
+  //       }
+  //       if (!cancelled) setClassPostings(Array.from(map.values()));
+  //     } catch (e) {
+  //       console.error('Failed to load class schedule postings', e);
+  //     }
+  //   };
+  //   void load();
+  //   return () => { cancelled = true; };
+  // }, [user]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this clinical rotation?")) return;
@@ -405,7 +674,6 @@ export default function ClinicalRotations() {
 
   const selectedGenClass = genClasses.find((c) => c._id === genClassId);
   const className = selectedGenClass?.name?.trim().toLowerCase() ?? "";
-  const isFiveHundredLevelClass = className === '500 level' || className.includes('500 level') || genLevel === 500;
 
   const openGenerateDialog = async () => {
     setGenPostingScheduleType("");
@@ -420,6 +688,11 @@ export default function ClinicalRotations() {
     } catch (e: unknown) {
       console.error('Failed to load generation lists', e);
     }
+  };
+
+  const handlePostingGenerateSubmit = () => {
+    setShowPostingGenerateDialog(false);
+    toast.success('Posting generation form submitted');
   };
 
   const confirmGenerate = async () => {
@@ -657,11 +930,441 @@ export default function ClinicalRotations() {
     };
   };
 
+  const buildPostingCards = (postings: PostingEntry[]) => {
+    if (!postings || postings.length === 0) return null;
+
+    return (
+      <div className="space-y-4 py-4">
+        <h3 className="text-lg font-semibold">Clinical Posting Schedules</h3>
+        {postings.map((posting, index) => {
+          const groups = posting.groups || [];
+          const start = groups.reduce<string | null>((current, entry) => {
+            for (const assigned of entry.assigned || []) {
+              if (!current || new Date(assigned.startDate) < new Date(current)) return assigned.startDate;
+            }
+            return current;
+          }, null);
+          const end = groups.reduce<string | null>((current, entry) => {
+            for (const assigned of entry.assigned || []) {
+              if (!current || new Date(assigned.endDate) > new Date(current)) return assigned.endDate;
+            }
+            return current;
+          }, null);
+          return (
+            <div key={`${posting.name || 'clinical-posting'}-${index}`} className="border border-border bg-surface rounded-xl overflow-hidden">
+                <div className="py-4 px-5">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold">{posting.name || "Clinical Posting"}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {posting.name || "Clinical Posting"}
+                        {start && end ? ` · ${new Date(start).toLocaleDateString()} – ${new Date(end).toLocaleDateString()}` : ""}
+                      </p>
+                    </div>
+                    <Badge className="text-xs">{groups.length} Department Posting{groups.length !== 1 ? "s" : ""}</Badge>
+                  </div>
+                </div>
+                <div className="space-y-4 px-5 pb-5">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                  {groups.map((entry, groupIndex) => {
+                    const group = entry.group || {};
+                    const department = group.department || "General";
+                    const phase = group.phase || "Phase 1";
+                    const unit = group.name || `Unit ${groupIndex + 1}`;
+                    const students = Array.isArray(group.students) ? group.students : [];
+                    const assignedStart = entry.assigned?.[0]?.startDate ? new Date(entry.assigned[0].startDate).toLocaleDateString() : null;
+                    const assignedEnd = entry.assigned?.[entry.assigned.length - 1]?.endDate ? new Date(entry.assigned[entry.assigned.length - 1].endDate).toLocaleDateString() : null;
+                    const assignedRange = assignedStart && assignedEnd ? `${assignedStart} – ${assignedEnd}` : "TBA";
+                    return (
+                      <div key={`${posting.name || 'posting'}-group-${groupIndex}`} className="rounded-lg border border-border bg-card p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold">{department}</div>
+                            <p className="text-xs text-muted-foreground">Phase: {phase}</p>
+                            <p className="text-xs text-muted-foreground">Unit: {unit}</p>
+                          </div>
+                          <Badge className="text-xs">{students.length} student{students.length !== 1 ? "s" : ""}</Badge>
+                        </div>
+                        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                          <div>Rotation dates: {assignedRange}</div>
+                          <div>Supervisor: {group.supervisor?.name || group.supervisorName || "TBD"}</div>
+                        </div>
+                        {students.length > 0 && (
+                          <div className="mt-3 rounded-lg bg-background p-3 text-xs">
+                            <div className="font-medium">Assigned Students</div>
+                            <div className="mt-2 grid gap-2">
+                              {students.map((student: any) => (
+                                <div key={student?._id || student?.name || `${unit}-${groupIndex}`} className="rounded-md bg-slate-950/5 p-2">
+                                  <div>{student.name || student}</div>
+                                  {student.idNumber && <div className="text-[11px] text-muted-foreground">{student.idNumber}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                  </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const buildOgPedsJuniorPostingSchedule = () => ({
+    postingName: "500 Level O&G / Pediatrics Junior Posting Schedule",
+    postingType: "Junior",
+    durationWeeks: 16,
+    startDate: "2026-01-05T00:00:00.000Z",
+    endDate: "2026-04-27T00:00:00.000Z",
+    phases: ["Phase 1", "Phase 2"],
+    departments: [
+      {
+        department: "Obstetrics & Gynaecology",
+        departmentCode: "OG",
+        rotationDurationWeeks: 8,
+        activeUnits: [
+          { id: "og-1", name: "O&G Unit 1" },
+          { id: "og-2", name: "O&G Unit 2" },
+        ],
+        supervisors: [
+          {
+            unit: "O&G Unit 1",
+            consultant: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org", department: "OG" },
+            resident: { _id: "res-og-1", name: "Dr. M. Otieno", role: "Resident", department: "OG" },
+          },
+          {
+            unit: "O&G Unit 2",
+            consultant: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org", department: "OG" },
+            resident: { _id: "res-og-2", name: "Dr. K. Muriuki", role: "Resident", department: "OG" },
+          },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        departmentCode: "PED",
+        rotationDurationWeeks: 8,
+        activeUnits: [
+          { id: "ped-1", name: "Pediatrics Unit 1" },
+          { id: "ped-2", name: "Pediatrics Unit 2" },
+          { id: "ped-3", name: "Pediatrics Unit 3" },
+          { id: "ped-4", name: "Pediatrics Unit 4" },
+        ],
+        supervisors: [
+          {
+            unit: "Pediatrics Unit 1",
+            consultant: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org", department: "PED" },
+            resident: { _id: "res-ped-1", name: "Dr. T. Kimani", role: "Resident", department: "PED" },
+          },
+          {
+            unit: "Pediatrics Unit 2",
+            consultant: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org", department: "PED" },
+            resident: { _id: "res-ped-2", name: "Dr. B. Ochieng", role: "Resident", department: "PED" },
+          },
+          {
+            unit: "Pediatrics Unit 3",
+            consultant: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org", department: "PED" },
+            resident: { _id: "res-ped-3", name: "Dr. D. Kariuki", role: "Resident", department: "PED" },
+          },
+          {
+            unit: "Pediatrics Unit 4",
+            consultant: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org", department: "PED" },
+            resident: { _id: "res-ped-4", name: "Dr. F. Omondi", role: "Resident", department: "PED" },
+          },
+        ],
+      },
+    ],
+    studentCategories: [
+      {
+        category: "Junior O&G",
+        studentCount: 12,
+        departmentPhase1: "Obstetrics & Gynaecology",
+        departmentPhase2: "Obstetrics & Gynaecology",
+        students: [
+          { _id: "st-og-1", name: "Alice Wanjiku" },
+          { _id: "st-og-2", name: "Brian Oduor" },
+          { _id: "st-og-3", name: "Cynthia Mugo" },
+          { _id: "st-og-4", name: "Daniel Kiptoo" },
+          { _id: "st-og-5", name: "Evelyn Achieng" },
+          { _id: "st-og-6", name: "Felix Omondi" },
+          { _id: "st-og-7", name: "Grace Njeri" },
+          { _id: "st-og-8", name: "Henry Kibet" },
+          { _id: "st-og-9", name: "Ivy Muthoni" },
+          { _id: "st-og-10", name: "John Waweru" },
+          { _id: "st-og-11", name: "Kevin Otieno" },
+          { _id: "st-og-12", name: "Lilian Mugo" },
+        ],
+      },
+      {
+        category: "Junior Pediatrics",
+        studentCount: 12,
+        departmentPhase1: "Paediatrics",
+        departmentPhase2: "Paediatrics",
+        students: [
+          { _id: "st-ped-1", name: "Moses Kariuki" },
+          { _id: "st-ped-2", name: "Nadia Akinyi" },
+          { _id: "st-ped-3", name: "Oscar Mutua" },
+          { _id: "st-ped-4", name: "Pamela Kilonzo" },
+          { _id: "st-ped-5", name: "Quincy Njoroge" },
+          { _id: "st-ped-6", name: "Ruth Muthoni" },
+          { _id: "st-ped-7", name: "Samuel Wambua" },
+          { _id: "st-ped-8", name: "Tina Kimani" },
+          { _id: "st-ped-9", name: "Ursula Owino" },
+          { _id: "st-ped-10", name: "Victor Ochieng" },
+          { _id: "st-ped-11", name: "Winnie Njeri" },
+          { _id: "st-ped-12", name: "Xavier Mugo" },
+        ],
+      },
+    ],
+    unitAssignments: [
+      {
+        department: "Obstetrics & Gynaecology",
+        phase: "Phase 1",
+        unit: "O&G Unit 1",
+        unitId: "og-1",
+        consultant: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
+        resident: { _id: "res-og-1", name: "Dr. M. Otieno", role: "Resident" },
+        students: [
+          { _id: "st-og-1", name: "Alice Wanjiku" },
+          { _id: "st-og-2", name: "Brian Oduor" },
+          { _id: "st-og-3", name: "Cynthia Mugo" },
+          { _id: "st-og-4", name: "Daniel Kiptoo" },
+        ],
+      },
+      {
+        department: "Obstetrics & Gynaecology",
+        phase: "Phase 1",
+        unit: "O&G Unit 2",
+        unitId: "og-2",
+        consultant: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
+        resident: { _id: "res-og-2", name: "Dr. K. Muriuki", role: "Resident" },
+        students: [
+          { _id: "st-og-5", name: "Evelyn Achieng" },
+          { _id: "st-og-6", name: "Felix Omondi" },
+          { _id: "st-og-7", name: "Grace Njeri" },
+          { _id: "st-og-8", name: "Henry Kibet" },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        phase: "Phase 1",
+        unit: "Pediatrics Unit 1",
+        unitId: "ped-1",
+        consultant: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org" },
+        resident: { _id: "res-ped-1", name: "Dr. T. Kimani", role: "Resident" },
+        students: [
+          { _id: "st-ped-1", name: "Moses Kariuki" },
+          { _id: "st-ped-2", name: "Nadia Akinyi" },
+          { _id: "st-ped-3", name: "Oscar Mutua" },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        phase: "Phase 1",
+        unit: "Pediatrics Unit 2",
+        unitId: "ped-2",
+        consultant: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org" },
+        resident: { _id: "res-ped-2", name: "Dr. B. Ochieng", role: "Resident" },
+        students: [
+          { _id: "st-ped-4", name: "Pamela Kilonzo" },
+          { _id: "st-ped-5", name: "Quincy Njoroge" },
+          { _id: "st-ped-6", name: "Ruth Muthoni" },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        phase: "Phase 2",
+        unit: "Pediatrics Unit 3",
+        unitId: "ped-3",
+        consultant: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org" },
+        resident: { _id: "res-ped-3", name: "Dr. D. Kariuki", role: "Resident" },
+        students: [
+          { _id: "st-ped-7", name: "Samuel Wambua" },
+          { _id: "st-ped-8", name: "Tina Kimani" },
+          { _id: "st-ped-9", name: "Ursula Owino" },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        phase: "Phase 2",
+        unit: "Pediatrics Unit 4",
+        unitId: "ped-4",
+        consultant: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org" },
+        resident: { _id: "res-ped-4", name: "Dr. F. Omondi", role: "Resident" },
+        students: [
+          { _id: "st-ped-10", name: "Victor Ochieng" },
+          { _id: "st-ped-11", name: "Winnie Njeri" },
+          { _id: "st-ped-12", name: "Xavier Mugo" },
+        ],
+      },
+    ],
+    nestedSchedule: {
+      phase1: {
+        groupA: {
+          posting: "O&G",
+          duration: 8,
+          totalNumberofUnitsPerStudent: 2,
+          units: {
+            unit1: {
+              OandG_Unit_1: {
+                name: "O&G Unit 1",
+                unitId: "og-1",
+                duration: 4,
+                postingType: "O&G",
+                students: [
+                  { _id: "st-og-1", name: "Alice Wanjiku" },
+                  { _id: "st-og-2", name: "Brian Oduor" },
+                  { _id: "st-og-3", name: "Cynthia Mugo" },
+                  { _id: "st-og-4", name: "Daniel Kiptoo" },
+                ],
+                supervisor: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
+              },
+            },
+            unit2: {
+              OandG_Unit_2: {
+                name: "O&G Unit 2",
+                unitId: "og-2",
+                duration: 4,
+                postingType: "O&G",
+                students: [
+                  { _id: "st-og-5", name: "Evelyn Achieng" },
+                  { _id: "st-og-6", name: "Felix Omondi" },
+                  { _id: "st-og-7", name: "Grace Njeri" },
+                  { _id: "st-og-8", name: "Henry Kibet" },
+                ],
+                supervisor: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
+              },
+            },
+          },
+        },
+        groupB: {
+          posting: "Pediatrics",
+          duration: 8,
+          totalNumberofUnitsPerStudent: 4,
+          units: {
+            unit1: {
+              Pediatrics_Unit_1: {
+                name: "Pediatrics Unit 1",
+                unitId: "ped-1",
+                duration: 4,
+                postingType: "Pediatrics",
+                students: [
+                  { _id: "st-ped-1", name: "Moses Kariuki" },
+                  { _id: "st-ped-2", name: "Nadia Akinyi" },
+                  { _id: "st-ped-3", name: "Oscar Mutua" },
+                ],
+                supervisor: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org" },
+              },
+            },
+            unit2: {
+              Pediatrics_Unit_2: {
+                name: "Pediatrics Unit 2",
+                unitId: "ped-2",
+                duration: 4,
+                postingType: "Pediatrics",
+                students: [
+                  { _id: "st-ped-4", name: "Pamela Kilonzo" },
+                  { _id: "st-ped-5", name: "Quincy Njoroge" },
+                  { _id: "st-ped-6", name: "Ruth Muthoni" },
+                ],
+                supervisor: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org" },
+              },
+            },
+          },
+        },
+      },
+      phase2: {
+        groupA: {
+          posting: "Pediatrics",
+          duration: 8,
+          totalNumberofUnitsPerStudent: 4,
+          units: {
+            unit1: {
+              Pediatrics_Unit_3: {
+                name: "Pediatrics Unit 3",
+                unitId: "ped-3",
+                duration: 4,
+                postingType: "Pediatrics",
+                students: [
+                  { _id: "st-ped-7", name: "Samuel Wambua" },
+                  { _id: "st-ped-8", name: "Tina Kimani" },
+                  { _id: "st-ped-9", name: "Ursula Owino" },
+                ],
+                supervisor: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org" },
+              },
+            },
+            unit2: {
+              Pediatrics_Unit_4: {
+                name: "Pediatrics Unit 4",
+                unitId: "ped-4",
+                duration: 4,
+                postingType: "Pediatrics",
+                students: [
+                  { _id: "st-ped-10", name: "Victor Ochieng" },
+                  { _id: "st-ped-11", name: "Winnie Njeri" },
+                  { _id: "st-ped-12", name: "Xavier Mugo" },
+                ],
+                supervisor: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org" },
+              },
+            },
+          },
+        },
+        groupB: {
+          posting: "O&G",
+          duration: 8,
+          totalNumberofUnitsPerStudent: 2,
+          units: {
+            unit1: {
+              OandG_Unit_1: {
+                name: "O&G Unit 1",
+                unitId: "og-1",
+                duration: 4,
+                postingType: "O&G",
+                students: [
+                  { _id: "st-og-1", name: "Alice Wanjiku" },
+                  { _id: "st-og-2", name: "Brian Oduor" },
+                  { _id: "st-og-3", name: "Cynthia Mugo" },
+                  { _id: "st-og-4", name: "Daniel Kiptoo" },
+                ],
+                supervisor: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
+              },
+            },
+            unit2: {
+              OandG_Unit_2: {
+                name: "O&G Unit 2",
+                unitId: "og-2",
+                duration: 4,
+                postingType: "O&G",
+                students: [
+                  { _id: "st-og-5", name: "Evelyn Achieng" },
+                  { _id: "st-og-6", name: "Felix Omondi" },
+                  { _id: "st-og-7", name: "Grace Njeri" },
+                  { _id: "st-og-8", name: "Henry Kibet" },
+                ],
+                supervisor: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
+              },
+            },
+          },
+        },
+      },
+    },
+    rotationHistory: [],
+  });
+
   const transformRotationPlanToPostingSchedule = (plan: any): any => {
     if (!plan) return null;
     const posting = (plan.postings && plan.postings[0]) || null;
     const startDate = posting?.startDate || (plan.createdAt) || new Date().toISOString();
     const endDate = posting?.endDate || new Date().toISOString();
+    const normalizedNestedSchedule = plan?.phase1 || plan?.phase2
+      ? {
+          phase1: plan.phase1,
+          phase2: plan.phase2,
+        }
+      : null;
     const unitAssignments = (posting?.groups || []).map((g: any, i: number) => ({
       department: g.group?.department || 'General',
       phase: g.group?.phase || 'Phase 1',
@@ -692,6 +1395,7 @@ export default function ClinicalRotations() {
       departments: [],
       studentCategories,
       unitAssignments,
+      nestedSchedule: normalizedNestedSchedule,
       rotationHistory: [],
     };
   };
@@ -726,6 +1430,17 @@ export default function ClinicalRotations() {
     return !(end < now || start > nextMonth);
   });
   const upcomingPostings = postingViews.filter((r) => new Date(r.rotationStartDate) > nextMonth);
+
+  const uniqueSchedulePostings = (() => {
+    const map = new Map<string, PostingEntry>();
+    for (const posting of [...schedulePostings, ...classPostings]) {
+      const key = posting.name || `posting-${Math.random()}`;
+      if (!map.has(key)) map.set(key, posting);
+    }
+    return Array.from(map.values());
+  })();
+
+  const schedulePostingSection = buildPostingCards(uniqueSchedulePostings);
 
   // Component: render a student card with expandable list of rotations
   function StudentGroupCard({ g }: { g: { student: { _id?: string; name?: string; idNumber?: string }; rotations: Rotation[] } }) {
@@ -824,7 +1539,7 @@ export default function ClinicalRotations() {
     })();
 
     return (
-      <div className="border rounded-md p-4 bg-card">
+      <div className="border rounded-md p-4 bg-background">
         <div className="flex items-center justify-between">
           <div>
             <div className="font-medium">{student?.name || 'Unknown Student'}</div>
@@ -1017,110 +1732,111 @@ export default function ClinicalRotations() {
         <Skeleton key={i} className="h-12 w-full rounded-lg" />
       ))}
     </div>
-  ) : rotations.length === 0 ? (
-    <div className="py-12 text-center text-muted-foreground">
-      <Stethoscope className="h-8 w-8 mx-auto mb-3 opacity-50" />
-      <p className="text-sm font-medium">No rotations found</p>
-      <p className="text-xs mt-1">Create a new rotation to get started.</p>
-    </div>
   ) : (
-    <div className="overflow-x-auto">
-      {user?.role === "student" ? (
-        <div className="p-4">
-          <Card>
-            <CardContent>
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Class Rotation Schedule</h3>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <h4 className="text-sm font-medium">Active</h4>
-                    {activeClassPostings.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No active rotations for your class.</p>
-                    ) : (
-                      <div className="space-y-3 mt-2">
-                        {activeClassPostings.map((rot) => (
-                          <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
-                            <div>
-                              <p className="font-medium">{rot.rotationName}</p>
-                              <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
-                              <p className="text-xs text-muted-foreground">Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
-                              <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
-                                <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+    <div className="space-y-6">
+      {schedulePostingSection}
 
-                  <div>
-                    <h4 className="text-sm font-medium">Upcoming</h4>
-                    {upcomingClassPostings.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No upcoming rotations for your class.</p>
-                    ) : (
-                      <div className="space-y-3 mt-2">
-                        {upcomingClassPostings.map((rot) => (
-                          <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
-                            <div>
-                              <p className="font-medium">{rot.rotationName}</p>
-                              <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
-                              <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
-                                <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+      {rotations.length === 0 ? (
+        schedulePostingSection ? null : (
+          <div className="py-12 text-center text-muted-foreground">
+            <Stethoscope className="h-8 w-8 mx-auto mb-3 opacity-50" />
+            <p className="text-sm font-medium">No rotations found</p>
+            <p className="text-xs mt-1">Create a new rotation to get started.</p>
+          </div>
+        )
+      ) : user?.role === "student" ? (
+        <div className="overflow-x-auto">
+          <div className="p-4 border rounded-md bg-surface">
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Class Rotation Schedule</h3>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="text-sm font-medium">Active</h4>
+                      {activeClassPostings.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No active rotations for your class.</p>
+                      ) : (
+                        <div className="space-y-3 mt-2">
+                          {activeClassPostings.map((rot) => (
+                            <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                              <div>
+                                <p className="font-medium">{rot.rotationName}</p>
+                                <p className="text-xs text-muted-foreground">{format(new Date(rot.rotationStartDate), 'MMM d')} – {format(new Date(rot.rotationEndDate), 'MMM d')}</p>
+                                <p className="text-xs text-muted-foreground">Supervisor: {rot.rotationSupervisor?.name ?? '—'}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <Badge className={`text-xs capitalize ${STATUS_COLORS['active']}`}>active</Badge>
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                                  <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 className="text-sm font-medium">Upcoming</h4>
+                      {upcomingClassPostings.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No upcoming rotations for your class.</p>
+                      ) : (
+                        <div className="space-y-3 mt-2">
+                          {upcomingClassPostings.map((rot) => (
+                            <div key={rot._id} className="border rounded-md p-3 flex items-start justify-between">
+                              <div>
+                                <p className="font-medium">{rot.rotationName}</p>
+                                <p className="text-xs text-muted-foreground">Starts {format(new Date(rot.rotationStartDate), 'MMM d, yyyy')}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <Badge className={`text-xs capitalize ${STATUS_COLORS['upcoming']}`}>upcoming</Badge>
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => openGroupsForRotation(rot)}>Groups</Button>
+                                  <Button size="sm" onClick={() => navigate(`/rotation-schedules?query=${encodeURIComponent(rot.rotationName)}`)}>View</Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-          ) : (
-            // Group rotations by student for non-student users
-            <div className="space-y-4">
-              {selectedRotationIds.size > 0 && isAdmin && (
-                <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                  <div className="text-sm font-medium">
-                    {selectedRotationIds.size} rotation{selectedRotationIds.size !== 1 ? 's' : ''} selected
-                  </div>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setShowDeleteConfirm(true)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete Selected
-                  </Button>
-                </div>
-              )}
-
-              {/* Build grouping */}
-              {(() => {
-                const groups = new Map<string, { student: { _id?: string; name?: string; idNumber?: string }; rotations: Rotation[] }>();
-                for (const r of rotations) {
-                  const sid = r.student?._id || 'unknown';
-                  if (!groups.has(sid)) groups.set(sid, { student: { _id: r.student?._id, name: r.student?.name, idNumber: r.student?.idNumber }, rotations: [] });
-                  groups.get(sid)!.rotations.push(r);
-                }
-                const entries = Array.from(groups.entries());
-                return entries.map(([sid, g]) => (
-                  <StudentGroupCard key={sid} g={g} />
-                ));
-              })()}
+          </div>
+      ) : (
+        <div className="space-y-4">
+          {selectedRotationIds.size > 0 && isAdmin && (
+            <div className="mb-4 flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div className="text-sm font-medium">
+                {selectedRotationIds.size} rotation{selectedRotationIds.size !== 1 ? 's' : ''} selected
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Selected
+              </Button>
             </div>
           )}
+
+          {/* Build grouping */}
+          {(() => {
+            const groups = new Map<string, { student: { _id?: string; name?: string; idNumber?: string }; rotations: Rotation[] }>();
+            for (const r of rotations) {
+              const sid = r.student?._id || 'unknown';
+              if (!groups.has(sid)) groups.set(sid, { student: { _id: r.student?._id, name: r.student?.name, idNumber: r.student?.idNumber }, rotations: [] });
+              groups.get(sid)!.rotations.push(r);
+            }
+            const entries = Array.from(groups.entries());
+            return entries.map(([sid, g]) => (
+              <StudentGroupCard key={sid} g={g} />
+            ));
+          })()}
+        </div>
+      )}
     </div>
   );
 
@@ -1143,457 +1859,339 @@ export default function ClinicalRotations() {
 
   // handleSignup is intentionally not used; prefer using signup dialog flows.
 
+  const displayName = user?.name ?? (user as any)?.firstName ?? "User";
+  const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId) ?? null;
+  const selectedClassPhasePlan = selectedClock?.classLevel
+    ? getClassLevelPhasePlan(selectedClock.classLevel)
+    : [];
+
+  const getPostingOptionsForLevel = (level: string) => {
+    if (selectedClock?.classLevel === level && selectedClock.phaseConfig) {
+      return Object.entries(selectedClock.phaseConfig)
+        .filter(([_, config]) => !!config?.name)
+        .map(([id, config]) => ({
+          id,
+          label: `${config?.name ?? id}${config?.postingType ? ` (${config.postingType})` : ""}`.trim(),
+        }));
+    }
+    return getClassLevelPhasePlan(level).map((phase) => ({
+      id: phase.id,
+      label: phase.name,
+    }));
+  };
+
+  useEffect(() => {
+    const sixthOptions = getPostingOptionsForLevel("sixth");
+    const fourthOptions = getPostingOptionsForLevel("fourth");
+    if (!selectedSixthPostingId && sixthOptions.length) setSelectedSixthPostingId(sixthOptions[0].id);
+    if (!selectedFourthPostingId && fourthOptions.length) setSelectedFourthPostingId(fourthOptions[0].id);
+  }, [selectedClock, selectedSixthPostingId, selectedFourthPostingId]);
+
+  const postingOptions = selectedClock?.phaseConfig
+    ? Object.entries(selectedClock.phaseConfig)
+      .filter(([_, config]) => !!config?.name)
+      .map(([id, config]) => ({
+        id,
+        label: `${config?.name ?? id}${config?.postingType ? ` (${config.postingType})` : ""}`.trim(),
+      }))
+    : selectedClassPhasePlan.map((phase) => ({
+      id: phase.id,
+      label: phase.name,
+    })) ?? [];
+  const isFiveHundredLevelClass = selectedClass?.name?.toLowerCase().includes("500") || selectedClass?.name?.toLowerCase().includes("fifth") || selectedClock?.classLevel === "fifth";
+  const selectedPostingOption = postingOptions.find((option) => option.id === selectedPostingId) ?? null;
+  const selectedPostingOptionId = selectedPostingOption?.id ?? "";
+  const selectedPostingOptionLabel = selectedPostingOption?.label ?? "";
+  const selectedSixthPostingOption = getPostingOptionsForLevel("sixth").find((option) => option.id === selectedSixthPostingId) ?? null;
+  const selectedFourthPostingOption = getPostingOptionsForLevel("fourth").find((option) => option.id === selectedFourthPostingId) ?? null;
+  const selectedGeneratePostingOption = postingGenerateLevel === "sixth"
+    ? selectedSixthPostingOption
+    : postingGenerateLevel === "fourth"
+      ? selectedFourthPostingOption
+      : selectedPostingOption;
+  const isOgPedsJuniorPosting = isFiveHundredLevelClass && Boolean(selectedPostingOption) && (
+    selectedPostingOptionLabel.toLowerCase().includes("pediatrics") ||
+    selectedPostingOptionLabel.toLowerCase().includes("og") ||
+    selectedPostingOptionLabel.toLowerCase().includes("junior") ||
+    selectedPostingId === "phase1"
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const shouldLoadPreviewSchedule = Boolean(selectedClassId) && isFiveHundredLevelClass && isOgPedsJuniorPosting && Boolean(selectedPostingOption);
+
+    if (!shouldLoadPreviewSchedule) {
+      return;
+    }
+
+    if (!cancelled) {
+      setSelectedPostingSchedule(buildOgPedsJuniorPostingSchedule());
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClassId, isFiveHundredLevelClass, isOgPedsJuniorPosting, selectedPostingId, selectedPostingOptionId, selectedPostingOptionLabel]);
+
+  useEffect(() => {
+    if (!postingOptions.length) {
+      setSelectedPostingId("");
+      return;
+    }
+    if (!selectedPostingId || !postingOptions.some((option) => option.id === selectedPostingId)) {
+      setSelectedPostingId(postingOptions[0].id);
+    }
+  }, [postingOptions, selectedPostingId]);
+
+  useEffect(() => {
+    if (!isFiveHundredLevelClass) {
+      return;
+    }
+
+    if (isOgPedsJuniorPosting) {
+      return;
+    }
+
+    if (selectedPostingId === "phase1") {
+      setSelectedPostingSchedule(samplePostingSchedule);
+    }
+  }, [isFiveHundredLevelClass, isOgPedsJuniorPosting, selectedPostingId]);
+
+  const currentClockPhase = selectedClock
+    ? selectedClock.clockPhase ?? (selectedClock.clockStartDate && selectedClassPhasePlan.length > 0
+      ? getClockPhaseId(new Date(selectedClock.clockStartDate), new Date(), selectedClassPhasePlan)
+      : null)
+    : null;
+  const currentPhaseConfig = selectedClock?.phaseConfig?.[currentClockPhase ?? ""] ?? null;
+  const currentPhaseDefinition = currentClockPhase
+    ? selectedClassPhasePlan.find((phase) => phase.id === currentClockPhase) ?? null
+    : null;
+  const currentPostingTitle = currentPhaseConfig?.name ?? currentPhaseDefinition?.name ?? (currentClockPhase ? `Phase ${currentClockPhase.replace("phase", "")}` : "Demo posting");
+  const currentPhaseDuration = currentPhaseConfig?.duration ?? currentPhaseDefinition?.durationMonths ?? 0;
+  const postingComponents = currentPhaseDefinition?.subPostings ?? [];
+  const currentPostingSubtitle = currentPhaseConfig?.postingType ?? currentPhaseDefinition?.subPostings?.join(", ") ?? "Clinical posting";
+  const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "Demo phase";
+  const activePostingSchedule = {
+    ...samplePostingSchedule,
+    postingName: currentPostingTitle,
+    postingType: currentPostingSubtitle,
+    durationWeeks: currentPhaseDuration ? currentPhaseDuration * 4 : samplePostingSchedule.durationWeeks,
+    phases: [currentPhaseLabel],
+  };
+
+  // Determine which levels exist in the available classes list and which level the selected class belongs to.
+  const levelTokens = {
+    fifth: ["500", "fifth"],
+    sixth: ["600", "sixth"],
+    fourth: ["400", "fourth"],
+  } as const;
+  const availableLevels = {
+    fifth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fifth.some((t) => c.name.toLowerCase().includes(t))),
+    sixth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.sixth.some((t) => c.name.toLowerCase().includes(t))),
+    fourth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fourth.some((t) => c.name.toLowerCase().includes(t))),
+  };
+  const detectLevelFromName = (name?: string | null) => {
+    if (!name) return null;
+    const n = name.toLowerCase();
+    if (levelTokens.fifth.some((t) => n.includes(t))) return "fifth";
+    if (levelTokens.sixth.some((t) => n.includes(t))) return "sixth";
+    if (levelTokens.fourth.some((t) => n.includes(t))) return "fourth";
+    return null;
+  };
+  const currentSelectedLevel = detectLevelFromName(selectedClass?.name) ?? selectedClock?.classLevel ?? null;
+  const allLevels: Array<{ level: string; title: string }> = [
+    { level: "fifth", title: "500 Level" },
+    { level: "sixth", title: "600 Level" },
+    { level: "fourth", title: "400 Level" },
+  ];
+  const visibleLevels = allLevels.filter((l) => availableLevels[l.level as keyof typeof availableLevels] && currentSelectedLevel === l.level);
+  const gridColsClass = visibleLevels.length === 1 ? "md:grid-cols-1" : visibleLevels.length === 2 ? "md:grid-cols-2" : "xl:grid-cols-3";
+
   return (
-    <div id="page-clinical-rotations" className="space-y-6 ml-8 mt-10">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Clinical Rotations</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Manage student clinical rotation schedules and records.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {user?.role === "student" && (
-            <Button variant="ghost" onClick={() => setShowAvailableDialog(true)} className="ml-0">
-              Browse Available Postings
-            </Button>
-          )}
-          <div className="flex items-center">
-            <Select onValueChange={(v) => { if (v && v !== 'none') openSavedSchedule(v); }}>
-              <SelectTrigger className="w-56">
-                <SelectValue placeholder={schedulesLoading ? 'Loading schedules…' : 'Select schedule to view'} />
-              </SelectTrigger>
-              <SelectContent>
-                {savedSchedules.length === 0 ? (
-                  <SelectItem value="none" disabled>No saved schedules</SelectItem>
-                ) : (
-                  savedSchedules.map((s) => (
-                    <SelectItem key={s._id} value={s._id}>{s.name || `${s._id}`}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button variant="outline" onClick={() => fetchRotations()} disabled={loading} className="ml-0">
-            <RefreshCw className="h-4 w-4 mr-2" /> Refresh
-          </Button>
-          {canGenerateSchedule && (
-            <Button variant="outline" onClick={() => openGenerateDialog()} className="ml-2">
-              <CalendarDays className="h-4 w-4 mr-2" />
-              Generate Schedule
-            </Button>
-          )}
-          <Button variant="secondary" onClick={() => navigate('/rotation-schedules')} className="ml-2">
-            View Schedules
-          </Button>
-          {/* Manual creation of clinical postings removed; use Generated Schedules */}
-        </div>
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <Search
-                value={search}
-                onChange={setSearch}
-                placeholder="Search rotations..."
-                className="w-full"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as RotationStatus | "all")}>
-              <SelectTrigger className="w-full sm:w-40">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="upcoming">Upcoming</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as RotationType | "all")}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {ROTATION_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Groups Modal (for postings) */}
-      <Dialog open={showGroupsModal} onOpenChange={(v) => !v && setShowGroupsModal(false)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Groups</DialogTitle>
-            <DialogDescription>View groupings and students for this posting.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {groupsLoading ? (
-              <div>Loading...</div>
-            ) : !groupsForRotation || groupsForRotation.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No groups found for this posting.</div>
-            ) : (
-              <div className="space-y-3">
-                {groupsForRotation.map((pg) => {
-                  const group = pg.group;
-                  const assigned = pg.assigned;
-                  return (
-                    <Card key={group?._id || pg.groupId}>
-                      <CardContent>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="font-medium">{group?.name || 'Group'}</div>
-                            <div className="text-xs text-muted-foreground">Students: {(group?.students || []).length || 0}</div>
-                            <div className="text-xs text-muted-foreground">Supervisor: {group?.supervisorName || group?.supervisor?.name || '—'}</div>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            Duration: {assigned && assigned.length ? `${new Date(assigned[0].startDate).toLocaleDateString()} — ${new Date(assigned[assigned.length-1].endDate).toLocaleDateString()}` : 'TBA'}
-                          </div>
-                        </div>
-                        <div className="mt-3">
-                          <div className="font-medium mb-2">Students</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {(group?.students || []).map((s) => (
-                              <div key={s._id} className="p-2 border rounded">
-                                <div className="font-medium">{s.name}</div>
-                                <div className="text-xs text-muted-foreground">{s.idNumber || '—'}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGroupsModal(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Available Postings Dialog (students) */}
-      <Dialog open={showAvailableDialog} onOpenChange={(v) => { if (v) fetchAvailable(); else setAvailableRotations([]); setShowAvailableDialog(v); }}>
-        <DialogContent className="w-[95vw] sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Available Clinical Postings</DialogTitle>
-            <DialogDescription>Search and sign up for active clinical postings.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Input className="w-full" placeholder="Search postings..." value={availableSearch} onChange={(e) => setAvailableSearch(e.target.value)} />
-              <Button className="w-full sm:w-auto" onClick={() => fetchAvailable(availableSearch)}>Search</Button>
-            </div>
-
-            <div className="max-h-96 overflow-y-auto">
-              {availableLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-10" />
-                  <Skeleton className="h-10" />
-                </div>
-              ) : availableRotations.length === 0 ? (
-                <div className="text-center text-muted-foreground py-6">No active postings found.</div>
-              ) : (
-                <>
-                  {/* Table for medium+ screens */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Rotation</TableHead>
-                          <TableHead>Unit</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Supervisor</TableHead>
-                          <TableHead className="text-right">Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                                      <TableBody>
-                                        {availableRotations.map((r) => (
-                          <TableRow key={r._id}>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium text-sm truncate">{r.rotationName}</p>
-                                <p className="text-xs text-muted-foreground truncate">{r.rotationDescription}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">{r.rotationUnit}</TableCell>
-                            <TableCell className="whitespace-nowrap"><Badge className="text-xs capitalize">{r.rotationType}</Badge></TableCell>
-                            <TableCell className="whitespace-nowrap">{r.rotationSupervisor?.name ?? "—"}</TableCell>
-                            <TableCell className="text-right">
-                              {((r.students && r.students.some((s) => s._id === user?._id)) || r.student?._id === user?._id) ? (
-                                <Button size="sm" variant="outline" disabled>Signed</Button>
-                              ) : (
-                                <Button size="sm" onClick={() => openSignupDialog(r)}>Sign up</Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-
-                  {/* Stacked cards for small screens */}
-                  <div className="space-y-3 md:hidden">
-                          {availableRotations.map((r) => (
-                      <Card key={r._id}>
-                        <CardContent className="flex flex-col sm:flex-row sm:items-center gap-2">
-                          <div className="flex-1">
-                            <p className="font-medium">{r.rotationName}</p>
-                            <p className="text-xs text-muted-foreground truncate">{r.rotationDescription}</p>
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                              <Badge className="text-xs">{r.rotationUnit}</Badge>
-                              <Badge className="text-xs capitalize">{r.rotationType}</Badge>
-                            </div>
-                          </div>
-                            <div className="flex items-center gap-2">
-                              {((r.students && r.students.some((s) => s._id === user?._id)) || r.student?._id === user?._id) ? (
-                                <Button size="sm" variant="outline" disabled>Signed</Button>
-                              ) : (
-                                <Button size="sm" onClick={() => openSignupDialog(r)}>Sign up</Button>
-                              )}
-                            </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAvailableDialog(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {/* Signup Dialog for students to choose supervisor */}
-      <Dialog open={showSignupDialog} onOpenChange={(v) => !v && setShowSignupDialog(false)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Sign up for rotation</DialogTitle>
-            <DialogDescription>Choose the unit supervisor to assign for this signup.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
+    <div id="page-clinical-rotations" className="w-full max-w-full px-6 py-10">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <div className="rounded-2xl border border-border bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-8 text-white shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <label className="text-xs font-medium mb-1 block">Rotation</label>
-              <div className="text-sm">{signupRotation?.rotationName}</div>
+              <p className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-sm">Clinicals dashboard</p>
+              <h1 className="text-3xl font-semibold">Welcome {displayName} to the Clinicals Dashboard</h1>
+              <p className="mt-3 max-w-2xl text-sm text-slate-200">
+                A central place for clinical utilities, including rotation schedules, postings, and student workflow tools.
+              </p>
             </div>
-
-            <div>
-              <label className="text-xs font-medium mb-1 block">Posting status</label>
-              <div className="flex items-center gap-2">
-                <Badge
-                  className={`text-xs capitalize ${STATUS_COLORS[(signupRotation?.rotationStatus ?? "upcoming") as RotationStatus]}`}
-                >
-                  {signupRotation?.rotationStatus ?? "upcoming"}
-                </Badge>
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-medium mb-1 block">Select Supervisor</label>
-              <Select value={selectedSupervisor} onValueChange={(v) => setSelectedSupervisor(v)}>
-                <SelectTrigger><SelectValue placeholder="Select supervisor" /></SelectTrigger>
-                <SelectContent>
-                  {supervisors.map((s) => (
-                    <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSignupDialog(false)}>Cancel</Button>
-            <Button onClick={confirmSignup}>Confirm Signup</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Generate Schedule Dialog (admin/teacher) */}
-      <Dialog open={showGenerateDialog} onOpenChange={(v) => setShowGenerateDialog(v)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Generate Rotation Schedule</DialogTitle>
-            <DialogDescription>Choose academic year and class to generate schedules for.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs block mb-1">Academic Year</label>
-              <Select value={genAcademicYearId} onValueChange={(v) => setGenAcademicYearId(v)}>
-                <SelectTrigger><SelectValue placeholder="Select academic year" /></SelectTrigger>
-                <SelectContent>
-                  {genAcademicYears.map((y) => <SelectItem key={y._id} value={y._id}>{y.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs block mb-1">Class</label>
-              <Select value={genClassId} onValueChange={(v) => setGenClassId(v)}>
-                <SelectTrigger><SelectValue placeholder="Select class" /></SelectTrigger>
-                <SelectContent>
-                  {genClasses.map((c) => <SelectItem key={c._id} value={c._id}>{c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            {isFiveHundredLevelClass && (
-              <div>
-                <label className="text-xs block mb-1">Posting Schedule Type</label>
-                <Select value={genPostingScheduleType} onValueChange={(v) => setGenPostingScheduleType(v)}>
-                  <SelectTrigger><SelectValue placeholder="Select posting schedule" /></SelectTrigger>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="w-full sm:w-56">
+                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                  <SelectTrigger className="border-white/20 bg-white/10 text-white placeholder:text-slate-300">
+                    <SelectValue placeholder="Select class" />
+                  </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ogPedJunior">O&G/Pediatrics Junior Posting Schedule</SelectItem>
+                    {availableClasses.map((cls) => (
+                      <SelectItem key={cls._id} value={cls._id}>
+                        {cls.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-            <div>
-              <label className="text-xs block mb-1">Level</label>
-              <Select value={String(genLevel)} onValueChange={(v) => setGenLevel(Number(v))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="400">400</SelectItem>
-                  <SelectItem value="500">500</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs block mb-1">Start Date</label>
-              <Input type="date" value={genStartDate} onChange={(e) => setGenStartDate(e.target.value)} />
+              <div className="flex flex-wrap gap-3">
+                <Button variant="secondary" className="bg-white text-slate-900 hover:bg-slate-100">
+                  View postings
+                </Button>
+                <Button variant="outline" className="border-white/30 text-white hover:bg-white/10">
+                  Open schedule
+                </Button>
+              </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowGenerateDialog(false)}>Cancel</Button>
-            <Button onClick={confirmGenerate}>Start Generation</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Table */}
-      <Card>
-        <CardContent className="p-0">{rotationsContent}</CardContent>
-        {totalPages > 1 && (
-          <div className="border-t px-4 py-3">
-            <CustomPagination loading={loading} page={page} setPage={setPage} totalPages={totalPages} />
-          </div>
-        )}
-      </Card>
-
-      {/* Notes Modal */}
-      <Dialog open={showNotesModal} onOpenChange={(v) => !v && setShowNotesModal(false)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Notes — {selectedRotation?.rotationName}</DialogTitle>
-            <DialogDescription>View and add notes for this clinical rotation.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="max-h-60 overflow-y-auto bg-muted/50 rounded-lg p-3 text-sm text-muted-foreground whitespace-pre-wrap">
-              {selectedRotation?.rotationNotes || "No notes yet."}
-            </div>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Add a new note..."
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddNote()}
-              />
-              <Button onClick={handleAddNote}>Add</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Posting Schedule Display */}
-      <div ref={scheduleRef}>
-        {selectedPostingSchedule ? (
-          <Card>
-            <CardContent>
-              <PostingScheduleDisplay schedule={selectedPostingSchedule} />
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
-
-      {/* Delete Multiple Confirmation Dialog */}
-      <Dialog open={showDeleteConfirm} onOpenChange={(v) => !v && setShowDeleteConfirm(false)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete Rotations</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete {selectedRotationIds.size} rotation{selectedRotationIds.size !== 1 ? 's' : ''}? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteMultiple}>Delete</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete All Confirmation Dialog */}
-      <Dialog open={showDeleteAllConfirm} onOpenChange={(v) => !v && setShowDeleteAllConfirm(false)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete All Rotations</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete all {rotations.length} rotation{rotations.length !== 1 ? 's' : ''}? This action cannot be undone and will permanently remove all clinical rotation records.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteAllConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDeleteAll}>Delete All</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create / Edit Modal */}
-      <Dialog open={showForm} onOpenChange={(v) => !v && setShowForm(false)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingRotation ? "Edit Rotation" : "New Clinical Rotation"}</DialogTitle>
-            <DialogDescription>{editingRotation ? "Update the details of this clinical rotation." : "Fill in the details to create a new clinical rotation."}</DialogDescription>
-          </DialogHeader>
-          <RotationForm
-            rotation={editingRotation}
-            onSubmit={handleFormSubmit}
-            onClose={() => setShowForm(false)}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete All Button */}
-      {isAdmin && rotations.length > 0 && (
-        <div className="mt-8 pt-6 border-t">
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => setShowDeleteAllConfirm(true)}
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete All {rotations.length} Postings
-          </Button>
         </div>
-      )}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <p className="text-sm font-medium text-muted-foreground">Current posting</p>
+            {clockLoading ? (
+              <p className="mt-2 text-sm text-muted-foreground">Loading posting data…</p>
+            ) : (
+              <>
+                <h2 className="mt-2 text-xl font-semibold">{currentPostingTitle}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {selectedClass ? `${selectedClass.name} • ${currentPhaseLabel}` : "Select a class to view its current posting."}
+                </p>
+                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                  <p>Duration: {currentPhaseDuration} month{currentPhaseDuration === 1 ? "" : "s"}</p>
+                  {postingComponents.length > 0 && (
+                    <p>Components: {postingComponents.join(", ")}</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <p className="text-sm font-medium text-muted-foreground">Current phase</p>
+            <h2 className="mt-2 text-xl font-semibold">{selectedClass ? selectedClass.name : "No class selected"}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {selectedClock ? `${currentPhaseLabel} • ${currentPostingSubtitle}` : "Class clock data will appear here once the selected class has a clock configured."}
+            </p>
+          </div>
+        </div>
+
+        
+
+        <div className={`grid gap-4 ${visibleLevels.length ? gridColsClass : "md:grid-cols-1"}`}>
+          {visibleLevels.map(({ level, title }) => {
+            const options = getPostingOptionsForLevel(level);
+            const isCurrentLevel = selectedClock?.classLevel === level;
+            const selectedId = level === "fifth" ? selectedPostingId : level === "sixth" ? selectedSixthPostingId : selectedFourthPostingId;
+            const setSelectedId = level === "fifth" ? setSelectedPostingId : level === "sixth" ? setSelectedSixthPostingId : setSelectedFourthPostingId;
+            const selectedOption = level === "fifth" ? selectedPostingOption : level === "sixth" ? selectedSixthPostingOption : selectedFourthPostingOption;
+
+            return (
+              <div key={level} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-muted-foreground">{title} posting schedule</div>
+                    <h2 className="mt-2 text-xl font-semibold">{selectedOption?.label ?? `${title} posting`}</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {isCurrentLevel && selectedClass ? selectedClass.name : `Review ${title} posting options`}
+                    </p>
+                  </div>
+                  <Badge className="text-xs bg-secondary text-secondary-foreground">
+                    {selectedOption ? "Draft" : "Pending"}
+                  </Badge>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">
+                    <Select value={selectedId} onValueChange={setSelectedId} disabled={options.length === 0}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={options.length ? `Select ${title} posting` : "No postings available"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {options.map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    className="w-full md:w-auto"
+                    onClick={() => {
+                      setPostingGenerateLevel(level);
+                      setShowPostingGenerateDialog(true);
+                    }}
+                    disabled={options.length === 0 || !selectedId}
+                  >
+                    Generate posting
+                  </Button>
+                </div>
+
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {isCurrentLevel
+                    ? "Update this card directly for the selected class."
+                    : `Preview posting flow for ${title} classes.`}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+
+        {isOgPedsJuniorPosting ? (
+          <PostingScheduleDisplay schedule={selectedPostingSchedule ?? activePostingSchedule as any} validation={{ valid: true, errors: [] }} />
+        ) : null}
+
+        <Dialog open={showPostingGenerateDialog} onOpenChange={setShowPostingGenerateDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Generate Posting Schedule</DialogTitle>
+              <DialogDescription>
+                Enter the required details to generate the selected posting for the chosen class.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div>
+                <label className="text-xs font-medium mb-1 block">Posting Name</label>
+                <Input value={postingGenerateName} onChange={(e) => setPostingGenerateName(e.target.value)} placeholder="Enter posting name" />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Class</label>
+                <Input value={selectedClass?.name ?? ""} readOnly />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Posting Level</label>
+                <Input value={postingGenerateLevel === "fourth" ? "400 Level" : postingGenerateLevel ? `${postingGenerateLevel.toUpperCase()} Level` : "N/A"} readOnly />
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Selected Posting</label>
+                <Input value={selectedGeneratePostingOption?.label ?? ""} readOnly />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium mb-1 block">Start Date</label>
+                  <Input type="date" value={postingGenerateStartDate} onChange={(e) => setPostingGenerateStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-xs font-medium mb-1 block">End Date</label>
+                  <Input type="date" value={postingGenerateEndDate} onChange={(e) => setPostingGenerateEndDate(e.target.value)} />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPostingGenerateDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handlePostingGenerateSubmit}>
+                Submit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
-}
-
-// ── Rotation Form ─────────────────────────────────────────────────────────────
-
-interface RotationFormProps {
-  rotation: Rotation | null;
-  onSubmit: (payload: Record<string, unknown>) => void;
-  onClose: () => void;
 }
 
 function RotationForm({ rotation, onSubmit, onClose }: RotationFormProps) {

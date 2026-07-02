@@ -200,6 +200,9 @@
   --tracking-tight: calc(var(--tracking-normal) - 0.025em);
 }
 
+.user-card{
+  background-color: var(--card);
+}
 .user-card-action-row {
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -612,3 +615,7 @@ backdrop-filter: blur(25px);
 input.border.rounded-md {
         padding: 10px 30px 8px 30px !important;
     }
+
+    /* #mainCard {
+      display: none;
+    } */

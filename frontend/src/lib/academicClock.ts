@@ -89,6 +89,36 @@ export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinitio
       subPostings: ["Revision", "Final Exam"],
     },
   ],
+  sixth: [
+    {
+      id: "phase1",
+      name: "O&G / Peds Senior Posting",
+      durationMonths: 4,
+      color: "#3B82F6",
+      subPostings: ["O&G Senior", "Pediatrics Senior"],
+    },
+    {
+      id: "phase2",
+      name: "Specialty Senior Posting",
+      durationMonths: 6,
+      color: "#10B981",
+      subPostings: ["Psychiatry", "ENT", "Anesthesiology", "Radiology", "Ophthalmology", "Dermatology"],
+    },
+    {
+      id: "phase3",
+      name: "Emergency & Critical Care Posting",
+      durationMonths: 4,
+      color: "#8B5CF6",
+      subPostings: ["Emergency", "Critical Care"],
+    },
+    {
+      id: "phase4",
+      name: "Exam / Elective",
+      durationMonths: 2,
+      color: "#EF4444",
+      subPostings: ["Revision", "Final Exam"],
+    },
+  ],
   fourth: [
     {
       id: "phase1",
@@ -135,6 +165,10 @@ export const getClassLevelPhasePlan = (className?: string | null): AcademicClock
 
   if (normalized.includes("500") || normalized.includes("fifth")) {
     return CLASS_LEVEL_PHASE_PLANS.fifth;
+  }
+
+  if (normalized.includes("600") || normalized.includes("sixth")) {
+    return CLASS_LEVEL_PHASE_PLANS.sixth;
   }
 
   if (normalized.includes("400") || normalized.includes("fourth")) {

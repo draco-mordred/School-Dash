@@ -100,6 +100,37 @@ export interface PostingSchedule {
     }[];
   }[];
   rotationHistory: StudentHistoryRecord[];
+  nestedSchedule: {
+    phase1: {
+      groupA: NestedGroupSchedule;
+      groupB: NestedGroupSchedule;
+    };
+    phase2: {
+      groupA: NestedGroupSchedule;
+      groupB: NestedGroupSchedule;
+    };
+  };
+}
+
+export interface NestedUnitSchedule {
+  name: string;
+  unitId: string;
+  duration: number;
+  postingType: string;
+  students: ScheduleStudent[];
+  supervisor: SupervisorSummary;
+}
+
+export interface NestedGroupSchedule {
+  posting: string;
+  duration: number;
+  totalNumberofUnitsPerStudent: number;
+  units: Record<string, Record<string, NestedUnitSchedule>>;
+}
+
+export interface NestedPhaseSchedule {
+  groupA: NestedGroupSchedule;
+  groupB: NestedGroupSchedule;
 }
 
 type AssignmentRecord = {
@@ -293,6 +324,101 @@ const buildStudentHistoryForDepartment = (
       blocks: historyBlocks,
     },
   ];
+};
+
+const normalizeDepartmentPostingLabel = (departmentName: string): string => {
+  const normalized = String(departmentName).trim().toLowerCase();
+
+  if (normalized === "obg" || normalized === "obstetrics and gynecology" || normalized === "obstetricsandgynecology") {
+    return "O&G";
+  }
+
+  if (normalized === "pae" || normalized === "pediatrics") {
+    return "Pediatrics";
+  }
+
+  return departmentName;
+};
+
+const normalizeDepartmentKey = (departmentName: string): string => {
+  const normalized = String(departmentName).trim().toLowerCase();
+
+  if (normalized === "obg" || normalized === "obstetrics and gynecology" || normalized === "obstetricsandgynecology") {
+    return "OBG";
+  }
+
+  if (normalized === "pae" || normalized === "pediatrics" || normalized === "department of pediatrics") {
+    return "PAE";
+  }
+
+  return departmentName;
+};
+
+export const buildNestedPostingScheduleTemplate = (
+  assignments: AssignmentRecord[],
+  phaseName: string,
+  supervisors: { unitId: string; unitName: string; consultant: SupervisorSummary; resident: SupervisorSummary }[]
+): Record<string, NestedPhaseSchedule> => {
+  const phaseKey = phaseName.toLowerCase().replace(/\s+/g, "");
+  const groups = ["Group A", "Group B"] as const;
+
+  const groupedByPhaseAndGroup = groups.reduce<NestedPhaseSchedule>((acc, groupName) => {
+    const groupAssignments = assignments.filter((assignment) => assignment.groupName === groupName);
+    if (!groupAssignments.length) {
+      return acc;
+    }
+
+    const departmentName = groupAssignments[0]?.department ?? "";
+    const posting = normalizeDepartmentPostingLabel(departmentName);
+    const normalizedPosting = posting === "O&G" ? "OandG" : posting.replace(/[^a-zA-Z0-9]+/g, "");
+    const totalNumberofUnitsPerStudent = normalizeDepartmentKey(departmentName) === "OBG" ? 2 : 4;
+    const units: Record<string, Record<string, NestedUnitSchedule>> = {};
+
+    groupAssignments.forEach((assignment) => {
+      assignment.units.forEach((unit, unitIndex) => {
+        const unitSlotKey = `unit${unitIndex + 1}`;
+        const unitEntryKey = `${normalizedPosting}_Unit_${unitIndex + 1}`;
+        const matchingSupervisor = supervisors.find((supervisor) => supervisor.unitId === unit.id) ?? supervisors.find((supervisor) => supervisor.unitName === unit.name);
+        const supervisor = matchingSupervisor?.consultant ?? matchingSupervisor?.resident ?? buildSupervisorSummary(null);
+
+        const existingUnit = units[unitSlotKey]?.[unitEntryKey];
+        if (!existingUnit) {
+          units[unitSlotKey] = {
+            ...(units[unitSlotKey] ?? {}),
+            [unitEntryKey]: {
+              name: unit.name,
+              unitId: unit.id,
+              duration: departmentName === OBG_DEPARTMENT ? 4 : 2,
+              postingType: posting,
+              students: [],
+              supervisor,
+            },
+          };
+        }
+
+        const unitGroup = units[unitSlotKey];
+        if (!unitGroup?.[unitEntryKey]) {
+          return;
+        }
+
+        unitGroup[unitEntryKey].students.push(assignment.student);
+      });
+    });
+
+    const groupKey = groupName === "Group A" ? "groupA" : "groupB";
+    acc[groupKey] = {
+      posting,
+      duration: 2,
+      totalNumberofUnitsPerStudent,
+      units,
+    };
+
+    return acc;
+  }, {} as NestedPhaseSchedule);
+
+  return {
+    [phaseKey]: groupedByPhaseAndGroup,
+  };
 };
 
 const buildUnitTimeline = (
@@ -520,6 +646,19 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
 
   const rotationTeams = createRotationTeams(unitAssignments);
 
+  const nestedSchedule = {
+    phase1: buildNestedPostingScheduleTemplate(
+      [...phase1A, ...phase1B],
+      "Phase 1",
+      [...unitSupervisorsObg, ...unitSupervisorsPae]
+    ).phase1!,
+    phase2: buildNestedPostingScheduleTemplate(
+      [...phase2A, ...phase2B],
+      "Phase 2",
+      [...unitSupervisorsPae, ...unitSupervisorsObg]
+    ).phase2!,
+  };
+
   const rotationTimeline = [
     ...buildRotationTimelineForSection(phase1A, 0, postingStartDate, unitSupervisorsObg),
     ...buildRotationTimelineForSection(phase1B, 0, postingStartDate, unitSupervisorsPae),
@@ -567,6 +706,7 @@ export async function generate500LevelOgPaeJuniorPostingSchedule (
     rotationTeams,
     rotationTimeline,
     rotationHistory,
+    nestedSchedule,
   };
 
   const validationErrors: string[] = [];

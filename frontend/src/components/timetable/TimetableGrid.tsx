@@ -88,6 +88,27 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
     return "border-l-primary";
   };
 
+  const getPeriodDetailItems = (period: (typeof schedule)[number]["periods"][number]) => {
+    const items: Array<{ label: string; value: string }> = [
+      { label: "Time", value: `${period.startTime} - ${period.endTime}` },
+      { label: "Type", value: period.isClinical ? "Clinical" : period.isOptional ? "Optional" : "Academic" },
+    ];
+
+    if (period.subject?.name) {
+      items.push({ label: "Subject", value: period.subject.name });
+    }
+
+    if (period.subject?.code) {
+      items.push({ label: "Code", value: period.subject.code });
+    }
+
+    if (period.lecturer?.name) {
+      items.push({ label: "Lecturer", value: period.lecturer.name });
+    }
+
+    return items;
+  };
+
   // ─── Mobile/tablet list view ───────────────────────────────────
   const MobileList = () => (
     <div className="flex flex-col divide-y divide-border rounded-md border overflow-y-auto">
@@ -109,33 +130,53 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                   <span className="text-xs text-muted-foreground">No periods scheduled</span>
                 </div>
               ) : (
-                sortedPeriods.map((period, i) => (
-                  <div key={i} className="flex gap-3 p-3 items-start">
-                    {/* Time column */}
-                    <div className="shrink-0 w-16 text-xs text-muted-foreground pt-0.5">
-                      <div>{period.startTime}</div>
-                      <div className="text-[10px]">{period.endTime}</div>
-                    </div>
+                sortedPeriods.map((period, i) => {
+                  const detailItems = getPeriodDetailItems(period);
 
-                    {/* Card */}
-                    <div className={`flex-1 min-w-0 rounded-md border bg-card p-2.5 border-l-4 ${getPeriodCardClassName(period)} shadow-sm`}>
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <h4 className={`font-semibold text-sm leading-tight truncate ${getPeriodHeadingClassName(period)}`}>
-                          {getPeriodTitle(period)}
-                        </h4>
-                        <Badge variant="outline" className={`font-bold text-[10px] px-1 shrink-0 ${getPeriodBadgeClassName(period)}`}>
-                          {getPeriodBadgeText(period)}
-                        </Badge>
+                  return (
+                    <div key={i} className="flex gap-3 p-3 items-start">
+                      {/* Time column */}
+                      <div className="shrink-0 w-16 text-xs text-muted-foreground pt-0.5">
+                        <div>{period.startTime}</div>
+                        <div className="text-[10px]">{period.endTime}</div>
                       </div>
-                      {!period.isClinical && !period.isOptional && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <UserIcon className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{period.lecturer?.name ?? "TBD Lecturer"}</span>
+
+                      {/* Card */}
+                      <div className="group/period relative flex-1 min-w-0">
+                        <div className={`rounded-md border bg-card p-2.5 border-l-4 ${getPeriodCardClassName(period)} shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg`}>
+                          <div className="flex items-start justify-between gap-2 mb-1.5">
+                            <h4 className={`font-semibold text-sm leading-tight truncate ${getPeriodHeadingClassName(period)}`}>
+                              {getPeriodTitle(period)}
+                            </h4>
+                            <Badge variant="outline" className={`font-bold text-[10px] px-1 shrink-0 ${getPeriodBadgeClassName(period)}`}>
+                              {getPeriodBadgeText(period)}
+                            </Badge>
+                          </div>
+                          {!period.isClinical && !period.isOptional && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <UserIcon className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{period.lecturer?.name ?? "TBD Lecturer"}</span>
+                            </div>
+                          )}
                         </div>
-                      )}
+
+                        <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 origin-top scale-95 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm opacity-0 invisible transition-all duration-200 group-hover/period:visible group-hover/period:opacity-100 group-hover/period:translate-y-0 group-hover/period:scale-100">
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                            Period details
+                          </p>
+                          <div className="space-y-1.5 text-sm">
+                            {detailItems.map((item) => (
+                              <div key={item.label} className="flex items-start justify-between gap-3">
+                                <span className="text-muted-foreground">{item.label}</span>
+                                <span className="text-right font-medium text-foreground">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -175,29 +216,49 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
                   key={`${day}-${time}`}
                   className="min-w-44 flex-1 border-r p-2 last:border-r-0"
                 >
-                  {period ? (
-                    <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
-                            {getPeriodBadgeText(period)}
-                          </Badge>
-                        </div>
-                        <h4 className={`font-semibold text-sm leading-tight line-clamp-2 ${getPeriodHeadingClassName(period)}`}>
-                          {getPeriodTitle(period)}
-                        </h4>
-                      </div>
+                  {period ? (() => {
+                    const detailItems = getPeriodDetailItems(period);
 
-                      {!period.isClinical && !period.isOptional && (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
-                          <UserIcon className="h-3 w-3 shrink-0" />
-                          <span className="truncate max-w-35" title={period.lecturer?.name ?? ""}>
-                            {period.lecturer?.name ?? "TBD Lecturer"}
-                          </span>
+                    return (
+                      <div className="group/period relative h-full w-full">
+                        <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
+                                {getPeriodBadgeText(period)}
+                              </Badge>
+                            </div>
+                            <h4 className={`font-semibold text-sm leading-tight line-clamp-2 ${getPeriodHeadingClassName(period)}`}>
+                              {getPeriodTitle(period)}
+                            </h4>
+                          </div>
+
+                          {!period.isClinical && !period.isOptional && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
+                              <UserIcon className="h-3 w-3 shrink-0" />
+                              <span className="truncate max-w-35" title={period.lecturer?.name ?? ""}>
+                                {period.lecturer?.name ?? "TBD Lecturer"}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ) : (
+
+                        <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 origin-top scale-95 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm opacity-0 invisible transition-all duration-200 group-hover/period:visible group-hover/period:opacity-100 group-hover/period:translate-y-0 group-hover/period:scale-100">
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                            Period details
+                          </p>
+                          <div className="space-y-1.5 text-sm">
+                            {detailItems.map((item) => (
+                              <div key={item.label} className="flex items-start justify-between gap-3">
+                                <span className="text-muted-foreground">{item.label}</span>
+                                <span className="text-right font-medium text-foreground">{item.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })() : (
                     <div className="h-full w-full rounded-md border border-dashed border-primary bg-primary/30 flex items-center justify-center">
                       <span className="text-xs text-primary font-medium">Free Period</span>
                     </div>
