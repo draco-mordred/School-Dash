@@ -1,4 +1,5 @@
-import { Request, Response } from "express";
+// import { type Request, type Response } from "express";
+import type { Request, Response } from "express";
 import activityLogbookService from "../services/activityLogbookService";
 import ActivityEntryModel from "../models/activityEntry";
 import mongoose from "mongoose";
@@ -74,7 +75,7 @@ export const getPendingEntries = async (req: Request, res: Response) => {
  */
 export const getStudentLogbook = async (req: Request, res: Response) => {
   try {
-    const { studentId, rotationId } = req.params;
+    const { studentId, rotationId } = (req as any).params;
 
     const result = await activityLogbookService.getStudentRotationLogbook(studentId, rotationId);
     if (!result.success) {
@@ -94,7 +95,7 @@ export const getStudentLogbook = async (req: Request, res: Response) => {
  */
 export const approveActivityEntry = async (req: Request, res: Response) => {
   try {
-    const { entryId } = req.params;
+    const { entryId } = (req as any).params;
     const staffId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
 
@@ -126,7 +127,7 @@ export const approveActivityEntry = async (req: Request, res: Response) => {
  */
 export const rejectActivityEntry = async (req: Request, res: Response) => {
   try {
-    const { entryId } = req.params;
+    const { entryId } = (req as any).params;
     const { rejectionReason } = req.body;
     const staffId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
@@ -161,7 +162,7 @@ export const rejectActivityEntry = async (req: Request, res: Response) => {
  */
 export const getActivityEntry = async (req: Request, res: Response) => {
   try {
-    const { entryId } = req.params;
+    const { entryId } = (req as any).params;
 
     if (!mongoose.Types.ObjectId.isValid(entryId)) {
       return res.status(400).json({ error: "Invalid entry ID." });

@@ -1,4 +1,5 @@
-import { Request, Response } from "express";
+// import { type Request, type Response } from "express";
+import type { Request, Response } from "express";
 import HospitalUnitModel from "../models/hospitalUnit";
 import HospitalStaffModel from "../models/hospitalStaff";
 import mongoose from "mongoose";

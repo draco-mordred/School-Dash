@@ -4,7 +4,7 @@ import ClassModel from "../models/classes";
 import User from "../models/user";
 import Timetable from "../models/timetable";
 import Exam from "../models/exam";
-import Course from "../models/courses";
+// import Course from "../models/courses";
 import Attendance from "../models/attendance";
 import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
@@ -19,6 +19,8 @@ interface GenSettings {
   endTime: string;
   periods: number;
 }
+
+// const subject = lecturer?.teacherSubject;
 // Your new function:
 export const generateTimeTable = inngest.createFunction(
   { id: "Generate-Timetable", 
@@ -72,11 +74,11 @@ export const generateTimeTable = inngest.createFunction(
       // Filter qualified teachers against subjects that exist in this class
       const qualifiedTeachers = allTeachersAndLecturers
         .filter((lecturer) => {
-          if (!lecturer.teacherSubject) return false;
+          if (!lecturer?.teacherSubject) return false;
 
           // lecturer.teacherSubject points at Course (legacy). We can still use it
           // to broadly filter teachers, but for subject selection we will rely on lecturerIds.
-          return topLevelCourses.some((tc) => lecturer.teacherSubject.some((subId: any) => String(subId) === String(tc._id)));
+          return topLevelCourses.some((tc) => lecturer?.teacherSubject.some((subId: any) => String(subId) === String(tc._id)));
         })
         .map((tea) => ({
           id: String(tea._id),

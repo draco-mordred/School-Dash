@@ -37,6 +37,7 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.71",
     "ai": "^6.0.177",
+    "serverless-http": "^3.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cookieparser": "^0.1.0",

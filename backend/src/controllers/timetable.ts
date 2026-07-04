@@ -166,13 +166,13 @@ export const updatePeriod = async (req: Request, res: Response) => {
     }
 
     const daySchedule = timetable.schedule[dayIndex];
-    if (periodIndex < 0 || periodIndex >= daySchedule.periods.length) {
+    if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
       res.status(400).json({ message: "Invalid periodIndex" });
       return;
     }
 
     daySchedule.periods[periodIndex] = {
-      ...daySchedule.periods[periodIndex],
+      ...daySchedule?.periods[periodIndex],
       ...period,
     };
 
@@ -219,12 +219,12 @@ export const deletePeriod = async (req: Request, res: Response) => {
     }
 
     const daySchedule = timetable.schedule[dayIndex];
-    if (periodIndex < 0 || periodIndex >= daySchedule.periods.length) {
+    if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
       res.status(400).json({ message: "Invalid periodIndex" });
       return;
     }
 
-    daySchedule.periods.splice(periodIndex, 1);
+    daySchedule?.periods.splice(periodIndex, 1);
     await timetable.save();
 
     const updated = await Timetable.findById(timetable._id)

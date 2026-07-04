@@ -1,4 +1,4 @@
-import { Response } from "express";
+import { type Response } from "express";
 
 // Map of userId -> Set of client responses
 const clients: Map<string, Set<Response>> = new Map();

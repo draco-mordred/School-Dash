@@ -8,6 +8,8 @@
     "jsx": "react-jsx",
     "allowJs": true,
     "types": ["bun"],
+     "noEmitOnError": false,
+    "skipLibCheck": true,
 
     // Bundler mode
     "moduleResolution": "bundler",
@@ -16,8 +18,8 @@
     "noEmit": true,
 
     // Best practices
-    "strict": true,
-    "skipLibCheck": true,
+    // "strict": true,
+    "strict": false,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,

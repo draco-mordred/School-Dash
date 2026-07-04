@@ -4,6 +4,8 @@ export interface INotification extends Document {
   userId: mongoose.Types.ObjectId;
   role: "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
   title: string;
+  actorName?: string;
+  actorRole?: "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
   message: string;
   type: "info" | "warning" | "success" | "error" | "attendance" | "timetable" | "system";
   isRead: boolean;
