@@ -5,7 +5,7 @@ import Timetable from "../models/timetable";
 import ClassModel from "../models/classes";
 import User from "../models/user";
 import mongoose from "mongoose";
-import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable.ts";
+import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin

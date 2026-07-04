@@ -7,6 +7,7 @@
     "dev": "nodemon --exec bun run src/server.ts",
     "start": "bun --watch src/server.ts",
     "build": "bun run src/inngest/server.ts",
+    "build:vercel": "tsc --noCheck --skipLibCheck --module esnext --target esnext --moduleResolution bundler --verbatimModuleSyntax false --noUnusedLocals false --noUnusedParameters false api/index.ts",
     "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
     "test": "mocha -r ts-node/register tests/**/*.spec.ts --exit --timeout 20000"
   },

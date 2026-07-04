@@ -10,7 +10,7 @@ import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { logActivity } from "../utils/activitieslog";
-import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable.ts";
+import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable";
 import { routeTaskToStaff } from "../services/mordredEngine";
 // import { count } from "node:console";
 // export const inngest = new Inngest({ id: "my-app"});

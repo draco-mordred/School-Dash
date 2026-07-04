@@ -10,7 +10,10 @@
     },
     {
       "src": "backend/api/index.ts",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "buildCommand": "cd backend && npm run build:vercel"
+      }
     }
   ],
   "routes": [
