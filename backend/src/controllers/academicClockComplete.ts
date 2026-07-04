@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
 import AcademicClock from "../models/academicClock";
 import AcademicYear from "../models/academicYear";
 import User from "../models/user";

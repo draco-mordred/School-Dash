@@ -112,7 +112,7 @@ interface PostingScheduleDisplayProps {
 export default function PostingScheduleDisplay({ schedule, validation }: PostingScheduleDisplayProps) {
   const [expandedDept, setExpandedDept] = useState<string | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
-  const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
+  // const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
 
   if (!schedule) {
     return (

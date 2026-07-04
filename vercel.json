@@ -9,7 +9,7 @@
       }
     },
     {
-      "src": "backend/api/index.ts",
+      "src": "backend/api/index.js",
       "use": "@vercel/node",
       "config": {
         "buildCommand": "cd backend && npm install && npm run build:vercel"
@@ -19,7 +19,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/backend/api/index.ts"
+      "dest": "/backend/api/index.js"
     },
     {
       "handle": "filesystem"

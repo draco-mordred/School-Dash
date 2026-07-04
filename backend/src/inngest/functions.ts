@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { inngest } from "./client";
 import ClassModel from "../models/classes";
-import User from "../models/user";
+import User, { type userRoles } from "../models/user";
 import Timetable from "../models/timetable";
 import Exam from "../models/exam";
 // import Course from "../models/courses";
@@ -435,11 +435,19 @@ export const generateAttendance = inngest.createFunction(
       throw new NonRetriableError("courseId, classId, academicYearId, and date are required");
     }
 
-    const dayMap: Record<number, string> = {
-      0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
-      4: "Thursday", 5: "Friday", 6: "Saturday",
-    };
+    const dayMap = {
+      0: "Sunday",
+      1: "Monday",
+      2: "Tuesday",
+      3: "Wednesday",
+      4: "Thursday",
+      5: "Friday",
+      6: "Saturday",
+    } as const;
     const dateObj = new Date(date);
+    if (Number.isNaN(dateObj.getTime())) {
+      throw new NonRetriableError("Invalid date format");
+    }
     const dayName = dayMap[dateObj.getDay()];
 
     // Reject weekends
@@ -496,6 +504,8 @@ export const generateAttendance = inngest.createFunction(
       return { daySchedule, matchingPeriods };
     });
 
+    const { matchingPeriods } = timetableData as { matchingPeriods: any[] };
+
     // Step 3: Remove any existing attendance for this class, course, and date
     const duplicateCheck = await step.run("check-duplicate", async () => {
       const startOfDay = new Date(dateObj);
@@ -514,7 +524,6 @@ export const generateAttendance = inngest.createFunction(
 
     // Step 4: Create Attendance records for each student
     const createdRecords = await step.run("create-attendance-records", async () => {
-      const { matchingPeriods } = timetableData;
       const lecturer = matchingPeriods[0]?.lecturer?._id ?? null;
 
       const records = await Promise.all(
@@ -558,7 +567,7 @@ export const bulkCreateUsers = inngest.createFunction(
   { id: "Bulk-Create-Users", triggers: { event: "users/bulk-create" } },
   async ({ event, step }) => {
     const { users, classId, courseIds, userId } = event.data as {
-      users: Array<{ name: string; email: string; idNumber?: string; role: string }>;
+      users: Array<{ name: string; email: string; idNumber?: string; role: userRoles }>;
       classId?: string;
       courseIds?: string[];
       userId?: string;
@@ -630,9 +639,12 @@ export const bulkCreateUsers = inngest.createFunction(
             teacherSubject,
           });
 
+          if (!newUser) {
+            throw new Error("Failed to create user");
+          }
+
           // If student, also add to class students array
           if (u.role === "student" && classId) {
-            const ClassModel = require("../models/classes").default;
             await ClassModel.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose.Types.ObjectId(newUser._id) } }, { returnDocument: 'after' });
           }
 

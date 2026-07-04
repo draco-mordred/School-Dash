@@ -413,9 +413,13 @@ async function generate400LevelSchedule(classId: string, academicYearId: string,
   const courseMap = new Map<string, string>();
   
   for (const course of cls.courses) {
-    const courseName = (course.name as string).toLowerCase();
-    coursesByName.set(courseName, String(course._id));
-    courseMap.set(course.name, String(course._id));
+    const courseObj = course as any;
+    const courseName = (courseObj.name as string)?.toLowerCase() ?? "";
+    const courseId = String(courseObj._id ?? course);
+    if (courseName) {
+      coursesByName.set(courseName, courseId);
+      courseMap.set(courseObj.name, courseId);
+    }
   }
 
   // Get lecturers for each course

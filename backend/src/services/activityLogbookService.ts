@@ -1,6 +1,9 @@
-import ActivityEntryModel, { IActivityEntry, UmbrellaCategory } from "../models/activityEntry";
-import HospitalStaffModel, { IHospitalStaff } from "../models/hospitalStaff";
-import HospitalUnitModel, { IHospitalUnit } from "../models/hospitalUnit";
+import ActivityEntryModel from "../models/activityEntry";
+import type { IActivityEntry, UmbrellaCategory } from "../models/activityEntry";
+import HospitalStaffModel from "../models/hospitalStaff";
+import type { IHospitalStaff } from "../models/hospitalStaff";
+import HospitalUnitModel from "../models/hospitalUnit";
+import type { IHospitalUnit } from "../models/hospitalUnit";
 import mongoose from "mongoose";
 
 export interface ActivitySubmissionPayload {

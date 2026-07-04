@@ -11,8 +11,17 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 
+type Schedule = {
+  _id: string;
+  name?: string;
+  applicableLevels?: number[];
+  groups?: unknown[];
+  generatedAt?: string;
+  createdAt?: string;
+};
+
 export default function RotationSchedules() {
-  const [schedules, setSchedules] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGenerate, setShowGenerate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name?: string } | null>(null);
@@ -44,9 +53,9 @@ export default function RotationSchedules() {
       await api.post('/rotation-schedules/generate', { academicYearId: academicYear, classId, level, options: { startDate } });
       toast.success('Generation started');
       setShowGenerate(false);
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      toast.error(e?.response?.data?.message || 'Failed to start generation');
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to start generation');
     }
   };
 
@@ -63,14 +72,14 @@ export default function RotationSchedules() {
       toast.success('Schedule deleted');
       setDeleteTarget(null);
       await fetch();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
-      toast.error(e?.response?.data?.message || 'Failed to delete schedule');
+      toast.error((e as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Failed to delete schedule');
     }
   };
 
   return (
-    <div style={{ marginLeft: 30, marginTop: 40 }}>
+    <div className="ml-8 mt-10" id="marginLeftMarginTopDiv">
       <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
           <Button variant="outline" onClick={() => navigate('/clinical-rotations')} className="flex items-center gap-2">
@@ -110,7 +119,11 @@ export default function RotationSchedules() {
                     <TableCell>{s.name}</TableCell>
                     <TableCell>{(s.applicableLevels || []).join(', ')}</TableCell>
                     <TableCell>{(s.groups || []).length}</TableCell>
-                    <TableCell>{format(new Date(s.generatedAt || s.createdAt), 'PPP')}</TableCell>
+                    <TableCell>{
+                      (s.generatedAt || s.createdAt)
+                        ? format(new Date(s.generatedAt || s.createdAt || ''), 'PPP')
+                        : 'N/A'
+                    }</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button onClick={() => openDetail(s._id)}>View</Button>

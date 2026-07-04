@@ -9,6 +9,7 @@ export interface IAttendance extends Document {
   class: mongoose.Types.ObjectId;
   academicYear: mongoose.Types.ObjectId;
   date: Date;
+  dayOfWeek: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
   status: AttendanceStatus;
   notes?: string;
   approvedBy?: mongoose.Types.ObjectId; // For excused absences, who approved it (e.g., admin or teacher)

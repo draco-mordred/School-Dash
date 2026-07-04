@@ -7,7 +7,7 @@
     "dev": "nodemon --exec bun run src/server.ts",
     "start": "bun --watch src/server.ts",
     "build": "bun run src/inngest/server.ts",
-    "build:vercel": "tsc --noCheck --skipLibCheck --module esnext --target esnext --moduleResolution bundler --verbatimModuleSyntax false --noUnusedLocals false --noUnusedParameters false api/index.ts",
+    "build:vercel": "npx esbuild api/index.ts --bundle --platform=node --outfile=api/index.js --format=esm --packages=external",
     "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
     "test": "mocha -r ts-node/register tests/**/*.spec.ts --exit --timeout 20000"
   },
@@ -37,12 +37,12 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.71",
     "ai": "^6.0.177",
-    "serverless-http": "^3.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cookieparser": "^0.1.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "esbuild": "^0.28.1",
     "express": "^5.2.1",
     "helmet": "^8.1.0",
     "i": "^0.3.7",
@@ -51,6 +51,7 @@
     "mongoose": "^9.6.2",
     "morgan": "^1.10.1",
     "qrcode-terminal": "^0.12.0",
+    "serverless-http": "^3.0.0",
     "whatsapp-web.js": "^1.34.7",
     "ws": "^8.13.0"
   }
