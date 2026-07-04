@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
@@ -44,9 +44,12 @@ import {
 } from "@/components/ui/table";
 import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
-import PostingScheduleDisplay from "@/components/ClinicalRotations/PostingScheduleDisplay";
-import { useRef } from "react";
 import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
+import {
+  deletePersistedPostingSchedule,
+  loadPersistedPostingSchedule,
+  savePersistedPostingSchedule,
+} from "@/lib/postingScheduleStorage";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
@@ -314,6 +317,390 @@ const samplePostingSchedule = {
   ],
 };
 
+const buildOgPedsJuniorPostingSchedule = ({
+  postingName,
+  postingType,
+  startDate,
+  endDate,
+  durationMonths,
+  students,
+}: {
+  postingName: string;
+  postingType: string;
+  startDate?: string;
+  endDate?: string;
+  durationMonths: number;
+  students?: Array<{ _id?: string; name?: string; idNumber?: string }>;
+}) => {
+  const fallbackStudents = Array.from({ length: 8 }, (_, index) => ({
+    _id: `student-${index + 1}`,
+    name: `Student ${index + 1}`,
+    idNumber: `ST${String(index + 1).padStart(3, "0")}`,
+  }));
+
+  const normalizedStudents = (students && students.length > 0 ? students : fallbackStudents).map((student, index) => ({
+    _id: student._id ?? `student-${index + 1}`,
+    name: student.name ?? `Student ${index + 1}`,
+    idNumber: student.idNumber ?? `ST${String(index + 1).padStart(3, "0")}`,
+  }));
+
+  const splitIndex = Math.max(1, Math.ceil(normalizedStudents.length / 2));
+  const groupAStudents = normalizedStudents.slice(0, splitIndex);
+  const groupBStudents = normalizedStudents.slice(splitIndex);
+  const phaseDurationMonths = Math.max(1, Math.round((durationMonths || 4) / 2));
+  const phaseDurationWeeks = phaseDurationMonths * 4;
+  const start = startDate ? new Date(startDate) : new Date();
+  const end = endDate ? new Date(endDate) : new Date(start.getTime() + phaseDurationMonths * 2 * 30 * 24 * 60 * 60 * 1000);
+
+  const buildGroupUnits = (
+    departmentName: string,
+    departmentCode: string,
+    unitNames: string[],
+    groupStudents: Array<{ _id: string; name: string; idNumber: string }>,
+    unitPrefix: string,
+  ) => {
+    const chunkSize = Math.max(1, Math.ceil(groupStudents.length / Math.max(1, unitNames.length)));
+    return {
+      units: {
+        week1: Object.fromEntries(
+          unitNames.map((unitName, index) => {
+            const unitStudents = groupStudents.slice(index * chunkSize, (index + 1) * chunkSize);
+            const unitId = `${unitPrefix.toLowerCase()}-${index + 1}`;
+            return [unitId, {
+              name: unitName,
+              unitId,
+              duration: phaseDurationWeeks,
+              postingType: departmentName,
+              students: unitStudents,
+              supervisor: {
+                _id: `${departmentCode.toLowerCase()}-${index + 1}`,
+                name: `${departmentName} Supervisor`,
+                role: "Consultant",
+                department: departmentName,
+              },
+            }];
+          }).filter(([, unit]) => (unit as { students: Array<{ _id: string; name: string; idNumber: string }> }).students.length > 0)
+        ) as Record<string, any>,
+      },
+      unitAssignments: unitNames
+        .map((unitName, index) => {
+          const unitStudents = groupStudents.slice(index * chunkSize, (index + 1) * chunkSize);
+          const unitId = `${unitPrefix.toLowerCase()}-${index + 1}`;
+          if (!unitStudents.length) return null;
+          return {
+            department: departmentName,
+            phase: "Phase 1",
+            unit: unitName,
+            unitId,
+            consultant: {
+              _id: `${departmentCode.toLowerCase()}-${index + 1}`,
+              name: `${departmentName} Supervisor`,
+              role: "Consultant",
+              email: `${departmentCode.toLowerCase()}@schooldash.org`,
+              department: departmentName,
+            },
+            resident: {
+              _id: `${departmentCode.toLowerCase()}-resident-${index + 1}`,
+              name: `${departmentName} Resident`,
+              role: "Resident",
+              department: departmentName,
+            },
+            students: unitStudents,
+          };
+        })
+        .filter(Boolean),
+    };
+  };
+
+  const ogPhase = buildGroupUnits("Obstetrics & Gynaecology", "OG", ["Ward Unit", "Labour Ward"], groupAStudents, "og");
+  const pedPhase = buildGroupUnits("Paediatrics", "PED", ["Children's Ward", "Neonatal Unit"], groupBStudents, "ped");
+  const swappedOgPhase = buildGroupUnits("Obstetrics & Gynaecology", "OG", ["Ward Unit", "Labour Ward"], groupBStudents, "og");
+  const swappedPedPhase = buildGroupUnits("Paediatrics", "PED", ["Children's Ward", "Neonatal Unit"], groupAStudents, "ped");
+
+  return {
+    postingName,
+    postingType,
+    scheduleVariant: "junior",
+    durationWeeks: phaseDurationWeeks * 2,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    phases: ["Phase 1", "Phase 2"],
+    departments: [
+      {
+        department: "Obstetrics & Gynaecology",
+        departmentCode: "OG",
+        rotationDurationWeeks: phaseDurationWeeks,
+        activeUnits: [
+          { id: "og-1", name: "Ward Unit" },
+          { id: "og-2", name: "Labour Ward" },
+        ],
+        supervisors: [
+          { unit: "Ward Unit", consultant: { _id: "og-1", name: "OG Supervisor", role: "Consultant", department: "Obstetrics & Gynaecology" }, resident: { _id: "og-res-1", name: "OG Resident", role: "Resident", department: "Obstetrics & Gynaecology" } },
+          { unit: "Labour Ward", consultant: { _id: "og-2", name: "OG Supervisor", role: "Consultant", department: "Obstetrics & Gynaecology" }, resident: { _id: "og-res-2", name: "OG Resident", role: "Resident", department: "Obstetrics & Gynaecology" } },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        departmentCode: "PED",
+        rotationDurationWeeks: phaseDurationWeeks,
+        activeUnits: [
+          { id: "ped-1", name: "Children's Ward" },
+          { id: "ped-2", name: "Neonatal Unit" },
+        ],
+        supervisors: [
+          { unit: "Children's Ward", consultant: { _id: "ped-1", name: "Pediatrics Supervisor", role: "Consultant", department: "Paediatrics" }, resident: { _id: "ped-res-1", name: "Pediatrics Resident", role: "Resident", department: "Paediatrics" } },
+          { unit: "Neonatal Unit", consultant: { _id: "ped-2", name: "Pediatrics Supervisor", role: "Consultant", department: "Paediatrics" }, resident: { _id: "ped-res-2", name: "Pediatrics Resident", role: "Resident", department: "Paediatrics" } },
+        ],
+      },
+    ],
+    studentCategories: [
+      {
+        category: "Group A",
+        studentCount: groupAStudents.length,
+        departmentPhase1: "Obstetrics & Gynaecology",
+        departmentPhase2: "Paediatrics",
+        students: groupAStudents,
+      },
+      {
+        category: "Group B",
+        studentCount: groupBStudents.length,
+        departmentPhase1: "Paediatrics",
+        departmentPhase2: "Obstetrics & Gynaecology",
+        students: groupBStudents,
+      },
+    ],
+    unitAssignments: [
+      ...ogPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 1" })),
+      ...pedPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 1" })),
+      ...swappedPedPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 2" })),
+      ...swappedOgPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 2" })),
+    ],
+    nestedSchedule: {
+      phase1: {
+        groupA: {
+          posting: "Obstetrics & Gynaecology",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: ogPhase.units.week1 ? Object.keys(ogPhase.units.week1).length : 2,
+          units: ogPhase.units,
+        },
+        groupB: {
+          posting: "Paediatrics",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: pedPhase.units.week1 ? Object.keys(pedPhase.units.week1).length : 2,
+          units: pedPhase.units,
+        },
+      },
+      phase2: {
+        groupA: {
+          posting: "Paediatrics",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: swappedPedPhase.units.week1 ? Object.keys(swappedPedPhase.units.week1).length : 2,
+          units: swappedPedPhase.units,
+        },
+        groupB: {
+          posting: "Obstetrics & Gynaecology",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: swappedOgPhase.units.week1 ? Object.keys(swappedOgPhase.units.week1).length : 2,
+          units: swappedOgPhase.units,
+        },
+      },
+    },
+    rotationHistory: [],
+  };
+};
+
+const buildOgPedsSeniorPostingSchedule = ({
+  postingName,
+  postingType,
+  startDate,
+  endDate,
+  durationMonths,
+  students,
+}: {
+  postingName: string;
+  postingType: string;
+  startDate?: string;
+  endDate?: string;
+  durationMonths: number;
+  students?: Array<{ _id?: string; name?: string; idNumber?: string }>;
+}) => {
+  const fallbackStudents = Array.from({ length: 8 }, (_, index) => ({
+    _id: `student-${index + 1}`,
+    name: `Student ${index + 1}`,
+    idNumber: `ST${String(index + 1).padStart(3, "0")}`,
+  }));
+
+  const normalizedStudents = (students && students.length > 0 ? students : fallbackStudents).map((student, index) => ({
+    _id: student._id ?? `student-${index + 1}`,
+    name: student.name ?? `Student ${index + 1}`,
+    idNumber: student.idNumber ?? `ST${String(index + 1).padStart(3, "0")}`,
+  }));
+
+  const splitIndex = Math.max(1, Math.ceil(normalizedStudents.length / 2));
+  const groupAStudents = normalizedStudents.slice(0, splitIndex);
+  const groupBStudents = normalizedStudents.slice(splitIndex);
+  const phaseDurationMonths = Math.max(1, Math.round((durationMonths || 4) / 2));
+  const phaseDurationWeeks = phaseDurationMonths * 4;
+  const start = startDate ? new Date(startDate) : new Date();
+  const end = endDate ? new Date(endDate) : new Date(start.getTime() + phaseDurationMonths * 2 * 30 * 24 * 60 * 60 * 1000);
+
+  const buildGroupUnits = (
+    departmentName: string,
+    departmentCode: string,
+    unitNames: string[],
+    groupStudents: Array<{ _id: string; name: string; idNumber: string }>,
+    unitPrefix: string,
+  ) => {
+    const chunkSize = Math.max(1, Math.ceil(groupStudents.length / Math.max(1, unitNames.length)));
+    return {
+      units: {
+        week1: Object.fromEntries(
+          unitNames.map((unitName, index) => {
+            const unitStudents = groupStudents.slice(index * chunkSize, (index + 1) * chunkSize);
+            const unitId = `${unitPrefix.toLowerCase()}-${index + 1}`;
+            return [unitId, {
+              name: unitName,
+              unitId,
+              duration: phaseDurationWeeks,
+              postingType: departmentName,
+              students: unitStudents,
+              supervisor: {
+                _id: `${departmentCode.toLowerCase()}-${index + 1}`,
+                name: `${departmentName} Supervisor`,
+                role: "Consultant",
+                department: departmentName,
+              },
+            }];
+          }).filter(([, unit]) => (unit as { students: Array<{ _id: string; name: string; idNumber: string }> }).students.length > 0)
+        ) as Record<string, any>,
+      },
+      unitAssignments: unitNames
+        .map((unitName, index) => {
+          const unitStudents = groupStudents.slice(index * chunkSize, (index + 1) * chunkSize);
+          const unitId = `${unitPrefix.toLowerCase()}-${index + 1}`;
+          if (!unitStudents.length) return null;
+          return {
+            department: departmentName,
+            phase: "Phase 1",
+            unit: unitName,
+            unitId,
+            consultant: {
+              _id: `${departmentCode.toLowerCase()}-${index + 1}`,
+              name: `${departmentName} Supervisor`,
+              role: "Consultant",
+              email: `${departmentCode.toLowerCase()}@schooldash.org`,
+              department: departmentName,
+            },
+            resident: {
+              _id: `${departmentCode.toLowerCase()}-resident-${index + 1}`,
+              name: `${departmentName} Resident`,
+              role: "Resident",
+              department: departmentName,
+            },
+            students: unitStudents,
+          };
+        })
+        .filter(Boolean),
+    };
+  };
+
+  const ogPhase = buildGroupUnits("Obstetrics & Gynaecology", "OG", ["Senior Ward Unit", "High Dependency Unit"], groupAStudents, "og");
+  const pedPhase = buildGroupUnits("Paediatrics", "PED", ["Children's Ward", "PICU"], groupBStudents, "ped");
+  const swappedOgPhase = buildGroupUnits("Obstetrics & Gynaecology", "OG", ["Senior Ward Unit", "High Dependency Unit"], groupBStudents, "og");
+  const swappedPedPhase = buildGroupUnits("Paediatrics", "PED", ["Children's Ward", "PICU"], groupAStudents, "ped");
+
+  return {
+    postingName,
+    postingType,
+    scheduleVariant: "senior",
+    durationWeeks: phaseDurationWeeks * 2,
+    startDate: start.toISOString(),
+    endDate: end.toISOString(),
+    phases: ["Phase 1", "Phase 2"],
+    departments: [
+      {
+        department: "Obstetrics & Gynaecology",
+        departmentCode: "OG",
+        rotationDurationWeeks: phaseDurationWeeks,
+        activeUnits: [
+          { id: "og-1", name: "Senior Ward Unit" },
+          { id: "og-2", name: "High Dependency Unit" },
+        ],
+        supervisors: [
+          { unit: "Senior Ward Unit", consultant: { _id: "og-1", name: "OG Supervisor", role: "Consultant", department: "Obstetrics & Gynaecology" }, resident: { _id: "og-res-1", name: "OG Resident", role: "Resident", department: "Obstetrics & Gynaecology" } },
+          { unit: "High Dependency Unit", consultant: { _id: "og-2", name: "OG Supervisor", role: "Consultant", department: "Obstetrics & Gynaecology" }, resident: { _id: "og-res-2", name: "OG Resident", role: "Resident", department: "Obstetrics & Gynaecology" } },
+        ],
+      },
+      {
+        department: "Paediatrics",
+        departmentCode: "PED",
+        rotationDurationWeeks: phaseDurationWeeks,
+        activeUnits: [
+          { id: "ped-1", name: "Children's Ward" },
+          { id: "ped-2", name: "PICU" },
+        ],
+        supervisors: [
+          { unit: "Children's Ward", consultant: { _id: "ped-1", name: "Pediatrics Supervisor", role: "Consultant", department: "Paediatrics" }, resident: { _id: "ped-res-1", name: "Pediatrics Resident", role: "Resident", department: "Paediatrics" } },
+          { unit: "PICU", consultant: { _id: "ped-2", name: "Pediatrics Supervisor", role: "Consultant", department: "Paediatrics" }, resident: { _id: "ped-res-2", name: "Pediatrics Resident", role: "Resident", department: "Paediatrics" } },
+        ],
+      },
+    ],
+    studentCategories: [
+      {
+        category: "Group A",
+        studentCount: groupAStudents.length,
+        departmentPhase1: "Obstetrics & Gynaecology",
+        departmentPhase2: "Paediatrics",
+        students: groupAStudents,
+      },
+      {
+        category: "Group B",
+        studentCount: groupBStudents.length,
+        departmentPhase1: "Paediatrics",
+        departmentPhase2: "Obstetrics & Gynaecology",
+        students: groupBStudents,
+      },
+    ],
+    unitAssignments: [
+      ...ogPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 1" })),
+      ...pedPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 1" })),
+      ...swappedPedPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 2" })),
+      ...swappedOgPhase.unitAssignments.map((assignment) => ({ ...assignment, phase: "Phase 2" })),
+    ],
+    nestedSchedule: {
+      phase1: {
+        groupA: {
+          posting: "Obstetrics & Gynaecology",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: ogPhase.units.week1 ? Object.keys(ogPhase.units.week1).length : 2,
+          units: ogPhase.units,
+        },
+        groupB: {
+          posting: "Paediatrics",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: pedPhase.units.week1 ? Object.keys(pedPhase.units.week1).length : 2,
+          units: pedPhase.units,
+        },
+      },
+      phase2: {
+        groupA: {
+          posting: "Paediatrics",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: swappedPedPhase.units.week1 ? Object.keys(swappedPedPhase.units.week1).length : 2,
+          units: swappedPedPhase.units,
+        },
+        groupB: {
+          posting: "Obstetrics & Gynaecology",
+          duration: phaseDurationMonths,
+          totalNumberofUnitsPerStudent: swappedOgPhase.units.week1 ? Object.keys(swappedOgPhase.units.week1).length : 2,
+          units: swappedOgPhase.units,
+        },
+      },
+    },
+    rotationHistory: [],
+  };
+};
+
 export default function ClinicalRotations() {
   const { user, year: currentYear } = useAuth();
   const [rotations, setRotations] = useState<Rotation[]>([]);
@@ -340,6 +727,8 @@ export default function ClinicalRotations() {
   const [selectedRotationIds, setSelectedRotationIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [selectedClassStudents, setSelectedClassStudents] = useState<Array<{ _id?: string; name?: string; idNumber?: string }>>([]);
+  const [classStudentsLoading, setClassStudentsLoading] = useState(false);
 
   const limit = 15;
 
@@ -407,6 +796,44 @@ export default function ClinicalRotations() {
       isActive = false;
     };
   }, [selectedClassId, currentYear?._id]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadClassStudents = async () => {
+      if (!selectedClassId) {
+        setSelectedClassStudents([]);
+        return;
+      }
+
+      setClassStudentsLoading(true);
+      try {
+        const { data } = await api.get(`/classes/${selectedClassId}/students`);
+        const students = Array.isArray(data?.students) ? data.students : [];
+        if (!isActive) return;
+        setSelectedClassStudents(students.map((student: any) => ({
+          _id: student._id,
+          name: student.name,
+          idNumber: student.idNumber,
+        })));
+      } catch (error) {
+        console.error("Failed to load class students", error);
+        if (isActive) {
+          setSelectedClassStudents([]);
+        }
+      } finally {
+        if (isActive) {
+          setClassStudentsLoading(false);
+        }
+      }
+    };
+
+    void loadClassStudents();
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedClassId]);
 
   const fetchRotations = useCallback(async () => {
     try {
@@ -512,6 +939,7 @@ export default function ClinicalRotations() {
   const [postingGenerateName, setPostingGenerateName] = useState<string>("");
   const [postingGenerateStartDate, setPostingGenerateStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
+  const [showDeleteScheduleDialog, setShowDeleteScheduleDialog] = useState(false);
   const scheduleRef = useRef<HTMLDivElement | null>(null);
   // Disabled student class schedule load on page load.
   // useEffect(() => {
@@ -690,7 +1118,58 @@ export default function ClinicalRotations() {
     }
   };
 
-  const handlePostingGenerateSubmit = () => {
+  const handlePostingGenerateSubmit = async () => {
+    if (selectedPostingSchedule) {
+      setSelectedPostingSchedule(null);
+    }
+
+    const fallbackStudents = (rotations ?? [])
+      .map((rotation) => rotation.student)
+      .filter((student): student is { _id: string; name: string; idNumber?: string } => Boolean(student?.name))
+      .map((student) => ({
+        _id: student._id,
+        name: student.name,
+        idNumber: student.idNumber,
+      }));
+
+    const studentList = selectedClassStudents.length > 0 ? selectedClassStudents : fallbackStudents;
+
+    if (supportsOgPedsJuniorPosting && postingGenerateLevel === "fifth") {
+      const generatedSchedule = buildOgPedsJuniorPostingSchedule({
+        postingName: postingGenerateName.trim() || `${selectedClass?.name ?? "500 Level"} O&G/Pediatrics Junior Posting`,
+        postingType: "OG_PEDS",
+        startDate: postingGenerateStartDate || new Date().toISOString().slice(0, 10),
+        endDate: postingGenerateEndDate || new Date(new Date(postingGenerateStartDate || new Date()).setMonth(new Date(postingGenerateStartDate || new Date()).getMonth() + Math.max(1, currentPhaseDuration || 2) * 2)).toISOString().slice(0, 10),
+        durationMonths: Math.max(1, currentPhaseDuration || 2),
+        students: studentList.length > 0 ? studentList : undefined,
+      });
+
+      savePersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey, generatedSchedule);
+      setSelectedPostingSchedule(generatedSchedule);
+      userSelectedScheduleRef.current = true;
+      setShowPostingGenerateDialog(false);
+      toast.success("O&G/Pediatrics junior posting schedule generated");
+      return;
+    }
+
+    if (supportsOgPedsSeniorPosting && postingGenerateLevel === "sixth") {
+      const generatedSchedule = buildOgPedsSeniorPostingSchedule({
+        postingName: postingGenerateName.trim() || `${selectedClass?.name ?? "600 Level"} O&G/Pediatrics Senior Posting`,
+        postingType: "OG_PEDS_SENIOR",
+        startDate: postingGenerateStartDate || new Date().toISOString().slice(0, 10),
+        endDate: postingGenerateEndDate || new Date(new Date(postingGenerateStartDate || new Date()).setMonth(new Date(postingGenerateStartDate || new Date()).getMonth() + Math.max(1, currentPhaseDuration || 2) * 2)).toISOString().slice(0, 10),
+        durationMonths: Math.max(1, currentPhaseDuration || 2),
+        students: studentList.length > 0 ? studentList : undefined,
+      });
+
+      savePersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey, generatedSchedule);
+      setSelectedPostingSchedule(generatedSchedule);
+      userSelectedScheduleRef.current = true;
+      setShowPostingGenerateDialog(false);
+      toast.success("O&G/Pediatrics senior posting schedule generated");
+      return;
+    }
+
     setShowPostingGenerateDialog(false);
     toast.success('Posting generation form submitted');
   };
@@ -711,7 +1190,9 @@ export default function ClinicalRotations() {
             postingStartDate: genStartDate,
           });
           if (data?.schedule) {
+            savePersistedPostingSchedule(genClassId, genPostingScheduleType === 'ogPedJunior' ? 'og-ped-junior' : 'og-ped-senior', data.schedule);
             setSelectedPostingSchedule(data.schedule);
+            userSelectedScheduleRef.current = true;
             if (data?.saved?._id) {
               setSavedSchedules((prev) => [data.saved, ...prev.filter((s) => s._id !== data.saved._id)]);
             }
@@ -737,6 +1218,7 @@ export default function ClinicalRotations() {
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [groupsForRotation, setGroupsForRotation] = useState<Array<{ group?: RotationGroup; groupId?: string; assigned?: Array<{ startDate: string; endDate: string }> }> | null>(null);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const userSelectedScheduleRef = useRef(false);
 
   const openGroupsForRotation = async (rot: Rotation) => {
     try {
@@ -1014,345 +1496,7 @@ export default function ClinicalRotations() {
     );
   };
 
-  const buildOgPedsJuniorPostingSchedule = () => ({
-    postingName: "500 Level O&G / Pediatrics Junior Posting Schedule",
-    postingType: "Junior",
-    durationWeeks: 16,
-    startDate: "2026-01-05T00:00:00.000Z",
-    endDate: "2026-04-27T00:00:00.000Z",
-    phases: ["Phase 1", "Phase 2"],
-    departments: [
-      {
-        department: "Obstetrics & Gynaecology",
-        departmentCode: "OG",
-        rotationDurationWeeks: 8,
-        activeUnits: [
-          { id: "og-1", name: "O&G Unit 1" },
-          { id: "og-2", name: "O&G Unit 2" },
-        ],
-        supervisors: [
-          {
-            unit: "O&G Unit 1",
-            consultant: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org", department: "OG" },
-            resident: { _id: "res-og-1", name: "Dr. M. Otieno", role: "Resident", department: "OG" },
-          },
-          {
-            unit: "O&G Unit 2",
-            consultant: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org", department: "OG" },
-            resident: { _id: "res-og-2", name: "Dr. K. Muriuki", role: "Resident", department: "OG" },
-          },
-        ],
-      },
-      {
-        department: "Paediatrics",
-        departmentCode: "PED",
-        rotationDurationWeeks: 8,
-        activeUnits: [
-          { id: "ped-1", name: "Pediatrics Unit 1" },
-          { id: "ped-2", name: "Pediatrics Unit 2" },
-          { id: "ped-3", name: "Pediatrics Unit 3" },
-          { id: "ped-4", name: "Pediatrics Unit 4" },
-        ],
-        supervisors: [
-          {
-            unit: "Pediatrics Unit 1",
-            consultant: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org", department: "PED" },
-            resident: { _id: "res-ped-1", name: "Dr. T. Kimani", role: "Resident", department: "PED" },
-          },
-          {
-            unit: "Pediatrics Unit 2",
-            consultant: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org", department: "PED" },
-            resident: { _id: "res-ped-2", name: "Dr. B. Ochieng", role: "Resident", department: "PED" },
-          },
-          {
-            unit: "Pediatrics Unit 3",
-            consultant: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org", department: "PED" },
-            resident: { _id: "res-ped-3", name: "Dr. D. Kariuki", role: "Resident", department: "PED" },
-          },
-          {
-            unit: "Pediatrics Unit 4",
-            consultant: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org", department: "PED" },
-            resident: { _id: "res-ped-4", name: "Dr. F. Omondi", role: "Resident", department: "PED" },
-          },
-        ],
-      },
-    ],
-    studentCategories: [
-      {
-        category: "Junior O&G",
-        studentCount: 12,
-        departmentPhase1: "Obstetrics & Gynaecology",
-        departmentPhase2: "Obstetrics & Gynaecology",
-        students: [
-          { _id: "st-og-1", name: "Alice Wanjiku" },
-          { _id: "st-og-2", name: "Brian Oduor" },
-          { _id: "st-og-3", name: "Cynthia Mugo" },
-          { _id: "st-og-4", name: "Daniel Kiptoo" },
-          { _id: "st-og-5", name: "Evelyn Achieng" },
-          { _id: "st-og-6", name: "Felix Omondi" },
-          { _id: "st-og-7", name: "Grace Njeri" },
-          { _id: "st-og-8", name: "Henry Kibet" },
-          { _id: "st-og-9", name: "Ivy Muthoni" },
-          { _id: "st-og-10", name: "John Waweru" },
-          { _id: "st-og-11", name: "Kevin Otieno" },
-          { _id: "st-og-12", name: "Lilian Mugo" },
-        ],
-      },
-      {
-        category: "Junior Pediatrics",
-        studentCount: 12,
-        departmentPhase1: "Paediatrics",
-        departmentPhase2: "Paediatrics",
-        students: [
-          { _id: "st-ped-1", name: "Moses Kariuki" },
-          { _id: "st-ped-2", name: "Nadia Akinyi" },
-          { _id: "st-ped-3", name: "Oscar Mutua" },
-          { _id: "st-ped-4", name: "Pamela Kilonzo" },
-          { _id: "st-ped-5", name: "Quincy Njoroge" },
-          { _id: "st-ped-6", name: "Ruth Muthoni" },
-          { _id: "st-ped-7", name: "Samuel Wambua" },
-          { _id: "st-ped-8", name: "Tina Kimani" },
-          { _id: "st-ped-9", name: "Ursula Owino" },
-          { _id: "st-ped-10", name: "Victor Ochieng" },
-          { _id: "st-ped-11", name: "Winnie Njeri" },
-          { _id: "st-ped-12", name: "Xavier Mugo" },
-        ],
-      },
-    ],
-    unitAssignments: [
-      {
-        department: "Obstetrics & Gynaecology",
-        phase: "Phase 1",
-        unit: "O&G Unit 1",
-        unitId: "og-1",
-        consultant: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
-        resident: { _id: "res-og-1", name: "Dr. M. Otieno", role: "Resident" },
-        students: [
-          { _id: "st-og-1", name: "Alice Wanjiku" },
-          { _id: "st-og-2", name: "Brian Oduor" },
-          { _id: "st-og-3", name: "Cynthia Mugo" },
-          { _id: "st-og-4", name: "Daniel Kiptoo" },
-        ],
-      },
-      {
-        department: "Obstetrics & Gynaecology",
-        phase: "Phase 1",
-        unit: "O&G Unit 2",
-        unitId: "og-2",
-        consultant: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
-        resident: { _id: "res-og-2", name: "Dr. K. Muriuki", role: "Resident" },
-        students: [
-          { _id: "st-og-5", name: "Evelyn Achieng" },
-          { _id: "st-og-6", name: "Felix Omondi" },
-          { _id: "st-og-7", name: "Grace Njeri" },
-          { _id: "st-og-8", name: "Henry Kibet" },
-        ],
-      },
-      {
-        department: "Paediatrics",
-        phase: "Phase 1",
-        unit: "Pediatrics Unit 1",
-        unitId: "ped-1",
-        consultant: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org" },
-        resident: { _id: "res-ped-1", name: "Dr. T. Kimani", role: "Resident" },
-        students: [
-          { _id: "st-ped-1", name: "Moses Kariuki" },
-          { _id: "st-ped-2", name: "Nadia Akinyi" },
-          { _id: "st-ped-3", name: "Oscar Mutua" },
-        ],
-      },
-      {
-        department: "Paediatrics",
-        phase: "Phase 1",
-        unit: "Pediatrics Unit 2",
-        unitId: "ped-2",
-        consultant: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org" },
-        resident: { _id: "res-ped-2", name: "Dr. B. Ochieng", role: "Resident" },
-        students: [
-          { _id: "st-ped-4", name: "Pamela Kilonzo" },
-          { _id: "st-ped-5", name: "Quincy Njoroge" },
-          { _id: "st-ped-6", name: "Ruth Muthoni" },
-        ],
-      },
-      {
-        department: "Paediatrics",
-        phase: "Phase 2",
-        unit: "Pediatrics Unit 3",
-        unitId: "ped-3",
-        consultant: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org" },
-        resident: { _id: "res-ped-3", name: "Dr. D. Kariuki", role: "Resident" },
-        students: [
-          { _id: "st-ped-7", name: "Samuel Wambua" },
-          { _id: "st-ped-8", name: "Tina Kimani" },
-          { _id: "st-ped-9", name: "Ursula Owino" },
-        ],
-      },
-      {
-        department: "Paediatrics",
-        phase: "Phase 2",
-        unit: "Pediatrics Unit 4",
-        unitId: "ped-4",
-        consultant: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org" },
-        resident: { _id: "res-ped-4", name: "Dr. F. Omondi", role: "Resident" },
-        students: [
-          { _id: "st-ped-10", name: "Victor Ochieng" },
-          { _id: "st-ped-11", name: "Winnie Njeri" },
-          { _id: "st-ped-12", name: "Xavier Mugo" },
-        ],
-      },
-    ],
-    nestedSchedule: {
-      phase1: {
-        groupA: {
-          posting: "O&G",
-          duration: 8,
-          totalNumberofUnitsPerStudent: 2,
-          units: {
-            unit1: {
-              OandG_Unit_1: {
-                name: "O&G Unit 1",
-                unitId: "og-1",
-                duration: 4,
-                postingType: "O&G",
-                students: [
-                  { _id: "st-og-1", name: "Alice Wanjiku" },
-                  { _id: "st-og-2", name: "Brian Oduor" },
-                  { _id: "st-og-3", name: "Cynthia Mugo" },
-                  { _id: "st-og-4", name: "Daniel Kiptoo" },
-                ],
-                supervisor: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
-              },
-            },
-            unit2: {
-              OandG_Unit_2: {
-                name: "O&G Unit 2",
-                unitId: "og-2",
-                duration: 4,
-                postingType: "O&G",
-                students: [
-                  { _id: "st-og-5", name: "Evelyn Achieng" },
-                  { _id: "st-og-6", name: "Felix Omondi" },
-                  { _id: "st-og-7", name: "Grace Njeri" },
-                  { _id: "st-og-8", name: "Henry Kibet" },
-                ],
-                supervisor: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
-              },
-            },
-          },
-        },
-        groupB: {
-          posting: "Pediatrics",
-          duration: 8,
-          totalNumberofUnitsPerStudent: 4,
-          units: {
-            unit1: {
-              Pediatrics_Unit_1: {
-                name: "Pediatrics Unit 1",
-                unitId: "ped-1",
-                duration: 4,
-                postingType: "Pediatrics",
-                students: [
-                  { _id: "st-ped-1", name: "Moses Kariuki" },
-                  { _id: "st-ped-2", name: "Nadia Akinyi" },
-                  { _id: "st-ped-3", name: "Oscar Mutua" },
-                ],
-                supervisor: { _id: "sup-ped-1", name: "Dr. S. Mwangi", role: "Consultant", email: "smwangi@schooldash.org" },
-              },
-            },
-            unit2: {
-              Pediatrics_Unit_2: {
-                name: "Pediatrics Unit 2",
-                unitId: "ped-2",
-                duration: 4,
-                postingType: "Pediatrics",
-                students: [
-                  { _id: "st-ped-4", name: "Pamela Kilonzo" },
-                  { _id: "st-ped-5", name: "Quincy Njoroge" },
-                  { _id: "st-ped-6", name: "Ruth Muthoni" },
-                ],
-                supervisor: { _id: "sup-ped-2", name: "Dr. L. Akinyi", role: "Consultant", email: "lakinyi@schooldash.org" },
-              },
-            },
-          },
-        },
-      },
-      phase2: {
-        groupA: {
-          posting: "Pediatrics",
-          duration: 8,
-          totalNumberofUnitsPerStudent: 4,
-          units: {
-            unit1: {
-              Pediatrics_Unit_3: {
-                name: "Pediatrics Unit 3",
-                unitId: "ped-3",
-                duration: 4,
-                postingType: "Pediatrics",
-                students: [
-                  { _id: "st-ped-7", name: "Samuel Wambua" },
-                  { _id: "st-ped-8", name: "Tina Kimani" },
-                  { _id: "st-ped-9", name: "Ursula Owino" },
-                ],
-                supervisor: { _id: "sup-ped-3", name: "Dr. C. Wambui", role: "Consultant", email: "cwambui@schooldash.org" },
-              },
-            },
-            unit2: {
-              Pediatrics_Unit_4: {
-                name: "Pediatrics Unit 4",
-                unitId: "ped-4",
-                duration: 4,
-                postingType: "Pediatrics",
-                students: [
-                  { _id: "st-ped-10", name: "Victor Ochieng" },
-                  { _id: "st-ped-11", name: "Winnie Njeri" },
-                  { _id: "st-ped-12", name: "Xavier Mugo" },
-                ],
-                supervisor: { _id: "sup-ped-4", name: "Dr. E. Njoroge", role: "Consultant", email: "enjoroge@schooldash.org" },
-              },
-            },
-          },
-        },
-        groupB: {
-          posting: "O&G",
-          duration: 8,
-          totalNumberofUnitsPerStudent: 2,
-          units: {
-            unit1: {
-              OandG_Unit_1: {
-                name: "O&G Unit 1",
-                unitId: "og-1",
-                duration: 4,
-                postingType: "O&G",
-                students: [
-                  { _id: "st-og-1", name: "Alice Wanjiku" },
-                  { _id: "st-og-2", name: "Brian Oduor" },
-                  { _id: "st-og-3", name: "Cynthia Mugo" },
-                  { _id: "st-og-4", name: "Daniel Kiptoo" },
-                ],
-                supervisor: { _id: "sup-og-1", name: "Dr. P. Wanjiku", role: "Consultant", email: "pwanjiku@schooldash.org" },
-              },
-            },
-            unit2: {
-              OandG_Unit_2: {
-                name: "O&G Unit 2",
-                unitId: "og-2",
-                duration: 4,
-                postingType: "O&G",
-                students: [
-                  { _id: "st-og-5", name: "Evelyn Achieng" },
-                  { _id: "st-og-6", name: "Felix Omondi" },
-                  { _id: "st-og-7", name: "Grace Njeri" },
-                  { _id: "st-og-8", name: "Henry Kibet" },
-                ],
-                supervisor: { _id: "sup-og-2", name: "Dr. A. Njeri", role: "Consultant", email: "anjeri@schooldash.org" },
-              },
-            },
-          },
-        },
-      },
-    },
-    rotationHistory: [],
-  });
+
 
   const transformRotationPlanToPostingSchedule = (plan: any): any => {
     if (!plan) return null;
@@ -1406,6 +1550,7 @@ export default function ClinicalRotations() {
       const { data } = await api.get(`/rotation-schedules/${id}`);
       const schedule = transformRotationPlanToPostingSchedule(data);
       setSelectedPostingSchedule(schedule);
+      userSelectedScheduleRef.current = true;
       scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
     } catch (e) {
       console.error('Failed to load schedule detail', e);
@@ -1605,6 +1750,7 @@ export default function ClinicalRotations() {
                     {rot.raw && (
                       <Button size="sm" variant="ghost" onClick={() => {
                         setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        userSelectedScheduleRef.current = true;
                         scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
                       }}>View Schedule</Button>
                     )}
@@ -1638,6 +1784,7 @@ export default function ClinicalRotations() {
                     {rot.raw && (
                       <Button size="sm" variant="ghost" onClick={() => {
                         setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        userSelectedScheduleRef.current = true;
                         scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
                       }}>View Schedule</Button>
                     )}
@@ -1660,6 +1807,7 @@ export default function ClinicalRotations() {
                     {rot.raw && (
                       <Button size="sm" variant="ghost" onClick={() => {
                         setSelectedPostingSchedule(mapPostingEntryToSchedule(rot.raw));
+                        userSelectedScheduleRef.current = true;
                         scheduleRef.current?.scrollIntoView({ behavior: 'smooth' });
                       }}>View Schedule</Button>
                     )}
@@ -1904,35 +2052,47 @@ export default function ClinicalRotations() {
   const selectedPostingOptionLabel = selectedPostingOption?.label ?? "";
   const selectedSixthPostingOption = getPostingOptionsForLevel("sixth").find((option) => option.id === selectedSixthPostingId) ?? null;
   const selectedFourthPostingOption = getPostingOptionsForLevel("fourth").find((option) => option.id === selectedFourthPostingId) ?? null;
+  const levelTokens = {
+    fifth: ["500", "fifth"],
+    sixth: ["600", "sixth"],
+    fourth: ["400", "fourth"],
+  } as const;
+  const detectLevelFromName = (name?: string | null) => {
+    if (!name) return null;
+    const n = name.toLowerCase();
+    if (levelTokens.fifth.some((t) => n.includes(t))) return "fifth";
+    if (levelTokens.sixth.some((t) => n.includes(t))) return "sixth";
+    if (levelTokens.fourth.some((t) => n.includes(t))) return "fourth";
+    return null;
+  };
+  const currentSelectedLevel = detectLevelFromName(selectedClass?.name) ?? selectedClock?.classLevel ?? null;
+  const supportsOgPedsJuniorPosting = currentSelectedLevel === "fifth";
+  const supportsOgPedsSeniorPosting = currentSelectedLevel === "sixth";
+  const currentPostingScheduleStorageKey = (() => {
+    if (supportsOgPedsJuniorPosting) return "og-ped-junior";
+    if (supportsOgPedsSeniorPosting) return "og-ped-senior";
+    if (selectedPostingOption?.id) return selectedPostingOption.id;
+    if (selectedSixthPostingOption?.id) return selectedSixthPostingOption.id;
+    if (selectedFourthPostingOption?.id) return selectedFourthPostingOption.id;
+    return "default";
+  })();
+
+  const availableLevels = {
+    fifth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fifth.some((t) => c.name.toLowerCase().includes(t))),
+    sixth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.sixth.some((t) => c.name.toLowerCase().includes(t))),
+    fourth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fourth.some((t) => c.name.toLowerCase().includes(t))),
+  };
   const selectedGeneratePostingOption = postingGenerateLevel === "sixth"
     ? selectedSixthPostingOption
     : postingGenerateLevel === "fourth"
       ? selectedFourthPostingOption
       : selectedPostingOption;
-  const isOgPedsJuniorPosting = isFiveHundredLevelClass && Boolean(selectedPostingOption) && (
-    selectedPostingOptionLabel.toLowerCase().includes("pediatrics") ||
-    selectedPostingOptionLabel.toLowerCase().includes("og") ||
-    selectedPostingOptionLabel.toLowerCase().includes("junior") ||
-    selectedPostingId === "phase1"
-  );
 
+
+  // Clear user-selected schedule lock whenever the posting selection changes
   useEffect(() => {
-    let cancelled = false;
-
-    const shouldLoadPreviewSchedule = Boolean(selectedClassId) && isFiveHundredLevelClass && isOgPedsJuniorPosting && Boolean(selectedPostingOption);
-
-    if (!shouldLoadPreviewSchedule) {
-      return;
-    }
-
-    if (!cancelled) {
-      setSelectedPostingSchedule(buildOgPedsJuniorPostingSchedule());
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedClassId, isFiveHundredLevelClass, isOgPedsJuniorPosting, selectedPostingId, selectedPostingOptionId, selectedPostingOptionLabel]);
+    userSelectedScheduleRef.current = false;
+  }, [selectedPostingId, selectedSixthPostingId, selectedFourthPostingId]);
 
   useEffect(() => {
     if (!postingOptions.length) {
@@ -1945,18 +2105,28 @@ export default function ClinicalRotations() {
   }, [postingOptions, selectedPostingId]);
 
   useEffect(() => {
-    if (!isFiveHundredLevelClass) {
+    if ((!supportsOgPedsJuniorPosting && !supportsOgPedsSeniorPosting) && !userSelectedScheduleRef.current) {
+      setSelectedPostingSchedule(null);
+    }
+  }, [supportsOgPedsJuniorPosting, supportsOgPedsSeniorPosting]);
+
+  useEffect(() => {
+    if (!selectedClassId) {
+      setSelectedPostingSchedule(null);
+      userSelectedScheduleRef.current = false;
       return;
     }
 
-    if (isOgPedsJuniorPosting) {
+    const persistedSchedule = loadPersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey);
+    if (persistedSchedule) {
+      setSelectedPostingSchedule(persistedSchedule as any);
+      userSelectedScheduleRef.current = true;
       return;
     }
 
-    if (selectedPostingId === "phase1") {
-      setSelectedPostingSchedule(samplePostingSchedule);
-    }
-  }, [isFiveHundredLevelClass, isOgPedsJuniorPosting, selectedPostingId]);
+    userSelectedScheduleRef.current = false;
+    setSelectedPostingSchedule(null);
+  }, [selectedClassId, currentPostingScheduleStorageKey]);
 
   const currentClockPhase = selectedClock
     ? selectedClock.clockPhase ?? (selectedClock.clockStartDate && selectedClassPhasePlan.length > 0
@@ -1972,6 +2142,57 @@ export default function ClinicalRotations() {
   const postingComponents = currentPhaseDefinition?.subPostings ?? [];
   const currentPostingSubtitle = currentPhaseConfig?.postingType ?? currentPhaseDefinition?.subPostings?.join(", ") ?? "Clinical posting";
   const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "Demo phase";
+  const isStudentView = user?.role === "student";
+  const currentStudent = isStudentView
+    ? selectedClassStudents.find((student) => {
+        const authStudentId = (user as any)?._id ?? (user as any)?.id;
+        return (
+          student._id === authStudentId ||
+          student.idNumber === (user as any)?.idNumber ||
+          student.name === user?.name
+        );
+      }) ?? null
+    : null;
+  const studentPostingAssignment = (() => {
+    if (!selectedPostingSchedule || !currentStudent || !selectedPostingSchedule.nestedSchedule) {
+      return null;
+    }
+
+    const phaseKey = currentClockPhase === "phase2" ? "phase2" : "phase1";
+    const phaseData = (selectedPostingSchedule.nestedSchedule as Record<string, any> | undefined)?.[phaseKey];
+    if (!phaseData) {
+      return null;
+    }
+
+    const match = Object.entries(phaseData).find(([, groupData]) => {
+      const departmentStudents = Object.values((groupData?.units ?? {}) as Record<string, any>)
+        .flatMap((unitMap: any) => Object.values(unitMap ?? {}).flatMap((unit: any) => unit.students ?? []));
+      return departmentStudents.some((student: any) => {
+        const studentId = student?._id;
+        const studentNumber = student?.idNumber;
+        return (
+          studentId === currentStudent._id ||
+          studentNumber === currentStudent.idNumber ||
+          student.name === currentStudent.name
+        );
+      });
+    });
+
+    if (!match) {
+      return null;
+    }
+
+    const [groupKey, groupData] = match;
+    const departmentStudents = Object.values((groupData?.units ?? {}) as Record<string, any>)
+      .flatMap((unitMap: any) => Object.values(unitMap ?? {}).flatMap((unit: any) => unit.students ?? []));
+
+    return {
+      phaseLabel: phaseKey === "phase2" ? "Phase 2" : "Phase 1",
+      groupKey,
+      posting: groupData.posting as string,
+      departmentStudents,
+    };
+  })();
   const activePostingSchedule = {
     ...samplePostingSchedule,
     postingName: currentPostingTitle,
@@ -1980,26 +2201,6 @@ export default function ClinicalRotations() {
     phases: [currentPhaseLabel],
   };
 
-  // Determine which levels exist in the available classes list and which level the selected class belongs to.
-  const levelTokens = {
-    fifth: ["500", "fifth"],
-    sixth: ["600", "sixth"],
-    fourth: ["400", "fourth"],
-  } as const;
-  const availableLevels = {
-    fifth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fifth.some((t) => c.name.toLowerCase().includes(t))),
-    sixth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.sixth.some((t) => c.name.toLowerCase().includes(t))),
-    fourth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fourth.some((t) => c.name.toLowerCase().includes(t))),
-  };
-  const detectLevelFromName = (name?: string | null) => {
-    if (!name) return null;
-    const n = name.toLowerCase();
-    if (levelTokens.fifth.some((t) => n.includes(t))) return "fifth";
-    if (levelTokens.sixth.some((t) => n.includes(t))) return "sixth";
-    if (levelTokens.fourth.some((t) => n.includes(t))) return "fourth";
-    return null;
-  };
-  const currentSelectedLevel = detectLevelFromName(selectedClass?.name) ?? selectedClock?.classLevel ?? null;
   const allLevels: Array<{ level: string; title: string }> = [
     { level: "fifth", title: "500 Level" },
     { level: "sixth", title: "600 Level" },
@@ -2007,6 +2208,113 @@ export default function ClinicalRotations() {
   ];
   const visibleLevels = allLevels.filter((l) => availableLevels[l.level as keyof typeof availableLevels] && currentSelectedLevel === l.level);
   const gridColsClass = visibleLevels.length === 1 ? "md:grid-cols-1" : visibleLevels.length === 2 ? "md:grid-cols-2" : "xl:grid-cols-3";
+
+  if (isStudentView) {
+    return (
+      <div id="page-clinical-rotations" className="w-full max-w-full px-6 py-10">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6">
+          <div className="rounded-2xl border border-border bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-8 text-white shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-sm">Student clinicals view</p>
+                <h1 className="text-3xl font-semibold">Your current clinical posting</h1>
+                <p className="mt-3 max-w-2xl text-sm text-slate-200">
+                  Review your class academic clock, the active posting phase, and the department you are assigned to for the current posting schedule.
+                </p>
+              </div>
+              <div className="w-full sm:w-72">
+                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                  <SelectTrigger className="border-white/20 bg-white/10 text-white placeholder:text-slate-300">
+                    <SelectValue placeholder="Select class" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableClasses.map((cls) => (
+                      <SelectItem key={cls._id} value={cls._id}>
+                        {cls.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-sm font-medium text-muted-foreground">Current posting</p>
+              {clockLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">Loading posting data…</p>
+              ) : (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{currentPostingTitle}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {selectedClass ? `${selectedClass.name} • ${currentPhaseLabel}` : "Select a class to view the active posting."}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Badge className="bg-secondary text-secondary-foreground">{currentPhaseLabel}</Badge>
+                    <Badge variant="outline">{currentPostingSubtitle}</Badge>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-sm font-medium text-muted-foreground">Your department</p>
+              {studentPostingAssignment ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.posting}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentPostingAssignment.phaseLabel} • Group {studentPostingAssignment.groupKey === "groupA" ? "A" : "B"}
+                  </p>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    You are currently assigned to the {studentPostingAssignment.posting} department group for this posting schedule.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">Pending assignment</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {currentStudent ? `No group assignment has been linked to ${currentStudent.name} yet.` : "Select a class and confirm your roster entry to view your posting group."}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {selectedPostingSchedule && (
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Current class posting schedule</p>
+                  <h2 className="mt-1 text-xl font-semibold">{selectedPostingSchedule.postingName ?? "Saved posting schedule"}</h2>
+                </div>
+                <Badge className="bg-secondary text-secondary-foreground">Loaded from your class</Badge>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {(Object.entries(selectedPostingSchedule.nestedSchedule ?? {}) as [string, any][]).map(([phaseKey, phaseData]) => (
+                  <div key={phaseKey} className="rounded-lg border border-border bg-background p-4">
+                    <div className="text-sm font-semibold">{phaseKey === "phase1" ? "Phase 1" : "Phase 2"}</div>
+                    <div className="mt-3 space-y-2">
+                      {Object.entries(phaseData ?? {}).map(([groupKey, groupData]) => (
+                        <div key={`${phaseKey}-${groupKey}`} className="rounded-lg border border-border bg-card p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-medium">{groupKey === "groupA" ? "Group A" : "Group B"}</div>
+                            <Badge variant="outline">{groupData.posting || "Department"}</Badge>
+                          </div>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {groupData.duration ? `${groupData.duration} month${groupData.duration === 1 ? "" : "s"}` : "Duration pending"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div id="page-clinical-rotations" className="w-full max-w-full px-6 py-10">
@@ -2123,25 +2431,159 @@ export default function ClinicalRotations() {
                       setPostingGenerateLevel(level);
                       setShowPostingGenerateDialog(true);
                     }}
-                    disabled={options.length === 0 || !selectedId}
+                    disabled={options.length === 0 || !selectedId || (level === "fifth" && !supportsOgPedsJuniorPosting) || (level === "sixth" && !supportsOgPedsSeniorPosting)}
                   >
-                    Generate posting
+                    {level === "fifth" && !supportsOgPedsJuniorPosting
+                      ? "Not configured"
+                      : level === "sixth" && !supportsOgPedsSeniorPosting
+                        ? "Not configured"
+                        : "Generate posting"}
                   </Button>
                 </div>
 
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {isCurrentLevel
-                    ? "Update this card directly for the selected class."
-                    : `Preview posting flow for ${title} classes.`}
+                  {level === "fifth" && !supportsOgPedsJuniorPosting
+                    ? "This class is not configured for the O&G/Pediatrics junior posting generator in its class clock data."
+                    : level === "sixth" && !supportsOgPedsSeniorPosting
+                      ? "This class is not configured for the O&G/Pediatrics senior posting generator in its class clock data."
+                      : isCurrentLevel
+                        ? level === "sixth"
+                          ? "Generate and review the O&G/Pediatrics senior posting schedule for this class."
+                          : "Generate and review the O&G/Pediatrics junior posting schedule for this class."
+                        : `Preview posting flow for ${title} classes.`}
                 </p>
               </div>
             );
           })}
         </div>
 
-        {isOgPedsJuniorPosting ? (
-          <PostingScheduleDisplay schedule={selectedPostingSchedule ?? activePostingSchedule as any} validation={{ valid: true, errors: [] }} />
-        ) : null}
+        {selectedPostingSchedule && (supportsOgPedsJuniorPosting || supportsOgPedsSeniorPosting) && (
+          <div className="mt-6 rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-4 text-white shadow-sm" ref={scheduleRef}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">
+                  {selectedPostingSchedule?.scheduleVariant === "senior"
+                    ? "Generated O&G/Pediatrics senior posting schedule"
+                    : "Generated O&G/Pediatrics junior posting schedule"}
+                </h3>
+                <p className="text-sm text-slate-300">Departments are shown side by side for each phase.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="border border-white/10 bg-white/10 text-white text-xs">Draft</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                  onClick={() => setShowDeleteScheduleDialog(true)}
+                >
+                  Delete schedule
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-white">Student roster source</p>
+                    <p className="text-xs text-slate-300">
+                      {classStudentsLoading
+                        ? "Loading class students..."
+                        : selectedClassStudents.length > 0
+                          ? `${selectedClassStudents.length} students loaded from ${selectedClass?.name ?? "the selected class"}.`
+                          : "Using fallback student roster because no class students were available."}
+                    </p>
+                  </div>
+                  {selectedClassStudents.length > 0 && (
+                    <Badge className="border border-emerald-400/30 bg-emerald-500/15 text-emerald-200 text-xs">Class roster</Badge>
+                  )}
+                </div>
+              </div>
+
+              {(Object.entries(selectedPostingSchedule.nestedSchedule ?? {}) as [string, any][]).map(([phaseKey, phaseData]) => (
+                <div key={phaseKey} className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold text-white">{phaseKey === "phase1" ? "Phase 1" : "Phase 2"}</h4>
+                      <p className="text-sm text-slate-300">
+                        {phaseKey === "phase1" ? "First half of the posting" : "Second half with departments swapped"}
+                      </p>
+                    </div>
+                    <Badge className="border border-white/10 bg-white/10 text-white text-xs">{Object.keys(phaseData ?? {}).length} departments</Badge>
+                  </div>
+                  <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    {Object.entries(phaseData ?? {}).map(([groupKey, groupData]) => {
+                      const departmentStudents = ((groupData?.units ?? {}) as Record<string, any>)
+                        ? Object.values(groupData.units).flatMap((unitMap: any) => Object.values(unitMap ?? {}).flatMap((unit: any) => unit.students ?? []))
+                        : [];
+                      return (
+                        <div key={groupKey} className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 shadow-inner">
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="text-sm font-semibold text-white">{groupKey === "groupA" ? "Group A" : "Group B"}</p>
+                              <p className="text-xs text-slate-400">{groupData.posting || "Department"}</p>
+                            </div>
+                            <Badge className="border border-white/10 bg-white/10 text-white text-xs">{departmentStudents.length} student{departmentStudents.length !== 1 ? "s" : ""}</Badge>
+                          </div>
+                          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/70 p-3">
+                            <div className="mb-3 flex items-center justify-between">
+                              <p className="text-sm font-medium text-white">Department roster</p>
+                              <p className="text-xs text-slate-400">{groupData.posting || "Department"}</p>
+                            </div>
+                            {departmentStudents.length > 0 ? (
+                              <div className="grid gap-2 text-sm">
+                                {departmentStudents.map((student: any) => (
+                                  <div key={student?._id ?? student?.name ?? `${groupKey}-${student?.idNumber}`}
+                                    className="rounded-lg border border-white/10 bg-white/10 p-2 text-slate-100"
+                                  >
+                                    <div>{student.name || "Unnamed student"}</div>
+                                    {student.idNumber && <div className="text-[11px] text-slate-400">{student.idNumber}</div>}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-slate-400">No students assigned.</p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <Dialog open={showDeleteScheduleDialog} onOpenChange={setShowDeleteScheduleDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete generated schedule?</DialogTitle>
+              <DialogDescription>
+                {selectedPostingSchedule?.scheduleVariant === "senior"
+                  ? "This will remove the current O&G/Pediatrics senior posting preview from the page."
+                  : "This will remove the current O&G/Pediatrics junior posting preview from the page."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeleteScheduleDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  deletePersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey);
+                  setSelectedPostingSchedule(null);
+                  userSelectedScheduleRef.current = false;
+                  setShowDeleteScheduleDialog(false);
+                  toast.success("Deleted generated schedule");
+                }}
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={showPostingGenerateDialog} onOpenChange={setShowPostingGenerateDialog}>
           <DialogContent>

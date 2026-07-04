@@ -616,6 +616,12 @@ input.border.rounded-md {
         padding: 10px 30px 8px 30px !important;
     }
 
-    /* #mainCard {
-      display: none;
-    } */
+    #mainCard {
+      
+    }
+
+    #mainCardHeader {
+          background: var(--background);
+    padding: 15px 30px 10px 30px;
+    margin: -22px 0px 0px 0px;
+    }

@@ -13,7 +13,6 @@ import {
   // getAvailableRotations,
   // signupRotation,
   // listAllRotations,
-  generate500LevelJuniorOgPaePostingSchedule,
 } from "../controllers/for500LevelPosting";
 
 // const clinicalRotationRouter = express.Router();
@@ -26,13 +25,6 @@ const routerFor500LevelPostings = express.Router();
 //   authorize(["admin", "teacher", "student", "unitconsultant", "unitresident"]),
 //   createClinicalRotation
 // );
-
-routerFor500LevelPostings.post(
-  "/oGPeds-JuniorPosting-Schedule",
-  protect,
-  authorize(["admin", "teacher"]),
-  generate500LevelJuniorOgPaePostingSchedule
-);
 
 // clinicalRotationRouter.get(
 //   "/",
