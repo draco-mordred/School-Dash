@@ -8,6 +8,7 @@ import morgan from "morgan";
 import dotenv from "dotenv"
 import cors from "cors";
 import console from "node:console";
+import * as dns from "node:dns";
 import { connectDB } from "./config/db"; //import the connectDB function to connect to the database
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
@@ -34,15 +35,15 @@ import activityEntryRouter from "./routes/activityEntry";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
-const dns = require("dns");
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 // The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/
 
 //load variables from the .env file
 dotenv.config();
 
-const app: Application = express();
+export const app: Application = express();
 const PORT = process.env.PORT || 5000;
+const isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
@@ -116,12 +117,13 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 // });
 
 // Start the server and listen on the specified port
-connectDB().then(async () => {
-    const server = app.listen(PORT, () => {
-      console.log(`Server is running on http://localhost:${PORT}`);
-    });
+if (!isVercelRuntime) {
+  connectDB().then(async () => {
+      app.listen(PORT, () => {
+        console.log(`Server is running on http://localhost:${PORT}`);
+      });
 
-    // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
+      // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
 //     const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";
 //     if (!useInngest) {
 //       try {
@@ -150,7 +152,16 @@ connectDB().then(async () => {
 //       console.warn('WebSocket init failed or not available', err);
 //     }
 
-})
+  }).catch((error) => {
+      console.error("Failed to connect to the database:", error);
+  });
+} else {
+  connectDB().catch((error) => {
+      console.error("Failed to connect to the database on Vercel startup:", error);
+  });
+}
+
+export default app;
 //you can use any of these scripts to run the server with nodemon or bun
   // "scripts": {
   //   "dev": "nodemon --exec bun run index.ts",
