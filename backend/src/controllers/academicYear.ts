@@ -105,12 +105,11 @@ export const getCurrentAcademicYear = async (
   try {
     const currentYear = await AcademicYear.findOne({ isCurrent: true });
     if (!currentYear) {
-      res.status(404).json({ message: "No current academic year found!" });
+      res.status(200).json({ year: null, message: "No current academic year set" });
       return;
-    } else {
-      res.status(200).json(currentYear);
     }
-  }catch (error) {
+    res.status(200).json({ year: currentYear });
+  } catch (error) {
     res.status(500).json({
       message: "Server Error", error: `${error}`
     })

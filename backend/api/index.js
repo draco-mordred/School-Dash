@@ -1197,6 +1197,9 @@ var init_functions = __esm({
           6: "Saturday"
         };
         const dateObj = new Date(date);
+        if (Number.isNaN(dateObj.getTime())) {
+          throw new NonRetriableError("Invalid date format");
+        }
         const dayName = dayMap[dateObj.getDay()];
         if (dayName === "Saturday" || dayName === "Sunday") {
           throw new NonRetriableError("Attendance cannot be generated on weekends (Saturday/Sunday)");
@@ -1234,6 +1237,7 @@ var init_functions = __esm({
           }
           return { daySchedule, matchingPeriods: matchingPeriods2 };
         });
+        const { matchingPeriods } = timetableData;
         const duplicateCheck = await step.run("check-duplicate", async () => {
           const startOfDay = new Date(dateObj);
           startOfDay.setHours(0, 0, 0, 0);
@@ -1335,8 +1339,7 @@ var init_functions = __esm({
                 throw new Error("Failed to create user");
               }
               if (u.role === "student" && classId) {
-                const ClassModel = (init_classes(), __toCommonJS(classes_exports)).default;
-                await ClassModel.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose13.Types.ObjectId(newUser._id) } }, { returnDocument: "after" });
+                await classes_default.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose13.Types.ObjectId(newUser._id) } }, { returnDocument: "after" });
               }
               created.push(newUser.email);
             } catch (err) {
@@ -3470,11 +3473,10 @@ var getCurrentAcademicYear = async (req, res) => {
   try {
     const currentYear = await academicYear_default.findOne({ isCurrent: true });
     if (!currentYear) {
-      res.status(404).json({ message: "No current academic year found!" });
+      res.status(200).json({ year: null, message: "No current academic year set" });
       return;
-    } else {
-      res.status(200).json(currentYear);
     }
+    res.status(200).json({ year: currentYear });
   } catch (error) {
     res.status(500).json({
       message: "Server Error",
@@ -8832,14 +8834,24 @@ import express14 from "express";
 
 // src/services/whatsappGateway.ts
 import path from "path";
-import { Client, LocalAuth } from "whatsapp-web.js";
-var qrcode = __require("qrcode-terminal");
+import { createRequire } from "module";
+var qrcode = require2("qrcode-terminal");
+var require2 = createRequire(import.meta.url);
 var sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 var isGatewayReady = false;
 var gatewayInitialization = null;
 var resolveGatewayReady = null;
 var rejectGatewayReady = null;
-var client = new Client({
+var Client;
+var LocalAuth;
+try {
+  const whatsappModule = require2("whatsapp-web.js");
+  Client = whatsappModule.Client;
+  LocalAuth = whatsappModule.LocalAuth;
+} catch (error) {
+  console.warn("\u26A0\uFE0F MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
+}
+var client = Client && LocalAuth ? new Client({
   authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
   puppeteer: {
     headless: true,
@@ -8853,7 +8865,7 @@ var client = new Client({
       "--single-process"
     ]
   }
-});
+}) : null;
 var initializeGateway = async () => {
   if (gatewayInitialization) return gatewayInitialization;
   gatewayInitialization = new Promise((resolve, reject) => {
@@ -8863,6 +8875,12 @@ var initializeGateway = async () => {
       reject(new Error("WhatsApp gateway initialization timed out."));
     }, 3e4);
   });
+  if (!client) {
+    const error = new Error("WhatsApp gateway is unavailable in this environment.");
+    console.warn("\u26A0\uFE0F", error.message);
+    rejectGatewayReady?.(error);
+    return gatewayInitialization;
+  }
   try {
     client.initialize();
   } catch (error) {
@@ -8874,6 +8892,7 @@ var initializeGateway = async () => {
 var recoverGateway = async (reason) => {
   console.warn(`\u26A0\uFE0F MORDRED WhatsApp Gateway disconnected. Reason: ${reason}`);
   isGatewayReady = false;
+  if (!client) return;
   try {
     await client.destroy();
   } catch (destroyError) {
@@ -8884,33 +8903,35 @@ var recoverGateway = async (reason) => {
     initializeGateway();
   }, 5e3);
 };
-client.on("qr", (qr) => {
-  console.log("\u2694\uFE0F MORDRED WhatsApp Gateway activation required. Scan this QR code:");
-  qrcode.generate(qr, { small: true });
-});
-client.on("ready", () => {
-  isGatewayReady = true;
-  console.log("\u{1F4E1} MORDRED WhatsApp Gateway successfully deployed and online.");
-  resolveGatewayReady?.();
-  resolveGatewayReady = null;
-  rejectGatewayReady = null;
-});
-client.on("auth_failure", (message2) => {
-  isGatewayReady = false;
-  console.error("\u274C MORDRED WhatsApp authentication failed:", message2);
-});
-client.on("disconnected", async (reason) => {
-  await recoverGateway(reason || "unknown");
-});
-client.on("change_state", (state) => {
-  console.log(`\u{1F504} MORDRED WhatsApp Gateway state changed: ${state}`);
-});
-client.on("error", async (error) => {
-  console.error("\u274C MORDRED WhatsApp Gateway internal error:", error?.message || error);
-  if (String(error).includes("Execution context was destroyed")) {
-    await recoverGateway("execution-context-destroyed");
-  }
-});
+if (client) {
+  client.on("qr", (qr) => {
+    console.log("\u2694\uFE0F MORDRED WhatsApp Gateway activation required. Scan this QR code:");
+    qrcode.generate(qr, { small: true });
+  });
+  client.on("ready", () => {
+    isGatewayReady = true;
+    console.log("\u{1F4E1} MORDRED WhatsApp Gateway successfully deployed and online.");
+    resolveGatewayReady?.();
+    resolveGatewayReady = null;
+    rejectGatewayReady = null;
+  });
+  client.on("auth_failure", (message2) => {
+    isGatewayReady = false;
+    console.error("\u274C MORDRED WhatsApp authentication failed:", message2);
+  });
+  client.on("disconnected", async (reason) => {
+    await recoverGateway(reason || "unknown");
+  });
+  client.on("change_state", (state) => {
+    console.log(`\u{1F504} MORDRED WhatsApp Gateway state changed: ${state}`);
+  });
+  client.on("error", async (error) => {
+    console.error("\u274C MORDRED WhatsApp Gateway internal error:", error?.message || error);
+    if (String(error).includes("Execution context was destroyed")) {
+      await recoverGateway("execution-context-destroyed");
+    }
+  });
+}
 var ensureGatewayReady = async () => {
   if (!isGatewayReady) {
     await initializeGateway();
