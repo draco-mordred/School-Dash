@@ -1,15 +1,16 @@
-import { build } from 'vite';
-import path from 'path';
+const path = require('path');
+const frontendRoot = path.resolve('frontend');
+const viteEntry = require.resolve('vite', { paths: [frontendRoot] });
+const { build } = require(viteEntry);
 
 async function bundleBackend() {
   await build({
-    // Direct path down to the backend subdirectory
-    root: path.resolve('backend/src'),
+    root: path.resolve('backend'),
     base: './',
     build: {
       ssr: true,
       lib: {
-        entry: path.resolve('backend/src/index.ts'),
+        entry: path.resolve('backend/api/index.ts'),
         formats: ['es'],
         fileName: () => 'index.js'
       },
