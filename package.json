@@ -8,7 +8,7 @@
     "backend"
   ],
   "scripts": {
-    "vercel-build": "npm run build --prefix frontend && node build.js && mkdir -p api && cp backend/dist/index.js api/index.js"
+    "vercel-build": "npm run build --prefix frontend && node build.js"
   },
   "devDependencies": {
     "vite": "8.1.3"

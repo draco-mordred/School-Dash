@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Plus, CalendarIcon, Pause, Play, RotateCcw, Trash2, Check } from "lucide-react";
-import { format } from "date-fns";
+import { format, isAfter, isBefore, isValid } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -144,7 +144,7 @@ const AcademicYear = () => {
     const loadActiveYear = async () => {
       try {
         const { data } = await api.get("/academic-years/current");
-        setCurrentAcademicYear(data);
+        setCurrentAcademicYear(data?.year ?? data);
       } catch {
         // ignore when no current year exists yet
       }
@@ -266,6 +266,9 @@ const AcademicYear = () => {
   }) => {
     if (!activeYear) return;
 
+    const activeYearId = activeYear ? (activeYear._id ?? (activeYear.id ?? undefined)) : undefined;
+    if (!activeYearId) return;
+
     try {
       const payload = buildClassClockPayload({
         ...data,
@@ -275,10 +278,10 @@ const AcademicYear = () => {
       if (selectedClockClassId) {
         const existingMap = (activeYear as academicYear & { classClockData?: Record<string, unknown> }).classClockData || {};
         const merged = { ...(existingMap || {}), [selectedClockClassId]: payload };
-        await api.patch(`/academic-years/update/${activeYear._id}`, { classClockData: merged });
+        await api.patch(`/academic-years/update/${activeYearId}`, { classClockData: merged });
 
         const clockPayload = {
-          academicYearId: activeYear._id,
+          academicYearId: activeYearId,
           classId: selectedClockClassId,
           clockStartDate: payload.clockStartDate ?? null,
           clockIsPaused: payload.clockIsPaused ?? false,
@@ -295,7 +298,7 @@ const AcademicYear = () => {
           setSelectedClockDocId(createdClock?._id ?? null);
         }
       } else {
-        await api.patch(`/academic-years/update/${activeYear._id}`, payload);
+        await api.patch(`/academic-years/update/${activeYearId}`, payload);
       }
       await fetchYears();
     } catch {
@@ -305,15 +308,16 @@ const AcademicYear = () => {
 
   // When current academic year or selected class changes, load class-specific clock data
   useEffect(() => {
-    if (!currentAcademicYear || !selectedClockClassId) {
-      setSelectedClockDocId(null);
-      setHasClassClock(false);
-      return;
-    }
-
     const loadSelectedClassClock = async () => {
+      const ayId = currentAcademicYear ? (currentAcademicYear._id ?? currentAcademicYear.id ?? undefined) : undefined;
+      if (!ayId || !selectedClockClassId) {
+        setSelectedClockDocId(null);
+        setHasClassClock(false);
+        return;
+      }
+
       try {
-        const { data } = await api.get(`/academic-clocks?academicYearId=${currentAcademicYear._id}&classId=${selectedClockClassId}`);
+        const { data } = await api.get(`/academic-clocks?academicYearId=${ayId}&classId=${selectedClockClassId}`);
         const existingClock = Array.isArray(data?.clocks) ? data.clocks[0] : null;
 
         if (existingClock) {
@@ -460,6 +464,32 @@ const AcademicYear = () => {
     });
   };
 
+  const safeFormat = (d: any, fmt = "PPP") => {
+    if (!d) return "TBA";
+    const dt = d instanceof Date ? d : new Date(d);
+    if (!isValid(dt)) return "TBA";
+    try {
+      return format(dt, fmt);
+    } catch (e) {
+      return "TBA";
+    }
+  };
+
+  const isDateSelectableForActiveYear = (date: Date) => {
+    if (!activeYear) return false;
+
+    const start = activeYear.fromYear ? new Date(activeYear.fromYear) : null;
+    const end = activeYear.toYear ? new Date(activeYear.toYear) : null;
+
+    if (start && !isValid(start)) return false;
+    if (end && !isValid(end)) return false;
+
+    if (start && isBefore(date, start)) return true;
+    if (end && isAfter(date, end)) return true;
+
+    return false;
+  };
+
   const handleDeleteClassClock = async () => {
     if (!activeYear || !selectedClockClassId) return;
 
@@ -467,7 +497,9 @@ const AcademicYear = () => {
     if (!confirmed) return;
 
     try {
-      await api.delete(`/academic-clocks/delete/by-class?academicYearId=${activeYear._id}&classId=${selectedClockClassId}`);
+      const ayId = activeYear ? (activeYear._id ?? activeYear.id ?? undefined) : undefined;
+      if (!ayId) throw new Error('Missing academic year id');
+      await api.delete(`/academic-clocks/delete/by-class?academicYearId=${ayId}&classId=${selectedClockClassId}`);
       setSelectedClockDocId(null);
       setHasClassClock(false);
       setClockStartDate(new Date(activeYear.fromYear));
@@ -486,7 +518,9 @@ const AcademicYear = () => {
     if (!activeYear || !selectedClockClassId) return;
 
     try {
-      await api.post(`/academic-clocks/complete/by-class`, { academicYearId: activeYear._id, classId: selectedClockClassId });
+      const ayId = activeYear ? (activeYear._id ?? activeYear.id ?? undefined) : undefined;
+      if (!ayId) throw new Error('Missing academic year id');
+      await api.post(`/academic-clocks/complete/by-class`, { academicYearId: ayId, classId: selectedClockClassId });
       setIsClockPaused(true);
       const lastPhase = selectedClassPhasePlan[selectedClassPhasePlan.length - 1];
       if (lastPhase) setClockPhase(lastPhase.id);
@@ -568,7 +602,7 @@ const AcademicYear = () => {
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-between">
-                      {format(clockStartDate, "PPP")}
+                      {safeFormat(clockStartDate, "PPP")}
                       <CalendarIcon className="h-4 w-4" />
                     </Button>
                   </PopoverTrigger>

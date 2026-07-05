@@ -2,6 +2,7 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { api } from "@/lib/api";
+import { getEntityId } from "@/lib/getEntityId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -352,7 +353,8 @@ const AdminDepartments = () => {
       };
 
       if (editingDepartment) {
-        await api.patch(`/courses/departments/${editingDepartment._id}`, payload);
+        const id = getEntityId(editingDepartment);
+        await api.patch(`/courses/departments/${id}`, payload);
         toast.success("Department updated successfully.");
       } else {
         await api.post("/courses/departments", payload);

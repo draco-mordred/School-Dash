@@ -1,5 +1,14 @@
 import AcademicYear from "../models/academicYear";
 import { logActivity } from "../utils/activitieslog";
+
+const ensureHas_Id = (obj) => {
+    if (!obj) return obj;
+    if (Array.isArray(obj)) return obj.map((o) => ensureHas_Id(o));
+    if (typeof obj === 'object' && !obj._id && obj.id) {
+        obj._id = obj.id;
+    }
+    return obj;
+};
 // @desc Create a new Academic Year
 // @route POST /api/academic-years
 // @access Private/Admin
@@ -34,7 +43,7 @@ export const createAcademicYear = async (req, res) => {
             userId: req.user._id,
             action: `Created academic year ${name}, with ID: ${academicYear._id} and it's ${(isCurrent ? "current" : "not current")}`,
         });
-        res.status(201).json(academicYear);
+        res.status(201).json(ensureHas_Id(academicYear));
     }
     catch (error) {
         res.status(500).json({
@@ -65,7 +74,7 @@ export const getAllAcademicYears = async (req, res) => {
                 .limit(limit),
         ]);
         res.json({
-            years,
+            years: ensureHas_Id(years),
             pagination: {
                 total,
                 page,
@@ -88,7 +97,7 @@ export const getCurrentAcademicYear = async (req, res) => {
             return;
         }
         else {
-            res.status(200).json(currentYear);
+            res.status(200).json(ensureHas_Id(currentYear));
         }
     }
     catch (error) {
@@ -116,7 +125,7 @@ export const updateAcademicYear = async (req, res) => {
                 message: "Academic Year not found!"
             });
         }
-        res.status(200).json(updatedYear);
+        res.status(200).json(ensureHas_Id(updatedYear));
     }
     catch (error) {
         res.status(500).json({

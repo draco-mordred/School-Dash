@@ -44,6 +44,7 @@ dotenv.config();
 export const app: Application = express();
 const PORT = process.env.PORT || 5000;
 const isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
+const apiBase = isVercelRuntime ? "" : "/api";
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
@@ -79,29 +80,53 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 //Import routes here
-app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
-app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
-app.use("/api/academic-years", academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
-app.use("/api/academic-clocks", academicClockRouter);
-app.use('/api/classes', classRouter);
+app.use(`${apiBase}/users`, userRoutes); // Use the user routes for any requests to /api/users
+app.use(`${apiBase}/activities`, LogsRouter); // Use the user routes for any requests to /api/users
+app.use(`${apiBase}/academic-years`, academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
+app.use(`${apiBase}/academic-clocks`, academicClockRouter);
+app.use(`${apiBase}/classes`, classRouter);
 // Courses API (was previously also mounted at /api/subjects)
-app.use('/api/courses', courseRouter);
-app.use("/api/timetables", timeRouter)
-app.use("/api/exams", examRouter);
-app.use("/api/dashboard", dashBoardRouter);
-app.use("/api/attendance", attendanceRouter);
-app.use("/api/notifications", notificationRouter);
-app.use("/api/og-ped-rotations", routerFor500LevelPostings);
-app.use('/api/rotation-schedules', rotationSchedulesRouter);
-app.use("/api/logbook-entries", logbookEntryRouter);
-app.use('/api/hospital-data', hospitalDataRouter);
-app.use('/api/activity-entries', activityEntryRouter);
-app.use('/api/inngest', serve({
+app.use(`${apiBase}/courses`, courseRouter);
+app.use(`${apiBase}/timetables`, timeRouter)
+app.use(`${apiBase}/exams`, examRouter);
+app.use(`${apiBase}/dashboard`, dashBoardRouter);
+app.use(`${apiBase}/attendance`, attendanceRouter);
+app.use(`${apiBase}/notifications`, notificationRouter);
+app.use(`${apiBase}/og-ped-rotations`, routerFor500LevelPostings);
+app.use(`${apiBase}/rotation-schedules`, rotationSchedulesRouter);
+app.use(`${apiBase}/logbook-entries`, logbookEntryRouter);
+app.use(`${apiBase}/hospital-data`, hospitalDataRouter);
+app.use(`${apiBase}/activity-entries`, activityEntryRouter);
+app.use(`${apiBase}/inngest`, serve({
   client: inngest,
   functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
 })
 );
-app.use("/api/mordred", mordredAIRouter); // Mount the Mordred AI routes at /api/mordred
+app.use(`${apiBase}/mordred`, mordredAIRouter); // Mount the Mordred AI routes at /api/mordred
+
+// Debug: list all registered routes (useful in serverless where /api prefix may be stripped)
+app.get(`${apiBase}/_routes`, (req: Request, res: Response) => {
+  try {
+    const stack = (app as any)._router?.stack || [];
+    const routes: Array<{ path: string; methods: string[] }> = [];
+    for (const layer of stack) {
+      if (layer.route && layer.route.path) {
+        const methods = Object.keys(layer.route.methods || {}).map((m) => m.toUpperCase());
+        routes.push({ path: `${apiBase}${layer.route.path}`, methods });
+      } else if (layer.name === 'router' && layer.handle && layer.handle.stack) {
+        for (const nested of layer.handle.stack) {
+          if (nested.route && nested.route.path) {
+            const methods = Object.keys(nested.route.methods || {}).map((m) => m.toUpperCase());
+            routes.push({ path: `${apiBase}${nested.route.path}`, methods });
+          }
+        }
+      }
+    }
+    res.json({ routes });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to enumerate routes', detail: String(err) });
+  }
+});
 
 
 //Global error handling middleware
@@ -119,9 +144,9 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 // Start the server and listen on the specified port
 if (!isVercelRuntime) {
   connectDB().then(async () => {
-      app.listen(PORT, () => {
-        console.log(`Server is running on http://localhost:${PORT}`);
-      });
+    app.listen(PORT, () => {
+      console.log(`Server is running on http://localhost:${PORT}`);
+    });
 
       // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
 //     const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";

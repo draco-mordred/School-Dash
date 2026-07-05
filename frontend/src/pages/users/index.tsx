@@ -151,7 +151,8 @@ export default function UserManagementPage({
         return;
       }
 
-      await api.patch(`/users/update/${currentParent._id}`, {
+      const parentId = currentParent?._id ?? currentParent?.id ?? undefined;
+      await api.patch(`/users/update/${parentId}`, {
         parentStudents: [...existingIds, student._id],
       });
       toast.success("Student added successfully.");

@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
+import { getEntityId } from "@/lib/getEntityId";
 import { classFormSchema, type ClassFormValues } from "./schema";
 
 // UI Imports
@@ -187,7 +188,8 @@ const ClassForm = ({ open, onOpenChange, initialData, onSuccess }: Props) => {
         students: data.studentIds,
       };
       if (initialData) {
-        await api.patch(`/classes/update/${initialData._id}`, payload);
+        const id = getEntityId(initialData);
+        await api.patch(`/classes/update/${id}`, payload);
         toast.success("Class updated successfully");
       } else {
         await api.post("/classes/create", payload);

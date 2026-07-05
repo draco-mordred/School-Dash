@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/field";
 import { CustomInput } from "@/components/global/CustomInput";
 import { api } from "@/lib/api";
+import { getEntityId } from "@/lib/getEntityId";
 import { formSchema, type FormValues } from "./schema";
 import type { academicYear } from "@/types";
 
@@ -75,7 +76,8 @@ const AcademicYearForm = ({
   const onSubmit = async (data: FormValues) => {
     try {
       if (initialData) {
-        await api.patch(`/academic-years/update/${initialData._id}`, data);
+        const id = getEntityId(initialData);
+        await api.patch(`/academic-years/update/${id}`, data);
         toast.success("Academic year updated");
       } else {
         await api.post("/academic-years/create", data);
