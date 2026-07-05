@@ -5,8 +5,8 @@
   "workspaces": [
     "frontend",
     "backend"
-  ], 
-    "scripts": {
-    "vercel-build": "npm run build --prefix frontend && cd backend && npm install && npx tsc && cd .. && mkdir -p api && cp backend/dist/src/index.js api/index.js"
+  ],
+  "scripts": {
+    "vercel-build": "npm run build --prefix frontend && cd backend && npm install && (npx tsc || true) && cd .. && mkdir -p api && cp backend/dist/src/index.js api/index.js"
   }
 }

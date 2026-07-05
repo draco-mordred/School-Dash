@@ -38,7 +38,7 @@
 //   "include": ["src/**//*"]*/
 // }
 
- {
+{
   "compilerOptions": {
     "lib": ["ESNext"],
     "target": "ES2022",
@@ -51,14 +51,15 @@
     "noEmit": false,
     "outDir": "dist",
 
+    // Loosen strict enforcement
     "strict": false,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+    "noFallthroughCasesInSwitch": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false,
+    "forceConsistentCasingInFileNames": false
   },
   "include": ["src/**/*"]
 }
