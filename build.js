@@ -3,16 +3,17 @@ import path from 'path';
 
 async function bundleBackend() {
   await build({
-    root: path.resolve('src'),
+    // Direct path down to the backend subdirectory
+    root: path.resolve('backend/src'),
     base: './',
     build: {
       ssr: true,
       lib: {
-        entry: path.resolve('src/index.ts'),
+        entry: path.resolve('backend/src/index.ts'),
         formats: ['es'],
         fileName: () => 'index.js'
       },
-      outDir: path.resolve('dist'),
+      outDir: path.resolve('backend/dist'),
       emptyOutDir: true,
       minify: false
     }
