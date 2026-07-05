@@ -2,11 +2,15 @@
   "name": "medlog-root",
   "version": "1.0.0",
   "private": true,
+  "type": "commonjs",
   "workspaces": [
     "frontend",
     "backend"
   ],
   "scripts": {
     "vercel-build": "npm run build --prefix frontend && node build.js && mkdir -p api && cp backend/dist/index.js api/index.js"
+  },
+  "devDependencies": {
+    "vite": "8.1.3"
   }
 }
