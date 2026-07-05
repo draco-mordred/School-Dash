@@ -10,7 +10,7 @@
       "destination": "/frontend/dist/assets/:path*"
     },
     {
-      "source": "/:(.*)",
+      "source": "/:path*",
       "destination": "/frontend/dist/index.html"
     }
   ]
