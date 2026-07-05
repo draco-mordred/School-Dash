@@ -11,9 +11,9 @@
     {
       "src": "backend/api/index.js",
       "use": "@vercel/node",
-      "config": {
-        "buildCommand": "cd backend && npm install && npm run build:vercel"
-      }
+        "config": {
+            "includeFiles": ["backend/src/**/*"]
+        }
     }
   ],
   "routes": [
@@ -26,7 +26,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "frontend/index.html"
     }
   ]
 }

@@ -1,0 +1,13 @@
+{
+  "name": "medlog-root",
+  "version": "1.0.0",
+  "description": "medlog lms",
+ "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "vercel-build": "npm run build --prefix frontend && cd backend && npm install && npm run build:vercel"
+  }
+}
