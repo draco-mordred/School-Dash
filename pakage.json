@@ -8,6 +8,6 @@
     "backend"
   ],
   "scripts": {
-    "vercel-build": "npm run build --prefix frontend && cd backend && npm install && npm run build:vercel"
+    "vercel-build": "npm run build --prefix frontend && cd backend && npm install && npx tsc"
   }
 }
