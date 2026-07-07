@@ -2,8 +2,14 @@ import path from "path";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const qrcode = require("qrcode-terminal");
+let qrcode: ((text: string, options?: { small?: boolean }) => void) | null = null;
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  qrcode = require("qrcode-terminal").generate;
+} catch (error) {
+  console.warn("⚠️ QR code helper unavailable in this environment.", error);
+}
 
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 let isGatewayReady = false;
@@ -89,7 +95,7 @@ const recoverGateway = async (reason: string) => {
 if (client) {
   client.on("qr", (qr: string) => {
     console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
-    qrcode.generate(qr, { small: true });
+    qrcode?.(qr, { small: true });
   });
 
   client.on("ready", () => {

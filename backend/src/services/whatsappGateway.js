@@ -2,7 +2,13 @@ import path from "path";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const qrcode = require("qrcode-terminal");
+let qrcode = null;
+
+try {
+    qrcode = require("qrcode-terminal").generate;
+} catch (error) {
+    console.warn("⚠️ QR code helper unavailable in this environment.", error);
+}
 
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 let isGatewayReady = false;
@@ -46,6 +52,12 @@ const initializeGateway = async () => {
             reject(new Error("WhatsApp gateway initialization timed out."));
         }, 30000);
     });
+    if (!client) {
+        const error = new Error("WhatsApp gateway is unavailable in this environment.");
+        console.warn("⚠️", error.message);
+        rejectGatewayReady?.(error);
+        return gatewayInitialization;
+    }
     try {
         client.initialize();
     }
@@ -69,33 +81,35 @@ const recoverGateway = async (reason) => {
         initializeGateway();
     }, 5000);
 };
-client.on("qr", (qr) => {
-    console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
-    qrcode.generate(qr, { small: true });
-});
-client.on("ready", () => {
+if (client) {
+    client.on("qr", (qr) => {
+        console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
+        qrcode?.(qr, { small: true });
+    });
+    client.on("ready", () => {
     isGatewayReady = true;
     console.log("📡 MORDRED WhatsApp Gateway successfully deployed and online.");
     resolveGatewayReady?.();
     resolveGatewayReady = null;
     rejectGatewayReady = null;
 });
-client.on("auth_failure", (message) => {
-    isGatewayReady = false;
-    console.error("❌ MORDRED WhatsApp authentication failed:", message);
-});
-client.on("disconnected", async (reason) => {
-    await recoverGateway(reason || "unknown");
-});
-client.on("change_state", (state) => {
-    console.log(`🔄 MORDRED WhatsApp Gateway state changed: ${state}`);
-});
-client.on("error", async (error) => {
-    console.error("❌ MORDRED WhatsApp Gateway internal error:", error?.message || error);
-    if (String(error).includes("Execution context was destroyed")) {
-        await recoverGateway("execution-context-destroyed");
-    }
-});
+    client.on("auth_failure", (message) => {
+        isGatewayReady = false;
+        console.error("❌ MORDRED WhatsApp authentication failed:", message);
+    });
+    client.on("disconnected", async (reason) => {
+        await recoverGateway(reason || "unknown");
+    });
+    client.on("change_state", (state) => {
+        console.log(`🔄 MORDRED WhatsApp Gateway state changed: ${state}`);
+    });
+    client.on("error", async (error) => {
+        console.error("❌ MORDRED WhatsApp Gateway internal error:", error?.message || error);
+        if (String(error).includes("Execution context was destroyed")) {
+            await recoverGateway("execution-context-destroyed");
+        }
+    });
+}
 const ensureGatewayReady = async () => {
     if (!isGatewayReady) {
         await initializeGateway();
