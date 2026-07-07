@@ -82,15 +82,19 @@ const ensureDatabaseConnection = async () => {
   await dbConnectionPromise;
 };
 
-// Runtime detection logging
-console.log(`\n🚀 Backend Server Initialization:`);
-console.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "🟩 LOCAL DEVELOPMENT"}`);
-console.log(`   Port: ${PORT}`);
-console.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
-console.log(`   API Base: ${apiBase || "(root)"}`);
-console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
-console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
-console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}\n`);
+// Runtime detection logging - safe for serverless
+try {
+  console.log(`\n🚀 Backend Server Initialization:`);
+  console.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "🟩 LOCAL DEVELOPMENT"}`);
+  console.log(`   Port: ${PORT}`);
+  console.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
+  console.log(`   API Base: ${apiBase || "(root)"}`);
+  console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
+  console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
+  console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}\n`);
+} catch (err) {
+  // Silently fail if logging fails in serverless
+}
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
