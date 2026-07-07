@@ -2,14 +2,6 @@ import path from "path";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-let qrcode = null;
-
-try {
-    qrcode = require("qrcode-terminal").generate;
-} catch (error) {
-    console.warn("⚠️ QR code helper unavailable in this environment.", error);
-}
-
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 let isGatewayReady = false;
 let gatewayInitialization = null;
@@ -84,7 +76,7 @@ const recoverGateway = async (reason) => {
 if (client) {
     client.on("qr", (qr) => {
         console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
-        qrcode?.(qr, { small: true });
+        console.log(`QR payload: ${qr}`);
     });
     client.on("ready", () => {
     isGatewayReady = true;
