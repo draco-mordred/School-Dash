@@ -71,3 +71,6 @@ tests
 
 ##ignore all folders starting with .
 .*/
+
+## .txt files
+*.txt
