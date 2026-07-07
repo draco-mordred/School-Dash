@@ -61,6 +61,7 @@ const isVercelRuntime =
   process.env.VERCEL === "true" ||
   (Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production");
 const apiBase = isVercelRuntime ? "" : "/api";
+const routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
 
 // Runtime detection logging
 console.log(`\n🚀 Backend Server Initialization:`);
@@ -68,6 +69,7 @@ console.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "�
 console.log(`   Port: ${PORT}`);
 console.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
 console.log(`   API Base: ${apiBase || "(root)"}`);
+console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
 console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
 console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}\n`);
  
@@ -107,29 +109,33 @@ app.get("/", (req: Request, res: Response) => {
 });
 
 //Import routes here
-app.use(`${apiBase}/users`, userRoutes); // Use the user routes for any requests to /api/users
-app.use(`${apiBase}/activities`, LogsRouter); // Use the user routes for any requests to /api/users
-app.use(`${apiBase}/academic-years`, academicYearRouter); // Use the academic year routes for any requests to /api/academic-years
-app.use(`${apiBase}/academic-clocks`, academicClockRouter);
-app.use(`${apiBase}/classes`, classRouter);
-// Courses API (was previously also mounted at /api/subjects)
-app.use(`${apiBase}/courses`, courseRouter);
-app.use(`${apiBase}/timetables`, timeRouter)
-app.use(`${apiBase}/exams`, examRouter);
-app.use(`${apiBase}/dashboard`, dashBoardRouter);
-app.use(`${apiBase}/attendance`, attendanceRouter);
-app.use(`${apiBase}/notifications`, notificationRouter);
-app.use(`${apiBase}/og-ped-rotations`, routerFor500LevelPostings);
-app.use(`${apiBase}/rotation-schedules`, rotationSchedulesRouter);
-app.use(`${apiBase}/logbook-entries`, logbookEntryRouter);
-app.use(`${apiBase}/hospital-data`, hospitalDataRouter);
-app.use(`${apiBase}/activity-entries`, activityEntryRouter);
-app.use(`${apiBase}/inngest`, serve({
-  client: inngest,
-  functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
-})
-);
-app.use(`${apiBase}/mordred`, mordredAIRouter); // Mount the Mordred AI routes at /api/mordred
+const mountRoutes = (prefix: string) => {
+  app.use(`${prefix}/users`, userRoutes);
+  app.use(`${prefix}/activities`, LogsRouter);
+  app.use(`${prefix}/academic-years`, academicYearRouter);
+  app.use(`${prefix}/academic-clocks`, academicClockRouter);
+  app.use(`${prefix}/classes`, classRouter);
+  app.use(`${prefix}/courses`, courseRouter);
+  app.use(`${prefix}/timetables`, timeRouter);
+  app.use(`${prefix}/exams`, examRouter);
+  app.use(`${prefix}/dashboard`, dashBoardRouter);
+  app.use(`${prefix}/attendance`, attendanceRouter);
+  app.use(`${prefix}/notifications`, notificationRouter);
+  app.use(`${prefix}/og-ped-rotations`, routerFor500LevelPostings);
+  app.use(`${prefix}/rotation-schedules`, rotationSchedulesRouter);
+  app.use(`${prefix}/logbook-entries`, logbookEntryRouter);
+  app.use(`${prefix}/hospital-data`, hospitalDataRouter);
+  app.use(`${prefix}/activity-entries`, activityEntryRouter);
+  app.use(`${prefix}/inngest`, serve({
+    client: inngest,
+    functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
+  }));
+  app.use(`${prefix}/mordred`, mordredAIRouter);
+};
+
+for (const prefix of routePrefixes) {
+  mountRoutes(prefix);
+}
 
 // Debug: list all registered routes (useful in serverless where /api prefix may be stripped)
 app.get(`${apiBase}/_routes`, (req: Request, res: Response) => {

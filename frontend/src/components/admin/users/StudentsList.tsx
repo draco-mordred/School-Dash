@@ -26,6 +26,7 @@ export interface Student {
   status: "active" | "inactive" | "graduated";
   email: string;
   profileImage?: string;
+  theme?: string;
 }
 
 interface StudentsListProps {
@@ -46,6 +47,55 @@ const sortOptions = [
   { value: "name", label: "Name" },
   { value: "class", label: "Class" },
 ];
+
+const profileThemes = {
+  sky: {
+    avatar: "from-sky-500 to-cyan-500",
+    border: "border-sky-400/40",
+    ring: "ring-sky-400/30",
+    accent: "bg-sky-500/15 text-sky-300",
+  },
+  violet: {
+    avatar: "from-violet-500 to-fuchsia-500",
+    border: "border-violet-400/40",
+    ring: "ring-violet-400/30",
+    accent: "bg-violet-500/15 text-violet-300",
+  },
+  emerald: {
+    avatar: "from-emerald-500 to-teal-500",
+    border: "border-emerald-400/40",
+    ring: "ring-emerald-400/30",
+    accent: "bg-emerald-500/15 text-emerald-300",
+  },
+  amber: {
+    avatar: "from-amber-500 to-orange-500",
+    border: "border-amber-400/40",
+    ring: "ring-amber-400/30",
+    accent: "bg-amber-500/15 text-amber-300",
+  },
+  rose: {
+    avatar: "from-rose-500 to-pink-500",
+    border: "border-rose-400/40",
+    ring: "ring-rose-400/30",
+    accent: "bg-rose-500/15 text-rose-300",
+  },
+  indigo: {
+    avatar: "from-indigo-500 to-blue-500",
+    border: "border-indigo-400/40",
+    ring: "ring-indigo-400/30",
+    accent: "bg-indigo-500/15 text-indigo-300",
+  },
+} as const;
+
+const getProfileTheme = (value?: string) => {
+  const key = (value || "").toLowerCase();
+  if (key.includes("violet") || key.includes("purple")) return profileThemes.violet;
+  if (key.includes("emerald") || key.includes("green")) return profileThemes.emerald;
+  if (key.includes("amber") || key.includes("gold") || key.includes("orange")) return profileThemes.amber;
+  if (key.includes("rose") || key.includes("pink")) return profileThemes.rose;
+  if (key.includes("indigo") || key.includes("blue")) return profileThemes.indigo;
+  return profileThemes.sky;
+};
 
 export function StudentsList({
   students,
@@ -278,6 +328,7 @@ export function StudentsList({
                 {studentsInClass.map((student) => {
                   const isFocused = focusedStudentId === student.id;
                   const isHovered = hoveredStudentId === student.id;
+                  const theme = getProfileTheme(student.theme || student.id);
                   return (
                     <div
                       key={student.id}
@@ -287,25 +338,26 @@ export function StudentsList({
                       onBlur={() => setFocusedStudentId(null)}
                       role="button"
                       tabIndex={0}
-                      className={`user-card group relative rounded-3xl border border-border bg-card p-4 shadow-sm cursor-pointer transition-all duration-300 ease-out ${
+                      className={`user-card group relative isolate rounded-3xl border border-border bg-card p-4 shadow-sm cursor-pointer transition-all duration-300 ease-out ${theme.border} ${
                         isFocused
-                          ? "overflow-visible shadow-lg z-20"
+                          ? `overflow-visible shadow-xl z-30 ring-1 ${theme.ring}`
                           : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
                       }`}
                       style={{
                         transform: isFocused
-                          ? "scale(1.03) translateY(-4px)"
+                          ? "scale(1.04) translateY(-6px)"
                           : "scale(1) translateY(0)",
                       }}
                     >
+                      <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`} />
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0 flex-1">
                           <div
                             className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
                             style={{
-                              width: isFocused ? "62px" : "40px",
-                              height: isFocused ? "62px" : "40px",
-                              transform: isFocused ? "scale(1.12)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              width: isFocused ? "68px" : "40px",
+                              height: isFocused ? "68px" : "40px",
+                              transform: isFocused ? "scale(1.23)" : isHovered ? "scale(1.05)" : "scale(1)",
                               position: "relative",
                               top: "auto",
                               right: "auto",
@@ -319,7 +371,7 @@ export function StudentsList({
                                 className="w-full h-full object-cover"
                               />
                             ) : (
-                              <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                              <div className={`w-full h-full bg-gradient-to-br ${theme.avatar} flex items-center justify-center text-white font-semibold text-sm`}>
                                 {student.name.charAt(0).toUpperCase()}
                               </div>
                             )}

@@ -3326,6 +3326,12 @@ var academicYearSchema = new Schema({
 academicYearSchema.index({ name: 1 }, { unique: true });
 var academicYear_default$1 = mongoose.model("AcademicYear", academicYearSchema);
 init_activitieslog();
+var ensureHas_Id = (obj) => {
+	if (!obj) return obj;
+	if (Array.isArray(obj)) return obj.map((o) => ensureHas_Id(o));
+	if (typeof obj === "object" && !obj._id && obj.id) obj._id = obj.id;
+	return obj;
+};
 const createAcademicYear = async (req, res) => {
 	try {
 		const { name, fromYear, toYear, isCurrent, clockPhase } = req.body;
@@ -3351,7 +3357,7 @@ const createAcademicYear = async (req, res) => {
 			userId: req.user._id,
 			action: `Created academic year ${name}, with ID: ${academicYear._id} and it's ${isCurrent ? "current" : "not current"}`
 		});
-		res.status(201).json(academicYear);
+		res.status(201).json(ensureHas_Id(academicYear));
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
@@ -3371,7 +3377,7 @@ const getAllAcademicYears = async (req, res) => {
 		};
 		const [total, years] = await Promise.all([academicYear_default$1.countDocuments(query), academicYear_default$1.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)]);
 		res.json({
-			years,
+			years: ensureHas_Id(years),
 			pagination: {
 				total,
 				page,
@@ -3391,7 +3397,7 @@ const getCurrentAcademicYear = async (req, res) => {
 		if (!currentYear) {
 			res.status(404).json({ message: "No current academic year found!" });
 			return;
-		} else res.status(200).json(currentYear);
+		} else res.status(200).json(ensureHas_Id(currentYear));
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
@@ -3412,7 +3418,7 @@ const updateAcademicYear = async (req, res) => {
 			action: `Updated academic year ${updatedYear?.name} with ID: ${updatedYear?._id} and it's ${isCurrent ? "current" : "not current"}`
 		});
 		if (!updatedYear) res.status(404).json({ message: "Academic Year not found!" });
-		res.status(200).json(updatedYear);
+		res.status(200).json(ensureHas_Id(updatedYear));
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
