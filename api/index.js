@@ -18,7 +18,7 @@ import { generateObject, generateText } from "ai";
 import { serve } from "inngest/express";
 import { z } from "zod";
 import path from "path";
-import { Client, LocalAuth } from "whatsapp-web.js";
+import { createRequire as createRequire$1 } from "module";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -8624,27 +8624,36 @@ const dynamicAIInsights = async (req, res) => {
 		return res.status(500).json({ error: error.message });
 	}
 };
-var qrcode = __require("qrcode-terminal");
+var require$1 = createRequire$1(import.meta.url);
+var qrcode = require$1("qrcode-terminal");
 var sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 var isGatewayReady = false;
 var gatewayInitialization = null;
 var resolveGatewayReady = null;
 var rejectGatewayReady = null;
-var client = new Client({
-	authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
-	puppeteer: {
-		headless: true,
-		args: [
-			"--no-sandbox",
-			"--disable-setuid-sandbox",
-			"--disable-dev-shm-usage",
-			"--disable-gpu",
-			"--no-first-run",
-			"--no-zygote",
-			"--single-process"
-		]
-	}
-});
+var client = null;
+try {
+	const whatsappModule = require$1("whatsapp-web.js");
+	const Client = whatsappModule?.Client;
+	const LocalAuth = whatsappModule?.LocalAuth;
+	if (Client && LocalAuth) client = new Client({
+		authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
+		puppeteer: {
+			headless: true,
+			args: [
+				"--no-sandbox",
+				"--disable-setuid-sandbox",
+				"--disable-dev-shm-usage",
+				"--disable-gpu",
+				"--no-first-run",
+				"--no-zygote",
+				"--single-process"
+			]
+		}
+	});
+} catch (error) {
+	console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
+}
 var initializeGateway = async () => {
 	if (gatewayInitialization) return gatewayInitialization;
 	gatewayInitialization = new Promise((resolve, reject) => {
