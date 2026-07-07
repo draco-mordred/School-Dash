@@ -12,7 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpDown, Download, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ArrowUpDown, Download, Eye, Pencil, Trash2 } from "lucide-react";
+import CustomAlert from "@/components/global/CustomAlert";
 
 export interface Student {
   id: string;
@@ -23,6 +25,7 @@ export interface Student {
   attendancePercentage: number;
   status: "active" | "inactive" | "graduated";
   email: string;
+  profileImage?: string;
 }
 
 interface StudentsListProps {
@@ -34,6 +37,8 @@ interface StudentsListProps {
   onSelectStudent?: (studentId: string) => void;
   onViewStudent?: (studentId: string) => void;
   onEditStudent?: (studentId: string) => void;
+  onDeleteStudent?: (studentId: string) => void;
+  onBulkDeleteStudents?: (studentIds: string[]) => Promise<void> | void;
   onBulkUpload?: () => void;
 }
 
@@ -51,6 +56,8 @@ export function StudentsList({
   onSelectStudent,
   onViewStudent,
   onEditStudent,
+  onDeleteStudent,
+  onBulkDeleteStudents,
   onBulkUpload,
 }: StudentsListProps) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +66,9 @@ export function StudentsList({
   const [sortBy, setSortBy] = useState("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [focusedStudentId, setFocusedStudentId] = useState<string | null>(null);
+  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
 
   const uniqueClasses = useMemo(
     () => Array.from(new Set(students.map((s) => s.class))).sort(),
@@ -113,6 +123,14 @@ export function StudentsList({
     if (next.has(studentId)) next.delete(studentId);
     else next.add(studentId);
     setSelectedRows(next);
+    onSelectStudent?.(studentId);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedRows.size || !onBulkDeleteStudents) return;
+    await onBulkDeleteStudents(Array.from(selectedRows));
+    setSelectedRows(new Set());
+    setIsBulkDeleteOpen(false);
   };
 
   const getStatusClass = (status: string) => {
@@ -162,6 +180,11 @@ export function StudentsList({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {selectedRows.size > 0 && onBulkDeleteStudents && (
+                <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
+                  Delete {selectedRows.size}
+                </Button>
+              )}
               {onBulkUpload && (
                 <Button variant="outline" size="sm" className="gap-2" onClick={onBulkUpload}>
                   <Download className="h-4 w-4" /> Bulk Upload
@@ -181,7 +204,14 @@ export function StudentsList({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
+            <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={filteredStudents.length > 0 && selectedRows.size === filteredStudents.length}
+                onCheckedChange={() => handleSelectAll()}
+              />
+              Select all visible
+            </label>
             <Input
               placeholder="Search by name, matric #, or email..."
               value={searchTerm}
@@ -245,53 +275,238 @@ export function StudentsList({
                 <div className="text-xs text-muted-foreground">Class</div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {studentsInClass.map((student) => (
-                  <div key={student.id} className="user-card overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">{student.class}</p>
-                        <p className="text-xl font-semibold text-foreground">{student.name}</p>
-                        <p className="text-sm text-muted-foreground">{student.email}</p>
+                {studentsInClass.map((student) => {
+                  const isFocused = focusedStudentId === student.id;
+                  const isHovered = hoveredStudentId === student.id;
+                  return (
+                    <div
+                      key={student.id}
+                      onClick={() => setFocusedStudentId(isFocused ? null : student.id)}
+                      onMouseEnter={() => setHoveredStudentId(student.id)}
+                      onMouseLeave={() => setHoveredStudentId(null)}
+                      onBlur={() => setFocusedStudentId(null)}
+                      role="button"
+                      tabIndex={0}
+                      className={`user-card group relative rounded-3xl border border-border bg-card p-4 shadow-sm cursor-pointer transition-all duration-300 ease-out ${
+                        isFocused
+                          ? "overflow-visible shadow-lg z-20"
+                          : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
+                      }`}
+                      style={{
+                        transform: isFocused
+                          ? "scale(1.03) translateY(-4px)"
+                          : "scale(1) translateY(0)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <div
+                            className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
+                            style={{
+                              width: isFocused ? "62px" : "40px",
+                              height: isFocused ? "62px" : "40px",
+                              transform: isFocused ? "scale(1.12)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              position: "relative",
+                              top: "auto",
+                              right: "auto",
+                              zIndex: isFocused ? 20 : 1,
+                            }}
+                          >
+                            {student.profileImage ? (
+                              <img
+                                src={student.profileImage}
+                                alt={student.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          {isFocused ? (
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-muted-foreground">{student.class}</p>
+                              <p className="text-xl font-semibold text-foreground truncate">
+                                {student.name}
+                              </p>
+                              <p className="text-sm text-muted-foreground truncate">{student.email}</p>
+                            </div>
+                          ) : (
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-muted-foreground">{student.class}</p>
+                              <p className="text-xl font-semibold text-foreground truncate">
+                                {student.name}
+                              </p>
+                              <p className="text-sm text-muted-foreground truncate">{student.email}</p>
+                            </div>
+                          )}
+                        </div>
+                        {!isFocused && (
+                          <div className="flex flex-col items-end gap-2">
+                            <Checkbox
+                              checked={selectedRows.has(student.id)}
+                              onCheckedChange={() => handleSelectRow(student.id)}
+                            />
+                            <div className="space-y-2 text-right">
+                              <Badge className={getStatusClass(student.status)}>
+                                {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                              </Badge>
+                              <p className="text-xs text-muted-foreground">{student.matricNumber}</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <div className="space-y-2 text-right">
-                        <Badge className={getStatusClass(student.status)}>
-                          {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
-                        </Badge>
-                        <p className="text-xs text-muted-foreground">{student.matricNumber}</p>
-                      </div>
-                    </div>
 
-                    <div className="mt-4 grid gap-2 text-sm text-muted-foreground">
-                      <div className="rounded-2xl bg-background p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Current Posting</p>
-                        <p className="text-sm text-foreground">
-                          {student.currentPosting || "Not assigned"}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-background p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Attendance</p>
-                        <p className={
-                          student.attendancePercentage >= 80
-                            ? "text-emerald-600"
-                            : student.attendancePercentage >= 70
-                            ? "text-amber-600"
-                            : "text-rose-600"
-                        }>
-                          {student.attendancePercentage}%
-                        </p>
-                      </div>
-                    </div>
+                      {!isFocused && (
+                        <>
+                          <div className="mt-4 grid gap-2 text-sm text-muted-foreground">
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                Current Posting
+                              </p>
+                              <p className="text-sm text-foreground">
+                                {student.currentPosting || "Not assigned"}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                Attendance
+                              </p>
+                              <p
+                                className={
+                                  student.attendancePercentage >= 80
+                                    ? "text-emerald-600"
+                                    : student.attendancePercentage >= 70
+                                    ? "text-amber-600"
+                                    : "text-rose-600"
+                                }
+                              >
+                                {student.attendancePercentage}%
+                              </p>
+                            </div>
+                          </div>
 
-                    <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-0 transition-opacity duration-200">
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => onViewStudent?.(student.id)}>
-                        <MoreVertical className="h-4 w-4" /> View
-                      </Button>
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => onEditStudent?.(student.id)}>
-                        <Pencil className="h-4 w-4" /> Edit
-                      </Button>
+                          <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewStudent?.(student.id);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" /> View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditStudent?.(student.id);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" /> Edit
+                            </Button>
+                            {onDeleteStudent && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="gap-1"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteStudent(student.id);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" /> Delete
+                              </Button>
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {isFocused && (
+                        <div className="mt-4 space-y-4 animate-in fade-in duration-200">
+                          <div className="grid gap-2 text-sm">
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                ID Number
+                              </p>
+                              <p className="text-sm text-foreground">{student.matricNumber}</p>
+                            </div>
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                Status
+                              </p>
+                              <Badge className={getStatusClass(student.status)}>
+                                {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                              </Badge>
+                            </div>
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                Attendance
+                              </p>
+                              <p
+                                className={
+                                  student.attendancePercentage >= 80
+                                    ? "text-emerald-600 font-semibold"
+                                    : student.attendancePercentage >= 70
+                                    ? "text-amber-600 font-semibold"
+                                    : "text-rose-600 font-semibold"
+                                }
+                              >
+                                {student.attendancePercentage}%
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="user-card-action-row flex flex-wrap gap-2 pt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewStudent?.(student.id);
+                                setFocusedStudentId(null);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" /> View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditStudent?.(student.id);
+                                setFocusedStudentId(null);
+                              }}
+                            >
+                              <Pencil className="h-4 w-4" /> Edit
+                            </Button>
+                            {onDeleteStudent && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="gap-1 flex-1"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteStudent(student.id);
+                                  setFocusedStudentId(null);
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4" /> Delete
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))
@@ -326,6 +541,14 @@ export function StudentsList({
           </div>
         )}
       </CardContent>
+
+      <CustomAlert
+        isOpen={isBulkDeleteOpen}
+        setIsOpen={setIsBulkDeleteOpen}
+        handleDelete={handleBulkDelete}
+        title={`Delete ${selectedRows.size} students?`}
+        description="This will permanently delete the selected students from the system."
+      />
     </Card>
   );
 }

@@ -49,7 +49,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
   const userData = {
     name: user?.name || "User",
     email: user?.email || "",
-    avatar: "",
+    avatar: user?.profileImage ?? "",
   };
 
   const userRole = (user?.role || "student") as UserRole;

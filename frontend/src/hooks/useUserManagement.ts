@@ -20,6 +20,7 @@ export interface UserData {
     attendancePercentage: number;
     status: "active" | "inactive" | "graduated";
     email: string;
+    profileImage?: string;
   }>;
   parents: Array<user & { studentsCount?: number; status: string }>;
   staff: Array<user & { status: string; roles?: string[] }>;
@@ -43,6 +44,7 @@ const mapStudent = (user: user) => ({
   attendancePercentage: 0,
   status: normalizeStatus(user) as "active" | "inactive" | "graduated",
   email: user.email,
+  profileImage: user.profileImage,
 });
 
 const mapParent = (user: user) => ({

@@ -11,6 +11,7 @@ import MordredLog from "../models/mordredLog";
 import User from "../models/user";
 import { createNotificationIfUnique } from "../utils/notificationUtils";
 import { buildMordredFallbackResponse } from "../utils/mordredFallback";
+import { normalizeRole } from "../middleware/auth";
 
 const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent"]);
 const systemActionType = z.enum([
@@ -23,8 +24,8 @@ const systemActionType = z.enum([
   "ESCALATE_TO_ADMIN",
 ]);
 
-const isAdminRole = (role?: string) => String(role ?? "").trim().toLowerCase() === "admin";
-const isInsightRole = (role?: string) => permittedInsightRoles.has(String(role ?? "").trim().toLowerCase());
+const isAdminRole = (role?: string) => normalizeRole(role) === "admin";
+const isInsightRole = (role?: string) => permittedInsightRoles.has(normalizeRole(role));
 
 const handleAdminSystemAction = async (action: any, user: any) => {
   if (!action || action.actionType === "NONE") return "";

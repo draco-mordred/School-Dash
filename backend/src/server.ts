@@ -41,10 +41,35 @@ dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 //load variables from the .env file
 dotenv.config();
 
+const normalizeOrigin = (value?: string) => {
+  if (!value) return null;
+  let origin = value.trim();
+  if (!origin) return null;
+  if (origin.endsWith("/")) {
+    origin = origin.slice(0, -1);
+  }
+  if (!origin.startsWith("http://") && !origin.startsWith("https://")) {
+    origin = `https://${origin}`;
+  }
+  return origin;
+};
+
 export const app: Application = express();
 const PORT = process.env.PORT || 5000;
-const isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
+const isVercelRuntime =
+  process.env.VERCEL === "1" ||
+  process.env.VERCEL === "true" ||
+  (Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production");
 const apiBase = isVercelRuntime ? "" : "/api";
+
+// Runtime detection logging
+console.log(`\n🚀 Backend Server Initialization:`);
+console.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "🟩 LOCAL DEVELOPMENT"}`);
+console.log(`   Port: ${PORT}`);
+console.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
+console.log(`   API Base: ${apiBase || "(root)"}`);
+console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
+console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}\n`);
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
@@ -60,12 +85,14 @@ if (process.env.NODE_ENV === "development") {
 
 //cross-origin resource sharing (CORS) middleware to allow requests from different origins
 const allowedOrigins = [
-  process.env.CLIENT_URL,
+  normalizeOrigin(process.env.CLIENT_URL),
+  normalizeOrigin(process.env.LOCAL_CLIENT_URL),
+  normalizeOrigin(process.env.VERCEL_URL),
   "http://localhost:5173",
   "https://localhost:5173",
   "http://127.0.0.1:5173",
   "https://127.0.0.1:5173",
-].filter((origin): origin is string => origin !== undefined && origin !== "");
+].filter((origin): origin is string => origin !== null && origin !== "");
 
 app.use(
   cors({

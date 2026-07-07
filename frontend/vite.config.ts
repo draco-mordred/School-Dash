@@ -19,6 +19,8 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
+    port: 5173,
     proxy: {
       "/api": {
         target: "http://localhost:5000",
@@ -26,5 +28,8 @@ export default defineConfig({
         secure: false,
       },
     },
+  },
+  define: {
+    'process.env.VITE_API_BASE_URL': JSON.stringify(process.env.VITE_API_BASE_URL || '/api'),
   },
 })

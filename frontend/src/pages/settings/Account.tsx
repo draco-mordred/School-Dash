@@ -133,6 +133,10 @@ const Account = () => {
     return () => clearTimeout(timer);
   }, [studentSearch, user]);
 
+  useEffect(() => {
+    setProfileImage(user?.profileImage ?? null);
+  }, [user?.profileImage]);
+
   // ─── Helpers ─────────────────────────────────────────────────
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -232,14 +236,32 @@ const Account = () => {
 
   const handleImageUpload = async () => {
     if (!imagePreview || !user) return;
-    try { setUploadingImage(true); await api.put(`/users/update/${user._id}`, { profileImage: imagePreview }); setProfileImage(imagePreview); setImagePreview(null); toast.success("Profile image updated"); }
-    catch (e) { toast.error("Failed to update profile image"); }
-    finally { setUploadingImage(false); }
+    try {
+      setUploadingImage(true);
+      await api.put(`/users/update/${user._id}`, { profileImage: imagePreview });
+      const { data: profileData } = await api.get("/users/profile");
+      const refreshedUser = (profileData.user ?? profileData) as user;
+      setUser(refreshedUser);
+      setProfileImage(refreshedUser.profileImage ?? imagePreview);
+      setImagePreview(null);
+      toast.success("Profile image updated");
+    } catch (e) {
+      toast.error("Failed to update profile image");
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    try { setSaving(true); await api.put(`/users/update/${user._id}`, { name, email }); const { data } = await api.get(`/users/${user._id}`); setUser(data.user ?? data); toast.success("Profile updated"); }
+    try {
+      setSaving(true);
+      await api.put(`/users/update/${user._id}`, { name, email });
+      const { data: profileData } = await api.get("/users/profile");
+      const refreshedUser = (profileData.user ?? profileData) as user;
+      setUser(refreshedUser);
+      toast.success("Profile updated");
+    }
     catch (e) { toast.error("Failed to update profile"); }
     finally { setSaving(false); }
   };
@@ -388,10 +410,10 @@ const Account = () => {
               <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
               <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
             </Avatar>
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md hover:bg-primary/90 transition-colors">
+            <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Upload profile photo" title="Upload profile photo" className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg border-2 border-background hover:scale-105 transition-transform">
               <Camera className="h-4 w-4" />
             </button>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" />
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageSelect} className="hidden" aria-label="Upload profile photo" />
           </div>
           <div className="flex flex-col gap-2">
             {imagePreview ? (

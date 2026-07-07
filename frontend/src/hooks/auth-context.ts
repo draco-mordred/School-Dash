@@ -6,12 +6,14 @@ export const AuthContext = createContext<{
   setUser: React.Dispatch<React.SetStateAction<user | null>>;
   loading: boolean;
   year: academicYear | null;
+  setYear: React.Dispatch<React.SetStateAction<academicYear | null>>;
 }>(
   {
     user: null,
     setUser: () => {},
     loading: true,
     year: null,
+    setYear: () => {},
   }
 );
  

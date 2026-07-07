@@ -81,7 +81,7 @@ export default function StudentPortal() {
     const loadAnnouncements = async () => {
       try {
         setAnnouncementsLoading(true);
-        const { data } = await api.get("/notifications/system?limit=3");
+        const { data } = await api.get("/notifications?limit=3");
         setAnnouncements(data.notifications || []);
       } catch (err: any) {
         console.error("Failed to load system announcements", err);
@@ -296,8 +296,8 @@ export default function StudentPortal() {
           <Card>
             <CardHeader>
               <div>
-                <CardTitle>System announcements</CardTitle>
-                <CardDescription>Latest notices from the school and rotation office.</CardDescription>
+                <CardTitle>Latest student updates</CardTitle>
+                <CardDescription>Latest notices from the school and academic office.</CardDescription>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -326,7 +326,7 @@ export default function StudentPortal() {
                 ))
               ) : (
                 <div className="rounded-3xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
-                  No announcements at the moment.
+                  No updates at the moment.
                 </div>
               )}
             </CardContent>

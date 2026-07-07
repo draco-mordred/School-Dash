@@ -21,6 +21,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .env.test.local
 .env.production.local
 .env.local
+.env.example
 
 # caches
 .eslintcache
@@ -40,3 +41,33 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # microsoft Word Documents and backup files
 .docx
 .docx.js
+
+# Visual Studio Code
+.vscode
+
+# Vercel
+.vercel
+
+# todo files
+todo
+todo.md
+.md
+
+#.md files
+*.md
+
+# Tests folder
+tests
+
+## Ignore the frontend build output
+/frontend/dist
+
+## ignore the backend build output
+/backend/dist
+
+## ignore whatsapp backup files, sessions, and cache
+/backend/.wwebjs_cache
+/backend/mordred_whatsapp_session
+
+##ignore all folders starting with .
+.*/

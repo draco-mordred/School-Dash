@@ -101,7 +101,8 @@ export default function Notifications() {
     const fetchSystem = async () => {
       try {
         setSystemLoading(true);
-        const { data } = await api.get("/notifications/system?limit=200");
+        const endpoint = isStudent ? "/notifications?limit=200" : "/notifications/system?limit=200";
+        const { data } = await api.get(endpoint);
         // Deduplicate by type + createdAt and sort so unreadForUser are first
         const raw: any[] = data.notifications || [];
         const seen = new Map<string, any>();
@@ -122,7 +123,7 @@ export default function Notifications() {
       }
     };
     void fetchSystem();
-  }, []);
+  }, [isStudent]);
 
   // Handler after editing user (refresh system notifications and status)
   const onUserEditSuccess = async (removedNotificationId?: string | null) => {

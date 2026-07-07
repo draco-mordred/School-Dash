@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { protect } from "../middleware/auth";
 import { Notification } from "../models/notification";
+import { formatNotificationForRole } from "../utils/notificationUtils";
 import { addSSEClient } from "../utils/sse";
 // import { User } from "../models/user";
 
@@ -25,7 +26,9 @@ router.get("/", protect, async (req, res) => {
       Notification.countDocuments({ userId: user._id }),
     ]);
 
-    res.json({ notifications, total, page, pages: Math.ceil(total / limit) });
+    const formattedNotifications = notifications.map((notification: any) => formatNotificationForRole(notification, user.role));
+
+    res.json({ notifications: formattedNotifications, total, page, pages: Math.ceil(total / limit) });
   } catch (err) {
     console.error("GET /notifications error:", err);
     res.status(500).json({ error: "Failed to fetch notifications" });
@@ -54,7 +57,7 @@ router.get("/system", protect, async (req, res) => {
 
     const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit)) || 100));
 
-    const notifications = await Notification.find({})
+    const notifications = await Notification.find(user.role === "student" ? { userId: user._id } : {})
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -68,10 +71,14 @@ router.get("/system", protect, async (req, res) => {
       }
     }
 
-    const deduped = Array.from(seen.values()).map((n: any) => ({
-      ...n,
-      unreadForUser: String(n.userId) === String(user._id) && n.isRead === false,
-    }));
+    const deduped = Array.from(seen.values()).map((n: any) => {
+      const formatted = formatNotificationForRole(n, user.role);
+      return {
+        ...n,
+        ...formatted,
+        unreadForUser: String(n.userId) === String(user._id) && n.isRead === false,
+      };
+    });
 
     res.json({ notifications: deduped });
   } catch (err) {

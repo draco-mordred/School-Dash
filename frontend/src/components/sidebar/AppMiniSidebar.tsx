@@ -64,7 +64,7 @@ export function AppMiniSidebar({
   const userData = {
     name: user?.name || "User",
     email: user?.email || "",
-    avatar: "",
+    avatar: user?.profileImage ?? "",
   };
 
   const logout = async () => {

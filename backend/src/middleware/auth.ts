@@ -55,13 +55,22 @@ export const protect = async (
  * }
  */
 
+export const normalizeRole = (role: unknown) =>
+    String(role ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s._-]+/g, "");
+
 export const authorize = (roles: userRoles[]) => {
+    const allowedRoles = roles.map((role) => normalizeRole(role));
+
     return (req: AuthRequest, res: Response, next: NextFunction) => {
         if (!req.user) {
             return res.status(401).json({ message: `Not authorized, no user found!` });
         }
 
-        if (!roles.includes(req.user.role)) {
+        const userRole = normalizeRole(req.user.role);
+        if (!allowedRoles.includes(userRole)) {
             return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed to acces this route. Allowed roles: ${roles.join(", ")}` });
         }
         //User is authorized, proceed to the next middleware or route handler

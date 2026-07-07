@@ -9,7 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUpDown, Download, Pencil, Trash2 } from "lucide-react";
+import { ArrowUpDown, Download, Eye, Pencil, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { user } from "@/types";
 import CustomPagination from "@/components/global/CustomPagination";
 import CustomAlert from "@/components/global/CustomAlert";
@@ -26,6 +27,8 @@ interface Props {
   setPageNum: (page: number) => void;
   totalPages: number;
   showDeleteAction?: boolean;
+  onViewUser?: (userId: string) => void;
+  onEditUser?: (userId: string) => void;
   onBulkDelete?: (ids: string[]) => Promise<void>;
 }
 
@@ -46,6 +49,8 @@ const UserTable = ({
   users,
   totalPages,
   showDeleteAction,
+  onViewUser,
+  onEditUser,
   onBulkDelete,
 }: Props) => {
   const [selected, setSelected] = useState<string[]>([]);
@@ -250,18 +255,24 @@ const UserTable = ({
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {groupUsers.map((user) => (
-                  <div key={user._id} className="user-card overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div key={user._id} className="user-card group overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                     <div className="flex items-start justify-between gap-4">
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{groupLabel}</p>
                         <p className="text-lg font-semibold text-foreground">{user.name}</p>
                         <p className="text-sm text-muted-foreground">{user.email}</p>
                       </div>
-                      <div className="space-y-2 text-right">
-                        <Badge className={getStatusClass(user.status)}>
-                          {user.status?.charAt(0).toUpperCase() + user.status?.slice(1)}
-                        </Badge>
-                        <p className="text-xs text-muted-foreground">{getGroupValue(user)}</p>
+                      <div className="flex flex-col items-end gap-2">
+                        <Checkbox
+                          checked={selected.includes(user._id)}
+                          onCheckedChange={(checked) => toggleSelectOne(user._id, checked === true)}
+                        />
+                        <div className="space-y-2 text-right">
+                          <Badge className={getStatusClass(user.status)}>
+                            {user.status?.charAt(0).toUpperCase() + user.status?.slice(1)}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">{getGroupValue(user)}</p>
+                        </div>
                       </div>
                     </div>
 
@@ -280,12 +291,21 @@ const UserTable = ({
                       )}
                     </div>
 
-                    <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-0 transition-opacity duration-200">
+                    <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => onViewUser?.(user._id)}
+                      >
+                        <Eye className="h-4 w-4" /> View
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
                         className="gap-1"
                         onClick={() => {
+                          onEditUser?.(user._id);
                           setEditingUser(user);
                           setIsFormOpen(true);
                         }}

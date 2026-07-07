@@ -13,8 +13,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowUpDown, Download, Eye, Edit, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import CustomAlert from "@/components/global/CustomAlert";
 
 export interface User {
   id: string;
@@ -27,6 +29,7 @@ export interface User {
   studentsCount?: number;
   role?: string;
   roles?: string[];
+  profileImage?: string;
   [key: string]: unknown;
 }
 
@@ -42,6 +45,8 @@ interface UsersListProps {
   onSelectUser?: (userId: string) => void;
   onViewUser?: (userId: string) => void;
   onEditUser?: (userId: string) => void;
+  onDeleteUser?: (userId: string) => void;
+  onBulkDeleteUsers?: (userIds: string[]) => Promise<void> | void;
   navigationPath?: string;
 }
 
@@ -57,6 +62,8 @@ export function UsersList({
   loading = false,
   onViewUser,
   onEditUser,
+  onDeleteUser,
+  onBulkDeleteUsers,
   navigationPath,
 }: UsersListProps) {
   const navigate = useNavigate();
@@ -65,6 +72,10 @@ export function UsersList({
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
   const [sortBy, setSortBy] = useState("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+  const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
+  const [hoveredUserId, setHoveredUserId] = useState<string | null>(null);
 
   const departments = useMemo(
     () => Array.from(new Set(users.map((user) => user.department || "General"))).sort(),
@@ -126,6 +137,22 @@ export function UsersList({
     URL.revokeObjectURL(url);
   };
 
+  const toggleUserSelection = (userId: string, checked: boolean) => {
+    setSelectedUserIds((current) => (checked ? [...current, userId] : current.filter((id) => id !== userId)));
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    const ids = checked ? filteredUsers.map((user) => user.id || user._id || "") : [];
+    setSelectedUserIds(ids.filter(Boolean));
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedUserIds.length || !onBulkDeleteUsers) return;
+    await onBulkDeleteUsers(selectedUserIds);
+    setSelectedUserIds([]);
+    setIsBulkDeleteOpen(false);
+  };
+
   const getStatusClass = (status: string) => {
     switch (status) {
       case "active":
@@ -151,6 +178,11 @@ export function UsersList({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {selectedUserIds.length > 0 && onBulkDeleteUsers && (
+                <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
+                  Delete {selectedUserIds.length}
+                </Button>
+              )}
               <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
                 <Download className="h-4 w-4" /> Export
               </Button>
@@ -165,7 +197,14 @@ export function UsersList({
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
+            <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={filteredUsers.length > 0 && selectedUserIds.length === filteredUsers.length}
+                onCheckedChange={(checked) => toggleSelectAll(checked === true)}
+              />
+              Select all visible
+            </label>
             <Input
               placeholder="Search by name or email..."
               value={searchTerm}
@@ -233,60 +272,187 @@ export function UsersList({
                 <span className="text-xs text-muted-foreground">Department</span>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {departmentUsers.map((user) => (
-                  <div key={user.id || user._id} className="user-card overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm text-muted-foreground">{user.department || "General"}</p>
-                        <p className="text-lg font-semibold text-foreground">{user.name}</p>
-                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                {departmentUsers.map((user) => {
+                  const isFocused = focusedUserId === (user.id || user._id);
+                  const isHovered = hoveredUserId === (user.id || user._id);
+                  const userId = user.id || user._id || "";
+                  
+                  return (
+                    <div
+                      key={userId}
+                      onClick={() => setFocusedUserId(isFocused ? null : userId)}
+                      onMouseEnter={() => setHoveredUserId(userId)}
+                      onMouseLeave={() => setHoveredUserId(null)}
+                      onBlur={() => setFocusedUserId(null)}
+                      role="button"
+                      tabIndex={0}
+                      className={`user-card group relative rounded-3xl border border-border bg-card p-4 shadow-sm cursor-pointer transition-all duration-300 ease-out ${
+                        isFocused
+                          ? "overflow-visible shadow-lg z-20"
+                          : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
+                      }`}
+                      style={{
+                        transform: isFocused
+                          ? "scale(1.03) translateY(-4px)"
+                          : "scale(1) translateY(0)",
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <div
+                            className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
+                            style={{
+                              width: isFocused ? "62px" : "40px",
+                              height: isFocused ? "62px" : "40px",
+                              transform: isFocused ? "scale(1.12)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              position: "relative",
+                              top: "auto",
+                              right: "auto",
+                              zIndex: isFocused ? 20 : 1,
+                            }}
+                          >
+                            {user.profileImage ? (
+                              <img
+                                src={user.profileImage}
+                                alt={user.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white font-semibold text-sm">
+                                {user.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                          {isFocused ? (
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-muted-foreground">{user.department || "General"}</p>
+                              <p className="text-lg font-semibold text-foreground truncate">{user.name}</p>
+                              <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                            </div>
+                          ) : (
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-muted-foreground">{user.department || "General"}</p>
+                              <p className="text-lg font-semibold text-foreground truncate">{user.name}</p>
+                              <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                            </div>
+                          )}
+                        </div>
+                        {!isFocused && (
+                          <div className="flex flex-col items-end gap-2">
+                            <Checkbox
+                              checked={selectedUserIds.includes(userId)}
+                              onCheckedChange={(checked) => toggleUserSelection(userId, checked === true)}
+                            />
+                            <Badge className={getStatusClass(user.status)}>
+                              {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                            </Badge>
+                          </div>
+                        )}
                       </div>
-                      <Badge className={getStatusClass(user.status)}>
-                        {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
-                      </Badge>
-                    </div>
 
-                    <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-                      {columns.map((column) => (
-                        <div key={column.key} className="space-y-1">
-                          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{column.label}</p>
-                          <div className="text-foreground">
-                            {column.render ? column.render(user, user[column.key]) : String(user[column.key] ?? "—")}
+                      {!isFocused && (
+                        <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                          {columns.map((column) => (
+                            <div key={column.key} className="space-y-1">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{column.label}</p>
+                              <div className="text-foreground">
+                                {column.render ? column.render(user, user[column.key]) : String(user[column.key] ?? "—")}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {!isFocused && (
+                        <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onViewUser?.(userId);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" /> View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditUser?.(userId);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" /> Edit
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onDeleteUser) {
+                                onDeleteUser(userId);
+                                return;
+                              }
+                              if (navigationPath) navigate(`${navigationPath}/${userId}`);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </Button>
+                        </div>
+                      )}
+
+                      {isFocused && (
+                        <div className="mt-4 space-y-4 animate-in fade-in duration-200">
+                          <div className="space-y-2 text-sm">
+                            {columns.map((column) => (
+                              <div key={column.key} className="rounded-2xl bg-background p-3">
+                                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{column.label}</p>
+                                <div className="text-foreground">
+                                  {column.render ? column.render(user, user[column.key]) : String(user[column.key] ?? "—")}
+                                </div>
+                              </div>
+                            ))}
+                            <div className="rounded-2xl bg-background p-3">
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p>
+                              <Badge className={getStatusClass(user.status)}>
+                                {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                              </Badge>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onViewUser?.(userId);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" /> View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 flex-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditUser?.(userId);
+                              }}
+                            >
+                              <Edit className="h-4 w-4" /> Edit
+                            </Button>
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
-
-                    <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-0 transition-opacity duration-200">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => onViewUser?.(user.id || user._id || "")}
-                      >
-                        <Eye className="h-4 w-4" /> View
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => onEditUser?.(user.id || user._id || "")}
-                      >
-                        <Edit className="h-4 w-4" /> Edit
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="gap-1"
-                        onClick={() => {
-                          if (navigationPath) navigate(`${navigationPath}/${user.id || user._id}`);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" /> Remove
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))
@@ -296,6 +462,14 @@ export function UsersList({
           Showing {filteredUsers.length} of {users.length} {title.toLowerCase()}.
         </div>
       </CardContent>
+
+      <CustomAlert
+        isOpen={isBulkDeleteOpen}
+        setIsOpen={setIsBulkDeleteOpen}
+        handleDelete={handleBulkDelete}
+        title={`Delete ${selectedUserIds.length} users?`}
+        description="This will permanently delete the selected users from the system."
+      />
     </Card>
   );
 }

@@ -18,6 +18,7 @@ import { Plus, Upload, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import UserTable from "@/components/users/UserTable";
 import UserDialog from "@/components/users/UserDialog";
+import UserDetailsDialog from "@/components/users/UserDetailsDialog";
 import BulkUploadDialog from "@/components/users/BulkUploadDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -52,6 +53,8 @@ export default function UserManagementPage({
   // Form States
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<user | null>(null);
+  const [viewingUser, setViewingUser] = useState<user | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   // Delete States
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -171,6 +174,36 @@ export default function UserManagementPage({
     setIsFormOpen(true);
   };
 
+  const handleViewUser = (userId: string) => {
+    const match =
+      users.find((entry) => entry._id === userId || entry.id === userId) ||
+      [
+        ...(adminUsers?.students ?? []),
+        ...(adminUsers?.parents ?? []),
+        ...(adminUsers?.staff ?? []),
+        ...(adminUsers?.administrators ?? []),
+      ].find((entry) => entry._id === userId || entry.id === userId) ||
+      null;
+    if (!match) return;
+    setViewingUser(match);
+    setIsDetailsOpen(true);
+  };
+
+  const handleEditUser = (userId: string) => {
+    const match =
+      users.find((entry) => entry._id === userId || entry.id === userId) ||
+      [
+        ...(adminUsers?.students ?? []),
+        ...(adminUsers?.parents ?? []),
+        ...(adminUsers?.staff ?? []),
+        ...(adminUsers?.administrators ?? []),
+      ].find((entry) => entry._id === userId || entry.id === userId) ||
+      null;
+    if (!match) return;
+    setEditingUser(match);
+    setIsFormOpen(true);
+  };
+
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
@@ -197,6 +230,7 @@ export default function UserManagementPage({
     attendancePercentage: 0,
     status: user?.role === "student" && user?.email ? "active" : "inactive",
     email: user.email,
+    profileImage: user.profileImage,
   }));
 
   return (
@@ -217,6 +251,13 @@ export default function UserManagementPage({
             totalPages={totalPages}
             onPageChange={setPage}
             onBulkUpload={() => setIsBulkUploadOpen(true)}
+            onViewStudent={handleViewUser}
+            onEditStudent={handleEditUser}
+            onDeleteStudent={(studentId) => {
+              setDeleteId(studentId);
+              setIsDeleteOpen(true);
+            }}
+            onBulkDeleteStudents={handleBulkDelete}
           />
 
           <BulkUploadDialog
@@ -280,7 +321,17 @@ export default function UserManagementPage({
 
             {/* Students Tab */}
             <TabsContent value="students" className="space-y-4">
-              <StudentsList students={adminUsers.students} loading={adminLoading} />
+              <StudentsList
+                students={adminUsers.students}
+                loading={adminLoading}
+                onViewStudent={handleViewUser}
+                onEditStudent={handleEditUser}
+                onDeleteStudent={(studentId) => {
+                  setDeleteId(studentId);
+                  setIsDeleteOpen(true);
+                }}
+                onBulkDeleteStudents={handleBulkDelete}
+              />
             </TabsContent>
 
             {/* Parents Tab */}
@@ -297,6 +348,13 @@ export default function UserManagementPage({
                 ]}
                 loading={adminLoading}
                 navigationPath="/users/parents"
+                onViewUser={handleViewUser}
+                onEditUser={handleEditUser}
+                onDeleteUser={(userId) => {
+                  setDeleteId(userId);
+                  setIsDeleteOpen(true);
+                }}
+                onBulkDeleteUsers={handleBulkDelete}
               />
             </TabsContent>
 
@@ -331,6 +389,13 @@ export default function UserManagementPage({
                 ]}
                 loading={adminLoading}
                 navigationPath="/users/staff"
+                onViewUser={handleViewUser}
+                onEditUser={handleEditUser}
+                onDeleteUser={(userId) => {
+                  setDeleteId(userId);
+                  setIsDeleteOpen(true);
+                }}
+                onBulkDeleteUsers={handleBulkDelete}
               />
             </TabsContent>
 
@@ -348,6 +413,13 @@ export default function UserManagementPage({
                 ]}
                 loading={adminLoading}
                 navigationPath="/users/admins"
+                onViewUser={handleViewUser}
+                onEditUser={handleEditUser}
+                onDeleteUser={(userId) => {
+                  setDeleteId(userId);
+                  setIsDeleteOpen(true);
+                }}
+                onBulkDeleteUsers={handleBulkDelete}
               />
             </TabsContent>
           </Tabs>
@@ -451,6 +523,8 @@ export default function UserManagementPage({
         pageNum={page}
         totalPages={totalPages}
         showDeleteAction={!(authUser?.role === "parent" && role === "parent")}
+        onViewUser={handleViewUser}
+        onEditUser={handleEditUser}
       />
       {/* create/update */}
       <UserDialog
@@ -459,6 +533,15 @@ export default function UserManagementPage({
         open={isFormOpen}
         setOpen={setIsFormOpen}
         onSuccess={fetchUsers}
+      />
+
+      <UserDetailsDialog
+        open={isDetailsOpen}
+        setOpen={(open) => {
+          setIsDetailsOpen(open);
+          if (!open) setViewingUser(null);
+        }}
+        user={viewingUser}
       />
 
       {/* alert */}

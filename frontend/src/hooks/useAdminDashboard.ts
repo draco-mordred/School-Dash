@@ -43,10 +43,9 @@ export const useAdminDashboard = () => {
         setLoading(true);
         
         // Fetch data from various endpoints
-        // Note: These endpoints may need to be created on the backend
         const [statsRes, activitiesRes] = await Promise.all([
-          api.get("/admin/dashboard/stats").catch(() => ({ data: {} })),
-          api.get("/admin/dashboard/activities").catch(() => ({ data: [] })),
+          api.get("/dashboard/stats").catch(() => ({ data: {} })),
+          api.get("/activities").catch(() => ({ data: [] })),
         ]);
 
         // For now, use mock data with some real data fallbacks

@@ -5,6 +5,7 @@ import ClassModel from "../models/classes";
 import User from "../models/user";
 import Submission from "../models/submission";
 import Timetable from "../models/timetable";
+import AcademicYear from "../models/academicYear";
 
 // Helper to get day name (e.eg, "Monday")
 const getTodayName = () => new Date().toLocaleDateString('en-us', {weekday: "long"});
@@ -29,17 +30,18 @@ export const getDashboradStats = async (
 
     if (user.role === 'admin'){
       const totalStudents = await User.countDocuments({ role: "student" });
-      const totalLecturers = await User.countDocuments({ role: "teacher" });
-      const activeExams = await User.countDocuments({ isActive: true });
-
-      //Making Attendance (You'd need an Attendace Model for real data)
-      const avgAttendance = "94.5%"
+      const totalParents = await User.countDocuments({ role: "parent" });
+      const totalStaff = await User.countDocuments({ role: "teacher" });
+      
+      // Get the current active academic year
+      const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+      const activeSession = currentAcademicYear?.name || "N/A";
 
       stats = {
-        totalLecturers,
         totalStudents,
-        activeExams,
-        avgAttendance,
+        totalParents,
+        totalStaff,
+        activeSession,
         recentActivities: formattedActivity
       }
     }else if (user.role === "teacher") {

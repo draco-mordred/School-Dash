@@ -1,17 +1,24 @@
 {
   "version": 2,
+  
+  "buildCommand": "npm run vercel-build",
+  "outputDirectory": "frontend/dist",
+  
+  "env": {
+    "NODE_ENV": "production",
+    "VITE_API_BASE_URL": "/api"
+  },
+  
+  "envPrefix": [],
+  
   "rewrites": [
     {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },
     {
-      "source": "/assets/:path*",
-      "destination": "/frontend/dist/assets/:path*"
-    },
-    {
       "source": "/:path*",
-      "destination": "/frontend/dist/index.html"
+      "destination": "/index.html"
     }
   ]
 }

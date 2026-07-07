@@ -28,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useSidebar } from "@/components/ui/sidebar-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -476,9 +476,13 @@ export default function AppShell({ children }: PropsWithChildren) {
                         className="h-8 w-8 p-0"
                       >
                         <Avatar className="h-8 w-8">
-                          <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                            {getInitials(user?.name)}
-                          </AvatarFallback>
+                          {user?.profileImage ? (
+                            <AvatarImage src={user.profileImage} alt={user?.name ?? "User"} />
+                          ) : (
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                              {getInitials(user?.name)}
+                            </AvatarFallback>
+                          )}
                         </Avatar>
                       </Button>
                     </DropdownMenuTrigger>

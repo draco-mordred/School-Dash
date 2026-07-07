@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMordred } from "../../hooks/useMordred";
-import { useAuth } from "../../hooks/useAuth"; // Assuming this yields your user context
+import { useAuth } from "../../hooks/useAuth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export function MordredChatPanel() {
   const { user } = useAuth();
@@ -10,6 +11,13 @@ export function MordredChatPanel() {
   const handleSend = () => {
     sendMessage(input, user?.department || "General");
     setInput("");
+  };
+
+  const getInitials = (name?: string) => {
+    if (!name) return "?";
+    const parts = name.split(" ");
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   };
 
 
@@ -74,7 +82,7 @@ export function MordredChatPanel() {
               <div className={`flex flex-col max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
                 {/* Messenger Style Rounded Bubbles */}
                 <div 
-                  className={`px-4 py-2.5 shadow-sm text-sm leading-relaxed ${
+                  id="chatBubbles" className={`px-4 py-2.5 shadow-sm text-sm leading-relaxed ${
                       isUser
                       ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-sm font-normal"
                       : "bg-muted text-foreground rounded-2xl rounded-bl-sm font-normal"
@@ -98,6 +106,19 @@ export function MordredChatPanel() {
                   </button>
                 )}
               </div>
+              {isUser && (
+                <div className="ml-2 shrink-0 self-end">
+                  <Avatar className="h-7 w-7">
+                    {user?.profileImage ? (
+                      <AvatarImage src={user.profileImage} alt={user?.name ?? "User"} />
+                    ) : (
+                      <AvatarFallback className="text-[10px] font-bold">
+                        {getInitials(user?.name)}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                </div>
+              )}
             </div>
           );
         })}
