@@ -9,6 +9,7 @@ import dotenv from "dotenv"
 import cors from "cors";
 import console from "node:console";
 import * as dns from "node:dns";
+import mongoose from "mongoose";
 import { connectDB } from "./config/db"; //import the connectDB function to connect to the database
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
@@ -62,6 +63,24 @@ const isVercelRuntime =
   (Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production");
 const apiBase = isVercelRuntime ? "" : "/api";
 const routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
+let dbConnectionPromise: Promise<void> | null = null;
+
+const ensureDatabaseConnection = async () => {
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = connectDB()
+      .then(() => undefined)
+      .catch((error) => {
+        dbConnectionPromise = null;
+        throw error;
+      });
+  }
+
+  await dbConnectionPromise;
+};
 
 // Runtime detection logging
 console.log(`\n🚀 Backend Server Initialization:`);
@@ -106,6 +125,25 @@ app.use(
 //Health cheack route to check if the server is running
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "Server is healthy!" });
+});
+
+app.use(async (req: Request, res: Response, next: Function) => {
+  if (req.path === "/" || req.path === "/_routes") {
+    next();
+    return;
+  }
+
+  try {
+    await ensureDatabaseConnection();
+    next();
+  } catch (error) {
+    console.error("Database unavailable for request:", req.path, error);
+    res.status(503).json({
+      status: "Error!",
+      message: "Database connection unavailable",
+      error: (error as Error).message,
+    });
+  }
 });
 
 //Import routes here

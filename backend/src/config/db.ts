@@ -14,8 +14,9 @@ export const connectDB = async () => {
     });
 
     console.log(`MongoDB Connected ONLINE @: ${conn.connection.host}`);
+    return conn;
   } catch (error) {
     console.error(`MongoDB connection failed: ${(error as Error).message}`);
-    process.exit(1);
+    throw error;
   }
 };
