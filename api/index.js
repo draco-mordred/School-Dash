@@ -8829,6 +8829,21 @@ if (!isVercelRuntime) connectDB().then(async () => {
 else connectDB().catch((error) => {
 	console$1.error("Failed to connect to the database on Vercel startup:", error);
 });
-const handler = serverless(app);
+var server_default = app;
+console.log("⚙️ Serverless Handler Bootstrap:");
+console.log(`  NODE_ENV: ${process.env.NODE_ENV || "NOT SET"}`);
+console.log(`  VERCEL: ${process.env.VERCEL || "NOT SET"}`);
+console.log(`  VERCEL_URL: ${process.env.VERCEL_URL || "NOT SET"}`);
+console.log(`  MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "SET" : "NOT SET"}`);
+console.log(`  JWT_SECRET: ${process.env.JWT_SECRET ? "SET" : "NOT SET"}`);
+console.log(`  CLIENT_URL: ${process.env.CLIENT_URL || "NOT SET"}`);
+var handler;
+try {
+	handler = serverless(server_default);
+	console.log("✅ Handler initialized successfully");
+} catch (error) {
+	console.error("❌ Handler initialization failed:", error);
+	throw error;
+}
 var api_default = handler;
 export { init_classes as a, UserAcademicStatus as c, UserRole as d, api_default as default, init_user as f, handler, classes_default$1 as i, UserDepartmentRole as l, init_timetable as n, Notification as o, user_default$1 as p, timetable_default$1 as r, init_notification as s, academicYear_default$1 as t, UserIDs as u };

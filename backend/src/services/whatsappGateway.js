@@ -1,27 +1,41 @@
 import path from "path";
-import { Client, LocalAuth } from "whatsapp-web.js";
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
 const qrcode = require("qrcode-terminal");
+
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
 let isGatewayReady = false;
 let gatewayInitialization = null;
 let resolveGatewayReady = null;
 let rejectGatewayReady = null;
-const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
-    puppeteer: {
-        headless: true,
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--no-first-run",
-            "--no-zygote",
-            "--single-process",
-        ],
-    },
-});
+let client = null;
+
+try {
+    const whatsappModule = require("whatsapp-web.js");
+    const Client = whatsappModule?.Client;
+    const LocalAuth = whatsappModule?.LocalAuth;
+
+    if (Client && LocalAuth) {
+        client = new Client({
+            authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
+            puppeteer: {
+                headless: true,
+                args: [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--single-process",
+                ],
+            },
+        });
+    }
+} catch (error) {
+    console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
+}
 const initializeGateway = async () => {
     if (gatewayInitialization)
         return gatewayInitialization;
