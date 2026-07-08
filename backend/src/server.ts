@@ -71,12 +71,17 @@ const ensureDatabaseConnection = async () => {
   }
 
   if (!dbConnectionPromise) {
-    dbConnectionPromise = connectDB()
-      .then(() => undefined)
-      .catch((error) => {
-        dbConnectionPromise = null;
-        throw error;
-      });
+    dbConnectionPromise = Promise.race([
+      connectDB()
+        .then(() => undefined)
+        .catch((error) => {
+          dbConnectionPromise = null;
+          throw error;
+        }),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Database connection timeout (30s)")), 30000)
+      ),
+    ]);
   }
 
   await dbConnectionPromise;
@@ -91,7 +96,10 @@ try {
   console.log(`   API Base: ${apiBase || "(root)"}`);
   console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
   console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
-  console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}\n`);
+  console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}`);
+  console.log(`   MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "✅ SET" : "❌ NOT SET"}`);
+  console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET"}`);
+  console.log(`   CLIENT_URL: ${process.env.CLIENT_URL || "not set"}\n`);
 } catch (err) {
   // Silently fail if logging fails in serverless
 }
@@ -137,11 +145,13 @@ app.use(async (req: Request, res: Response, next: Function) => {
     return;
   }
 
+  console.log(`[DB] Ensuring connection for ${req.method} ${req.path}`);
   try {
     await ensureDatabaseConnection();
+    console.log(`[DB] Connection ready, proceeding to route handler`);
     next();
   } catch (error) {
-    console.error("Database unavailable for request:", req.path, error);
+    console.error(`[DB] Connection failed for ${req.path}:`, (error as Error).message);
     res.status(503).json({
       status: "Error!",
       message: "Database connection unavailable",

@@ -22,3 +22,41 @@ To fix the MongoDB connection error, you can enter this line of code in the Inde
 3. Install on Linux (Offline/Air-gapped)If the machine has no internet access at all, you must transfer the files manually:Get the Tarball: Download the .tgz tarball on a machine with internet.Transfer & Extract: Move the file to the offline system and extract it.Manual Setup: Use sudo systemctl start mongod to start the service once the binaries are in place.
 4. Connect to LocalhostOnce installed, your local database is reachable at a "localhost" address rather than a cloud URL:Default Connection String: mongodb://localhost:27017.Via Compass: Open MongoDB Compass and click "Connect" using the default local string.Via Terminal: Type mongosh to open an interactive shell session.
 5. Syncing Data (Optional)If you need to move data from a remote Atlas database to your offline setup:Export/Import: Use mongoexport from your cloud cluster and mongoimport on your local machine.Offline-First Sync: For apps that need to sync when they eventually get online, consider tools like PowerSync or ObjectBox which integrate with MongoDB to handle background synchronization.
+
+
+
+
+
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "backend/dist/src/server.js",
+      "use": "@vercel/node"
+    }
+  ],
+    "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/backend/dist/src/server.js"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "frontend/assets/$1"
+    },
+    {
+      "src": "/((?!assets/).*)",
+      "dest": "frontend/index.html"
+    }
+  ]
+}
