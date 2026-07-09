@@ -81,12 +81,7 @@ export default function StarryMedlogHero() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-3 text-sm font-medium text-slate-600 dark:text-slate-300">
-              {[
-                "Secure",
-                "Cloud-Based",
-                "Mobile Ready",
-                "Built for Medical Schools",
-              ].map((badge) => (
+              {["Secure", "Cloud-Based", "Mobile Ready", "Built for Medical Schools"].map((badge) => (
                 <span key={badge} className="rounded-full border border-slate-200/80 bg-white/75 px-3 py-2 shadow-sm backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70">
                   {badge}
                 </span>

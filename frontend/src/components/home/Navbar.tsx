@@ -18,6 +18,25 @@ const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
+  const smoothScrollTo = (hash: string) => {
+    if (!hash) return;
+    const id = hash.replace(/^#/, "");
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const topbar = rootStyles.getPropertyValue("--topbar-height") || "56px";
+    const topbarPx = parseInt(topbar, 10) || 56;
+    const rect = el.getBoundingClientRect();
+    const target = window.scrollY + rect.top - topbarPx - 12; // small gap
+
+    window.scrollTo({ top: target, behavior: "smooth" });
+
+    // move focus for accessibility
+    el.setAttribute("tabindex", "-1");
+    el.focus({ preventScroll: true } as any);
+  };
+
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
@@ -50,16 +69,10 @@ const Navbar = () => {
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#6e56cf] shadow-lg shadow-violet-500/20">
-              <svg viewBox="0 0 40 40" className="h-6 w-6 text-white" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <path d="M20 6C13.3726 6 8 11.3726 8 18C8 24.6274 13.3726 30 20 30C26.6274 30 32 24.6274 32 18C32 11.3726 26.6274 6 20 6Z" stroke="currentColor" strokeWidth="2" />
-                {/* <path d="M20 12V26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                <path d="M14 18H26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /> */}
-              </svg>
-            </div>
+            <img src="/medlog-dark.svg" alt="MedLog logo" className="h-10 w-10" />
             <div className="leading-tight">
               <p className="text-lg font-semibold tracking-[0.24em] text-slate-900 dark:text-white">MED<span className="text-[#6e56cf]">LOG</span></p>
-              <p className="text-[10px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">Clinical command center</p>
+              <p className="text-[10px] uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">Clinical LMS</p>
             </div>
           </Link>
 
@@ -70,10 +83,18 @@ const Navbar = () => {
                   {link.label}
                 </Link>
               ) : (
-                <a key={link.label} href={link.href} className="text-sm font-medium text-slate-700 transition hover:text-[#6e56cf] dark:text-slate-300">
-                  {link.label}
-                </a>
-              ),
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      smoothScrollTo(link.href);
+                    }}
+                    className="text-sm font-medium text-slate-700 transition hover:text-[#6e56cf] dark:text-slate-300"
+                  >
+                    {link.label}
+                  </a>
+                ),
             )}
           </div>
 
@@ -125,7 +146,11 @@ const Navbar = () => {
                   <a
                     key={link.label}
                     href={link.href}
-                    onClick={() => setIsOpen(false)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setIsOpen(false);
+                      smoothScrollTo(link.href);
+                    }}
                     className="block rounded-2xl px-4 py-3 text-base font-medium text-slate-700 transition hover:bg-slate-100 hover:text-[#6e56cf] dark:text-slate-200 dark:hover:bg-slate-800"
                   >
                     {link.label}

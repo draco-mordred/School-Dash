@@ -16,22 +16,56 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import SectionReveal from "../shared/SectionReveal";
 
 const roleCards = [
   {
-    title: "Student Success",
-    description: "Track clinical rotations, digital logbooks, attendance, and competency milestones in one polished dashboard.",
+    title: "Medical Students",
+    subtitle: "Clinical Students",
+    features: [
+      "Clinical Posting Schedule",
+      "Attendance",
+      "Digital Logbook",
+      "Assessments",
+      "Announcements",
+    ],
     icon: Users,
   },
   {
-    title: "Faculty Intelligence",
-    description: "Coordinate supervisors, progress reports, assessments, and workflow approvals without email chaos.",
+    title: "Academic Staff",
+    subtitle: "(Lecturers)",
+    features: [
+      "Teaching Timetable",
+      "Course Management",
+      "Attendance",
+      "Results",
+      "Student Performance",
+    ],
+    icon: CalendarDays,
+  },
+  {
+    title: "Clinical Staff",
+    subtitle: "(Consultants & Residents)",
+    features: [
+      "Unit Rotations",
+      "Clinical Attendance",
+      "Logbook Review",
+      "Clinical Evaluation",
+      "Student Supervision",
+    ],
     icon: Stethoscope,
   },
   {
-    title: "Program Leadership",
-    description: "Align academic years, timetables, clinical placements, and accreditation data with real-time analytics.",
-    icon: Award,
+    title: "Administrators",
+    subtitle: "",
+    features: [
+      "Institution Management",
+      "Academics",
+      "Clinical Operations",
+      "Reports",
+      "Analytics",
+    ],
+    icon: Globe2,
   },
 ];
 
@@ -145,7 +179,7 @@ export default function LandingPage() {
         </div>
       </div>
 
-      <section id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
+      <SectionReveal id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 max-w-3xl">
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Built for every role</p>
@@ -153,33 +187,38 @@ export default function LandingPage() {
             <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, supervisors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-4">
             {roleCards.map((card) => {
               const Icon = card.icon;
               return (
-                <div
-                  key={card.title}
-                  className="rounded-[2rem] border border-border bg-card p-8 shadow-sm transition-all duration-600 ease-out"
-                >
+                <div key={card.title} className="rounded-[2rem] border border-border bg-card p-6 shadow-sm transition-all duration-600 ease-out">
                   <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
                     <Icon className="h-6 w-6" />
                   </div>
                   <h4 className="mt-6 text-xl font-semibold">{card.title}</h4>
-                  <p className="mt-3 text-slate-600 dark:text-slate-400">{card.description}</p>
+                  {card.subtitle && <p className="text-sm text-slate-500 mt-1">{card.subtitle}</p>}
+                  <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                    {card.features.map((f) => (
+                      <li key={f} className="flex items-start gap-3">
+                        <span className="mt-1 inline-flex h-3 w-3 rounded-full bg-[#6e56cf]/70" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               );
             })}
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="ecosystem" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="ecosystem" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Connected operations</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Everything Connected</p>
               <h3 className="text-3xl font-bold sm:text-4xl">Your academic ecosystem, visualized and synchronized.</h3>
-              <p className="max-w-xl text-slate-600 dark:text-slate-400">Coordinate course rosters, unit supervisors, clinical sites, and accreditation reports in a single system that keeps everyone aligned.</p>
+              <p className="max-w-xl text-slate-600 dark:text-slate-400">MedLog connects every part of clinical education so your institution can work smarter, not harder.</p>
               <ul className="grid gap-3 sm:grid-cols-2">
                 <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
                   <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
@@ -264,7 +303,7 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
       <section id="modules" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
@@ -294,7 +333,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="assistant" className="bg-slate-950 text-white py-24">
+      <SectionReveal id="assistant" className="bg-slate-950 text-white py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
@@ -360,9 +399,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="stats" className="py-24">
+      <SectionReveal id="stats" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
@@ -390,9 +429,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="dashboard" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="dashboard" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
             <div className="space-y-6">
@@ -455,9 +494,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="why" className="py-24">
+      <SectionReveal id="why" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Why MedLog</p>
@@ -494,7 +533,7 @@ export default function LandingPage() {
             })}
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
       <section id="roadmap" className="bg-slate-950 text-white py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
