@@ -3,8 +3,9 @@ import { Menu,
   // Sparkles, 
   X 
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import ThemeToggle from "@/components/global/ThemeToggle";
+import { api } from "@/lib/api";
 
 const links = [
   { label: "Overview", href: "#overview" },
@@ -15,8 +16,10 @@ const links = [
 ];
 
 const Navbar = () => {
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
 
   const smoothScrollTo = (hash: string) => {
     if (!hash) return;
@@ -34,7 +37,7 @@ const Navbar = () => {
 
     // move focus for accessibility
     el.setAttribute("tabindex", "-1");
-    el.focus({ preventScroll: true } as any);
+    el.focus({ preventScroll: true });
   };
 
   useEffect(() => {
@@ -42,6 +45,18 @@ const Navbar = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  const handleSetupEntry = async () => {
+    setIsNavigatingSetup(true);
+    try {
+      const response = await api.get("/setup/status");
+      navigate(response.data?.configured ? "/register" : "/setup");
+    } catch {
+      navigate("/setup");
+    } finally {
+      setIsNavigatingSetup(false);
+    }
+  };
 
   useEffect(() => {
     const navEl = document.querySelector("nav");
@@ -100,12 +115,14 @@ const Navbar = () => {
 
           <div className="flex items-center gap-3">
             <ThemeToggle />
-            <Link
-              to="/register"
+            <button
+              type="button"
+              onClick={handleSetupEntry}
+              disabled={isNavigatingSetup}
               className="hidden rounded-full bg-[#6e56cf] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:bg-[#5e45c2] sm:inline-flex"
             >
-              Get Started
-            </Link>
+              {isNavigatingSetup ? "Loading..." : "Get Started"}
+            </button>
             <Link
               to="/register"
               className="hidden rounded-full border border-slate-300/80 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#6e56cf] hover:text-[#6e56cf] dark:border-slate-700 dark:text-slate-200 lg:inline-flex"
@@ -171,13 +188,16 @@ const Navbar = () => {
               >
                 Login
               </Link>
-              <Link
-                to="/register"
-                onClick={() => setIsOpen(false)}
-                className="block rounded-full bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOpen(false);
+                  void handleSetupEntry();
+                }}
+                className="block w-full rounded-full bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
               >
-                Get Started
-              </Link>
+                {isNavigatingSetup ? "Loading..." : "Get Started"}
+              </button>
             </div>
           </div>
         )}

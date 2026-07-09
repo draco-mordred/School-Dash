@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Award,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import SectionReveal from "../shared/SectionReveal";
 
 const roleCards = [
@@ -123,11 +124,21 @@ const faqs = [
 ];
 
 export default function LandingPage() {
-  const [isMounted, setIsMounted] = useState(false);
+  const navigate = useNavigate();
+  const [isMounted] = useState(true);
+  const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const handleSetupEntry = async () => {
+    setIsNavigatingSetup(true);
+    try {
+      const response = await api.get("/setup/status");
+      navigate(response.data?.configured ? "/register" : "/setup");
+    } catch {
+      navigate("/setup");
+    } finally {
+      setIsNavigatingSetup(false);
+    }
+  };
 
   return (
     <div className="relative overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -146,6 +157,7 @@ export default function LandingPage() {
             <p className="max-w-2xl text-lg text-slate-600 dark:text-slate-300">MedLog brings clinical placements, assessments, supervisor communication, and accreditation tracking into one secure platform for students, supervisors, and administrators.</p>
             <div className="flex flex-wrap gap-4">
               <Button className="min-w-[160px]" size="lg">Schedule a Demo</Button>
+              <Button variant="outline" className="min-w-[160px]" size="lg" onClick={() => { void handleSetupEntry(); }} disabled={isNavigatingSetup}>Set up institution</Button>
               <Button variant="outline" className="min-w-[160px]" size="lg">Learn More</Button>
             </div>
           </div>
@@ -589,6 +601,36 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      <SectionReveal id="role-aware" className="py-16 border-t border-slate-200/60 dark:border-slate-800/60">
+        <div className="mx-auto max-w-4xl px-6 lg:px-8 text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">The Dashboard</p>
+          
+
+          <p className="mt-6 text-slate-700 dark:text-slate-300">Get started by loggin in to your dashboard:</p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <a href="/student" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">🎓</div>
+              <h4 className="mt-3 font-semibold">Student Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Sign in with your matriculation number.</p>
+            </a>
+
+            <a href="/staff" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">👨‍🏫</div>
+              <h4 className="mt-3 font-semibold">Staff Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For lecturers, consultants, and residents.</p>
+            </a>
+
+            <a href="/admin" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">🛡</div>
+              <h4 className="mt-3 font-semibold">Administrator Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For institution administrators.</p>
+            </a>
+          </div>
+
+          <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">Makes everything role friendly. This balances <strong>security</strong>, <strong>clarity</strong>, and <strong>maintainability</strong>.</p>
+        </div>
+      </SectionReveal>
     </div>
   );
 }

@@ -43,6 +43,8 @@ import Assignments from "@/pages/lms/Assignments";
 import StudyMaterials from "@/pages/lms/StudyMaterials";
 import Account from "@/pages/settings/Account";
 import Notifications from "@/pages/Notifications";
+import InstitutionSetupPage from "@/pages/setup/InstitutionSetupPage";
+import SetupRouteGate from "@/pages/routes/SetupRouteGate";
 import { useAuth } from "@/hooks/useAuth";
 
 // Wrapper component for courses route - renders based on user role
@@ -75,6 +77,7 @@ export const router = createBrowserRouter([
       { path: "login", element: <Login /> },
       { path: "register", element: <Register /> },
       { path: "about", element: <About /> },
+      { path: "setup", element: <SetupRouteGate><InstitutionSetupPage /></SetupRouteGate> },
       // protected routes would go here
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import HeroStars from "@/components/HeroStars";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, BadgeCheck, BellRing, BookOpen, CalendarDays, CheckCircle2, Circle, LayoutDashboard, ShieldCheck, Sparkles, Stethoscope, Users } from "lucide-react";
+import { ArrowRight, BadgeCheck, BellRing, Circle, LayoutDashboard, ShieldCheck, Sparkles, Stethoscope, Users } from "lucide-react";
+import { api } from "@/lib/api";
 
 const previews = [
   {
@@ -43,8 +45,10 @@ const previews = [
 ];
 
 export default function StarryMedlogHero() {
+  const navigate = useNavigate();
   const [isRevealed, setIsRevealed] = useState(false);
   const [focusedPreview, setFocusedPreview] = useState("lecturer");
+  const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsRevealed(true), 120);
@@ -52,6 +56,18 @@ export default function StarryMedlogHero() {
   }, []);
 
   const focusedCard = useMemo(() => previews.find((preview) => preview.id === focusedPreview) ?? previews[1], [focusedPreview]);
+
+  const handleSetupEntry = async () => {
+    setIsNavigatingSetup(true);
+    try {
+      const response = await api.get("/setup/status");
+      navigate(response.data?.configured ? "/register" : "/setup");
+    } catch {
+      navigate("/setup");
+    } finally {
+      setIsNavigatingSetup(false);
+    }
+  };
 
   return (
     <section id="overview" className="relative overflow-hidden pt-24 sm:pt-28">
@@ -73,8 +89,8 @@ export default function StarryMedlogHero() {
               </p>
             </div>
             <div className="flex flex-wrap gap-4">
-              <Button size="lg" className="min-w-[150px]">
-                Get Started
+              <Button size="lg" className="min-w-[150px]" onClick={() => { void handleSetupEntry(); }} disabled={isNavigatingSetup}>
+                {isNavigatingSetup ? "Loading..." : "Get Started"}
               </Button>
               <Button variant="outline" size="lg" className="min-w-[150px]">
                 Book a Demo
@@ -107,7 +123,7 @@ export default function StarryMedlogHero() {
                 </div>
 
                 <div className="relative h-[320px]">
-                  {previews.map((preview, index) => {
+                  {previews.map((preview) => {
                     const Icon = preview.icon;
                     const isFocused = preview.id === focusedCard.id;
                     return (
