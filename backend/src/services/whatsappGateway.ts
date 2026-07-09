@@ -10,16 +10,33 @@ let gatewayInitialization: Promise<void> | null = null;
 let resolveGatewayReady: (() => void) | null = null;
 let rejectGatewayReady: ((error: Error) => void) | null = null;
 
-let Client: any;
-let LocalAuth: any;
+let client: any = null;
 let moduleLoadError: Error | null = null;
 
 // Only attempt to load whatsapp-web.js if explicitly enabled
 if (isWhatsappEnabled) {
   try {
     const whatsappModule = require("whatsapp-web.js") as { Client?: any; LocalAuth?: any };
-    Client = whatsappModule.Client;
-    LocalAuth = whatsappModule.LocalAuth;
+    const Client = whatsappModule.Client;
+    const LocalAuth = whatsappModule.LocalAuth;
+
+    if (Client && LocalAuth) {
+      client = new Client({
+        authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
+        puppeteer: {
+          headless: true,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--no-first-run",
+            "--no-zygote",
+            "--single-process",
+          ],
+        },
+      });
+    }
   } catch (error: any) {
     moduleLoadError = error;
     if (error?.code === "MODULE_NOT_FOUND") {
@@ -31,25 +48,6 @@ if (isWhatsappEnabled) {
 } else {
   console.info("ℹ️ ENABLE_MORDRED_WHATSAPP_GATEWAY env var not set; WhatsApp gateway disabled.");
 }
-
-const client = Client && LocalAuth
-  ? new Client({
-      authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
-      puppeteer: {
-        headless: true,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-gpu",
-          "--no-first-run",
-          "--no-zygote",
-          "--single-process",
-        ],
-      },
-    })
-  : null;
-  //Just some random stuff here to ensure save
 const initializeGateway = async () => {
   if (gatewayInitialization) return gatewayInitialization;
 
