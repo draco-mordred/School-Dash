@@ -74,8 +74,8 @@ type FormValues = z.infer<ReturnType<typeof createSchema>>;
 
 const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }: Props) => {
   const isUpdate = type === "update";
-  const isLogin = type === "login"; 
-  const { user, setUser } = useAuth();
+  const isLogin = type === "login";
+  const { user, setUser, refreshAuth } = useAuth();
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
@@ -230,6 +230,9 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
           localStorage.setItem("token", responseData.token);
         }
         setUser(responseData.user ?? responseData);
+        if (refreshAuth) {
+          await refreshAuth();
+        }
         const displayName = responseData.user?.name ?? responseData.name ?? "";
         toast.success(`Welcome ${displayName}`);
         if (onSuccess) {

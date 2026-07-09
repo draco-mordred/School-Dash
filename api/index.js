@@ -8626,33 +8626,47 @@ const dynamicAIInsights = async (req, res) => {
 };
 var require$1 = createRequire$1(import.meta.url);
 var sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
+var isWhatsappGatewayEnabled = process.env.ENABLE_MORDRED_WHATSAPP_GATEWAY === "true";
+var client = null;
 var isGatewayReady = false;
 var gatewayInitialization = null;
 var resolveGatewayReady = null;
 var rejectGatewayReady = null;
-var client = null;
-try {
-	const whatsappModule = require$1("whatsapp-web.js");
-	const Client = whatsappModule?.Client;
-	const LocalAuth = whatsappModule?.LocalAuth;
-	if (Client && LocalAuth) client = new Client({
-		authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
-		puppeteer: {
-			headless: true,
-			args: [
-				"--no-sandbox",
-				"--disable-setuid-sandbox",
-				"--disable-dev-shm-usage",
-				"--disable-gpu",
-				"--no-first-run",
-				"--no-zygote",
-				"--single-process"
-			]
+var moduleLoadAttempted = false;
+var loadWhatsAppModule = () => {
+	if (!isWhatsappGatewayEnabled) return false;
+	if (moduleLoadAttempted) return client !== null;
+	moduleLoadAttempted = true;
+	try {
+		const whatsappModule = require$1("whatsapp-web.js");
+		const Client = whatsappModule?.Client;
+		const LocalAuth = whatsappModule?.LocalAuth;
+		if (!Client || !LocalAuth) {
+			console.warn("⚠️ MORDRED WhatsApp Gateway disabled: whatsapp-web.js is installed but missing Client/LocalAuth.");
+			return false;
 		}
-	});
-} catch (error) {
-	console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
-}
+		client = new Client({
+			authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
+			puppeteer: {
+				headless: true,
+				args: [
+					"--no-sandbox",
+					"--disable-setuid-sandbox",
+					"--disable-dev-shm-usage",
+					"--disable-gpu",
+					"--no-first-run",
+					"--no-zygote",
+					"--single-process"
+				]
+			}
+		});
+		return true;
+	} catch (error) {
+		if (error?.code === "MODULE_NOT_FOUND") console.info("ℹ️ MORDRED WhatsApp Gateway optional dependency whatsapp-web.js is not installed; gateway disabled.");
+		else console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
+		return false;
+	}
+};
 var initializeGateway = async () => {
 	if (gatewayInitialization) return gatewayInitialization;
 	gatewayInitialization = new Promise((resolve, reject) => {
@@ -8662,7 +8676,7 @@ var initializeGateway = async () => {
 			reject(/* @__PURE__ */ new Error("WhatsApp gateway initialization timed out."));
 		}, 3e4);
 	});
-	if (!client) {
+	if (!loadWhatsAppModule() || !client) {
 		const error = /* @__PURE__ */ new Error("WhatsApp gateway is unavailable in this environment.");
 		console.warn("⚠️", error.message);
 		rejectGatewayReady?.(error);
@@ -8671,7 +8685,7 @@ var initializeGateway = async () => {
 	try {
 		client.initialize();
 	} catch (error) {
-		console.error("❌ Failed to initialize MORDRED WhatsApp Gateway:", error.message || error);
+		console.error("❌ Failed to initialize MORDRED WhatsApp Gateway:", error?.message || error);
 		rejectGatewayReady?.(error instanceof Error ? error : new Error(String(error)));
 	}
 	return gatewayInitialization;
@@ -8679,6 +8693,7 @@ var initializeGateway = async () => {
 var recoverGateway = async (reason) => {
 	console.warn(`⚠️ MORDRED WhatsApp Gateway disconnected. Reason: ${reason}`);
 	isGatewayReady = false;
+	if (!client) return;
 	try {
 		await client.destroy();
 	} catch (destroyError) {
@@ -8717,13 +8732,13 @@ if (client) {
 	});
 }
 var ensureGatewayReady = async () => {
+	if (!isWhatsappGatewayEnabled) return false;
 	if (!isGatewayReady) await initializeGateway();
 	return isGatewayReady;
 };
 async function sendMordredWhatsAppAlert(target, message$1) {
 	try {
-		await ensureGatewayReady();
-		if (!isGatewayReady) throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
+		if (!await ensureGatewayReady()) throw new Error("WhatsApp gateway is unavailable in this environment.");
 		if (target.includes("://whatsapp.com")) {
 			const inviteCode = target.split("://whatsapp.com/")[1]?.split(" ")[0];
 			if (!inviteCode) throw new Error("Invalid WhatsApp Group Link Profile provided.");

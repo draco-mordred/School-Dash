@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import ThemeToggle from "@/components/global/ThemeToggle";
 
 const Register = () => {
   const { user, loading } = useAuth();
@@ -175,9 +176,12 @@ const Register = () => {
 
       <div className="w-full max-w-lg">
         <div className="flex flex-col items-center gap-6 bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 shadow-lg center-field-labels glass-card">
-          <Link to="/" className="text-sm text-muted-foreground self-start">
-            MedLog.
-          </Link>
+          <div className="w-full flex items-center justify-between">
+            <Link to="/" className="text-sm text-muted-foreground">
+              MedLog.
+            </Link>
+            <ThemeToggle />
+          </div>
 
           <div className="flex flex-col items-center gap-3">
             <div className="h-28 w-28 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-3xl shadow-inner">

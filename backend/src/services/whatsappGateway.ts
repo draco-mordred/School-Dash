@@ -3,24 +3,37 @@ import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
+const isWhatsappGatewayEnabled = process.env.ENABLE_MORDRED_WHATSAPP_GATEWAY === "true";
+
+let client: any = null;
 let isGatewayReady = false;
 let gatewayInitialization: Promise<void> | null = null;
 let resolveGatewayReady: (() => void) | null = null;
 let rejectGatewayReady: ((error: Error) => void) | null = null;
+let moduleLoadAttempted = false;
 
-let Client: any;
-let LocalAuth: any;
+const loadWhatsAppModule = (): boolean => {
+  if (!isWhatsappGatewayEnabled) {
+    return false;
+  }
 
-try {
-  const whatsappModule = require("whatsapp-web.js") as { Client?: any; LocalAuth?: any };
-  Client = whatsappModule.Client;
-  LocalAuth = whatsappModule.LocalAuth;
-} catch (error) {
-  console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
-}
+  if (moduleLoadAttempted) {
+    return client !== null;
+  }
 
-const client = Client && LocalAuth
-  ? new Client({
+  moduleLoadAttempted = true;
+
+  try {
+    const whatsappModule = require("whatsapp-web.js") as { Client?: any; LocalAuth?: any };
+    const Client = whatsappModule?.Client;
+    const LocalAuth = whatsappModule?.LocalAuth;
+
+    if (!Client || !LocalAuth) {
+      console.warn("⚠️ MORDRED WhatsApp Gateway disabled: whatsapp-web.js is installed but missing Client/LocalAuth.");
+      return false;
+    }
+
+    client = new Client({
       authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
       puppeteer: {
         headless: true,
@@ -34,9 +47,19 @@ const client = Client && LocalAuth
           "--single-process",
         ],
       },
-    })
-  : null;
-  //Just some random stuff here to ensure save
+    });
+
+    return true;
+  } catch (error: any) {
+    if (error?.code === "MODULE_NOT_FOUND") {
+      console.info("ℹ️ MORDRED WhatsApp Gateway optional dependency whatsapp-web.js is not installed; gateway disabled.");
+    } else {
+      console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
+    }
+    return false;
+  }
+};
+
 const initializeGateway = async () => {
   if (gatewayInitialization) return gatewayInitialization;
 
@@ -48,7 +71,7 @@ const initializeGateway = async () => {
     }, 30000);
   });
 
-  if (!client) {
+  if (!loadWhatsAppModule() || !client) {
     const error = new Error("WhatsApp gateway is unavailable in this environment.");
     console.warn("⚠️", error.message);
     rejectGatewayReady?.(error);
@@ -119,9 +142,14 @@ if (client) {
 }
 
 const ensureGatewayReady = async () => {
+  if (!isWhatsappGatewayEnabled) {
+    return false;
+  }
+
   if (!isGatewayReady) {
     await initializeGateway();
   }
+
   return isGatewayReady;
 };
 
@@ -132,9 +160,9 @@ const ensureGatewayReady = async () => {
  */
 export async function sendMordredWhatsAppAlert(target: string, message: string): Promise<boolean> {
   try {
-    await ensureGatewayReady();
-    if (!isGatewayReady) {
-      throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
+    const gatewayReady = await ensureGatewayReady();
+    if (!gatewayReady) {
+      throw new Error("WhatsApp gateway is unavailable in this environment.");
     }
 
     if (target.includes("://whatsapp.com")) {
@@ -154,7 +182,6 @@ export async function sendMordredWhatsAppAlert(target: string, message: string):
     await client.sendMessage(formattedId, message);
     console.log(`💬 MORDRED individual text message delivered to: ${formattedId}`);
     return true;
-
   } catch (error: any) {
     console.error("❌ MORDRED WhatsApp Pipeline Exception Error:", error?.message || error);
 

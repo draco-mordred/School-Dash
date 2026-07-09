@@ -732,6 +732,14 @@ export default function ClinicalRotations() {
 
   const limit = 15;
 
+  const authStudentClassId = (() => {
+    if (user?.role !== "student") return undefined;
+    if (user.studentClass && typeof user.studentClass === "object") return user.studentClass._id;
+    if (typeof user.studentClasses === "string") return user.studentClasses;
+    if (!Array.isArray(user?.studentClasses) && user?.studentClasses && typeof user?.studentClasses === "object") return (user.studentClasses as any)._id;
+    return undefined;
+  })();
+
   useEffect(() => {
     const loadClasses = async () => {
       try {
@@ -746,7 +754,7 @@ export default function ClinicalRotations() {
           }));
 
         setAvailableClasses(mappedClasses);
-        if (!selectedClassId && mappedClasses[0]?._id) {
+        if (!selectedClassId && (!user?.role || user.role !== "student" || !authStudentClassId) && mappedClasses[0]?._id) {
           setSelectedClassId(mappedClasses[0]._id);
         }
       } catch (error) {
@@ -755,7 +763,7 @@ export default function ClinicalRotations() {
     };
 
     loadClasses();
-  }, []);
+  }, [authStudentClassId, selectedClassId, user?.role]);
 
   useEffect(() => {
     const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId);
@@ -2009,6 +2017,26 @@ export default function ClinicalRotations() {
 
   const displayName = user?.name ?? (user as any)?.firstName ?? "User";
   const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId) ?? null;
+  const authStudentClass = (() => {
+    if (user?.role !== "student") return null;
+    if (user.studentClass && typeof user.studentClass === "object") return user.studentClass;
+    if (typeof user.studentClasses === "string") {
+      const matchById = availableClasses.find((cls) => cls._id === user.studentClasses);
+      if (matchById) return matchById;
+      const matchByName = availableClasses.find((cls) => cls.name === user.studentClasses);
+      return matchByName ?? { _id: user.studentClasses, name: user.studentClasses } as any;
+    }
+    if (!Array.isArray(user?.studentClasses) && user?.studentClasses && typeof user?.studentClasses === "object") {
+      return user.studentClasses as any;
+    }
+    return null;
+  })();
+
+  useEffect(() => {
+    if (user?.role !== "student" || !authStudentClass?._id || selectedClassId) return;
+    setSelectedClassId(authStudentClass._id);
+  }, [user?.role, authStudentClass, selectedClassId]);
+
   const selectedClassPhasePlan = selectedClock?.classLevel
     ? getClassLevelPhasePlan(selectedClock.classLevel)
     : [];
@@ -2137,11 +2165,11 @@ export default function ClinicalRotations() {
   const currentPhaseDefinition = currentClockPhase
     ? selectedClassPhasePlan.find((phase) => phase.id === currentClockPhase) ?? null
     : null;
-  const currentPostingTitle = currentPhaseConfig?.name ?? currentPhaseDefinition?.name ?? (currentClockPhase ? `Phase ${currentClockPhase.replace("phase", "")}` : "Demo posting");
+  const currentPostingTitle = currentPhaseConfig?.name ?? currentPhaseDefinition?.name ?? (currentClockPhase ? `Phase ${currentClockPhase.replace("phase", "")}` : "No active posting");
   const currentPhaseDuration = currentPhaseConfig?.duration ?? currentPhaseDefinition?.durationMonths ?? 0;
   const postingComponents = currentPhaseDefinition?.subPostings ?? [];
   const currentPostingSubtitle = currentPhaseConfig?.postingType ?? currentPhaseDefinition?.subPostings?.join(", ") ?? "Clinical posting";
-  const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "Demo phase";
+  const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "No active phase";
   const isStudentView = user?.role === "student";
   const currentStudent = isStudentView
     ? selectedClassStudents.find((student) => {
@@ -2223,18 +2251,12 @@ export default function ClinicalRotations() {
                 </p>
               </div>
               <div className="w-full sm:w-72">
-                <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                  <SelectTrigger className="border-white/20 bg-white/10 text-white placeholder:text-slate-300">
-                    <SelectValue placeholder="Select class" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableClasses.map((cls) => (
-                      <SelectItem key={cls._id} value={cls._id}>
-                        {cls.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="rounded-2xl border border-white/10 bg-white/10 p-4 text-white">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300">Class</p>
+                  <p className="mt-2 text-lg font-semibold">
+                    {selectedClass?.name ?? authStudentClass?.name ?? "Unassigned class"}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -2248,7 +2270,9 @@ export default function ClinicalRotations() {
                 <>
                   <h2 className="mt-2 text-xl font-semibold">{currentPostingTitle}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {selectedClass ? `${selectedClass.name} • ${currentPhaseLabel}` : "Select a class to view the active posting."}
+                    {(selectedClass ?? authStudentClass)
+                      ? `${(selectedClass ?? authStudentClass)?.name} • ${currentPhaseLabel}`
+                      : "No class selected for this posting."}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Badge className="bg-secondary text-secondary-foreground">{currentPhaseLabel}</Badge>
@@ -2258,7 +2282,7 @@ export default function ClinicalRotations() {
               )}
             </div>
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-              <p className="text-sm font-medium text-muted-foreground">Your department</p>
+              <p className="text-sm font-medium text-muted-foreground">Your current posting (department)</p>
               {studentPostingAssignment ? (
                 <>
                   <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.posting}</h2>
@@ -2266,14 +2290,14 @@ export default function ClinicalRotations() {
                     {studentPostingAssignment.phaseLabel} • Group {studentPostingAssignment.groupKey === "groupA" ? "A" : "B"}
                   </p>
                   <p className="mt-3 text-sm text-muted-foreground">
-                    You are currently assigned to the {studentPostingAssignment.posting} department group for this posting schedule.
+                    This is your assigned department for the class’s active posting schedule.
                   </p>
                 </>
               ) : (
                 <>
-                  <h2 className="mt-2 text-xl font-semibold">Pending assignment</h2>
+                  <h2 className="mt-2 text-xl font-semibold">Posting assignment pending</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {currentStudent ? `No group assignment has been linked to ${currentStudent.name} yet.` : "Select a class and confirm your roster entry to view your posting group."}
+                    {currentStudent ? `No department assignment has been linked to ${currentStudent.name} yet.` : "Select a class and confirm your roster entry to view your posting group."}
                   </p>
                 </>
               )}
@@ -2323,7 +2347,7 @@ export default function ClinicalRotations() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="mb-3 inline-flex rounded-full bg-white/10 px-3 py-1 text-sm">Clinicals dashboard</p>
-              <h1 className="text-3xl font-semibold">Welcome {displayName} to the Clinicals Dashboard</h1>
+              <h1 className="text-3xl font-semibold">Welcome, {displayName} to the Clinicals Dashboard</h1>
               <p className="mt-3 max-w-2xl text-sm text-slate-200">
                 A central place for clinical utilities, including rotation schedules, postings, and student workflow tools.
               </p>

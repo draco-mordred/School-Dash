@@ -7,6 +7,7 @@ export const AuthContext = createContext<{
   loading: boolean;
   year: academicYear | null;
   setYear: React.Dispatch<React.SetStateAction<academicYear | null>>;
+  refreshAuth: () => Promise<void>;
 }>(
   {
     user: null,
@@ -14,6 +15,7 @@ export const AuthContext = createContext<{
     loading: true,
     year: null,
     setYear: () => {},
+    refreshAuth: async () => {},
   }
 );
  
