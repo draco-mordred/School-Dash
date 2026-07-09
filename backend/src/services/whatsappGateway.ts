@@ -3,37 +3,37 @@ import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
 const sessionDataPath = path.resolve(process.cwd(), "mordred_whatsapp_session");
-const isWhatsappGatewayEnabled = process.env.ENABLE_MORDRED_WHATSAPP_GATEWAY === "true";
+const isWhatsappEnabled = process.env.ENABLE_MORDRED_WHATSAPP_GATEWAY === "true";
 
-let client: any = null;
 let isGatewayReady = false;
 let gatewayInitialization: Promise<void> | null = null;
 let resolveGatewayReady: (() => void) | null = null;
 let rejectGatewayReady: ((error: Error) => void) | null = null;
-let moduleLoadAttempted = false;
 
-const loadWhatsAppModule = (): boolean => {
-  if (!isWhatsappGatewayEnabled) {
-    return false;
-  }
+let Client: any;
+let LocalAuth: any;
+let moduleLoadError: Error | null = null;
 
-  if (moduleLoadAttempted) {
-    return client !== null;
-  }
-
-  moduleLoadAttempted = true;
-
+// Only attempt to load whatsapp-web.js if explicitly enabled
+if (isWhatsappEnabled) {
   try {
     const whatsappModule = require("whatsapp-web.js") as { Client?: any; LocalAuth?: any };
-    const Client = whatsappModule?.Client;
-    const LocalAuth = whatsappModule?.LocalAuth;
-
-    if (!Client || !LocalAuth) {
-      console.warn("⚠️ MORDRED WhatsApp Gateway disabled: whatsapp-web.js is installed but missing Client/LocalAuth.");
-      return false;
+    Client = whatsappModule.Client;
+    LocalAuth = whatsappModule.LocalAuth;
+  } catch (error: any) {
+    moduleLoadError = error;
+    if (error?.code === "MODULE_NOT_FOUND") {
+      console.info("ℹ️ whatsapp-web.js not installed; WhatsApp gateway disabled.");
+    } else {
+      console.warn("⚠️ Failed to load whatsapp-web.js:", error);
     }
+  }
+} else {
+  console.info("ℹ️ ENABLE_MORDRED_WHATSAPP_GATEWAY env var not set; WhatsApp gateway disabled.");
+}
 
-    client = new Client({
+const client = Client && LocalAuth
+  ? new Client({
       authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
       puppeteer: {
         headless: true,
@@ -47,19 +47,9 @@ const loadWhatsAppModule = (): boolean => {
           "--single-process",
         ],
       },
-    });
-
-    return true;
-  } catch (error: any) {
-    if (error?.code === "MODULE_NOT_FOUND") {
-      console.info("ℹ️ MORDRED WhatsApp Gateway optional dependency whatsapp-web.js is not installed; gateway disabled.");
-    } else {
-      console.warn("⚠️ MORDRED WhatsApp Gateway disabled: unable to load whatsapp-web.js", error);
-    }
-    return false;
-  }
-};
-
+    })
+  : null;
+  //Just some random stuff here to ensure save
 const initializeGateway = async () => {
   if (gatewayInitialization) return gatewayInitialization;
 
@@ -71,7 +61,7 @@ const initializeGateway = async () => {
     }, 30000);
   });
 
-  if (!loadWhatsAppModule() || !client) {
+  if (!client) {
     const error = new Error("WhatsApp gateway is unavailable in this environment.");
     console.warn("⚠️", error.message);
     rejectGatewayReady?.(error);
@@ -142,14 +132,9 @@ if (client) {
 }
 
 const ensureGatewayReady = async () => {
-  if (!isWhatsappGatewayEnabled) {
-    return false;
-  }
-
   if (!isGatewayReady) {
     await initializeGateway();
   }
-
   return isGatewayReady;
 };
 
@@ -160,9 +145,9 @@ const ensureGatewayReady = async () => {
  */
 export async function sendMordredWhatsAppAlert(target: string, message: string): Promise<boolean> {
   try {
-    const gatewayReady = await ensureGatewayReady();
-    if (!gatewayReady) {
-      throw new Error("WhatsApp gateway is unavailable in this environment.");
+    await ensureGatewayReady();
+    if (!isGatewayReady) {
+      throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
     }
 
     if (target.includes("://whatsapp.com")) {
@@ -182,6 +167,7 @@ export async function sendMordredWhatsAppAlert(target: string, message: string):
     await client.sendMessage(formattedId, message);
     console.log(`💬 MORDRED individual text message delivered to: ${formattedId}`);
     return true;
+
   } catch (error: any) {
     console.error("❌ MORDRED WhatsApp Pipeline Exception Error:", error?.message || error);
 

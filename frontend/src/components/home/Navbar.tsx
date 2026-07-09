@@ -53,8 +53,8 @@ const Navbar = () => {
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#6e56cf] shadow-lg shadow-violet-500/20">
               <svg viewBox="0 0 40 40" className="h-6 w-6 text-white" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path d="M20 6C13.3726 6 8 11.3726 8 18C8 24.6274 13.3726 30 20 30C26.6274 30 32 24.6274 32 18C32 11.3726 26.6274 6 20 6Z" stroke="currentColor" strokeWidth="2" />
-                <path d="M20 12V26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                <path d="M14 18H26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                {/* <path d="M20 12V26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M14 18H26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /> */}
               </svg>
             </div>
             <div className="leading-tight">
