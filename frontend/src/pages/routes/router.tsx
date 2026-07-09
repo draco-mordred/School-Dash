@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import About from "@/pages/About";
 import NotFound from "@/pages/NotFound";
 import PrivateRoutes from "@/pages/routes/PrivateRoutes";
 import Dashboard from "@/pages/Dashboard";
@@ -73,6 +74,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Home /> },
       { path: "login", element: <Login /> },
       { path: "register", element: <Register /> },
+      { path: "about", element: <About /> },
       // protected routes would go here
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported

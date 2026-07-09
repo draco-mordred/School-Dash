@@ -258,6 +258,16 @@
   70% { transform: rotate(6deg); }
   100% { transform: rotate(0deg); }
 }
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
 .animate-ring {
   display: inline-block;
   transform-origin: top center;

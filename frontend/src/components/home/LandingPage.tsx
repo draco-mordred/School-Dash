@@ -148,9 +148,9 @@ export default function LandingPage() {
       <section id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Role-based workflows</p>
-            <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Designed for every member of the clinical learning ecosystem.</h3>
-            <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Built for every role</p>
+            <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Designed for every member of the clinical education ecosystem.</h3>
+            <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, supervisors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
@@ -266,7 +266,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="programs" className="py-24">
+      <section id="modules" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] items-center">
             <div>
