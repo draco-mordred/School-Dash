@@ -66,10 +66,13 @@ export function AdminSidebar({ collapsible = "icon", ...props }: AdminSidebarPro
 
   const logout = async () => {
     try {
+      const role = user?.role;
       await api.post("/users/logout").finally(() => {
         localStorage.removeItem("token");
         setUser(null);
-        navigate("/login");
+        if (role === "student") navigate("/student");
+        else if (role === "admin") navigate("/admin");
+        else navigate("/staff");
         toast.success("Logged out successfully");
       });
     } catch (error) {

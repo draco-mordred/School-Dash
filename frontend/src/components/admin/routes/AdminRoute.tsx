@@ -6,6 +6,24 @@ interface AdminRouteProps {
   children: React.ReactNode;
 }
 
+const getPortalLoginPath = () => {
+  const lastPortalRole = localStorage.getItem("lastPortalRole");
+
+  switch (lastPortalRole) {
+    case "admin":
+      return "/admin";
+    case "student":
+      return "/student";
+    case "teacher":
+    case "unitconsultant":
+    case "unitresident":
+    case "parent":
+      return "/staff";
+    default:
+      return "/admin";
+  }
+};
+
 /**
  * AdminRoute Component
  * 
@@ -29,7 +47,7 @@ export const AdminRoute = ({ children }: AdminRouteProps) => {
 
   // Not authenticated: redirect to login
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={getPortalLoginPath()} replace />;
   }
 
   // Not admin: redirect to dashboard

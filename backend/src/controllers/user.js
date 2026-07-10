@@ -26,6 +26,27 @@ const normalizeRole = (role) => {
         return "parent";
     return undefined;
 };
+export const resolveLoginIdentifier = (payload) => {
+    const candidates = [payload?.credential, payload?.idNumber, payload?.matricNumber, payload?.email];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string") {
+            const trimmed = candidate.trim();
+            if (trimmed) {
+                return trimmed;
+            }
+        }
+    }
+    return "";
+};
+export const normalizeLoginIdentifier = (value) => {
+    if (typeof value !== "string") return "";
+    return value.trim().toLowerCase().replace(/[\s._/-]+/g, "");
+};
+export const identifierMatches = (candidate, target) => {
+    const normalizedCandidate = normalizeLoginIdentifier(candidate);
+    const normalizedTarget = normalizeLoginIdentifier(target);
+    return Boolean(normalizedCandidate && normalizedTarget && normalizedCandidate === normalizedTarget);
+};
 const findDepartment = async (departmentInput) => {
     if (!departmentInput)
         return null;
@@ -492,10 +513,55 @@ export const isFirstUser = async (req, res) => {
 };
 export const login = async (req, res) => {
     try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email });
-        // check if user exists and password matches 
-        if (user && (await user.matchPassword(password))) {
+        const { password } = req.body;
+        const resolvedIdentifier = resolveLoginIdentifier(req.body);
+        console.log(`[AUTH] login attempt, resolvedIdentifier='${resolvedIdentifier}' from payload:`, req.body);
+        const trimmedIdentifier = resolvedIdentifier.trim();
+        const lookupCandidates = [
+            trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
+            trimmedIdentifier ? { email: trimmedIdentifier } : null,
+            trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
+            trimmedIdentifier ? { studentId: trimmedIdentifier } : null,
+        ].filter(Boolean);
+
+        let user = null;
+        for (const criteria of lookupCandidates) {
+            console.log(`[AUTH] trying lookup criteria:`, criteria);
+            user = await User.findOne(criteria);
+            if (user) {
+                console.log(`[AUTH] found user by criteria:`, criteria, `userId=${user._id}, email=${user.email}, idNumber=${user.idNumber}`);
+                break;
+            }
+        }
+
+        if (!user && trimmedIdentifier) {
+            const normalizedIdentifier = normalizeLoginIdentifier(trimmedIdentifier);
+            const possibleMatches = await User.find({
+                $or: [
+                    { idNumber: { $exists: true, $ne: "" } },
+                    { email: { $exists: true, $ne: "" } },
+                    { matricNumber: { $exists: true, $ne: "" } },
+                    { studentId: { $exists: true, $ne: "" } },
+                ],
+            }).limit(200);
+
+            user = possibleMatches.find((candidate) => (
+                identifierMatches(candidate.idNumber, trimmedIdentifier) ||
+                identifierMatches(candidate.matricNumber, trimmedIdentifier) ||
+                identifierMatches(candidate.studentId, trimmedIdentifier) ||
+                identifierMatches(candidate.email, trimmedIdentifier)
+            )) || null;
+            console.log(`[AUTH] possibleMatches length=${possibleMatches.length}, selectedUser=${user ? user._id : null}`);
+        }
+
+        if (!user && normalizeLoginIdentifier(trimmedIdentifier)) {
+            user = await User.findOne({ email: trimmedIdentifier });
+        }
+
+        if (user) {
+            const pwMatch = await user.matchPassword(password);
+            console.log(`[AUTH] password match for user ${user._id}: ${pwMatch}`);
+            if (pwMatch) {
             if (user.approvalStatus !== "approved") {
                 const message = user.approvalStatus === "pending"
                     ? "Your account is pending admin approval."
@@ -506,7 +572,6 @@ export const login = async (req, res) => {
                 return;
             }
             if (!user.isActive) {
-                // Recover approved users that were accidentally left inactive
                 if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
                     user.isActive = true;
                     await user.save();
@@ -544,11 +609,11 @@ export const login = async (req, res) => {
             }
             res.status(201).json(responsePayload);
             return;
+            }
         }
-        else {
-            res.status(401).json({ message: "Invalid email or password" });
-            return;
-        }
+        // fallback response
+        res.status(401).json({ message: "Invalid matriculation number, email, or password" });
+        return;
     }
     catch (error) {
         res.status(500).json({ message: "Server error", error });

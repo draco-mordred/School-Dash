@@ -32,6 +32,7 @@ import logbookEntryRouter from "./routes/logbookEntry";
 import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
+import { createBodyParsers } from "./utils/bodyParser";
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 // The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/
@@ -41,9 +42,10 @@ export const app = express();
 const PORT = process.env.PORT || 5000;
 const isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
+const { json, urlencoded } = createBodyParsers();
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
-app.use(express.json()); // Middleware to parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Middleware to parse URL-encoded bodies
+app.use(json); // Middleware to parse JSON bodies
+app.use(urlencoded); // Middleware to parse URL-encoded bodies
 app.use(cookieParser()); // Middleware to parse cookies
 //log http requests to console
 // NODE_ENV missing in .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV variable, you can add it to your .env file like this: NODE_ENV=development

@@ -85,8 +85,28 @@ const buildUserIdNumber = (role: string, index: number) => {
 
 export const getSetupStatus = async (_req: Request, res: Response) => {
   try {
-    const institution = await Institution.findOne().lean();
-    res.status(200).json({ configured: Boolean(institution) });
+    const institution = await Institution.findOne().populate("brandingSettings", "primaryColor accentColor").lean();
+    res.status(200).json({
+      configured: Boolean(institution),
+      institution: institution
+        ? {
+            name: institution.name,
+            shortName: institution.shortName,
+            type: institution.type,
+            country: institution.country,
+            state: institution.state,
+            city: institution.city,
+            academicCalendarType: institution.academicCalendarType,
+            timezone: institution.timezone,
+            logoUrl: institution.logoUrl || "",
+            backgroundImageUrl: (institution as any).backgroundImageUrl || "",
+            brandingSettings: {
+              primaryColor: (institution as any).brandingSettings?.primaryColor || "#2563eb",
+              accentColor: (institution as any).brandingSettings?.accentColor || "#4f46e5",
+            },
+          }
+        : null,
+    });
   } catch (error) {
     console.error("Setup status error:", (error as Error).message);
     res.status(500).json({ status: "Error", message: "Unable to determine setup status." });
@@ -130,7 +150,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         endsAt: sessionInfo.endsAt,
         isCurrent: true,
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const academicYearInfo = getYearRangeFromSession(academicStructure.academicYear || academicStructure.academicSession || "");
     const academicYearDoc = await AcademicYear.create([
@@ -140,7 +160,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         toYear: academicYearInfo.toYear,
         isCurrent: true,
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const semesterOptions = Array.isArray(academicStructure.semesters) && academicStructure.semesters.length
       ? academicStructure.semesters
@@ -153,7 +173,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         order: index + 1,
         isActive: true,
       })),
-      { session }
+      { session, ordered: true }
     );
 
     const attendanceDoc = await AttendanceSettings.create([
@@ -171,7 +191,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         gracePeriodMinutes: Number(attendanceConfiguration?.gracePeriodMinutes ?? 10),
         attendanceWindowMinutes: Number(attendanceConfiguration?.attendanceWindowMinutes ?? 120),
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const assessmentDoc = await AssessmentSettings.create([
       {
@@ -186,7 +206,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
           ? assessmentConfiguration.gradingScale
           : ["A", "B", "C", "D", "F"],
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const brandingDoc = await BrandingSettings.create([
       {
@@ -196,7 +216,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         primaryColor: String(brandingSettings?.primaryColor || "#2563eb"),
         accentColor: String(brandingSettings?.accentColor || "#4f46e5"),
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const applicationSettingsDoc = await ApplicationSettings.create([
       {
@@ -206,7 +226,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         dateFormat: String(applicationSettings?.dateFormat || "YYYY-MM-DD"),
         extra: applicationSettings?.extra || {},
       },
-    ], { session });
+    ], { session, ordered: true });
 
     const departmentNames = Array.isArray(clinicalStructure?.defaultDepartments) && clinicalStructure.defaultDepartments.length
       ? clinicalStructure.defaultDepartments
@@ -221,7 +241,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
       }
       const code = sanitizeCode(departmentName).slice(0, 8);
       const departmentID = `${code}-${new Date().getFullYear()}`;
-      const doc = await Department.create([{ name: departmentName, code, departmentID }], { session });
+      const doc = await Department.create([{ name: departmentName, code, departmentID }], { session, ordered: true });
       departments.push(doc[0]);
     }
 
@@ -237,7 +257,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
       }
       const code = sanitizeCode(item.name).slice(0, 8);
       const unitID = `${code}-${new Date().getFullYear()}`;
-      const unitDoc = await Unit.create([{ name: item.name, code, unitID, department: department._id }], { session });
+      const unitDoc = await Unit.create([{ name: item.name, code, unitID, department: department._id }], { session, ordered: true });
       units.push(unitDoc[0]);
       await Department.findByIdAndUpdate(department._id, { $addToSet: { units: unitDoc[0]._id } }, { session });
     }
@@ -252,7 +272,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
       approvalStatus: "approved" as const,
       profileImage: administrator.profileImage || null,
     };
-    const [adminUserDoc] = await User.create([adminPayload], { session });
+    const [adminUserDoc] = await User.create([adminPayload], { session, ordered: true });
 
     const classPayloads = Array.isArray(academicStructure.classes) && academicStructure.classes.length
       ? academicStructure.classes
@@ -272,7 +292,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
           classTeacher: matchingStaff ? null : null,
           capacity: Number(classItem.capacity ?? 120),
         },
-      ], { session });
+      ], { session, ordered: true });
       createdClasses.push(classDoc[0]);
     }
 
@@ -302,7 +322,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
           departmentRole: person.departmentRole || null,
           profileImage: person.profileImage || null,
         },
-      ], { session });
+      ], { session, ordered: true });
 
       createdStaffUsers.push(userDoc[0]);
 
@@ -338,7 +358,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
           approvalStatus: "approved",
           profileImage: person.profileImage || null,
         },
-      ], { session });
+      ], { session, ordered: true });
 
       createdStudents.push(userDoc[0]);
       if (targetClass) {
@@ -356,7 +376,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
           clockStartDate: academicYearDoc[0].fromYear,
           phaseConfig: buildPhaseConfigForClassLevel(classLevel),
         },
-      ], { session });
+      ], { session, ordered: true });
     }
 
     const institution = await Institution.create([
@@ -370,6 +390,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         academicCalendarType: institutionProfile.academicCalendarType,
         timezone: institutionProfile.timezone,
         logoUrl: String(institutionProfile.logoUrl || ""),
+        backgroundImageUrl: String(institutionProfile.backgroundImageUrl || ""),
         academicSession: academicSessionDoc[0]._id,
         semesters: semesterDocs.map((semester) => semester._id),
         defaultDepartments: departments.map((dept) => dept._id),
@@ -380,7 +401,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         applicationSettings: applicationSettingsDoc[0]._id,
         administratorUser: adminUserDoc._id,
       },
-    ], { session });
+    ], { session, ordered: true });
 
     await session.commitTransaction();
     session.endSession();

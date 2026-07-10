@@ -76,7 +76,7 @@ export const UserDepartmentName = {
     Medicine: "Medicine",
     Surgery: "Surgery",
     Psychiatry: "Psychiatry",
-    earNoseAndThroat: "Ear, Nose, and Throat",
+    earNoseAndThroat: "ENT" || "Otolaryngology" || "Otorhinolaryngology",
     Anaesthesiology: "Anaesthesiology",
     Radiology: "Radiology",
     Ophthalmology: "Ophthalmology",

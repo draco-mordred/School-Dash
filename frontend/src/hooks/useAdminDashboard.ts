@@ -43,10 +43,65 @@ export const useAdminDashboard = () => {
         setLoading(true);
         
         // Fetch data from various endpoints
-        const [statsRes, activitiesRes] = await Promise.all([
+        const [statsRes, activitiesRes, usersRes, classesRes, attendanceRes] = await Promise.all([
           api.get("/dashboard/stats").catch(() => ({ data: {} })),
           api.get("/activities").catch(() => ({ data: [] })),
+          api.get("/users").catch(() => ({ data: { data: [] } })),
+          api.get("/classes").catch(() => ({ data: { data: [] } })),
+          api.get("/attendance").catch(() => ({ data: { records: [] } })),
         ]);
+
+        // Generate real alerts based on actual data
+        const generateAlerts = () => {
+          const alerts: any[] = [];
+          
+          const usersData = usersRes.data?.data || [];
+          const unapprovedCount = usersData.filter((u: any) => u.approvalStatus !== "approved").length;
+          if (unapprovedCount > 0) {
+            alerts.push({
+              id: "pending-approvals",
+              type: "warning",
+              title: `${unapprovedCount} Pending User Approvals`,
+              description: "Users awaiting administrator approval",
+              count: unapprovedCount,
+            });
+          }
+
+          const attendanceData = attendanceRes.data?.records || [];
+          const lowAttendance = attendanceData.filter((r: any) => r.attendancePercentage < 75).length;
+          if (lowAttendance > 0) {
+            alerts.push({
+              id: "low-attendance",
+              type: "error",
+              title: `${lowAttendance} Low Attendance Records`,
+              description: "Students below 75% attendance threshold",
+              count: lowAttendance,
+            });
+          }
+
+          const classesData = classesRes.data?.data || [];
+          const unassignedClasses = classesData.filter((c: any) => !c.classTeacher).length;
+          if (unassignedClasses > 0) {
+            alerts.push({
+              id: "unassigned-teachers",
+              type: "warning",
+              title: `${unassignedClasses} Classes Without Teachers`,
+              description: "Some classes lack assigned class teachers",
+              count: unassignedClasses,
+            });
+          }
+
+          if (alerts.length === 0) {
+            alerts.push({
+              id: "all-clear",
+              type: "info",
+              title: "All Systems Operational",
+              description: "No critical alerts at this time",
+            });
+          }
+
+          return alerts;
+        };
 
         // For now, use mock data with some real data fallbacks
         const mockData: DashboardData = {
@@ -70,58 +125,46 @@ export const useAdminDashboard = () => {
             teams: 18,
             rotations: 36,
           },
-          alerts: [
-            {
-              id: "1",
-              type: "warning",
-              title: "3 Timetable Conflicts",
-              description: "Some lecturers have overlapping schedules",
-              count: 3,
-            },
-            {
-              id: "2",
-              type: "error",
-              title: "5 Missing Staff Assignments",
-              description: "Some courses lack assigned lecturers",
-              count: 5,
-            },
-            {
-              id: "3",
-              type: "warning",
-              title: "12 Low Attendance Records",
-              description: "Students below 75% attendance threshold",
-              count: 12,
-            },
-          ],
-          activities: [
-            {
-              id: "1",
-              user: "Admin User",
-              userInitials: "AU",
-              action: "Created",
-              module: "Student Account",
-              timestamp: new Date(Date.now() - 15 * 60000),
-              description: "John Doe",
-            },
-            {
-              id: "2",
-              user: "System",
-              userInitials: "SY",
-              action: "Updated",
-              module: "Timetable",
-              timestamp: new Date(Date.now() - 45 * 60000),
-              description: "Class 3A schedule",
-            },
-            {
-              id: "3",
-              user: "Admin User",
-              userInitials: "AU",
-              action: "Approved",
-              module: "Clinical Posting",
-              timestamp: new Date(Date.now() - 2 * 60 * 60000),
-              description: "Pediatrics rotation",
-            },
-          ],
+          alerts: generateAlerts(),
+          activities: activitiesRes.data && Array.isArray(activitiesRes.data)
+            ? activitiesRes.data.map((activity: any, index: number) => ({
+                id: activity.id || String(index),
+                user: activity.user || "System",
+                userInitials: (activity.user || "S").substring(0, 2).toUpperCase(),
+                action: activity.action || "Updated",
+                module: activity.module || "System",
+                timestamp: activity.timestamp ? new Date(activity.timestamp) : new Date(),
+                description: activity.description || "No description",
+              }))
+            : [
+                {
+                  id: "1",
+                  user: "Admin User",
+                  userInitials: "AU",
+                  action: "Created",
+                  module: "Student Account",
+                  timestamp: new Date(Date.now() - 15 * 60000),
+                  description: "John Doe",
+                },
+                {
+                  id: "2",
+                  user: "System",
+                  userInitials: "SY",
+                  action: "Updated",
+                  module: "Timetable",
+                  timestamp: new Date(Date.now() - 45 * 60000),
+                  description: "Class 3A schedule",
+                },
+                {
+                  id: "3",
+                  user: "Admin User",
+                  userInitials: "AU",
+                  action: "Approved",
+                  module: "Clinical Posting",
+                  timestamp: new Date(Date.now() - 2 * 60 * 60000),
+                  description: "Pediatrics rotation",
+                },
+              ],
         };
 
         setData(mockData);

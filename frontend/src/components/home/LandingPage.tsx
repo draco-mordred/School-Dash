@@ -128,11 +128,34 @@ export default function LandingPage() {
   const [isMounted] = useState(true);
   const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
 
+  const scrollToDashboardSection = () => {
+    const target = document.getElementById("role-aware");
+    if (!target) return false;
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const topbar = rootStyles.getPropertyValue("--topbar-height") || "56px";
+    const topbarPx = parseInt(topbar, 10) || 56;
+    const rect = target.getBoundingClientRect();
+    const nextTop = window.scrollY + rect.top - topbarPx - 12;
+
+    window.scrollTo({ top: nextTop, behavior: "smooth" });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    return true;
+  };
+
   const handleSetupEntry = async () => {
     setIsNavigatingSetup(true);
     try {
       const response = await api.get("/setup/status");
-      navigate(response.data?.configured ? "/register" : "/setup");
+      if (!response.data?.configured) {
+        navigate("/setup");
+        return;
+      }
+
+      if (!scrollToDashboardSection()) {
+        navigate("/");
+      }
     } catch {
       navigate("/setup");
     } finally {

@@ -7,7 +7,7 @@ export enum DepartmentName {
   obstetricsAndGynecology = "Obstetrics and Gynecology",
   surgery = "Surgery",
   psychiatry = "Psychiatry",
-  earNoseAndThroat = "Ear, Nose, and Throat",
+  earNoseAndThroat = "ENT",
   anaesthesiology = "Anaesthesiology",
   radiology = "Radiology",
   ophthalmology = "Ophthalmology",

@@ -35,6 +35,7 @@ import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
 import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
+import { createBodyParsers } from "./utils/bodyParser";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
@@ -106,9 +107,10 @@ try {
 }
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
+const { json, urlencoded } = createBodyParsers();
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
-app.use(express.json()); // Middleware to parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Middleware to parse URL-encoded bodies
+app.use(json); // Middleware to parse JSON bodies
+app.use(urlencoded); // Middleware to parse URL-encoded bodies
 app.use(cookieParser()); // Middleware to parse cookies
 
 //log http requests to console

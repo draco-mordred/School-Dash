@@ -10,6 +10,7 @@ export interface IInstitution extends Document {
   academicCalendarType: string;
   timezone: string;
   logoUrl: string;
+  backgroundImageUrl: string;
   academicSession: mongoose.Types.ObjectId;
   semesters: mongoose.Types.ObjectId[];
   defaultDepartments: mongoose.Types.ObjectId[];
@@ -32,6 +33,7 @@ const InstitutionSchema = new Schema<IInstitution>(
     academicCalendarType: { type: String, required: [true, "Academic calendar type is required"] },
     timezone: { type: String, required: [true, "Timezone is required"] },
     logoUrl: { type: String, default: "" },
+    backgroundImageUrl: { type: String, default: "" },
     academicSession: {
       type: Schema.Types.ObjectId,
       ref: "AcademicSession",

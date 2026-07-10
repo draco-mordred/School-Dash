@@ -57,11 +57,34 @@ export default function StarryMedlogHero() {
 
   const focusedCard = useMemo(() => previews.find((preview) => preview.id === focusedPreview) ?? previews[1], [focusedPreview]);
 
+  const scrollToDashboardSection = () => {
+    const target = document.getElementById("role-aware");
+    if (!target) return false;
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const topbar = rootStyles.getPropertyValue("--topbar-height") || "56px";
+    const topbarPx = parseInt(topbar, 10) || 56;
+    const rect = target.getBoundingClientRect();
+    const nextTop = window.scrollY + rect.top - topbarPx - 12;
+
+    window.scrollTo({ top: nextTop, behavior: "smooth" });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    return true;
+  };
+
   const handleSetupEntry = async () => {
     setIsNavigatingSetup(true);
     try {
       const response = await api.get("/setup/status");
-      navigate(response.data?.configured ? "/register" : "/setup");
+      if (!response.data?.configured) {
+        navigate("/setup");
+        return;
+      }
+
+      if (!scrollToDashboardSection()) {
+        navigate("/");
+      }
     } catch {
       navigate("/setup");
     } finally {
@@ -153,11 +176,13 @@ export default function StarryMedlogHero() {
                     );
                   })}
                 </div>
-
+                  <br />
+                  <br />
+                  <br />
                 <div className="mt-4 flex items-center justify-between rounded-[1.2rem] border border-slate-200/80 bg-white/70 px-4 py-3 text-sm text-slate-600 shadow-sm dark:border-slate-800/80 dark:bg-slate-900/70 dark:text-slate-300">
                   <div className="flex items-center gap-2">
                     <BellRing className="h-4 w-4 text-[#6e56cf]" />
-                    {focusedCard.title} is now in focus.
+                    visit the {focusedCard.title}.
                   </div>
                   <button type="button" className="inline-flex items-center gap-2 font-semibold text-[#6e56cf]">
                     Explore <ArrowRight className="h-4 w-4" />

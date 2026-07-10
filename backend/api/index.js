@@ -121,7 +121,7 @@ var init_user = __esm({
       Medicine: "Medicine",
       Surgery: "Surgery",
       Psychiatry: "Psychiatry",
-      earNoseAndThroat: "Ear, Nose, and Throat",
+      earNoseAndThroat: "ENT" || "Otolaryngology" || "Otorhinolaryngology",
       Anaesthesiology: "Anaesthesiology",
       Radiology: "Radiology",
       Ophthalmology: "Ophthalmology",
@@ -1699,7 +1699,7 @@ var DepartmentName = /* @__PURE__ */ ((DepartmentName2) => {
   DepartmentName2["obstetricsAndGynecology"] = "Obstetrics and Gynecology";
   DepartmentName2["surgery"] = "Surgery";
   DepartmentName2["psychiatry"] = "Psychiatry";
-  DepartmentName2["earNoseAndThroat"] = "Ear, Nose, and Throat";
+  DepartmentName2["earNoseAndThroat"] = "ENT" || "Otolaryngology" || "Otorhinolaryngology";
   DepartmentName2["anaesthesiology"] = "Anaesthesiology";
   DepartmentName2["radiology"] = "Radiology";
   DepartmentName2["ophthalmology"] = "Ophthalmology";
@@ -1763,7 +1763,7 @@ var DEPARTMENTS_METADATA = {
     code: "PSY" /* psychiatry */,
     departmentID: `${"PSY" /* psychiatry */}MBBS001`
   },
-  ["Ear, Nose, and Throat" /* earNoseAndThroat */]: {
+  ["ENT" || "Otolaryngology" || "Otorhinolaryngology" /* earNoseAndThroat */]: {
     name: "Department of ENT",
     code: "ORL" /* earNoseAndThroat */,
     departmentID: `${"ORL" /* earNoseAndThroat */}MBBS001`
@@ -1953,9 +1953,9 @@ var DEPARTMENT_UNITS = {
       history: []
     }
   },
-  ["Ear, Nose, and Throat" /* earNoseAndThroat */]: {
-    id: DEPARTMENTS_METADATA["Ear, Nose, and Throat" /* earNoseAndThroat */].code,
-    name: DEPARTMENTS_METADATA["Ear, Nose, and Throat" /* earNoseAndThroat */].name,
+  ["ENT" || "Otolaryngology" || "Otorhinolaryngology" /* earNoseAndThroat */]: {
+    id: DEPARTMENTS_METADATA["ENT" || "Otolaryngology" || "Otorhinolaryngology" /* earNoseAndThroat */].code,
+    name: DEPARTMENTS_METADATA["ENT" || "Otolaryngology" || "Otorhinolaryngology" /* earNoseAndThroat */].name,
     postingType: "SPECIALTY",
     rotationDurationWeeks: 2,
     currentUnit: [],

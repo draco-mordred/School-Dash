@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router-dom";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
@@ -6,6 +7,10 @@ import About from "@/pages/About";
 import NotFound from "@/pages/NotFound";
 import PrivateRoutes from "@/pages/routes/PrivateRoutes";
 import Dashboard from "@/pages/Dashboard";
+const StudentPortalLogin = lazy(() => import("@/pages/auth/StudentPortalLogin"));
+const StaffPortalLogin = lazy(() => import("@/pages/auth/StaffPortalLogin"));
+const AdminPortalLogin = lazy(() => import("@/pages/auth/AdminPortalLogin"));
+import InstitutionLandingPage from "@/pages/auth/InstitutionLandingPage";
 import ActivitiesLog from "@/pages/ActivitiesLog";
 import AcademicYear from "@/pages/settings/academic-year";
 import RolesPage from "@/pages/settings/Roles";
@@ -78,6 +83,10 @@ export const router = createBrowserRouter([
       { path: "register", element: <Register /> },
       { path: "about", element: <About /> },
       { path: "setup", element: <SetupRouteGate><InstitutionSetupPage /></SetupRouteGate> },
+      { path: "institution", element: <InstitutionLandingPage /> },
+      { path: "student", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading student portal…</div>}><StudentPortalLogin /></Suspense> },
+      { path: "staff", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading staff portal…</div>}><StaffPortalLogin /></Suspense> },
+      { path: "admin", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading admin portal…</div>}><AdminPortalLogin /></Suspense> },
       // protected routes would go here
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported

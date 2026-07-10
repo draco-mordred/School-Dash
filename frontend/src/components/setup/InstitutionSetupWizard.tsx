@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 import * as XLSX from "xlsx";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +17,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useLanguage } from "@/hooks/useLanguage";
+import type { Language } from "@/lib/translations";
 
 type StaffRole = "teacher" | "unitconsultant" | "unitresident";
 
@@ -59,6 +62,8 @@ type SetupFormState = {
     city: string;
     academicCalendarType: string;
     timezone: string;
+    logoUrl: string;
+    backgroundImageUrl: string;
     facultiesInput: string;
   };
   academicStructure: {
@@ -71,6 +76,9 @@ type SetupFormState = {
     lectureAttendance: boolean;
     clinicalAttendance: boolean;
     seminarAttendance: boolean;
+    minimumAttendancePercentage: number;
+    gracePeriodMinutes: number;
+    attendanceWindowMinutes: number;
   };
   assessmentConfiguration: {
     mcq: boolean;
@@ -79,6 +87,8 @@ type SetupFormState = {
     longCase: boolean;
     shortCase: boolean;
     continuousAssessment: boolean;
+    passMark: number;
+    gradingScale: string[];
   };
   brandingSettings: {
     primaryColor: string;
@@ -96,6 +106,7 @@ type SetupFormState = {
   };
   academicDepartmentsInput: string;
   clinicalDepartmentsInput: string;
+  clinicalDepartmentUnits: Record<string, string[]>;
   staffUsers: StaffDraft[];
   students: StudentDraft[];
   studentBulkText: string;
@@ -111,6 +122,8 @@ const initialState: SetupFormState = {
     city: "",
     academicCalendarType: "",
     timezone: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
     facultiesInput: "",
   },
   academicStructure: {
@@ -123,6 +136,9 @@ const initialState: SetupFormState = {
     lectureAttendance: true,
     clinicalAttendance: true,
     seminarAttendance: true,
+    minimumAttendancePercentage: 75,
+    gracePeriodMinutes: 15,
+    attendanceWindowMinutes: 120,
   },
   assessmentConfiguration: {
     mcq: true,
@@ -131,6 +147,8 @@ const initialState: SetupFormState = {
     longCase: true,
     shortCase: true,
     continuousAssessment: true,
+    passMark: 50,
+    gradingScale: ["A", "B", "C", "D", "F"],
   },
   brandingSettings: {
     primaryColor: "#2563eb",
@@ -148,6 +166,7 @@ const initialState: SetupFormState = {
   },
   academicDepartmentsInput: "",
   clinicalDepartmentsInput: "",
+  clinicalDepartmentUnits: {},
   staffUsers: [
     {
       firstName: "",
@@ -176,6 +195,8 @@ const initialState: SetupFormState = {
 const steps = [
   "Institution",
   "Academic Setup",
+  "Attendance & Assessment",
+  "Branding & Application",
   "Staff & Departments",
   "Students",
   "Review",
@@ -187,7 +208,7 @@ const departmentOptions = [
   "Obstetrics and Gynecology",
   "Surgery",
   "Psychiatry",
-  "Ear, Nose, and Throat",
+  "ENT",
   "Anaesthesiology",
   "Radiology",
   "Ophthalmology",
@@ -227,8 +248,35 @@ const departmentProgramOptions = [
   "Biochemistry",
 ];
 
+const departmentUnitTemplates: Record<string, string[]> = {
+  Medicine: ["Internal Medicine", "Family Medicine", "Emergency Medicine", "Cardiology"],
+  Pediatrics: ["Neonatal Unit", "Pediatric ICU", "Pediatric Emergency", "Child Wellness"],
+  "Obstetrics and Gynecology": ["Labor Ward", "Antenatal Clinic", "Postnatal Care", "Gynecology Clinic"],
+  Surgery: ["General Surgery", "Orthopedics", "Neurosurgery", "Trauma and Acute Care"],
+  Psychiatry: ["Adult Psychiatry", "Child & Adolescent Psychiatry", "Consultation-Liaison", "Psychotherapy Unit"],
+  ENT: ["Outpatient ENT", "Audiology", "Head and Neck Clinic"],
+  Anaesthesiology: ["Pre-op Assessment", "Post-op Recovery", "Pain Management"],
+  Radiology: ["X-ray", "Ultrasound", "CT Scan", "MRI"],
+  Ophthalmology: ["Vision Screening", "Ophthalmic Surgery", "Optometry"],
+  Dermatology: ["Skin Clinic", "Dermatosurgery", "Patch Testing"],
+  "Community Medicine": ["Health Promotion", "Epidemiology", "Outreach Clinic"],
+  Hematology: ["Blood Bank", "Coagulation Clinic", "Transfusion Service"],
+  Microbiology: ["Diagnostic Microbiology", "Infection Control", "Culture Lab"],
+  Pharmacy: ["Inpatient Pharmacy", "Outpatient Pharmacy", "Clinical Pharmacists"],
+  "Medical Laboratory Science": ["Clinical Chemistry", "Haematology", "Microbiology Lab"],
+  Physiotherapy: ["Rehabilitation", "Orthopaedic Therapy", "Sports Therapy"],
+  "Public Health": ["Community Outreach", "Health Education", "Disease Surveillance"],
+  Anatomy: ["Dissection Lab", "Histology", "Anatomy Teaching Suite"],
+  Physiology: ["Exercise Physiology", "Cardiorespiratory Lab", "Neurophysiology"],
+  Biochemistry: ["Clinical Biochemistry", "Toxicology", "Molecular Diagnostics"],
+};
+
+// Confetti pieces generated on completion screen
+
 export default function InstitutionSetupWizard() {
   const navigate = useNavigate();
+  const [language, setLanguage] = useState<Language>("en");
+  const { t } = useLanguage(language);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -241,9 +289,14 @@ export default function InstitutionSetupWizard() {
   const [manualInstitutionDepartmentName, setManualInstitutionDepartmentName] = useState("");
   const [institutionSearchSuggestions, setInstitutionSearchSuggestions] = useState<InstitutionSearchSuggestion[]>([]);
   const [isSearchingInstitution, setIsSearchingInstitution] = useState(false);
+  const [clinicalUnitInput, setClinicalUnitInput] = useState("");
+  const [unitSelection, setUnitSelection] = useState("");
+  const [selectedClinicalDepartmentTab, setSelectedClinicalDepartmentTab] = useState("");
   const studentFileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedStudentClass, setSelectedStudentClass] = useState("");
   const [showInstitutionSuggestions, setShowInstitutionSuggestions] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [stepAnimationClass, setStepAnimationClass] = useState("translate-x-0 opacity-100");
 
   useEffect(() => {
     const query = form.institutionProfile.name.trim();
@@ -321,6 +374,8 @@ export default function InstitutionSetupWizard() {
       .map((entry) => entry.trim())
       .filter(Boolean), [form.institutionProfile.facultiesInput]);
 
+
+
   const progressSections = useMemo(() => {
     const institutionProgress = Math.round(([
       form.institutionProfile.name,
@@ -346,10 +401,25 @@ export default function InstitutionSetupWizard() {
       form.academicStructure.classes.some((classItem) => classItem.name.trim() && classItem.capacity.trim()) ? "filled" : "",
     ].filter((value) => value.trim()).length / 4) * 100);
 
+    const attendanceProgress = Math.round(([
+      form.attendanceConfiguration.lectureAttendance ? "filled" : "",
+      form.attendanceConfiguration.clinicalAttendance ? "filled" : "",
+      form.attendanceConfiguration.seminarAttendance ? "filled" : "",
+      form.assessmentConfiguration.passMark > 0 ? "filled" : "",
+    ].filter((value) => value.trim()).length / 4) * 100);
+
+    const brandingProgress = Math.round(([
+      form.brandingSettings.primaryColor,
+      form.brandingSettings.accentColor,
+      form.applicationSettings.defaultLanguage,
+      form.applicationSettings.timezone,
+    ].filter((value) => value.trim()).length / 4) * 100);
+
     const departmentsProgress = Math.round(([
       clinicalDepartments.length > 0 ? "filled" : "",
+      Object.values(form.clinicalDepartmentUnits).flat().length > 0 ? "filled" : "",
       form.staffUsers.some((person) => person.firstName.trim() && person.lastName.trim() && person.email.trim() && person.password.trim() && person.idNumber.trim() && person.departmentName.trim()) ? "filled" : "",
-    ].filter((value) => value.trim()).length / 2) * 100);
+    ].filter((value) => value.trim()).length / 3) * 100);
 
     const studentsProgress = Math.round(([
       form.studentBulkText.trim() ? "filled" : "",
@@ -358,31 +428,99 @@ export default function InstitutionSetupWizard() {
 
     return [
       {
-        title: "Institution profile & settings",
-        description: "Institution details, admin account, and core setup values",
+        index: 0,
+        title: "Institution",
+        description: "Institution details, admin account, faculties, and programmes",
         progress: institutionProgress,
         complete: institutionProgress === 100,
       },
       {
-        title: "Academic year, session, semesters & classes",
-        description: "Academic calendar details and class setup",
+        index: 1,
+        title: "Academic Setup",
+        description: "Academic session, semesters and classes",
         progress: academicProgress,
         complete: academicProgress === 100,
       },
       {
-        title: "Departments & staff",
-        description: "Departments added and staff accounts prepared",
+        index: 2,
+        title: "Attendance & Assessment",
+        description: "Attendance policy and grading configuration",
+        progress: attendanceProgress,
+        complete: attendanceProgress === 100,
+      },
+      {
+        index: 3,
+        title: "Branding & Application",
+        description: "Branding colors and app-level preferences",
+        progress: brandingProgress,
+        complete: brandingProgress === 100,
+      },
+      {
+        index: 4,
+        title: "Staff & Departments",
+        description: "Clinical departments, units, and staff accounts",
         progress: departmentsProgress,
         complete: departmentsProgress === 100,
       },
       {
+        index: 5,
         title: "Students",
-        description: "Student roster or bulk student entries",
+        description: "Student roster or bulk upload records",
         progress: studentsProgress,
         complete: studentsProgress === 100,
       },
     ];
-  }, [academicDepartments, clinicalDepartments, faculties, form.academicStructure.academicSession, form.academicStructure.academicYear, form.academicStructure.classes, form.academicStructure.semesters.length, form.administrator.email, form.administrator.firstName, form.administrator.lastName, form.administrator.password, form.institutionProfile.academicCalendarType, form.institutionProfile.city, form.institutionProfile.country, form.institutionProfile.name, form.institutionProfile.shortName, form.institutionProfile.state, form.institutionProfile.timezone, form.institutionProfile.type, form.staffUsers, form.studentBulkText, form.students]);
+  }, [academicDepartments, clinicalDepartments, faculties, form.academicStructure.academicSession, form.academicStructure.academicYear, form.academicStructure.classes, form.academicStructure.semesters.length, form.attendanceConfiguration.clinicalAttendance, form.attendanceConfiguration.lectureAttendance, form.attendanceConfiguration.seminarAttendance, form.assessmentConfiguration.passMark, form.brandingSettings.accentColor, form.brandingSettings.primaryColor, form.applicationSettings.defaultLanguage, form.applicationSettings.timezone, form.administrator.email, form.administrator.firstName, form.administrator.lastName, form.administrator.password, form.institutionProfile.academicCalendarType, form.institutionProfile.city, form.institutionProfile.country, form.institutionProfile.name, form.institutionProfile.shortName, form.institutionProfile.state, form.institutionProfile.timezone, form.institutionProfile.type, form.staffUsers, form.clinicalDepartmentUnits, form.studentBulkText, form.students]);
+
+  const currentStepSummary = useMemo(() => {
+    switch (step) {
+      case 0:
+        return [
+          `Institution: ${form.institutionProfile.name || "Not set"}`,
+          `Admin email: ${form.administrator.email || "Pending"}`,
+          `Faculties: ${faculties.length}`,
+          `Programmes: ${academicDepartments.length}`,
+        ];
+      case 1:
+        return [
+          `Academic session: ${form.academicStructure.academicSession || "Pending"}`,
+          `Academic year: ${form.academicStructure.academicYear || "Pending"}`,
+          `Semesters: ${form.academicStructure.semesters.length}`,
+          `Classes: ${form.academicStructure.classes.filter((item) => item.name.trim()).length}`,
+        ];
+      case 2:
+        return [
+          `Lecture attendance: ${form.attendanceConfiguration.lectureAttendance ? "enabled" : "disabled"}`,
+          `Clinical attendance: ${form.attendanceConfiguration.clinicalAttendance ? "enabled" : "disabled"}`,
+          `Seminar attendance: ${form.attendanceConfiguration.seminarAttendance ? "enabled" : "disabled"}`,
+          `Pass mark: ${form.assessmentConfiguration.passMark}%`,
+        ];
+      case 3:
+        return [
+          `Primary color: ${form.brandingSettings.primaryColor}`,
+          `Accent color: ${form.brandingSettings.accentColor}`,
+          `Language: ${form.applicationSettings.defaultLanguage}`,
+          `Timezone: ${form.applicationSettings.timezone || "Pending"}`,
+        ];
+      case 4:
+        return [
+          `Clinical departments: ${clinicalDepartments.length}`,
+          `Units defined: ${Object.values(form.clinicalDepartmentUnits).flat().length}`,
+          `Staff entries: ${form.staffUsers.filter((person) => person.email.trim()).length}`,
+        ];
+      case 5:
+        return [
+          `Students ready: ${form.students.filter((person) => person.email.trim()).length}`,
+          `Bulk upload: ${form.studentBulkText.trim() ? "Ready" : "None"}`,
+          `Suggested class: ${selectedStudentClass || "Not selected"}`,
+        ];
+      default:
+        return [
+          "Review all entries before submission.",
+          "Confirm departments, units, staff, students, and institution settings.",
+        ];
+    }
+  }, [step, form, faculties.length, academicDepartments.length, clinicalDepartments.length, selectedStudentClass]);
 
   const updateInstitutionField = (field: keyof SetupFormState["institutionProfile"], value: string) => {
     setForm((prev) => ({
@@ -392,6 +530,55 @@ export default function InstitutionSetupWizard() {
         [field]: value,
       },
     }));
+  };
+
+  const handleInstitutionImageSelect = async (field: "logoUrl" | "backgroundImageUrl", event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image size must be less than 5MB.");
+      return;
+    }
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const image = new Image();
+          image.onload = () => {
+            const canvas = document.createElement("canvas");
+            const maxDimension = 1400;
+            const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+
+            const context = canvas.getContext("2d");
+            if (!context) {
+              reject(new Error("Unable to prepare image preview."));
+              return;
+            }
+
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+            resolve(canvas.toDataURL(outputType, 0.8));
+          };
+          image.onerror = () => reject(new Error("Unable to read image file."));
+          image.src = typeof reader.result === "string" ? reader.result : "";
+        };
+        reader.onerror = () => reject(new Error("Unable to read image file."));
+        reader.readAsDataURL(file);
+      });
+
+      updateInstitutionField(field, dataUrl);
+    } catch {
+      toast.error("We could not process that image. Please try another file.");
+    }
   };
 
   const updateAcademicField = (field: keyof SetupFormState["academicStructure"], value: string | string[]) => {
@@ -467,6 +654,41 @@ export default function InstitutionSetupWizard() {
 
     const nextDepartments = Array.from(new Set([...clinicalDepartments, trimmedName]));
     setForm((prev) => ({ ...prev, clinicalDepartmentsInput: nextDepartments.join(", ") }));
+    setSelectedClinicalDepartmentTab(trimmedName);
+  };
+
+  const addClinicalUnitToDepartment = (department: string, unit: string) => {
+    const trimmedUnit = unit.trim();
+    if (!department || !trimmedUnit) return;
+
+    setForm((prev) => {
+      const existingUnits = prev.clinicalDepartmentUnits[department] ?? [];
+      const nextUnits = Array.from(new Set([...existingUnits, trimmedUnit]));
+
+      return {
+        ...prev,
+        clinicalDepartmentUnits: {
+          ...prev.clinicalDepartmentUnits,
+          [department]: nextUnits,
+        },
+      };
+    });
+    setClinicalUnitInput("");
+  };
+
+  const removeClinicalUnitFromDepartment = (department: string, unit: string) => {
+    setForm((prev) => {
+      const existingUnits = prev.clinicalDepartmentUnits[department] ?? [];
+      const nextUnits = existingUnits.filter((item) => item !== unit);
+
+      return {
+        ...prev,
+        clinicalDepartmentUnits: {
+          ...prev.clinicalDepartmentUnits,
+          [department]: nextUnits,
+        },
+      };
+    });
   };
 
   const updateStaff = (index: number, field: keyof StaffDraft, value: string) => {
@@ -535,7 +757,7 @@ export default function InstitutionSetupWizard() {
         firstName: firstName?.trim() || "",
         lastName: lastName?.trim() || "",
         email: email?.trim() || "",
-        password: password?.trim() || "Student@123",
+        password: password?.trim() || "password",
         className: className?.trim() || selectedStudentClass || form.academicStructure.classes[0]?.name || "500 Level",
         idNumber: idNumber?.trim() || "",
       } as StudentDraft;
@@ -563,7 +785,7 @@ export default function InstitutionSetupWizard() {
           const email = normalizedRow[2] || "";
           const className = normalizedRow[3] || "";
           const idNumber = normalizedRow[4] || "";
-          const password = normalizedRow[5] || "Student@123";
+          const password = normalizedRow[5] || "password";
 
           return {
             firstName,
@@ -674,7 +896,7 @@ export default function InstitutionSetupWizard() {
         },
         clinicalStructure: {
           defaultDepartments: clinicalDepartments,
-          defaultUnits: [],
+          defaultUnits: Object.entries(form.clinicalDepartmentUnits).map(([department, units]) => ({ department, units })),
           defaultFaculties: faculties,
         },
         attendanceConfiguration: form.attendanceConfiguration,
@@ -688,8 +910,8 @@ export default function InstitutionSetupWizard() {
 
       const response = await api.post("/setup", payload);
       if (response.status >= 200 && response.status < 300) {
-        setStatus("Setup completed successfully. Redirecting to the application home page...");
-        setTimeout(() => navigate("/", { replace: true }), 1200);
+        setStatus(null);
+        setShowCompletion(true);
       }
     } catch (error: unknown) {
       console.error(error);
@@ -702,26 +924,142 @@ export default function InstitutionSetupWizard() {
     }
   };
 
-  const nextStep = () => setStep((prev) => Math.min(prev + 1, steps.length - 1));
-  const prevStep = () => setStep((prev) => Math.max(prev - 1, 0));
+  const nextStep = () => {
+    setStepAnimationClass("translate-x-full opacity-0");
+    setStep((prev) => Math.min(prev + 1, steps.length - 1));
+    window.requestAnimationFrame(() => setStepAnimationClass("translate-x-0 opacity-100"));
+  };
+
+  const prevStep = () => {
+    setStepAnimationClass("-translate-x-full opacity-0");
+    setStep((prev) => Math.max(prev - 1, 0));
+    window.requestAnimationFrame(() => setStepAnimationClass("translate-x-0 opacity-100"));
+  };
+
+  // Calculate progress percentage
+  const progressPercentage = ((step + 1) / steps.length) * 100;
+
+  // Generate confetti data on mount
+  const confettiPieces = useMemo(() => {
+    return [...Array(50)].map((_, i) => ({
+      left: (i * 2) % 100,
+      duration: 2 + (i % 2),
+      delay: (i % 5) * 0.1,
+      emoji: i % 2 === 0 ? "🎉" : "✨",
+    }));
+  }, []);
 
   return (
     <div className="min-h-screen bg-background px-4 py-10 text-foreground">
+      {showCompletion && (
+        <div className="mx-auto flex max-w-2xl flex-col items-center justify-center gap-8 py-20">
+          {/* Confetti animation */}
+          <div className="fixed inset-0 pointer-events-none overflow-hidden">
+            {confettiPieces.map((piece, i) => (
+              <div
+                key={i}
+                className="absolute animate-bounce"
+                style={{
+                  left: `${piece.left}%`,
+                  top: "-10px",
+                  animation: `fall ${piece.duration}s linear infinite`,
+                  animationDelay: `${piece.delay}s`,
+                }}
+              >
+                {piece.emoji}
+              </div>
+            ))}
+          </div>
+          
+          <style>{`
+            @keyframes fall {
+              to {
+                transform: translateY(100vh) rotate(360deg);
+                opacity: 0;
+              }
+            }
+          `}</style>
+
+          <div className="relative z-10 text-center">
+            <div className="mb-6 text-6xl">🎉</div>
+            <h1 className="text-4xl font-bold mb-2">Institution Setup Complete!</h1>
+            <p className="text-lg text-muted-foreground mb-8">
+              Welcome, {form.institutionProfile.name}! Your institution is all set up and ready to go.
+            </p>
+            
+            <div className="rounded-lg border border-border/70 bg-muted/30 p-6 mb-8 text-left">
+              <h2 className="font-semibold mb-4">What's next?</h2>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li>✓ Institution profile configured</li>
+                <li>✓ Academic structure set up</li>
+                <li>✓ Attendance and assessment policies configured</li>
+                <li>✓ Branding customized</li>
+                <li>✓ Staff and departments created</li>
+                <li>✓ Student roster imported</li>
+              </ul>
+            </div>
+
+            <div className="flex gap-4">
+              <Button
+                onClick={() => navigate("/", { replace: true })}
+                className="flex-1"
+              >
+                Go to Home
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/admin", { replace: true })}
+                className="flex-1"
+              >
+                Go to Admin Login
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!showCompletion && (
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <div className="flex flex-col gap-3 rounded-3xl border border-border/70 bg-card/70 p-6 shadow-sm backdrop-blur">
+        <div className="flex w-full flex-col gap-3 rounded-3xl border border-border/70 bg-card/70 p-6 shadow-sm backdrop-blur">
           <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <Sparkles className="h-4 w-4" />
             Initial system setup wizard
           </div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex-1">
               <h1 className="text-3xl font-semibold">Configure your institution</h1>
               <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
                 Create the institution profile, academic calendar, departments, staff, classes, student rosters, and academic clocks from a single guided flow.
               </p>
             </div>
-            <div className="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground">
-              Step {step + 1} of {steps.length}: {steps[step]}
+            <div className="flex flex-wrap items-center gap-3 lg:ml-auto">
+              <div className="rounded-full border border-border px-3 py-1 text-sm text-muted-foreground">
+                Step {step + 1} of {steps.length}: {steps[step]}
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-background/70 px-3 py-2 shadow-sm">
+                <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-muted/70">
+                  {form.institutionProfile.logoUrl ? (
+                    <img src={form.institutionProfile.logoUrl} alt="Institution logo preview" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">Logo</span>
+                  )}
+                </div>
+                <div className="min-w-[180px]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Preview</p>
+                  <p className="truncate text-sm font-semibold">
+                    {form.institutionProfile.name || "Your institution"}
+                  </p>
+                  <div className="mt-1 h-2.5 overflow-hidden rounded-full bg-muted">
+                    <div 
+                      className="h-full rounded-full transition-all duration-500 ease-out" 
+                      style={{ 
+                        width: `${progressPercentage}%`, 
+                        background: `linear-gradient(90deg, ${form.brandingSettings.primaryColor}, ${form.brandingSettings.accentColor})`
+                      }} 
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -729,23 +1067,26 @@ export default function InstitutionSetupWizard() {
         <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <Card className="border-border/70 bg-card/80">
             <CardHeader>
-              <CardTitle>{steps[step]}</CardTitle>
+              <CardTitle>{[t("step.0"), t("step.1"), t("step.2"), t("step.3"), t("step.4"), t("step.5"), t("step.6")][step]}</CardTitle>
               <CardDescription>
-                {step === 0 && "Set up the institution identity and basic schedule settings."}
-                {step === 1 && "Define the academic session, semester structure, and class levels."}
-                {step === 2 && "Create clinical departments and add teaching staff who will oversee classes."}
-                {step === 3 && "Import or add the student roster for each class."}
-                {step === 4 && "Review everything before generating the initial setup."}
+                {step === 0 && t("step.0.desc")}
+                {step === 1 && t("step.1.desc")}
+                {step === 2 && t("step.2.desc")}
+                {step === 3 && t("step.3.desc")}
+                {step === 4 && t("step.4.desc")}
+                {step === 5 && t("step.5.desc")}
+                {step === 6 && t("step.6.desc")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <div className={`overflow-hidden transition-all duration-500 ease-out ${stepAnimationClass}`}>
               {step === 0 && (
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2 md:col-span-2">
-                    <Label>Institution name</Label>
+                    <Label>{t("label.institutionName")}</Label>
                     <div className="relative">
                       <Input
-                        placeholder="Start typing an institution name"
+                        placeholder={t("placeholder.institutionName")}
                         value={form.institutionProfile.name}
                         onChange={(event) => {
                           updateInstitutionField("name", event.target.value);
@@ -788,35 +1129,35 @@ export default function InstitutionSetupWizard() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Short name</Label>
-                    <Input placeholder="e.g. SOM" value={form.institutionProfile.shortName} onChange={(event) => updateInstitutionField("shortName", event.target.value)} />
+                    <Label>{t("label.shortName")}</Label>
+                    <Input placeholder={t("placeholder.shortName")} value={form.institutionProfile.shortName} onChange={(event) => updateInstitutionField("shortName", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Type</Label>
-                    <Input placeholder="e.g. University" value={form.institutionProfile.type} onChange={(event) => updateInstitutionField("type", event.target.value)} />
+                    <Label>{t("label.type")}</Label>
+                    <Input placeholder={t("placeholder.type")} value={form.institutionProfile.type} onChange={(event) => updateInstitutionField("type", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Country</Label>
-                    <Input placeholder="Enter country" value={form.institutionProfile.country} onChange={(event) => updateInstitutionField("country", event.target.value)} />
+                    <Label>{t("label.country")}</Label>
+                    <Input placeholder={t("placeholder.country")} value={form.institutionProfile.country} onChange={(event) => updateInstitutionField("country", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>State</Label>
-                    <Input placeholder="Enter state" value={form.institutionProfile.state} onChange={(event) => updateInstitutionField("state", event.target.value)} />
+                    <Label>{t("label.state")}</Label>
+                    <Input placeholder={t("placeholder.state")} value={form.institutionProfile.state} onChange={(event) => updateInstitutionField("state", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>City</Label>
-                    <Input placeholder="Enter city" value={form.institutionProfile.city} onChange={(event) => updateInstitutionField("city", event.target.value)} />
+                    <Label>{t("label.city")}</Label>
+                    <Input placeholder={t("placeholder.city")} value={form.institutionProfile.city} onChange={(event) => updateInstitutionField("city", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Academic calendar type</Label>
-                    <Input placeholder="e.g. semester" value={form.institutionProfile.academicCalendarType} onChange={(event) => updateInstitutionField("academicCalendarType", event.target.value)} />
+                    <Label>{t("label.academicCalendar")}</Label>
+                    <Input placeholder={t("placeholder.academicCalendar")} value={form.institutionProfile.academicCalendarType} onChange={(event) => updateInstitutionField("academicCalendarType", event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <Label>Timezone</Label>
-                    <Input placeholder="e.g. Africa/Lagos" value={form.institutionProfile.timezone} onChange={(event) => updateInstitutionField("timezone", event.target.value)} />
+                    <Label>{t("label.timezone")}</Label>
+                    <Input placeholder={t("placeholder.timezone")} value={form.institutionProfile.timezone} onChange={(event) => updateInstitutionField("timezone", event.target.value)} />
                   </div>
                   <div className="space-y-2 md:col-span-2">
-                    <Label>Faculties</Label>
+                    <Label>{t("label.faculties")}</Label>
                     <div className="grid gap-2 md:grid-cols-[1fr_auto]">
                       <Select
                         value={facultySelection}
@@ -988,6 +1329,424 @@ export default function InstitutionSetupWizard() {
 
               {step === 2 && (
                 <div className="space-y-5">
+                  <div className="rounded-lg border border-border/70 p-4 bg-muted/30">
+                    <h3 className="font-semibold mb-4">{t("section.attendanceSettings")}</h3>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="lectureAttendance"
+                          checked={form.attendanceConfiguration.lectureAttendance}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              lectureAttendance: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="lectureAttendance" className="font-normal cursor-pointer">{t("attendance.lectureAttendance")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="clinicalAttendance"
+                          checked={form.attendanceConfiguration.clinicalAttendance}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              clinicalAttendance: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="clinicalAttendance" className="font-normal cursor-pointer">{t("attendance.clinicalAttendance")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="seminarAttendance"
+                          checked={form.attendanceConfiguration.seminarAttendance}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              seminarAttendance: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="seminarAttendance" className="font-normal cursor-pointer">{t("attendance.seminarAttendance")}</Label>
+                      </div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-3 mt-4">
+                      <div className="space-y-2">
+                        <Label>{t("attendance.minPercentage")}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              minimumAttendancePercentage: Number(e.target.value)
+                            }
+                          }))}
+                          placeholder="75"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{t("attendance.gracePeriod")}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              gracePeriodMinutes: Number(e.target.value)
+                            }
+                          }))}
+                          placeholder="15"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{t("attendance.window")}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            attendanceConfiguration: {
+                              ...prev.attendanceConfiguration,
+                              attendanceWindowMinutes: Number(e.target.value)
+                            }
+                          }))}
+                          placeholder="120"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 p-4 bg-muted/30">
+                    <h3 className="font-semibold mb-4">{t("section.assessmentSettings")}</h3>
+                    <div className="grid gap-4 md:grid-cols-3 mb-4">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="mcq"
+                          checked={form.assessmentConfiguration.mcq}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              mcq: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="mcq" className="font-normal cursor-pointer">{t("assessment.mcq")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="essay"
+                          checked={form.assessmentConfiguration.essay}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              essay: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="essay" className="font-normal cursor-pointer">{t("assessment.essay")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="osce"
+                          checked={form.assessmentConfiguration.osce}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              osce: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="osce" className="font-normal cursor-pointer">{t("assessment.osce")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="longCase"
+                          checked={form.assessmentConfiguration.longCase}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              longCase: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="longCase" className="font-normal cursor-pointer">{t("assessment.longCase")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="shortCase"
+                          checked={form.assessmentConfiguration.shortCase}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              shortCase: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="shortCase" className="font-normal cursor-pointer">{t("assessment.shortCase")}</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id="continuousAssessment"
+                          checked={form.assessmentConfiguration.continuousAssessment}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              continuousAssessment: e.target.checked
+                            }
+                          }))}
+                          className="rounded"
+                        />
+                        <Label htmlFor="continuousAssessment" className="font-normal cursor-pointer">{t("assessment.continuous")}</Label>
+                      </div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{t("assessment.passMark")}</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              passMark: Number(e.target.value)
+                            }
+                          }))}
+                          placeholder="50"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{t("assessment.gradingScale")}</Label>
+                        <Input
+                          placeholder="e.g. A, B, C, D, F"
+                          value={form.assessmentConfiguration.gradingScale?.join(", ") || ""}
+                          onChange={(e) => setForm(prev => ({
+                            ...prev,
+                            assessmentConfiguration: {
+                              ...prev.assessmentConfiguration,
+                              gradingScale: e.target.value.split(",").map(g => g.trim())
+                            }
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="space-y-5">
+                  <div className="rounded-lg border border-border/70 p-4 bg-muted/30">
+                    <h3 className="font-semibold mb-4">{t("section.brandingSettings")}</h3>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{t("label.primaryColor")}</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            type="color"
+                            value={form.brandingSettings.primaryColor}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              brandingSettings: {
+                                ...prev.brandingSettings,
+                                primaryColor: e.target.value
+                              }
+                            }))}
+                            className="h-10 w-20"
+                          />
+                          <Input
+                            type="text"
+                            value={form.brandingSettings.primaryColor}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              brandingSettings: {
+                                ...prev.brandingSettings,
+                                primaryColor: e.target.value
+                              }
+                            }))}
+                            placeholder="#000000"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{t("label.accentColor")}</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            type="color"
+                            value={form.brandingSettings.accentColor}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              brandingSettings: {
+                                ...prev.brandingSettings,
+                                accentColor: e.target.value
+                              }
+                            }))}
+                            className="h-10 w-20"
+                          />
+                          <Input
+                            type="text"
+                            value={form.brandingSettings.accentColor}
+                            onChange={(e) => setForm(prev => ({
+                              ...prev,
+                              brandingSettings: {
+                                ...prev.brandingSettings,
+                                accentColor: e.target.value
+                              }
+                            }))}
+                            placeholder="#000000"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 p-3 rounded-lg border border-border/70 bg-background">
+                      <p className="text-xs text-muted-foreground mb-2">{t("desc.preview")}</p>
+                      <div className="flex gap-2">
+                        <div 
+                          className="h-10 w-20 rounded-lg border border-border/70" 
+                          style={{backgroundColor: form.brandingSettings.primaryColor}}
+                        />
+                        <div 
+                          className="h-10 w-20 rounded-lg border border-border/70" 
+                          style={{backgroundColor: form.brandingSettings.accentColor}}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 p-4 bg-muted/30">
+                    <h3 className="font-semibold mb-4">{t("section.applicationSettings")}</h3>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>{t("label.languages")}</Label>
+                        <Select
+                          value={form.applicationSettings.defaultLanguage}
+                          onValueChange={(value) => {
+                            setForm(prev => ({
+                              ...prev,
+                              applicationSettings: {
+                                ...prev.applicationSettings,
+                                defaultLanguage: value
+                              }
+                            }));
+                            setLanguage(value as Language);
+                          }}
+                        >
+                          <SelectTrigger className="h-10 w-full rounded-xl border border-border/70 bg-card/70 px-3 py-2 text-sm shadow-sm backdrop-blur-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <SelectValue placeholder="Select language" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl border border-border/70 bg-card/80 p-1 shadow-lg backdrop-blur-xl">
+                            <SelectItem value="en" className="rounded-lg">English</SelectItem>
+                            <SelectItem value="fr" className="rounded-lg">Français</SelectItem>
+                            <SelectItem value="es" className="rounded-lg">Español</SelectItem>
+                            <SelectItem value="yo" className="rounded-lg">Yorùbá</SelectItem>
+                            <SelectItem value="ha" className="rounded-lg">Hausa</SelectItem>
+                            <SelectItem value="ig" className="rounded-lg">Igbo</SelectItem>
+                            <SelectItem value="de" className="rounded-lg">Deutsch</SelectItem>
+                            <SelectItem value="ar" className="rounded-lg">العربية</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Timezone</Label>
+                        <Select
+                          value={form.applicationSettings.timezone}
+                          onValueChange={(value) => setForm(prev => ({
+                            ...prev,
+                            applicationSettings: {
+                              ...prev.applicationSettings,
+                              timezone: value
+                            }
+                          }))}
+                        >
+                          <SelectTrigger className="h-10 w-full rounded-xl border border-border/70 bg-card/70 px-3 py-2 text-sm shadow-sm backdrop-blur-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
+                            <SelectValue placeholder="Select timezone" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl border border-border/70 bg-card/80 p-1 shadow-lg backdrop-blur-xl">
+                            <SelectItem value="UTC" className="rounded-lg">UTC</SelectItem>
+                            <SelectItem value="GMT" className="rounded-lg">GMT</SelectItem>
+                            <SelectItem value="EST" className="rounded-lg">EST</SelectItem>
+                            <SelectItem value="CST" className="rounded-lg">CST</SelectItem>
+                            <SelectItem value="MST" className="rounded-lg">MST</SelectItem>
+                            <SelectItem value="PST" className="rounded-lg">PST</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border/70 p-4 bg-muted/30">
+                    <h3 className="font-semibold mb-4">{t("section.institutionAssets")}</h3>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>{t("label.logo")}</Label>
+                        <label className="group flex h-24 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-border/70 bg-muted/40 text-center transition hover:border-primary hover:bg-muted/70">
+                          <input type="file" accept="image/*" className="sr-only" onChange={(event) => handleInstitutionImageSelect("logoUrl", event)} />
+                          {form.institutionProfile.logoUrl ? (
+                            <img src={form.institutionProfile.logoUrl} alt="Institution logo preview" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="space-y-1 px-4">
+                              <p className="text-sm font-medium text-foreground">{t("button.uploadLogo")}</p>
+                              <p className="text-xs text-muted-foreground">Click to upload</p>
+                            </div>
+                          )}
+                        </label>
+                        <p className="text-xs text-muted-foreground">{t("desc.logoUpload")}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>{t("label.background")}</Label>
+                        <label className="group flex h-24 cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-border/70 bg-muted/40 text-center transition hover:border-primary hover:bg-muted/70">
+                          <input type="file" accept="image/*" className="sr-only" onChange={(event) => handleInstitutionImageSelect("backgroundImageUrl", event)} />
+                          {form.institutionProfile.backgroundImageUrl ? (
+                            <img src={form.institutionProfile.backgroundImageUrl} alt="Institution background preview" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="space-y-1 px-4">
+                              <p className="text-sm font-medium text-foreground">{t("button.uploadBackground")}</p>
+                              <p className="text-xs text-muted-foreground">Click to upload</p>
+                            </div>
+                          )}
+                        </label>
+                        <p className="text-xs text-muted-foreground">{t("desc.backgroundUpload")}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === 4 && (
+                <div className="space-y-5">
                   <div className="space-y-2">
                     <Label>Clinical departments</Label>
                     <div className="grid gap-2">
@@ -1025,15 +1784,105 @@ export default function InstitutionSetupWizard() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {clinicalDepartments.length > 0 ? clinicalDepartments.map((department) => (
-                        <span key={department} className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground">
+                        <Button
+                          key={department}
+                          type="button"
+                          variant={selectedClinicalDepartmentTab === department ? "secondary" : "outline"}
+                          onClick={() => setSelectedClinicalDepartmentTab(department)}
+                          className="rounded-full px-3 py-1 text-xs"
+                        >
                           {department}
-                        </span>
+                        </Button>
                       )) : (
                         <p className="text-sm text-muted-foreground">No departments added yet.</p>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground">These clinical departments are for staff assignments and hospital-academic roles.</p>
                   </div>
+
+                  <div className="space-y-4 rounded-xl border border-border/70 bg-muted/20 p-4">
+                    <div className="space-y-4 rounded-xl border border-border/70 bg-muted/20 p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <Label>Units for {selectedClinicalDepartmentTab || "selected department"}</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Choose from the department templates or add a new unit for the selected department.
+                          </p>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                          <Select
+                            value={unitSelection}
+                            onValueChange={(value) => {
+                              if (!selectedClinicalDepartmentTab) return;
+                              addClinicalUnitToDepartment(selectedClinicalDepartmentTab, value);
+                              setUnitSelection("");
+                            }}
+                            disabled={!selectedClinicalDepartmentTab || (departmentUnitTemplates[selectedClinicalDepartmentTab] ?? []).length === 0}
+                          >
+                            <SelectTrigger className="h-10 w-full rounded-xl border border-border/70 bg-card/70 px-3 py-2 text-sm shadow-sm backdrop-blur-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20">
+                              <SelectValue placeholder={selectedClinicalDepartmentTab ? "Select a template unit" : "Select a department first"} />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72 rounded-xl border border-border/70 bg-card/80 p-1 shadow-lg backdrop-blur-xl">
+                              {(departmentUnitTemplates[selectedClinicalDepartmentTab] ?? []).map((unit) => (
+                                <SelectItem key={unit} value={unit} className="rounded-lg">
+                                  {unit}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              if (!selectedClinicalDepartmentTab) return;
+                              addClinicalUnitToDepartment(selectedClinicalDepartmentTab, clinicalUnitInput);
+                              setClinicalUnitInput("");
+                            }}
+                          >
+                            Add unit
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <Input
+                          placeholder="Enter a custom unit"
+                          value={clinicalUnitInput}
+                          onChange={(event) => setClinicalUnitInput(event.target.value)}
+                        />
+                        {selectedClinicalDepartmentTab && (departmentUnitTemplates[selectedClinicalDepartmentTab] ?? []).length > 0 && (
+                          <p className="text-xs text-muted-foreground md:ml-2">
+                            Template units available for {selectedClinicalDepartmentTab}.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedClinicalDepartmentTab ? (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap gap-2">
+                          {(form.clinicalDepartmentUnits[selectedClinicalDepartmentTab] ?? []).map((unit) => (
+                            <span key={unit} className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1 text-sm">
+                              {unit}
+                              <button
+                                type="button"
+                                className="rounded-full border border-border/70 px-1 text-xs text-muted-foreground transition hover:bg-destructive/10"
+                                onClick={() => removeClinicalUnitFromDepartment(selectedClinicalDepartmentTab, unit)}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        {(form.clinicalDepartmentUnits[selectedClinicalDepartmentTab] ?? []).length === 0 && (
+                          <p className="text-sm text-muted-foreground">No units added for this department yet.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Select a department tab to add or manage units.</p>
+                    )}
+                  </div>
+
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label>Staff users</Label>
@@ -1093,7 +1942,7 @@ export default function InstitutionSetupWizard() {
                 </div>
               )}
 
-              {step === 3 && (
+              {step === 5 && (
                 <div className="space-y-5">
                   <div className="rounded-xl border border-dashed border-border/70 bg-background/80 p-4">
                     <div className="grid gap-4 md:grid-cols-2">
@@ -1179,7 +2028,7 @@ export default function InstitutionSetupWizard() {
                 </div>
               )}
 
-              {step === 4 && (
+              {step === 6 && (
                 <div className="space-y-4 text-sm">
                   <div className="rounded-xl border border-border/70 bg-muted/40 p-4">
                     <h3 className="font-semibold">Setup summary</h3>
@@ -1199,17 +2048,23 @@ export default function InstitutionSetupWizard() {
                   </div>
                 </div>
               )}
+              </div>
             </CardContent>
           </Card>
 
           <Card className="border-border/70 bg-card/80">
             <CardHeader>
-              <CardTitle>What this setup creates</CardTitle>
-              <CardDescription>Each submission will provision the main initial records for the school.</CardDescription>
+              <CardTitle>{t("section.whatCreates")}</CardTitle>
+              <CardDescription>Each step prepares a different part of your institution setup.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 text-sm text-muted-foreground">
               {progressSections.map((section) => (
-                <div key={section.title} className="rounded-xl border border-border/70 p-3">
+                <button
+                  key={section.title}
+                  type="button"
+                  onClick={() => setStep(section.index)}
+                  className={`w-full rounded-xl border p-3 text-left transition ${section.index === step ? "border-primary bg-primary/5" : "border-border/70 bg-card/80 hover:border-primary/90 hover:bg-muted/60"}`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 font-medium text-foreground">
@@ -1227,10 +2082,20 @@ export default function InstitutionSetupWizard() {
                     </span>
                   </div>
                   <Progress value={section.progress} className="mt-3" />
-                </div>
+                </button>
               ))}
+
+              <div className="rounded-xl border border-border/70 bg-muted/10 p-3">
+                <h3 className="font-semibold">{t("section.stepOverview")}</h3>
+                <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-muted-foreground">
+                  {currentStepSummary.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
               {status && (
-                <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-primary">
+                <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
                   {status}
                 </div>
               )}
@@ -1240,20 +2105,21 @@ export default function InstitutionSetupWizard() {
 
         <div className="flex items-center justify-between">
           <Button type="button" variant="outline" onClick={prevStep} disabled={step === 0}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back
+            <ArrowLeft className="mr-2 h-4 w-4" /> {t("button.back")}
           </Button>
-          {step < steps.length - 1 ? (
+          {step < 6 ? (
             <Button type="button" onClick={nextStep}>
-              Continue <ArrowRight className="ml-2 h-4 w-4" />
+              {t("button.next")} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           ) : (
             <Button type="button" onClick={handleSubmit} disabled={loading}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Finish setup
+              {t("button.submit")}
             </Button>
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -46,11 +46,34 @@ const Navbar = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  const scrollToDashboardSection = () => {
+    const target = document.getElementById("role-aware");
+    if (!target) return false;
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const topbar = rootStyles.getPropertyValue("--topbar-height") || "56px";
+    const topbarPx = parseInt(topbar, 10) || 56;
+    const rect = target.getBoundingClientRect();
+    const nextTop = window.scrollY + rect.top - topbarPx - 12;
+
+    window.scrollTo({ top: nextTop, behavior: "smooth" });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    return true;
+  };
+
   const handleSetupEntry = async () => {
     setIsNavigatingSetup(true);
     try {
       const response = await api.get("/setup/status");
-      navigate(response.data?.configured ? "/register" : "/setup");
+      if (!response.data?.configured) {
+        navigate("/setup");
+        return;
+      }
+
+      if (!scrollToDashboardSection()) {
+        navigate("/");
+      }
     } catch {
       navigate("/setup");
     } finally {
@@ -123,18 +146,22 @@ const Navbar = () => {
             >
               {isNavigatingSetup ? "Loading..." : "Get Started"}
             </button>
-            <Link
+            {/* <Link
               to="/register"
               className="hidden rounded-full border border-slate-300/80 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#6e56cf] hover:text-[#6e56cf] dark:border-slate-700 dark:text-slate-200 lg:inline-flex"
             >
               Register
-            </Link>
-            <Link
-              to="/login"
+            </Link> */}
+            <a
+              href="#role-aware"
+              onClick={(e) => {
+                e.preventDefault();
+                smoothScrollTo("#role-aware");
+              }}
               className="hidden rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100 lg:inline-flex"
             >
               Login
-            </Link>
+            </a>
             <button
               type="button"
               onClick={() => setIsOpen(!isOpen)}
@@ -174,20 +201,22 @@ const Navbar = () => {
                   </a>
                 ),
               )}
-              <Link
+              {/* <Link
                 to="/register"
                 onClick={() => setIsOpen(false)}
                 className="block rounded-full border border-slate-300/80 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 transition hover:border-[#6e56cf] hover:text-[#6e56cf] dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200"
               >
                 Register
-              </Link>
-              <Link
-                to="/login"
-                onClick={() => setIsOpen(false)}
+              </Link> */}
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  smoothScrollTo("#role-aware");
+                }}
                 className="block rounded-full bg-[#6e56cf] px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-[#5e45c2]"
               >
                 Login
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => {
