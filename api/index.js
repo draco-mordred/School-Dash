@@ -285,7 +285,7 @@ var DepartmentName;
 	DepartmentName$1["obstetricsAndGynecology"] = "Obstetrics and Gynecology";
 	DepartmentName$1["surgery"] = "Surgery";
 	DepartmentName$1["psychiatry"] = "Psychiatry";
-	DepartmentName$1["earNoseAndThroat"] = "ENT" || "Otolaryngology" || "Otorhinolaryngology";
+	DepartmentName$1["earNoseAndThroat"] = "Ear, Nose, and Throat";
 	DepartmentName$1["anaesthesiology"] = "Anaesthesiology";
 	DepartmentName$1["radiology"] = "Radiology";
 	DepartmentName$1["ophthalmology"] = "Ophthalmology";

@@ -143,6 +143,11 @@ const ensureGatewayReady = async () => {
  */
 export async function sendMordredWhatsAppAlert(target: string, message: string): Promise<boolean> {
   try {
+    if (!client) {
+      console.warn("⚠️ WhatsApp gateway is unavailable; message not sent.");
+      return false;
+    }
+
     await ensureGatewayReady();
     if (!isGatewayReady) {
       throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
