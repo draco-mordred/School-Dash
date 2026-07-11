@@ -11,6 +11,10 @@
     "vercel-build": "node build.js && npm run build --prefix frontend"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
+    "ai": "^7.0.22",
+    "chat": "^4.33.0",
     "serverless-http": "^3.0.0"
   },
   "devDependencies": {
