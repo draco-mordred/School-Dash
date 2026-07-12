@@ -76,7 +76,7 @@ export default function StudentPortalLogin() {
 
     const fetchInstitution = async () => {
       try {
-        const response = await api.get("/setup/status");
+        const response = await api.get("/setup/status", { timeout: 4000 });
         const nextInstitution = response.data?.configured && response.data?.institution?.name
           ? {
               name: response.data.institution.name,

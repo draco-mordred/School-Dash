@@ -103,18 +103,28 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     
     const start = Date.now();
     console.info("Request /api/setup/status: received (cache miss)");
-    // Only fetch specific fields needed, don't use populate
-    const institution = await Institution.findOne()
-      .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
-      .lean()
-      .exec();
-    
-    // Fetch branding separately if it exists
+
+    const institution = await Promise.race([
+      Institution.findOne()
+        .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+        .lean()
+        .exec()
+        .then((value) => value as any),
+      new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]);
+
     let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
     if (institution?.brandingSettings) {
-      const branding = await BrandingSettings.findById(institution.brandingSettings).select('primaryColor accentColor').lean().exec();
-      if (branding) {
-        brandingSettings = { primaryColor: branding.primaryColor, accentColor: branding.accentColor };
+      const branding = await Promise.race([
+        BrandingSettings.findById(institution.brandingSettings).select('primaryColor accentColor').lean().exec(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+      ]);
+      if (branding && typeof branding === "object" && branding !== null) {
+        const brandingData = branding as { primaryColor?: string; accentColor?: string };
+        brandingSettings = {
+          primaryColor: brandingData.primaryColor || "#2563eb",
+          accentColor: brandingData.accentColor || "#4f46e5",
+        };
       }
     }
     

@@ -44,8 +44,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 const connectDB = async () => {
 	try {
-		const link = process.env.MEDLOG_MONGO_URL || process.env.MONGO_URI;
-		if (!link) throw new Error("Missing MongoDB connection string. Set MEDLOG_MONGO_URL or MONGO_URI.");
+		const link = process.env.MONGODB_URI || process.env.MONGO_URI;
+		if (!link) throw new Error("Missing MongoDB connection string. Set MONGODB_URI or MONGO_URI.");
 		const conn = await mongoose.connect(link, {
 			serverSelectionTimeoutMS: 1e4,
 			socketTimeoutMS: 45e3
@@ -8699,17 +8699,20 @@ const getSetupStatus = async (_req, res) => {
 		}
 		const start = Date.now();
 		console.info("Request /api/setup/status: received (cache miss)");
-		const institution = await institution_default.findOne().select("name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings").lean().exec();
+		const institution = await Promise.race([institution_default.findOne().select("name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings").lean().exec().then((value) => value), new Promise((resolve) => setTimeout(() => resolve(null), 2e3))]);
 		let brandingSettings = {
 			primaryColor: "#2563eb",
 			accentColor: "#4f46e5"
 		};
 		if (institution?.brandingSettings) {
-			const branding = await brandingSettings_default.findById(institution.brandingSettings).select("primaryColor accentColor").lean().exec();
-			if (branding) brandingSettings = {
-				primaryColor: branding.primaryColor,
-				accentColor: branding.accentColor
-			};
+			const branding = await Promise.race([brandingSettings_default.findById(institution.brandingSettings).select("primaryColor accentColor").lean().exec(), new Promise((resolve) => setTimeout(() => resolve(null), 1e3))]);
+			if (branding && typeof branding === "object" && branding !== null) {
+				const brandingData = branding;
+				brandingSettings = {
+					primaryColor: brandingData.primaryColor || "#2563eb",
+					accentColor: brandingData.accentColor || "#4f46e5"
+				};
+			}
 		}
 		const duration = Date.now() - start;
 		console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
@@ -9481,7 +9484,8 @@ app.use((req, res, next) => {
 });
 app.use(async (req, res, next) => {
 	const requestPath = req.path || "/";
-	if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || requestPath === "/setup/status") {
+	const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
+	if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || isSetupStatusRequest) {
 		next();
 		return;
 	}

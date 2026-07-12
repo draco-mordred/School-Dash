@@ -100,7 +100,7 @@ try {
   console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
   console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
   console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}`);
-  console.log(`   MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "✅ SET" : "❌ NOT SET"}`);
+  console.log(`   MONGODB_URI: ${process.env.MONGODB_URI ? "✅ SET" : "❌ NOT SET"}`);
   console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET"}`);
   console.log(`   CLIENT_URL: ${process.env.CLIENT_URL || "not set"}\n`);
 } catch (err) {
@@ -164,8 +164,9 @@ app.use((req: Request, res: Response, next: Function) => {
 
 app.use(async (req: Request, res: Response, next: Function) => {
   const requestPath = req.path || "/";
+  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
 
-  if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || requestPath === "/setup/status") {
+  if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || isSetupStatusRequest) {
     next();
     return;
   }

@@ -18,7 +18,7 @@ export default function InstitutionLandingPage() {
   useEffect(() => {
     const fetchInstitution = async () => {
       try {
-        const response = await api.get("/setup/status");
+        const response = await api.get("/setup/status", { timeout: 4000 });
         if (response.data?.configured) {
           // Fetch institution details
           const instResponse = await api.get("/institution");
