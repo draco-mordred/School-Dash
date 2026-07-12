@@ -10,16 +10,33 @@ let gatewayInitialization = null;
 let resolveGatewayReady = null;
 let rejectGatewayReady = null;
 
-let Client = null;
-let LocalAuth = null;
+let client = null;
 let moduleLoadError = null;
 
 // Only attempt to load whatsapp-web.js if explicitly enabled
 if (isWhatsappEnabled) {
   try {
     const whatsappModule = require("whatsapp-web.js");
-    Client = whatsappModule?.Client;
-    LocalAuth = whatsappModule?.LocalAuth;
+    const Client = whatsappModule?.Client;
+    const LocalAuth = whatsappModule?.LocalAuth;
+
+    if (Client && LocalAuth) {
+      client = new Client({
+        authStrategy: new LocalAuth({ dataPath: sessionDataPath }),
+        puppeteer: {
+          headless: true,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--no-first-run",
+            "--no-zygote",
+            "--single-process",
+          ],
+        },
+      });
+    }
   } catch (error) {
     moduleLoadError = error;
     if (error?.code === "MODULE_NOT_FOUND") {
