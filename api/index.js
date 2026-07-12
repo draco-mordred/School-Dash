@@ -8364,6 +8364,671 @@ router.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
 router.post("/:entryId/approve", protect, authorize(["unitconsultant", "unitresident"]), approveActivityEntry);
 router.post("/:entryId/reject", protect, authorize(["unitconsultant", "unitresident"]), rejectActivityEntry);
 var activityEntry_default = router;
+var InstitutionSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Institution name is required"]
+	},
+	shortName: {
+		type: String,
+		required: [true, "Institution short name is required"]
+	},
+	type: {
+		type: String,
+		required: [true, "Institution type is required"]
+	},
+	country: {
+		type: String,
+		required: [true, "Country is required"]
+	},
+	state: {
+		type: String,
+		required: [true, "State is required"]
+	},
+	city: {
+		type: String,
+		required: [true, "City is required"]
+	},
+	academicCalendarType: {
+		type: String,
+		required: [true, "Academic calendar type is required"]
+	},
+	timezone: {
+		type: String,
+		required: [true, "Timezone is required"]
+	},
+	logoUrl: {
+		type: String,
+		default: ""
+	},
+	backgroundImageUrl: {
+		type: String,
+		default: ""
+	},
+	academicSession: {
+		type: Schema.Types.ObjectId,
+		ref: "AcademicSession",
+		required: true
+	},
+	semesters: [{
+		type: Schema.Types.ObjectId,
+		ref: "Semester"
+	}],
+	defaultDepartments: [{
+		type: Schema.Types.ObjectId,
+		ref: "Department"
+	}],
+	defaultUnits: [{
+		type: Schema.Types.ObjectId,
+		ref: "Unit"
+	}],
+	attendanceSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "AttendanceSettings",
+		required: true
+	},
+	assessmentSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "AssessmentSettings",
+		required: true
+	},
+	brandingSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "BrandingSettings",
+		required: true
+	},
+	administratorUser: {
+		type: Schema.Types.ObjectId,
+		ref: "User",
+		required: true
+	},
+	applicationSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "ApplicationSettings",
+		required: true
+	}
+}, { timestamps: true });
+var institution_default = mongoose.model("Institution", InstitutionSchema);
+var AcademicSessionSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Academic session name is required"]
+	},
+	startsAt: {
+		type: Date,
+		required: [true, "Session start date is required"]
+	},
+	endsAt: {
+		type: Date,
+		required: [true, "Session end date is required"]
+	},
+	isCurrent: {
+		type: Boolean,
+		default: false
+	}
+}, { timestamps: true });
+AcademicSessionSchema.index({ name: 1 }, { unique: true });
+var academicSession_default = mongoose.model("AcademicSession", AcademicSessionSchema);
+var SemesterSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Semester name is required"]
+	},
+	academicSession: {
+		type: Schema.Types.ObjectId,
+		ref: "AcademicSession",
+		required: [true, "Academic session reference is required"]
+	},
+	order: {
+		type: Number,
+		required: true,
+		default: 1
+	},
+	isActive: {
+		type: Boolean,
+		default: true
+	},
+	startsAt: {
+		type: Date,
+		default: null
+	},
+	endsAt: {
+		type: Date,
+		default: null
+	}
+}, { timestamps: true });
+SemesterSchema.index({
+	academicSession: 1,
+	order: 1
+}, { unique: true });
+var semester_default = mongoose.model("Semester", SemesterSchema);
+var AttendanceSettingsSchema = new Schema({
+	lectureAttendance: {
+		type: Boolean,
+		default: true
+	},
+	clinicalAttendance: {
+		type: Boolean,
+		default: true
+	},
+	seminarAttendance: {
+		type: Boolean,
+		default: true
+	},
+	verificationMethods: {
+		qrCode: {
+			type: Boolean,
+			default: false
+		},
+		bluetooth: {
+			type: Boolean,
+			default: false
+		},
+		gps: {
+			type: Boolean,
+			default: false
+		},
+		administratorApproval: {
+			type: Boolean,
+			default: false
+		}
+	},
+	minimumAttendancePercentage: {
+		type: Number,
+		default: 75
+	},
+	gracePeriodMinutes: {
+		type: Number,
+		default: 10
+	},
+	attendanceWindowMinutes: {
+		type: Number,
+		default: 120
+	}
+}, { timestamps: true });
+var attendanceSettings_default = mongoose.model("AttendanceSettings", AttendanceSettingsSchema);
+var AssessmentSettingsSchema = new Schema({
+	mcq: {
+		type: Boolean,
+		default: true
+	},
+	essay: {
+		type: Boolean,
+		default: true
+	},
+	osce: {
+		type: Boolean,
+		default: true
+	},
+	longCase: {
+		type: Boolean,
+		default: true
+	},
+	shortCase: {
+		type: Boolean,
+		default: true
+	},
+	continuousAssessment: {
+		type: Boolean,
+		default: true
+	},
+	passMark: {
+		type: Number,
+		default: 50
+	},
+	gradingScale: {
+		type: [String],
+		default: [
+			"A",
+			"B",
+			"C",
+			"D",
+			"F"
+		]
+	}
+}, { timestamps: true });
+var assessmentSettings_default = mongoose.model("AssessmentSettings", AssessmentSettingsSchema);
+var BrandingSettingsSchema = new Schema({
+	logoUrl: {
+		type: String,
+		default: ""
+	},
+	faviconUrl: {
+		type: String,
+		default: ""
+	},
+	coverImageUrl: {
+		type: String,
+		default: ""
+	},
+	primaryColor: {
+		type: String,
+		default: "#2563eb"
+	},
+	accentColor: {
+		type: String,
+		default: "#4f46e5"
+	}
+}, { timestamps: true });
+var brandingSettings_default = mongoose.model("BrandingSettings", BrandingSettingsSchema);
+var ApplicationSettingsSchema = new Schema({
+	defaultLanguage: {
+		type: String,
+		default: "en"
+	},
+	allowPublicRegistration: {
+		type: Boolean,
+		default: false
+	},
+	timezone: {
+		type: String,
+		default: "UTC"
+	},
+	dateFormat: {
+		type: String,
+		default: "YYYY-MM-DD"
+	},
+	extra: {
+		type: Schema.Types.Mixed,
+		default: {}
+	}
+}, { timestamps: true });
+var applicationSettings_default = mongoose.model("ApplicationSettings", ApplicationSettingsSchema);
+init_user();
+init_classes();
+var DEFAULT_DEPARTMENT_NAMES = [
+	"Medicine",
+	"Surgery",
+	"Obstetrics & Gynaecology",
+	"Paediatrics",
+	"Psychiatry",
+	"Community Medicine",
+	"Family Medicine",
+	"Anaesthesia",
+	"Radiology",
+	"Orthopaedics",
+	"ENT",
+	"Ophthalmology",
+	"Chemical Pathology",
+	"Haematology",
+	"Medical Microbiology",
+	"Histopathology"
+];
+var sanitizeCode = (name) => name.replace(/\s+&\s+/g, "-").replace(/[^A-Za-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toUpperCase();
+var parseSessionRange = (value) => {
+	const cleaned = String(value || "").trim();
+	const match = cleaned.match(/(\d{4})\s*[\/-]\s*(\d{4})/);
+	if (!match) {
+		const now = /* @__PURE__ */ new Date();
+		return {
+			name: cleaned || `${now.getFullYear()}/${now.getFullYear() + 1}`,
+			startsAt: new Date(now.getFullYear(), 0, 1),
+			endsAt: new Date(now.getFullYear() + 1, 11, 31)
+		};
+	}
+	const [, fromYear, toYear] = match;
+	return {
+		name: `${fromYear}/${toYear}`,
+		startsAt: new Date(Number(fromYear), 0, 1),
+		endsAt: new Date(Number(toYear), 11, 31)
+	};
+};
+var getYearRangeFromSession = (value) => {
+	const info = parseSessionRange(value);
+	return {
+		name: info.name,
+		fromYear: info.startsAt,
+		toYear: info.endsAt
+	};
+};
+var buildUserIdNumber = (role, index) => {
+	return `${role === UserRole.STUDENT ? "STU" : role === UserRole.TEACHER ? "TCH" : role === UserRole.UNITCONSULTANT ? "UC" : role === UserRole.UNITRESIDENT ? "UR" : "ADM"}-${String(index).padStart(3, "0")}-${Date.now()}`;
+};
+const getSetupStatus = async (_req, res) => {
+	try {
+		const start = Date.now();
+		console.info("Request /api/setup/status: received");
+		const institution = await institution_default.findOne().populate("brandingSettings", "primaryColor accentColor").lean();
+		const duration = Date.now() - start;
+		console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
+		res.status(200).json({
+			configured: Boolean(institution),
+			institution: institution ? {
+				name: institution.name,
+				shortName: institution.shortName,
+				type: institution.type,
+				country: institution.country,
+				state: institution.state,
+				city: institution.city,
+				academicCalendarType: institution.academicCalendarType,
+				timezone: institution.timezone,
+				logoUrl: institution.logoUrl || "",
+				backgroundImageUrl: institution.backgroundImageUrl || "",
+				brandingSettings: {
+					primaryColor: institution.brandingSettings?.primaryColor || "#2563eb",
+					accentColor: institution.brandingSettings?.accentColor || "#4f46e5"
+				}
+			} : null
+		});
+	} catch (error) {
+		console.error("Setup status error:", error.message);
+		res.status(500).json({
+			status: "Error",
+			message: "Unable to determine setup status."
+		});
+	}
+};
+const createInitialSetup = async (req, res) => {
+	const session = await mongoose.startSession();
+	session.startTransaction();
+	try {
+		if (await institution_default.findOne().session(session)) {
+			await session.abortTransaction();
+			return res.status(409).json({
+				status: "Error",
+				message: "The application has already been configured."
+			});
+		}
+		const { institutionProfile, academicStructure, clinicalStructure, attendanceConfiguration, assessmentConfiguration, brandingSettings, administrator, applicationSettings, staffUsers = [], students = [] } = req.body;
+		if (!institutionProfile || !academicStructure || !administrator) {
+			await session.abortTransaction();
+			return res.status(400).json({
+				status: "Error",
+				message: "Missing required setup payload."
+			});
+		}
+		const sessionInfo = parseSessionRange(academicStructure.academicSession || academicStructure.academicYear || "");
+		const academicSessionDoc = await academicSession_default.create([{
+			name: sessionInfo.name,
+			startsAt: sessionInfo.startsAt,
+			endsAt: sessionInfo.endsAt,
+			isCurrent: true
+		}], {
+			session,
+			ordered: true
+		});
+		const academicYearInfo = getYearRangeFromSession(academicStructure.academicYear || academicStructure.academicSession || "");
+		const academicYearDoc = await academicYear_default$1.create([{
+			name: academicYearInfo.name,
+			fromYear: academicYearInfo.fromYear,
+			toYear: academicYearInfo.toYear,
+			isCurrent: true
+		}], {
+			session,
+			ordered: true
+		});
+		const semesterOptions = Array.isArray(academicStructure.semesters) && academicStructure.semesters.length ? academicStructure.semesters : ["First Semester", "Second Semester"];
+		const semesterDocs = await semester_default.create(semesterOptions.map((semesterName, index) => ({
+			name: semesterName,
+			academicSession: academicSessionDoc[0]._id,
+			order: index + 1,
+			isActive: true
+		})), {
+			session,
+			ordered: true
+		});
+		const attendanceDoc = await attendanceSettings_default.create([{
+			lectureAttendance: Boolean(attendanceConfiguration?.lectureAttendance),
+			clinicalAttendance: Boolean(attendanceConfiguration?.clinicalAttendance),
+			seminarAttendance: Boolean(attendanceConfiguration?.seminarAttendance),
+			verificationMethods: {
+				qrCode: Boolean(attendanceConfiguration?.verificationMethods?.qrCode),
+				bluetooth: Boolean(attendanceConfiguration?.verificationMethods?.bluetooth),
+				gps: Boolean(attendanceConfiguration?.verificationMethods?.gps),
+				administratorApproval: Boolean(attendanceConfiguration?.verificationMethods?.administratorApproval)
+			},
+			minimumAttendancePercentage: Number(attendanceConfiguration?.minimumAttendancePercentage ?? 75),
+			gracePeriodMinutes: Number(attendanceConfiguration?.gracePeriodMinutes ?? 10),
+			attendanceWindowMinutes: Number(attendanceConfiguration?.attendanceWindowMinutes ?? 120)
+		}], {
+			session,
+			ordered: true
+		});
+		const assessmentDoc = await assessmentSettings_default.create([{
+			mcq: Boolean(assessmentConfiguration?.mcq),
+			essay: Boolean(assessmentConfiguration?.essay),
+			osce: Boolean(assessmentConfiguration?.osce),
+			longCase: Boolean(assessmentConfiguration?.longCase),
+			shortCase: Boolean(assessmentConfiguration?.shortCase),
+			continuousAssessment: Boolean(assessmentConfiguration?.continuousAssessment),
+			passMark: Number(assessmentConfiguration?.passMark ?? 50),
+			gradingScale: Array.isArray(assessmentConfiguration?.gradingScale) ? assessmentConfiguration.gradingScale : [
+				"A",
+				"B",
+				"C",
+				"D",
+				"F"
+			]
+		}], {
+			session,
+			ordered: true
+		});
+		const brandingDoc = await brandingSettings_default.create([{
+			logoUrl: String(brandingSettings?.logoUrl || ""),
+			faviconUrl: String(brandingSettings?.faviconUrl || ""),
+			coverImageUrl: String(brandingSettings?.coverImageUrl || ""),
+			primaryColor: String(brandingSettings?.primaryColor || "#2563eb"),
+			accentColor: String(brandingSettings?.accentColor || "#4f46e5")
+		}], {
+			session,
+			ordered: true
+		});
+		const applicationSettingsDoc = await applicationSettings_default.create([{
+			defaultLanguage: String(applicationSettings?.defaultLanguage || "en"),
+			allowPublicRegistration: Boolean(applicationSettings?.allowPublicRegistration ?? false),
+			timezone: String(applicationSettings?.timezone || institutionProfile.timezone || "UTC"),
+			dateFormat: String(applicationSettings?.dateFormat || "YYYY-MM-DD"),
+			extra: applicationSettings?.extra || {}
+		}], {
+			session,
+			ordered: true
+		});
+		const departmentNames = Array.isArray(clinicalStructure?.defaultDepartments) && clinicalStructure.defaultDepartments.length ? clinicalStructure.defaultDepartments : DEFAULT_DEPARTMENT_NAMES;
+		const departments = [];
+		for (const departmentName of departmentNames) {
+			const existingDepartment = await departments_default.findOne({ name: departmentName }).session(session);
+			if (existingDepartment) {
+				departments.push(existingDepartment);
+				continue;
+			}
+			const code = sanitizeCode(departmentName).slice(0, 8);
+			const departmentID = `${code}-${(/* @__PURE__ */ new Date()).getFullYear()}`;
+			const doc = await departments_default.create([{
+				name: departmentName,
+				code,
+				departmentID
+			}], {
+				session,
+				ordered: true
+			});
+			departments.push(doc[0]);
+		}
+		const unitItems = Array.isArray(clinicalStructure?.defaultUnits) ? clinicalStructure.defaultUnits : [];
+		const units = [];
+		for (const item of unitItems) {
+			const department = departments.find((dept) => dept.name === item.departmentName || dept.departmentID === item.departmentId);
+			if (!department) continue;
+			const existingUnit = await units_default.findOne({
+				name: item.name,
+				department: department._id
+			}).session(session);
+			if (existingUnit) {
+				units.push(existingUnit);
+				continue;
+			}
+			const code = sanitizeCode(item.name).slice(0, 8);
+			const unitID = `${code}-${(/* @__PURE__ */ new Date()).getFullYear()}`;
+			const unitDoc = await units_default.create([{
+				name: item.name,
+				code,
+				unitID,
+				department: department._id
+			}], {
+				session,
+				ordered: true
+			});
+			units.push(unitDoc[0]);
+			await departments_default.findByIdAndUpdate(department._id, { $addToSet: { units: unitDoc[0]._id } }, { session });
+		}
+		const adminPayload = {
+			name: `${administrator.firstName || ""} ${administrator.lastName || ""}`.trim(),
+			email: administrator.email,
+			password: administrator.password,
+			idNumber: administrator.idNumber || `ADMIN-${Date.now()}`,
+			role: UserRole.ADMIN,
+			isActive: true,
+			approvalStatus: "approved",
+			profileImage: administrator.profileImage || null
+		};
+		const [adminUserDoc] = await user_default$1.create([adminPayload], {
+			session,
+			ordered: true
+		});
+		const classPayloads = Array.isArray(academicStructure.classes) && academicStructure.classes.length ? academicStructure.classes : [{
+			name: "500 Level",
+			capacity: 120
+		}];
+		const createdClasses = [];
+		for (const classItem of classPayloads) {
+			const className = classItem.name || "500 Level";
+			const matchingStaff = Array.isArray(staffUsers) ? staffUsers.find((person) => person.role === UserRole.TEACHER && person.className === className) : null;
+			const classDoc = await classes_default$1.create([{
+				name: className,
+				academicYear: academicYearDoc[0]._id,
+				classTeacher: matchingStaff ? null : null,
+				capacity: Number(classItem.capacity ?? 120)
+			}], {
+				session,
+				ordered: true
+			});
+			createdClasses.push(classDoc[0]);
+		}
+		const createdStaffUsers = [];
+		for (const [index, person] of staffUsers.entries()) {
+			const departmentName = person.departmentName || person.department || "Medicine";
+			const department = departments.find((item) => item.name === departmentName) || departments[0];
+			const unitName = person.unitName || person.unit || null;
+			const unit = unitName ? await units_default.findOne({
+				name: unitName,
+				department: department?._id
+			}).session(session) : null;
+			const userDoc = await user_default$1.create([{
+				name: `${person.firstName || ""} ${person.lastName || ""}`.trim(),
+				email: person.email,
+				password: person.password || "Password@123",
+				idNumber: person.idNumber || buildUserIdNumber(person.role || UserRole.TEACHER, index + 1),
+				role: person.role || UserRole.TEACHER,
+				department: department?.name || departmentName,
+				departmentId: department?._id || null,
+				isActive: true,
+				approvalStatus: "approved",
+				phone: person.phone || null,
+				specialties: Array.isArray(person.specialties) ? person.specialties : [],
+				academicStatus: person.academicStatus || null,
+				departmentRole: person.departmentRole || null,
+				profileImage: person.profileImage || null
+			}], {
+				session,
+				ordered: true
+			});
+			createdStaffUsers.push(userDoc[0]);
+			if (person.role === UserRole.TEACHER && person.className) {
+				const assignedClass = createdClasses.find((item) => item.name === person.className);
+				if (assignedClass) await classes_default$1.findByIdAndUpdate(assignedClass._id, { classTeacher: userDoc[0]._id }, { session });
+			}
+			if (unit && person.role !== UserRole.STUDENT) await user_default$1.findByIdAndUpdate(userDoc[0]._id, { $set: { specialties: Array.from(new Set([...userDoc[0].specialties || [], unit.name])) } }, { session });
+		}
+		const createdStudents = [];
+		for (const [index, person] of students.entries()) {
+			const departmentName = person.departmentName || person.department || "Medicine";
+			const department = departments.find((item) => item.name === departmentName) || departments[0];
+			const className = person.className || classPayloads[0]?.name || "500 Level";
+			const targetClass = createdClasses.find((item) => item.name === className) || createdClasses[0];
+			const userDoc = await user_default$1.create([{
+				name: `${person.firstName || ""} ${person.lastName || ""}`.trim(),
+				email: person.email,
+				password: person.password || "Student@123",
+				idNumber: person.idNumber || buildUserIdNumber(UserRole.STUDENT, index + 1),
+				role: UserRole.STUDENT,
+				department: department?.name || departmentName,
+				departmentId: department?._id || null,
+				studentClasses: targetClass?._id || null,
+				isActive: true,
+				approvalStatus: "approved",
+				profileImage: person.profileImage || null
+			}], {
+				session,
+				ordered: true
+			});
+			createdStudents.push(userDoc[0]);
+			if (targetClass) await classes_default$1.findByIdAndUpdate(targetClass._id, { $addToSet: { students: userDoc[0]._id } }, { session });
+		}
+		for (const classItem of createdClasses) {
+			const classLevel = resolveClassLevelFromName(classItem.name);
+			await academicClock_default$1.create([{
+				academicYear: academicYearDoc[0]._id,
+				classId: classItem._id,
+				classLevel,
+				clockStartDate: academicYearDoc[0].fromYear,
+				phaseConfig: buildPhaseConfigForClassLevel(classLevel)
+			}], {
+				session,
+				ordered: true
+			});
+		}
+		const institution = await institution_default.create([{
+			name: institutionProfile.name,
+			shortName: institutionProfile.shortName,
+			type: institutionProfile.type,
+			country: institutionProfile.country,
+			state: institutionProfile.state,
+			city: institutionProfile.city,
+			academicCalendarType: institutionProfile.academicCalendarType,
+			timezone: institutionProfile.timezone,
+			logoUrl: String(institutionProfile.logoUrl || ""),
+			backgroundImageUrl: String(institutionProfile.backgroundImageUrl || ""),
+			academicSession: academicSessionDoc[0]._id,
+			semesters: semesterDocs.map((semester) => semester._id),
+			defaultDepartments: departments.map((dept) => dept._id),
+			defaultUnits: units.map((unit) => unit._id),
+			attendanceSettings: attendanceDoc[0]._id,
+			assessmentSettings: assessmentDoc[0]._id,
+			brandingSettings: brandingDoc[0]._id,
+			applicationSettings: applicationSettingsDoc[0]._id,
+			administratorUser: adminUserDoc._id
+		}], {
+			session,
+			ordered: true
+		});
+		await session.commitTransaction();
+		session.endSession();
+		res.status(201).json({
+			status: "Success",
+			message: "Initial system setup completed.",
+			institution: institution[0],
+			created: {
+				academicSession: academicSessionDoc[0],
+				academicYear: academicYearDoc[0],
+				classes: createdClasses,
+				staff: createdStaffUsers,
+				students: createdStudents
+			}
+		});
+	} catch (error) {
+		console.error("Initial setup failed:", error.message);
+		await session.abortTransaction();
+		session.endSession();
+		res.status(500).json({
+			status: "Error",
+			message: "Could not complete initial setup.",
+			error: error.message
+		});
+	}
+};
+var setupRouter = express.Router();
+setupRouter.get("/status", getSetupStatus);
+setupRouter.post("/", createInitialSetup);
+var setup_default = setupRouter;
 var MordredMessageSchema = new Schema({
 	user_id: {
 		type: mongoose.Schema.Types.ObjectId,
@@ -8716,9 +9381,41 @@ dns.setServers([
 	"1.1.1.1"
 ]);
 dotenv.config();
+var normalizeOrigin = (value) => {
+	if (!value) return null;
+	let origin = value.trim();
+	if (!origin) return null;
+	if (origin.endsWith("/")) origin = origin.slice(0, -1);
+	if (!origin.startsWith("http://") && !origin.startsWith("https://")) origin = `https://${origin}`;
+	return origin;
+};
 const app = express();
 var PORT = process.env.PORT || 5e3;
-var isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
+var isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL === "true" || Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production";
+var apiBase = isVercelRuntime ? "" : "/api";
+var routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
+var dbConnectionPromise = null;
+var ensureDatabaseConnection = async () => {
+	if (mongoose.connection.readyState === 1) return;
+	if (!dbConnectionPromise) dbConnectionPromise = Promise.race([connectDB().then(() => void 0).catch((error) => {
+		dbConnectionPromise = null;
+		throw error;
+	}), new Promise((_, reject) => setTimeout(() => reject(/* @__PURE__ */ new Error("Database connection timeout (30s)")), 3e4))]);
+	await dbConnectionPromise;
+};
+try {
+	console$1.log(`\n🚀 Backend Server Initialization:`);
+	console$1.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "🟩 LOCAL DEVELOPMENT"}`);
+	console$1.log(`   Port: ${PORT}`);
+	console$1.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
+	console$1.log(`   API Base: ${apiBase || "(root)"}`);
+	console$1.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
+	console$1.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
+	console$1.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}`);
+	console$1.log(`   MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "✅ SET" : "❌ NOT SET"}`);
+	console$1.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET"}`);
+	console$1.log(`   CLIENT_URL: ${process.env.CLIENT_URL || "not set"}\n`);
+} catch (err) {}
 var { json, urlencoded } = createBodyParsers();
 app.use(helmet());
 app.use(json);
@@ -8726,12 +9423,14 @@ app.use(urlencoded);
 app.use(cookieParser());
 if (process.env.NODE_ENV === "development") app.use(morgan("dev"));
 var allowedOrigins = [
-	process.env.CLIENT_URL,
+	normalizeOrigin(process.env.CLIENT_URL),
+	normalizeOrigin(process.env.LOCAL_CLIENT_URL),
+	normalizeOrigin(process.env.VERCEL_URL),
 	"http://localhost:5173",
 	"https://localhost:5173",
 	"http://127.0.0.1:5173",
 	"https://127.0.0.1:5173"
-].filter((origin) => origin !== void 0 && origin !== "");
+].filter((origin) => origin !== null && origin !== "");
 app.use(cors({
 	origin: allowedOrigins,
 	credentials: true
@@ -8742,33 +9441,83 @@ app.get("/", (req, res) => {
 		message: "Server is healthy!"
 	});
 });
-app.use("/api/users", user_default);
-app.use("/api/activities", activitieslog_default);
-app.use("/api/academic-years", academicYear_default);
-app.use("/api/academic-clocks", academicClock_default);
-app.use("/api/classes", classes_default);
-app.use("/api/courses", courses_default);
-app.use("/api/timetables", timetable_default);
-app.use("/api/exams", exam_default);
-app.use("/api/dashboard", dashboard_default);
-app.use("/api/attendance", attendance_default);
-app.use("/api/notifications", notification_default);
-app.use("/api/og-ped-rotations", for500LevelPostings_default);
-app.use("/api/rotation-schedules", rotationSchedules_default);
-app.use("/api/logbook-entries", logbookEntry_default);
-app.use("/api/hospital-data", hospitalData_default);
-app.use("/api/activity-entries", activityEntry_default);
-app.use("/api/inngest", serve({
-	client: inngest,
-	functions: [
-		generateTimeTable,
-		generateExam,
-		generateAttendance,
-		bulkCreateUsers,
-		rotationNotify
-	]
-}));
-app.use("/api/mordred", mordred_default);
+app.use(async (req, res, next) => {
+	if (req.path === "/" || req.path === "/_routes") {
+		next();
+		return;
+	}
+	console$1.log(`[DB] Ensuring connection for ${req.method} ${req.path}`);
+	try {
+		await ensureDatabaseConnection();
+		console$1.log(`[DB] Connection ready, proceeding to route handler`);
+		next();
+	} catch (error) {
+		console$1.error(`[DB] Connection failed for ${req.path}:`, error.message);
+		res.status(503).json({
+			status: "Error!",
+			message: "Database connection unavailable",
+			error: error.message
+		});
+	}
+});
+var mountRoutes = (prefix) => {
+	app.use(`${prefix}/users`, user_default);
+	app.use(`${prefix}/activities`, activitieslog_default);
+	app.use(`${prefix}/academic-years`, academicYear_default);
+	app.use(`${prefix}/academic-clocks`, academicClock_default);
+	app.use(`${prefix}/classes`, classes_default);
+	app.use(`${prefix}/courses`, courses_default);
+	app.use(`${prefix}/timetables`, timetable_default);
+	app.use(`${prefix}/exams`, exam_default);
+	app.use(`${prefix}/dashboard`, dashboard_default);
+	app.use(`${prefix}/attendance`, attendance_default);
+	app.use(`${prefix}/notifications`, notification_default);
+	app.use(`${prefix}/setup`, setup_default);
+	app.use(`${prefix}/og-ped-rotations`, for500LevelPostings_default);
+	app.use(`${prefix}/rotation-schedules`, rotationSchedules_default);
+	app.use(`${prefix}/logbook-entries`, logbookEntry_default);
+	app.use(`${prefix}/hospital-data`, hospitalData_default);
+	app.use(`${prefix}/activity-entries`, activityEntry_default);
+	app.use(`${prefix}/inngest`, serve({
+		client: inngest,
+		functions: [
+			generateTimeTable,
+			generateExam,
+			generateAttendance,
+			bulkCreateUsers,
+			rotationNotify
+		]
+	}));
+	app.use(`${prefix}/mordred`, mordred_default);
+};
+for (const prefix of routePrefixes) mountRoutes(prefix);
+app.get(`${apiBase}/_routes`, (req, res) => {
+	try {
+		const stack = app._router?.stack || [];
+		const routes = [];
+		for (const layer of stack) if (layer.route && layer.route.path) {
+			const methods = Object.keys(layer.route.methods || {}).map((m) => m.toUpperCase());
+			routes.push({
+				path: `${apiBase}${layer.route.path}`,
+				methods
+			});
+		} else if (layer.name === "router" && layer.handle && layer.handle.stack) {
+			for (const nested of layer.handle.stack) if (nested.route && nested.route.path) {
+				const methods = Object.keys(nested.route.methods || {}).map((m) => m.toUpperCase());
+				routes.push({
+					path: `${apiBase}${nested.route.path}`,
+					methods
+				});
+			}
+		}
+		res.json({ routes });
+	} catch (err) {
+		res.status(500).json({
+			error: "Failed to enumerate routes",
+			detail: String(err)
+		});
+	}
+});
 app.use((err, req, res, next) => {
 	console$1.error(err.stack);
 	res.status(500).json({

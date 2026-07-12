@@ -1,5 +1,5 @@
 import serverless from "serverless-http";
-import app from "../src/server";
+import app from "../src/server.ts";
 
 // Log environment on startup
 console.log("⚙️ Serverless Handler Bootstrap:");

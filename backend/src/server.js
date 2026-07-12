@@ -8,6 +8,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import console from "node:console";
 import * as dns from "node:dns";
+import mongoose from "mongoose";
 import { connectDB } from "./config/db"; //import the connectDB function to connect to the database
 import userRoutes from "./routes/user";
 import LogsRouter from "./routes/activitieslog";
@@ -31,6 +32,7 @@ import rotationSchedulesRouter from './routes/rotationSchedules';
 import logbookEntryRouter from "./routes/logbookEntry";
 import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
+import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 import { createBodyParsers } from "./utils/bodyParser";
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
@@ -41,6 +43,28 @@ dotenv.config();
 export const app = express();
 const PORT = process.env.PORT || 5000;
 const isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
+let dbConnectionPromise = null;
+
+const ensureDatabaseConnection = async () => {
+    if (mongoose.connection.readyState === 1) {
+        return;
+    }
+
+    if (!dbConnectionPromise) {
+        dbConnectionPromise = Promise.race([
+            connectDB()
+                .then(() => undefined)
+                .catch((error) => {
+                    dbConnectionPromise = null;
+                    throw error;
+                }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Database connection timeout (30s)")), 30000)),
+        ]);
+    }
+
+    await dbConnectionPromise;
+};
+
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
 const { json, urlencoded } = createBodyParsers();
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
@@ -68,6 +92,25 @@ app.use(cors({
 app.get("/", (req, res) => {
     res.status(200).json({ status: "ok", message: "Server is healthy!" });
 });
+
+app.use(async (req, res, next) => {
+    if (req.path === "/" || req.path === "/_routes") {
+        next();
+        return;
+    }
+
+    try {
+        await ensureDatabaseConnection();
+        next();
+    } catch (error) {
+        res.status(503).json({
+            status: "Error!",
+            message: "Database connection unavailable",
+            error: error.message,
+        });
+    }
+});
+
 //Import routes here
 app.use("/api/users", userRoutes); // Use the user routes for any requests to /api/users
 app.use("/api/activities", LogsRouter); // Use the user routes for any requests to /api/users
@@ -81,6 +124,7 @@ app.use("/api/exams", examRouter);
 app.use("/api/dashboard", dashBoardRouter);
 app.use("/api/attendance", attendanceRouter);
 app.use("/api/notifications", notificationRouter);
+app.use("/api/setup", setupRouter);
 app.use("/api/og-ped-rotations", routerFor500LevelPostings);
 app.use('/api/rotation-schedules', rotationSchedulesRouter);
 app.use("/api/logbook-entries", logbookEntryRouter);
