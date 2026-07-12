@@ -121,9 +121,10 @@ if (process.env.NODE_ENV === "development") {
 }
 
 //cross-origin resource sharing (CORS) middleware to allow requests from different origins
-const allowedOrigins = [
+const configuredOrigins = [
   normalizeOrigin(process.env.CLIENT_URL),
   normalizeOrigin(process.env.LOCAL_CLIENT_URL),
+  normalizeOrigin(process.env.FRONTEND_URL),
   normalizeOrigin(process.env.VERCEL_URL),
   "http://localhost:5173",
   "https://localhost:5173",
@@ -131,10 +132,36 @@ const allowedOrigins = [
   "https://127.0.0.1:5173",
 ].filter((origin): origin is string => origin !== null && origin !== "");
 
+const isAllowedOrigin = (origin?: string) => {
+  if (!origin) {
+    return true;
+  }
+
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) {
+    return true;
+  }
+
+  if (configuredOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  try {
+    const hostname = new URL(normalizedOrigin).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".vercel.app") || hostname.endsWith(".fly.dev");
+  } catch {
+    return false;
+  }
+};
+
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      callback(null, isAllowedOrigin(origin));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
  
