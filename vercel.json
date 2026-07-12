@@ -9,14 +9,26 @@
     "VITE_API_BASE_URL": "/api"
   },
   
-  "rewrites": [
+"rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api"
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
     },
     {
       "source": "/(.*)",
       "destination": "/index.html"
+    }
+  ],
+  
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
     }
   ]
 }
