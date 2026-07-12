@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "nodemon --exec bun run src/server.ts",
     "start": "bun --watch src/server.ts",
-    "build": "bun run src/inngest/server.ts",
-    "build:vercel": "npx esbuild api/index.ts --bundle --platform=node --outfile=api/index.js --format=esm --packages=external",
-    "server": "npx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
+    "build:inngest": "bun run src/inngest/server.ts",
+    "build": "bunx esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
+    "build:vercel": "bunx esbuild api/index.ts --bundle --platform=node --outfile=api/index.js --format=esm --packages=external",
+    "server": "bunx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
     "test": "mocha -r ts-node/register tests/**/*.spec.ts --exit --timeout 20000"
   },
   "devDependencies": {
@@ -32,7 +33,7 @@
     "ts-node": "^10.9.2"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.71",

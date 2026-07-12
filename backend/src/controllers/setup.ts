@@ -89,12 +89,15 @@ let lastCacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export const getSetupStatus = async (_req: Request, res: Response) => {
+  const requestLabel = `${_req.method} ${_req.originalUrl || "/api/setup/status"}`;
+  console.info(`[CONTROLLER] enter getSetupStatus for ${requestLabel}`);
+
   try {
     const now = Date.now();
     
     // Return cached data if still valid
     if (cachedInstitution && (now - lastCacheTime) < CACHE_TTL) {
-      console.info("Request /api/setup/status: cache hit");
+      console.info(`[CONTROLLER] getSetupStatus cache hit for ${requestLabel}`);
       return res.status(200).json({
         configured: Boolean(cachedInstitution.data),
         institution: cachedInstitution.data,
@@ -129,7 +132,7 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     }
     
     const duration = Date.now() - start;
-    console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
+    console.info(`[CONTROLLER] getSetupStatus db query completed in ${duration}ms for ${requestLabel}`);
     
     const response = {
       configured: Boolean(institution),
@@ -154,14 +157,17 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     cachedInstitution = { data: response.institution };
     lastCacheTime = now;
     
+    console.info(`[CONTROLLER] exit getSetupStatus configured=${Boolean(institution)} duration=${duration}ms for ${requestLabel}`);
     res.status(200).json(response);
   } catch (error) {
-    console.error("Setup status error:", (error as Error).message);
+    console.error(`[CONTROLLER] getSetupStatus error for ${requestLabel}:`, (error as Error).message);
     res.status(500).json({ status: "Error", message: "Unable to determine setup status." });
   }
 };
 
 export const createInitialSetup = async (req: Request, res: Response) => {
+  const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
+  console.info(`[CONTROLLER] enter createInitialSetup for ${requestLabel}`);
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -169,6 +175,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
     const existingInstitution = await Institution.findOne().session(session);
     if (existingInstitution) {
       await session.abortTransaction();
+      console.info(`[CONTROLLER] createInitialSetup abort: already configured for ${requestLabel}`);
       return res.status(409).json({ status: "Error", message: "The application has already been configured." });
     }
 
@@ -454,6 +461,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
     await session.commitTransaction();
     session.endSession();
 
+    console.info(`[CONTROLLER] exit createInitialSetup success for ${requestLabel}`);
     res.status(201).json({
       status: "Success",
       message: "Initial system setup completed.",
@@ -467,7 +475,7 @@ export const createInitialSetup = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Initial setup failed:", (error as Error).message);
+    console.error(`[CONTROLLER] createInitialSetup error for ${requestLabel}:`, (error as Error).message);
     await session.abortTransaction();
     session.endSession();
     res.status(500).json({ status: "Error", message: "Could not complete initial setup.", error: (error as Error).message });

@@ -162,6 +162,35 @@ app.use((req: Request, res: Response, next: Function) => {
   next();
 });
 
+app.use((req: Request, res: Response, next: Function) => {
+  const requestPath = req.path || "/";
+  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
+
+  if (!isSetupStatusRequest) {
+    next();
+    return;
+  }
+
+  const label = `${req.method} ${req.originalUrl}`;
+  const startTime = Date.now();
+  console.info(`[ROUTE] enter ${label}`);
+
+  const finishLogger = () => {
+    const elapsed = Date.now() - startTime;
+    console.info(`[ROUTE] exit  ${label} status=${res.statusCode} duration=${elapsed}ms`);
+  };
+
+  const closeLogger = () => {
+    const elapsed = Date.now() - startTime;
+    console.warn(`[ROUTE] close ${label} status=${res.statusCode} duration=${elapsed}ms`);
+  };
+
+  res.once("finish", finishLogger);
+  res.once("close", closeLogger);
+
+  next();
+});
+
 app.use(async (req: Request, res: Response, next: Function) => {
   const requestPath = req.path || "/";
   const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
