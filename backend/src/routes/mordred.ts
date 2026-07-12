@@ -1,7 +1,6 @@
 import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights } from "../controllers/mordred";
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
-import { sendMordredWhatsAppAlert } from "../services/whatsappGateway";
 
 const mordredAIRouter = express.Router();
 
@@ -35,24 +34,5 @@ mordredAIRouter.get(
   authorize(["admin", "teacher", "unitconsultant", "unitresident", "parent"]),
   dynamicAIInsights
 );
-
-// Test endpoint to trigger WhatsApp messages
-mordredAIRouter.post("/test-whatsapp", 
-  
-  async (req, res) => {
-  const { destination, alertText } = req.body;
-  
-  if (!destination || !alertText) {
-    return res.status(400).json({ error: "Missing destination phone/link details or alert texts variables." });
-  }
-
-  const deliveryStatus = await sendMordredWhatsAppAlert(destination, alertText);
-  
-  if (deliveryStatus) {
-    return res.status(200).json({ success: true, message: "Alert processed by MORDRED WhatsApp Gateway routing rules." });
-  } else {
-    return res.status(500).json({ success: false, error: "Gateway transaction pipeline crash." });
-  }
-});
 
 export default mordredAIRouter;
