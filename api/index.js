@@ -285,7 +285,7 @@ var DepartmentName;
 	DepartmentName$1["obstetricsAndGynecology"] = "Obstetrics and Gynecology";
 	DepartmentName$1["surgery"] = "Surgery";
 	DepartmentName$1["psychiatry"] = "Psychiatry";
-	DepartmentName$1["earNoseAndThroat"] = "Ear, Nose, and Throat";
+	DepartmentName$1["earNoseAndThroat"] = "ENT";
 	DepartmentName$1["anaesthesiology"] = "Anaesthesiology";
 	DepartmentName$1["radiology"] = "Radiology";
 	DepartmentName$1["ophthalmology"] = "Ophthalmology";
@@ -2174,6 +2174,28 @@ var normalizeRole = (role) => {
 	if (value === "student") return "student";
 	if (value === "parent") return "parent";
 };
+const resolveLoginIdentifier = (payload) => {
+	const candidates = [
+		payload?.credential,
+		payload?.idNumber,
+		payload?.matricNumber,
+		payload?.email
+	];
+	for (const candidate of candidates) if (typeof candidate === "string") {
+		const trimmed = candidate.trim();
+		if (trimmed) return trimmed;
+	}
+	return "";
+};
+const normalizeLoginIdentifier = (value) => {
+	if (typeof value !== "string") return "";
+	return value.trim().toLowerCase().replace(/[\s._/-]+/g, "");
+};
+const identifierMatches = (candidate, target) => {
+	const normalizedCandidate = normalizeLoginIdentifier(candidate);
+	const normalizedTarget = normalizeLoginIdentifier(target);
+	return Boolean(normalizedCandidate && normalizedTarget && normalizedCandidate === normalizedTarget);
+};
 var findDepartment = async (departmentInput) => {
 	if (!departmentInput) return null;
 	const identifier = String(departmentInput).trim();
@@ -2506,51 +2528,95 @@ const isFirstUser = async (req, res) => {
 };
 const login = async (req, res) => {
 	try {
-		const { email, password } = req.body;
-		const user = await user_default$1.findOne({ email });
-		if (user && await user.matchPassword(password)) {
-			if (user.approvalStatus !== "approved") {
-				const message$1 = user.approvalStatus === "pending" ? "Your account is pending admin approval." : user.approvalStatus === "rejected" ? "Your account has been rejected." : "Your account is not approved.";
-				res.status(403).json({ message: message$1 });
-				return;
+		const { password } = req.body;
+		const resolvedIdentifier = resolveLoginIdentifier(req.body);
+		console.log(`[AUTH] login attempt, resolvedIdentifier='${resolvedIdentifier}' from payload:`, req.body);
+		const trimmedIdentifier = resolvedIdentifier.trim();
+		const lookupCandidates = [
+			trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
+			trimmedIdentifier ? { email: trimmedIdentifier } : null,
+			trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
+			trimmedIdentifier ? { studentId: trimmedIdentifier } : null
+		].filter(Boolean);
+		let user = null;
+		for (const criteria of lookupCandidates) {
+			console.log(`[AUTH] trying lookup criteria:`, criteria);
+			user = await user_default$1.findOne(criteria);
+			if (user) {
+				console.log(`[AUTH] found user by criteria:`, criteria, `userId=${user._id}, email=${user.email}, idNumber=${user.idNumber}`);
+				break;
 			}
-			if (!user.isActive) if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
-				user.isActive = true;
-				await user.save();
-			} else {
-				res.status(403).json({ message: "Your account is inactive." });
-				return;
-			}
-			const token = generateToken(user.id.toString(), res);
-			const responsePayload = {
-				user: {
-					_id: user._id,
-					name: user.name,
-					email: user.email,
-					role: user.role,
-					idNumber: user.idNumber,
-					profileImage: user.profileImage,
-					studentClasses: user.studentClasses,
-					studentClass: user.studentClasses,
-					teacherSubject: user.teacherSubject,
-					parentStudents: user.parentStudents,
-					isActive: user.isActive,
-					academicStatus: user.academicStatus,
-					departmentRole: user.departmentRole
-				},
-				token
-			};
-			if (req.user) await logActivity({
-				userId: user._id.toString(),
-				action: "Login User",
-				details: `${user.name} logged in successfully.`
-			});
-			res.status(201).json(responsePayload);
-			return;
-		} else {
-			res.status(401).json({ message: "Invalid email or password" });
-			return;
 		}
+		if (!user && trimmedIdentifier) {
+			normalizeLoginIdentifier(trimmedIdentifier);
+			const possibleMatches = await user_default$1.find({ $or: [
+				{ idNumber: {
+					$exists: true,
+					$ne: ""
+				} },
+				{ email: {
+					$exists: true,
+					$ne: ""
+				} },
+				{ matricNumber: {
+					$exists: true,
+					$ne: ""
+				} },
+				{ studentId: {
+					$exists: true,
+					$ne: ""
+				} }
+			] }).limit(200);
+			user = possibleMatches.find((candidate) => identifierMatches(candidate.idNumber, trimmedIdentifier) || identifierMatches(candidate.matricNumber, trimmedIdentifier) || identifierMatches(candidate.studentId, trimmedIdentifier) || identifierMatches(candidate.email, trimmedIdentifier)) || null;
+			console.log(`[AUTH] possibleMatches length=${possibleMatches.length}, selectedUser=${user ? user._id : null}`);
+		}
+		if (!user && normalizeLoginIdentifier(trimmedIdentifier)) user = await user_default$1.findOne({ email: trimmedIdentifier });
+		if (user) {
+			const pwMatch = await user.matchPassword(password);
+			console.log(`[AUTH] password match for user ${user._id}: ${pwMatch}`);
+			if (pwMatch) {
+				if (user.approvalStatus !== "approved") {
+					const message$1 = user.approvalStatus === "pending" ? "Your account is pending admin approval." : user.approvalStatus === "rejected" ? "Your account has been rejected." : "Your account is not approved.";
+					res.status(403).json({ message: message$1 });
+					return;
+				}
+				if (!user.isActive) if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
+					user.isActive = true;
+					await user.save();
+				} else {
+					res.status(403).json({ message: "Your account is inactive." });
+					return;
+				}
+				const token = generateToken(user.id.toString(), res);
+				const responsePayload = {
+					user: {
+						_id: user._id,
+						name: user.name,
+						email: user.email,
+						role: user.role,
+						idNumber: user.idNumber,
+						profileImage: user.profileImage,
+						studentClasses: user.studentClasses,
+						studentClass: user.studentClasses,
+						teacherSubject: user.teacherSubject,
+						parentStudents: user.parentStudents,
+						isActive: user.isActive,
+						academicStatus: user.academicStatus,
+						departmentRole: user.departmentRole
+					},
+					token
+				};
+				if (req.user) await logActivity({
+					userId: user._id.toString(),
+					action: "Login User",
+					details: `${user.name} logged in successfully.`
+				});
+				res.status(201).json(responsePayload);
+				return;
+			}
+		}
+		res.status(401).json({ message: "Invalid matriculation number, email, or password" });
+		return;
 	} catch (error) {
 		res.status(500).json({
 			message: "Server error",
@@ -8755,6 +8821,14 @@ mordredAIRouter.post("/test-whatsapp", async (req, res) => {
 	});
 });
 var mordred_default = mordredAIRouter;
+var DEFAULT_BODY_LIMIT = process.env.EXPRESS_BODY_LIMIT || "10mb";
+const createBodyParsers = () => ({
+	json: express.json({ limit: DEFAULT_BODY_LIMIT }),
+	urlencoded: express.urlencoded({
+		extended: true,
+		limit: DEFAULT_BODY_LIMIT
+	})
+});
 init_inngest();
 init_functions();
 dns.setServers([
@@ -8766,9 +8840,10 @@ dotenv.config();
 const app = express();
 var PORT = process.env.PORT || 5e3;
 var isVercelRuntime = Boolean(process.env.VERCEL || process.env.VERCEL_URL || process.env.NOW_REGION);
+var { json, urlencoded } = createBodyParsers();
 app.use(helmet());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(json);
+app.use(urlencoded);
 app.use(cookieParser());
 if (process.env.NODE_ENV === "development") app.use(morgan("dev"));
 var allowedOrigins = [
