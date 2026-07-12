@@ -17,8 +17,6 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject, generateText } from "ai";
 import { serve } from "inngest/express";
 import { z } from "zod";
-import path from "path";
-import { createRequire as createRequire$1 } from "module";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -8690,113 +8688,6 @@ const dynamicAIInsights = async (req, res) => {
 		return res.status(500).json({ error: error.message });
 	}
 };
-var require$1 = createRequire$1(import.meta.url);
-path.resolve(process.cwd(), "mordred_whatsapp_session");
-var isWhatsappEnabled = process.env.ENABLE_MORDRED_WHATSAPP_GATEWAY === "true";
-var isGatewayReady = false;
-var gatewayInitialization = null;
-var resolveGatewayReady = null;
-var rejectGatewayReady = null;
-if (isWhatsappEnabled) try {
-	const whatsappModule = require$1("whatsapp-web.js");
-	whatsappModule?.Client;
-	whatsappModule?.LocalAuth;
-} catch (error) {
-	if (error?.code === "MODULE_NOT_FOUND") console.info("ℹ️ whatsapp-web.js not installed; WhatsApp gateway disabled.");
-	else console.warn("⚠️ Failed to load whatsapp-web.js:", error);
-}
-else console.info("ℹ️ ENABLE_MORDRED_WHATSAPP_GATEWAY env var not set; WhatsApp gateway disabled.");
-var initializeGateway = async () => {
-	if (gatewayInitialization) return gatewayInitialization;
-	gatewayInitialization = new Promise((resolve, reject) => {
-		resolveGatewayReady = resolve;
-		rejectGatewayReady = reject;
-		setTimeout(() => {
-			reject(/* @__PURE__ */ new Error("WhatsApp gateway initialization timed out."));
-		}, 3e4);
-	});
-	if (!client) {
-		const error = /* @__PURE__ */ new Error("WhatsApp gateway is unavailable in this environment.");
-		console.warn("⚠️", error.message);
-		rejectGatewayReady?.(error);
-		return gatewayInitialization;
-	}
-	try {
-		client.initialize();
-	} catch (error) {
-		console.error("❌ Failed to initialize MORDRED WhatsApp Gateway:", error.message || error);
-		rejectGatewayReady?.(error instanceof Error ? error : new Error(String(error)));
-	}
-	return gatewayInitialization;
-};
-var recoverGateway = async (reason) => {
-	console.warn(`⚠️ MORDRED WhatsApp Gateway disconnected. Reason: ${reason}`);
-	isGatewayReady = false;
-	try {
-		await client.destroy();
-	} catch (destroyError) {
-		console.warn("⚠️ Failed to destroy WhatsApp client cleanly:", destroyError);
-	}
-	setTimeout(() => {
-		console.log("🔁 Attempting to restart MORDRED WhatsApp Gateway...");
-		initializeGateway();
-	}, 5e3);
-};
-if (client) {
-	client.on("qr", (qr) => {
-		console.log("⚔️ MORDRED WhatsApp Gateway activation required. Scan this QR code:");
-		console.log(`QR payload: ${qr}`);
-	});
-	client.on("ready", () => {
-		isGatewayReady = true;
-		console.log("📡 MORDRED WhatsApp Gateway successfully deployed and online.");
-		resolveGatewayReady?.();
-		resolveGatewayReady = null;
-		rejectGatewayReady = null;
-	});
-	client.on("auth_failure", (message$1) => {
-		isGatewayReady = false;
-		console.error("❌ MORDRED WhatsApp authentication failed:", message$1);
-	});
-	client.on("disconnected", async (reason) => {
-		await recoverGateway(reason || "unknown");
-	});
-	client.on("change_state", (state) => {
-		console.log(`🔄 MORDRED WhatsApp Gateway state changed: ${state}`);
-	});
-	client.on("error", async (error) => {
-		console.error("❌ MORDRED WhatsApp Gateway internal error:", error?.message || error);
-		if (String(error).includes("Execution context was destroyed")) await recoverGateway("execution-context-destroyed");
-	});
-}
-var ensureGatewayReady = async () => {
-	if (!isGatewayReady) await initializeGateway();
-	return isGatewayReady;
-};
-async function sendMordredWhatsAppAlert(target, message$1) {
-	try {
-		await ensureGatewayReady();
-		if (!isGatewayReady) throw new Error("WhatsApp gateway is not ready. Please wait for the client to connect.");
-		if (target.includes("://whatsapp.com")) {
-			const inviteCode = target.split("://whatsapp.com/")[1]?.split(" ")[0];
-			if (!inviteCode) throw new Error("Invalid WhatsApp Group Link Profile provided.");
-			const groupId = await client.acceptInvite(inviteCode);
-			await client.sendMessage(groupId, message$1);
-			console.log(`💬 MORDRED group broadcast successful.`);
-			return true;
-		}
-		const cleanNumber = target.replace(/[^0-9]/g, "");
-		if (!cleanNumber) throw new Error("Invalid destination phone number.");
-		const formattedId = `${cleanNumber}@c.us`;
-		await client.sendMessage(formattedId, message$1);
-		console.log(`💬 MORDRED individual text message delivered to: ${formattedId}`);
-		return true;
-	} catch (error) {
-		console.error("❌ MORDRED WhatsApp Pipeline Exception Error:", error?.message || error);
-		if (String(error?.message || error).includes("Execution context was destroyed")) await recoverGateway("execution-context-destroyed");
-		return false;
-	}
-}
 var mordredAIRouter = express.Router();
 mordredAIRouter.post("/save-message", protect, saveChatMessage);
 mordredAIRouter.post("/chat/handle", protect, mordredsWords);
@@ -8808,18 +8699,6 @@ mordredAIRouter.get("/insights", protect, authorize([
 	"unitresident",
 	"parent"
 ]), dynamicAIInsights);
-mordredAIRouter.post("/test-whatsapp", async (req, res) => {
-	const { destination, alertText } = req.body;
-	if (!destination || !alertText) return res.status(400).json({ error: "Missing destination phone/link details or alert texts variables." });
-	if (await sendMordredWhatsAppAlert(destination, alertText)) return res.status(200).json({
-		success: true,
-		message: "Alert processed by MORDRED WhatsApp Gateway routing rules."
-	});
-	else return res.status(500).json({
-		success: false,
-		error: "Gateway transaction pipeline crash."
-	});
-});
 var mordred_default = mordredAIRouter;
 var DEFAULT_BODY_LIMIT = process.env.EXPRESS_BODY_LIMIT || "10mb";
 const createBodyParsers = () => ({
