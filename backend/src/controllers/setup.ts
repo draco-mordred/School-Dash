@@ -85,7 +85,11 @@ const buildUserIdNumber = (role: string, index: number) => {
 
 export const getSetupStatus = async (_req: Request, res: Response) => {
   try {
+    const start = Date.now();
+    console.info("Request /api/setup/status: received");
     const institution = await Institution.findOne().populate("brandingSettings", "primaryColor accentColor").lean();
+    const duration = Date.now() - start;
+    console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
     res.status(200).json({
       configured: Boolean(institution),
       institution: institution
