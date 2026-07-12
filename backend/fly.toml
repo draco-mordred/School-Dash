@@ -1,4 +1,4 @@
-# fly.toml app configuration file generated for medlog on 2026-07-12T12:44:10Z
+# fly.toml app configuration file generated for medlog on 2026-07-12T13:23:58Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
@@ -13,7 +13,7 @@ primary_region = 'jnb'
   force_https = true
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 2
   processes = ['app']
 
 [[vm]]
