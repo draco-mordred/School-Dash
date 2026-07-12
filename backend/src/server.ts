@@ -65,6 +65,7 @@ const isVercelRuntime =
   (Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production");
 const apiBase = isVercelRuntime ? "" : "/api";
 const routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
+const DB_TIMEOUT_MS = isVercelRuntime ? 7000 : 10000;
 let dbConnectionPromise: Promise<void> | null = null;
 
 const ensureDatabaseConnection = async () => {
@@ -162,23 +163,32 @@ app.use((req: Request, res: Response, next: Function) => {
 });
 
 app.use(async (req: Request, res: Response, next: Function) => {
-  if (req.path === "/" || req.path === "/_routes") {
+  const requestPath = req.path || "/";
+
+  if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || requestPath === "/setup/status") {
     next();
     return;
   }
 
   console.log(`[DB] Ensuring connection for ${req.method} ${req.path}`);
   try {
-    await ensureDatabaseConnection();
+    await Promise.race([
+      ensureDatabaseConnection(),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error(`Database connection timeout (${DB_TIMEOUT_MS}ms)`)), DB_TIMEOUT_MS);
+      }),
+    ]);
     console.log(`[DB] Connection ready, proceeding to route handler`);
     next();
   } catch (error) {
     console.error(`[DB] Connection failed for ${req.path}:`, (error as Error).message);
-    res.status(503).json({
-      status: "Error!",
-      message: "Database connection unavailable",
-      error: (error as Error).message,
-    });
+    if (!res.headersSent) {
+      res.status(503).json({
+        status: "Error!",
+        message: "Database connection unavailable",
+        error: (error as Error).message,
+      });
+    }
   }
 });
 

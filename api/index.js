@@ -8684,14 +8684,36 @@ var getYearRangeFromSession = (value) => {
 var buildUserIdNumber = (role, index) => {
 	return `${role === UserRole.STUDENT ? "STU" : role === UserRole.TEACHER ? "TCH" : role === UserRole.UNITCONSULTANT ? "UC" : role === UserRole.UNITRESIDENT ? "UR" : "ADM"}-${String(index).padStart(3, "0")}-${Date.now()}`;
 };
+var cachedInstitution = null;
+var lastCacheTime = 0;
+var CACHE_TTL = 300 * 1e3;
 const getSetupStatus = async (_req, res) => {
 	try {
+		const now = Date.now();
+		if (cachedInstitution && now - lastCacheTime < CACHE_TTL) {
+			console.info("Request /api/setup/status: cache hit");
+			return res.status(200).json({
+				configured: Boolean(cachedInstitution.data),
+				institution: cachedInstitution.data
+			});
+		}
 		const start = Date.now();
-		console.info("Request /api/setup/status: received");
-		const institution = await institution_default.findOne().populate("brandingSettings", "primaryColor accentColor").lean();
+		console.info("Request /api/setup/status: received (cache miss)");
+		const institution = await institution_default.findOne().select("name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings").lean().exec();
+		let brandingSettings = {
+			primaryColor: "#2563eb",
+			accentColor: "#4f46e5"
+		};
+		if (institution?.brandingSettings) {
+			const branding = await brandingSettings_default.findById(institution.brandingSettings).select("primaryColor accentColor").lean().exec();
+			if (branding) brandingSettings = {
+				primaryColor: branding.primaryColor,
+				accentColor: branding.accentColor
+			};
+		}
 		const duration = Date.now() - start;
 		console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
-		res.status(200).json({
+		const response = {
 			configured: Boolean(institution),
 			institution: institution ? {
 				name: institution.name,
@@ -8704,12 +8726,12 @@ const getSetupStatus = async (_req, res) => {
 				timezone: institution.timezone,
 				logoUrl: institution.logoUrl || "",
 				backgroundImageUrl: institution.backgroundImageUrl || "",
-				brandingSettings: {
-					primaryColor: institution.brandingSettings?.primaryColor || "#2563eb",
-					accentColor: institution.brandingSettings?.accentColor || "#4f46e5"
-				}
+				brandingSettings
 			} : null
-		});
+		};
+		cachedInstitution = { data: response.institution };
+		lastCacheTime = now;
+		res.status(200).json(response);
 	} catch (error) {
 		console.error("Setup status error:", error.message);
 		res.status(500).json({
@@ -9394,6 +9416,7 @@ var PORT = process.env.PORT || 5e3;
 var isVercelRuntime = process.env.VERCEL === "1" || process.env.VERCEL === "true" || Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production";
 var apiBase = isVercelRuntime ? "" : "/api";
 var routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
+var DB_TIMEOUT_MS = isVercelRuntime ? 7e3 : 1e4;
 var dbConnectionPromise = null;
 var ensureDatabaseConnection = async () => {
 	if (mongoose.connection.readyState === 1) return;
@@ -9441,19 +9464,37 @@ app.get("/", (req, res) => {
 		message: "Server is healthy!"
 	});
 });
+app.use((req, res, next) => {
+	const timeout = isVercelRuntime ? 25e3 : 3e4;
+	const timeoutId = setTimeout(() => {
+		if (!res.headersSent) {
+			console$1.warn(`[TIMEOUT] Request ${req.method} ${req.path} exceeded ${timeout}ms`);
+			res.status(503).json({
+				status: "Error",
+				message: "Request timeout - server took too long to respond"
+			});
+		}
+	}, timeout);
+	res.on("finish", () => clearTimeout(timeoutId));
+	res.on("close", () => clearTimeout(timeoutId));
+	next();
+});
 app.use(async (req, res, next) => {
-	if (req.path === "/" || req.path === "/_routes") {
+	const requestPath = req.path || "/";
+	if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || requestPath === "/setup/status") {
 		next();
 		return;
 	}
 	console$1.log(`[DB] Ensuring connection for ${req.method} ${req.path}`);
 	try {
-		await ensureDatabaseConnection();
+		await Promise.race([ensureDatabaseConnection(), new Promise((_, reject) => {
+			setTimeout(() => reject(/* @__PURE__ */ new Error(`Database connection timeout (${DB_TIMEOUT_MS}ms)`)), DB_TIMEOUT_MS);
+		})]);
 		console$1.log(`[DB] Connection ready, proceeding to route handler`);
 		next();
 	} catch (error) {
 		console$1.error(`[DB] Connection failed for ${req.path}:`, error.message);
-		res.status(503).json({
+		if (!res.headersSent) res.status(503).json({
 			status: "Error!",
 			message: "Database connection unavailable",
 			error: error.message
