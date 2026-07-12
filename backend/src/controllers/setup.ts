@@ -83,14 +83,45 @@ const buildUserIdNumber = (role: string, index: number) => {
   return `${roleCode}-${String(index).padStart(3, "0")}-${Date.now()}`;
 };
 
+// Cache institution data with 5 minute TTL
+let cachedInstitution: any = null;
+let lastCacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export const getSetupStatus = async (_req: Request, res: Response) => {
   try {
+    const now = Date.now();
+    
+    // Return cached data if still valid
+    if (cachedInstitution && (now - lastCacheTime) < CACHE_TTL) {
+      console.info("Request /api/setup/status: cache hit");
+      return res.status(200).json({
+        configured: Boolean(cachedInstitution.data),
+        institution: cachedInstitution.data,
+      });
+    }
+    
     const start = Date.now();
-    console.info("Request /api/setup/status: received");
-    const institution = await Institution.findOne().populate("brandingSettings", "primaryColor accentColor").lean();
+    console.info("Request /api/setup/status: received (cache miss)");
+    // Only fetch specific fields needed, don't use populate
+    const institution = await Institution.findOne()
+      .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .lean()
+      .exec();
+    
+    // Fetch branding separately if it exists
+    let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
+    if (institution?.brandingSettings) {
+      const branding = await BrandingSettings.findById(institution.brandingSettings).select('primaryColor accentColor').lean().exec();
+      if (branding) {
+        brandingSettings = { primaryColor: branding.primaryColor, accentColor: branding.accentColor };
+      }
+    }
+    
     const duration = Date.now() - start;
     console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
-    res.status(200).json({
+    
+    const response = {
       configured: Boolean(institution),
       institution: institution
         ? {
@@ -104,13 +135,16 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             timezone: institution.timezone,
             logoUrl: institution.logoUrl || "",
             backgroundImageUrl: (institution as any).backgroundImageUrl || "",
-            brandingSettings: {
-              primaryColor: (institution as any).brandingSettings?.primaryColor || "#2563eb",
-              accentColor: (institution as any).brandingSettings?.accentColor || "#4f46e5",
-            },
+            brandingSettings,
           }
         : null,
-    });
+    };
+    
+    // Cache the response
+    cachedInstitution = { data: response.institution };
+    lastCacheTime = now;
+    
+    res.status(200).json(response);
   } catch (error) {
     console.error("Setup status error:", (error as Error).message);
     res.status(500).json({ status: "Error", message: "Unable to determine setup status." });

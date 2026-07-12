@@ -9,8 +9,12 @@ export const connectDB = async () => {
     }
 
     const conn = await mongoose.connect(link, {
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 20000,
+      connectTimeoutMS: 5000,
+      retryWrites: true,
+      maxPoolSize: 10,
+      minPoolSize: 2,
     });
 
     console.log(`MongoDB Connected ONLINE @: ${conn.connection.host}`);

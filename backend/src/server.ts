@@ -142,6 +142,25 @@ app.get("/", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "Server is healthy!" });
 });
 
+// Request timeout middleware - Vercel has 30 second timeout, set client timeout to 25 seconds
+app.use((req: Request, res: Response, next: Function) => {
+  const timeout = isVercelRuntime ? 25000 : 30000; // 25s on Vercel, 30s locally
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      console.warn(`[TIMEOUT] Request ${req.method} ${req.path} exceeded ${timeout}ms`);
+      res.status(503).json({
+        status: "Error",
+        message: "Request timeout - server took too long to respond",
+      });
+    }
+  }, timeout);
+
+  res.on("finish", () => clearTimeout(timeoutId));
+  res.on("close", () => clearTimeout(timeoutId));
+  
+  next();
+});
+
 app.use(async (req: Request, res: Response, next: Function) => {
   if (req.path === "/" || req.path === "/_routes") {
     next();
