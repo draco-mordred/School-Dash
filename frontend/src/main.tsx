@@ -19,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
         <RoleThemeWrapper>
           <RouterProvider router={router} />
           <Toaster />
+          <SpeedInsights />
         </RoleThemeWrapper>
       </AuthProvider>
     </StrictMode>
