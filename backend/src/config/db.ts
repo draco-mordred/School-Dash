@@ -3,14 +3,18 @@ import mongoose from "mongoose";
 // Connect db here
 export const connectDB = async () => {
   try {
-    const link = process.env.MEDLOG_MONGO_URL || process.env.MONGO_URI;
+    const link = process.env.MONGODB_URI || process.env.MONGO_URI;
     if (!link) {
-      throw new Error("Missing MongoDB connection string. Set MEDLOG_MONGO_URL or MONGO_URI.");
+      throw new Error("Missing MongoDB connection string. Set MONGODB_URI or MONGO_URI.");
     }
 
     const conn = await mongoose.connect(link, {
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 20000,
+      connectTimeoutMS: 5000,
+      retryWrites: true,
+      maxPoolSize: 10,
+      minPoolSize: 2,
     });
 
     console.log(`MongoDB Connected ONLINE @: ${conn.connection.host}`);

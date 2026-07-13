@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Award,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -16,22 +16,57 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import SectionReveal from "../shared/SectionReveal";
 
 const roleCards = [
   {
-    title: "Student Success",
-    description: "Track clinical rotations, digital logbooks, attendance, and competency milestones in one polished dashboard.",
+    title: "Medical Students",
+    subtitle: "Clinical Students",
+    features: [
+      "Clinical Posting Schedule",
+      "Attendance",
+      "Digital Logbook",
+      "Assessments",
+      "Announcements",
+    ],
     icon: Users,
   },
   {
-    title: "Faculty Intelligence",
-    description: "Coordinate supervisors, progress reports, assessments, and workflow approvals without email chaos.",
+    title: "Academic Staff",
+    subtitle: "(Lecturers)",
+    features: [
+      "Teaching Timetable",
+      "Course Management",
+      "Attendance",
+      "Results",
+      "Student Performance",
+    ],
+    icon: CalendarDays,
+  },
+  {
+    title: "Clinical Staff",
+    subtitle: "(Consultants & Residents)",
+    features: [
+      "Unit Rotations",
+      "Clinical Attendance",
+      "Logbook Review",
+      "Clinical Evaluation",
+      "Student Supervision",
+    ],
     icon: Stethoscope,
   },
   {
-    title: "Program Leadership",
-    description: "Align academic years, timetables, clinical placements, and accreditation data with real-time analytics.",
-    icon: Award,
+    title: "Administrators",
+    subtitle: "",
+    features: [
+      "Institution Management",
+      "Academics",
+      "Clinical Operations",
+      "Reports",
+      "Analytics",
+    ],
+    icon: Globe2,
   },
 ];
 
@@ -89,11 +124,44 @@ const faqs = [
 ];
 
 export default function LandingPage() {
-  const [isMounted, setIsMounted] = useState(false);
+  const navigate = useNavigate();
+  const [isMounted] = useState(true);
+  const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
 
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const scrollToDashboardSection = () => {
+    const target = document.getElementById("role-aware");
+    if (!target) return false;
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const topbar = rootStyles.getPropertyValue("--topbar-height") || "56px";
+    const topbarPx = parseInt(topbar, 10) || 56;
+    const rect = target.getBoundingClientRect();
+    const nextTop = window.scrollY + rect.top - topbarPx - 12;
+
+    window.scrollTo({ top: nextTop, behavior: "smooth" });
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    return true;
+  };
+
+  const handleSetupEntry = async () => {
+    setIsNavigatingSetup(true);
+    try {
+      const response = await api.get("/setup/status");
+      if (!response.data?.configured) {
+        navigate("/setup");
+        return;
+      }
+
+      if (!scrollToDashboardSection()) {
+        navigate("/");
+      }
+    } catch {
+      navigate("/setup");
+    } finally {
+      setIsNavigatingSetup(false);
+    }
+  };
 
   return (
     <div className="relative overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -112,6 +180,7 @@ export default function LandingPage() {
             <p className="max-w-2xl text-lg text-slate-600 dark:text-slate-300">MedLog brings clinical placements, assessments, supervisor communication, and accreditation tracking into one secure platform for students, supervisors, and administrators.</p>
             <div className="flex flex-wrap gap-4">
               <Button className="min-w-[160px]" size="lg">Schedule a Demo</Button>
+              <Button variant="outline" className="min-w-[160px]" size="lg" onClick={() => { void handleSetupEntry(); }} disabled={isNavigatingSetup}>Set up institution</Button>
               <Button variant="outline" className="min-w-[160px]" size="lg">Learn More</Button>
             </div>
           </div>
@@ -145,41 +214,46 @@ export default function LandingPage() {
         </div>
       </div>
 
-      <section id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
+      <SectionReveal id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Role-based workflows</p>
-            <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Designed for every member of the clinical learning ecosystem.</h3>
-            <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Built for every role</p>
+            <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Designed for every member of the clinical education ecosystem.</h3>
+            <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, supervisors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-4">
             {roleCards.map((card) => {
               const Icon = card.icon;
               return (
-                <div
-                  key={card.title}
-                  className="rounded-[2rem] border border-border bg-card p-8 shadow-sm transition-all duration-600 ease-out"
-                >
+                <div key={card.title} className="rounded-[2rem] border border-border bg-card p-6 shadow-sm transition-all duration-600 ease-out">
                   <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
                     <Icon className="h-6 w-6" />
                   </div>
                   <h4 className="mt-6 text-xl font-semibold">{card.title}</h4>
-                  <p className="mt-3 text-slate-600 dark:text-slate-400">{card.description}</p>
+                  {card.subtitle && <p className="text-sm text-slate-500 mt-1">{card.subtitle}</p>}
+                  <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                    {card.features.map((f) => (
+                      <li key={f} className="flex items-start gap-3">
+                        <span className="mt-1 inline-flex h-3 w-3 rounded-full bg-[#6e56cf]/70" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               );
             })}
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="ecosystem" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="ecosystem" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Connected operations</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Everything Connected</p>
               <h3 className="text-3xl font-bold sm:text-4xl">Your academic ecosystem, visualized and synchronized.</h3>
-              <p className="max-w-xl text-slate-600 dark:text-slate-400">Coordinate course rosters, unit supervisors, clinical sites, and accreditation reports in a single system that keeps everyone aligned.</p>
+              <p className="max-w-xl text-slate-600 dark:text-slate-400">MedLog connects every part of clinical education so your institution can work smarter, not harder.</p>
               <ul className="grid gap-3 sm:grid-cols-2">
                 <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
                   <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
@@ -264,9 +338,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="programs" className="py-24">
+      <section id="modules" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] items-center">
             <div>
@@ -294,7 +368,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="assistant" className="bg-slate-950 text-white py-24">
+      <SectionReveal id="assistant" className="bg-slate-950 text-white py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
@@ -360,9 +434,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="stats" className="py-24">
+      <SectionReveal id="stats" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
@@ -390,9 +464,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="dashboard" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="dashboard" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
             <div className="space-y-6">
@@ -455,9 +529,9 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
-      <section id="why" className="py-24">
+      <SectionReveal id="why" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Why MedLog</p>
@@ -494,7 +568,7 @@ export default function LandingPage() {
             })}
           </div>
         </div>
-      </section>
+      </SectionReveal>
 
       <section id="roadmap" className="bg-slate-950 text-white py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
@@ -550,6 +624,36 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+      <SectionReveal id="role-aware" className="py-16 border-t border-slate-200/60 dark:border-slate-800/60">
+        <div className="mx-auto max-w-4xl px-6 lg:px-8 text-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">The Dashboard</p>
+          
+
+          <p className="mt-6 text-slate-700 dark:text-slate-300">Get started by loggin in to your dashboard:</p>
+
+          <div className="mt-8 grid gap-4 sm:grid-cols-3">
+            <a href="/student" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">🎓</div>
+              <h4 className="mt-3 font-semibold">Student Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Sign in with your matriculation number.</p>
+            </a>
+
+            <a href="/staff" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">👨‍🏫</div>
+              <h4 className="mt-3 font-semibold">Staff Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For lecturers, consultants, and residents.</p>
+            </a>
+
+            <a href="/admin" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+              <div className="text-3xl">🛡</div>
+              <h4 className="mt-3 font-semibold">Administrator Portal</h4>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For institution administrators.</p>
+            </a>
+          </div>
+
+          <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">Makes everything role friendly. This balances <strong>security</strong>, <strong>clarity</strong>, and <strong>maintainability</strong>.</p>
+        </div>
+      </SectionReveal>
     </div>
   );
 }

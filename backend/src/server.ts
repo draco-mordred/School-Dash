@@ -33,7 +33,9 @@ import rotationSchedulesRouter from './routes/rotationSchedules';
 import logbookEntryRouter from "./routes/logbookEntry";
 import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
+import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
+import { createBodyParsers } from "./utils/bodyParser";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
@@ -63,6 +65,7 @@ const isVercelRuntime =
   (Boolean(process.env.VERCEL_URL) && process.env.NODE_ENV === "production");
 const apiBase = isVercelRuntime ? "" : "/api";
 const routePrefixes = isVercelRuntime ? ["/api", ""] : ["/api"];
+const DB_TIMEOUT_MS = isVercelRuntime ? 7000 : 10000;
 let dbConnectionPromise: Promise<void> | null = null;
 
 const ensureDatabaseConnection = async () => {
@@ -97,7 +100,7 @@ try {
   console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
   console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
   console.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}`);
-  console.log(`   MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "✅ SET" : "❌ NOT SET"}`);
+  console.log(`   MONGODB_URI: ${process.env.MONGODB_URI ? "✅ SET" : "❌ NOT SET"}`);
   console.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET"}`);
   console.log(`   CLIENT_URL: ${process.env.CLIENT_URL || "not set"}\n`);
 } catch (err) {
@@ -105,9 +108,10 @@ try {
 }
  
 //next we'll add security middleware/headers + make sure to listen on our *root file* for changes
+const { json, urlencoded } = createBodyParsers();
 app.use(helmet()); // Security middleware to set various HTTP headers for app security
-app.use(express.json()); // Middleware to parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Middleware to parse URL-encoded bodies
+app.use(json); // Middleware to parse JSON bodies
+app.use(urlencoded); // Middleware to parse URL-encoded bodies
 app.use(cookieParser()); // Middleware to parse cookies
 
 //log http requests to console
@@ -117,9 +121,10 @@ if (process.env.NODE_ENV === "development") {
 }
 
 //cross-origin resource sharing (CORS) middleware to allow requests from different origins
-const allowedOrigins = [
+const configuredOrigins = [
   normalizeOrigin(process.env.CLIENT_URL),
   normalizeOrigin(process.env.LOCAL_CLIENT_URL),
+  normalizeOrigin(process.env.FRONTEND_URL),
   normalizeOrigin(process.env.VERCEL_URL),
   "http://localhost:5173",
   "https://localhost:5173",
@@ -127,10 +132,36 @@ const allowedOrigins = [
   "https://127.0.0.1:5173",
 ].filter((origin): origin is string => origin !== null && origin !== "");
 
+const isAllowedOrigin = (origin?: string) => {
+  if (!origin) {
+    return true;
+  }
+
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) {
+    return true;
+  }
+
+  if (configuredOrigins.includes(normalizedOrigin)) {
+    return true;
+  }
+
+  try {
+    const hostname = new URL(normalizedOrigin).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".vercel.app") || hostname.endsWith(".fly.dev");
+  } catch {
+    return false;
+  }
+};
+
 app.use(
   cors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      callback(null, isAllowedOrigin(origin));
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
  
@@ -139,24 +170,82 @@ app.get("/", (req: Request, res: Response) => {
   res.status(200).json({ status: "ok", message: "Server is healthy!" });
 });
 
+// Request timeout middleware - Vercel has 30 second timeout, set client timeout to 25 seconds
+app.use((req: Request, res: Response, next: Function) => {
+  const timeout = isVercelRuntime ? 25000 : 30000; // 25s on Vercel, 30s locally
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      console.warn(`[TIMEOUT] Request ${req.method} ${req.path} exceeded ${timeout}ms`);
+      res.status(503).json({
+        status: "Error",
+        message: "Request timeout - server took too long to respond",
+      });
+    }
+  }, timeout);
+
+  res.on("finish", () => clearTimeout(timeoutId));
+  res.on("close", () => clearTimeout(timeoutId));
+  
+  next();
+});
+
+app.use((req: Request, res: Response, next: Function) => {
+  const requestPath = req.path || "/";
+  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
+
+  if (!isSetupStatusRequest) {
+    next();
+    return;
+  }
+
+  const label = `${req.method} ${req.originalUrl}`;
+  const startTime = Date.now();
+  console.info(`[ROUTE] enter ${label}`);
+
+  const finishLogger = () => {
+    const elapsed = Date.now() - startTime;
+    console.info(`[ROUTE] exit  ${label} status=${res.statusCode} duration=${elapsed}ms`);
+  };
+
+  const closeLogger = () => {
+    const elapsed = Date.now() - startTime;
+    console.warn(`[ROUTE] close ${label} status=${res.statusCode} duration=${elapsed}ms`);
+  };
+
+  res.once("finish", finishLogger);
+  res.once("close", closeLogger);
+
+  next();
+});
+
 app.use(async (req: Request, res: Response, next: Function) => {
-  if (req.path === "/" || req.path === "/_routes") {
+  const requestPath = req.path || "/";
+  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
+
+  if (req.method === "OPTIONS" || requestPath === "/" || requestPath === "/_routes" || requestPath === "/healthz" || isSetupStatusRequest) {
     next();
     return;
   }
 
   console.log(`[DB] Ensuring connection for ${req.method} ${req.path}`);
   try {
-    await ensureDatabaseConnection();
+    await Promise.race([
+      ensureDatabaseConnection(),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error(`Database connection timeout (${DB_TIMEOUT_MS}ms)`)), DB_TIMEOUT_MS);
+      }),
+    ]);
     console.log(`[DB] Connection ready, proceeding to route handler`);
     next();
   } catch (error) {
     console.error(`[DB] Connection failed for ${req.path}:`, (error as Error).message);
-    res.status(503).json({
-      status: "Error!",
-      message: "Database connection unavailable",
-      error: (error as Error).message,
-    });
+    if (!res.headersSent) {
+      res.status(503).json({
+        status: "Error!",
+        message: "Database connection unavailable",
+        error: (error as Error).message,
+      });
+    }
   }
 });
 
@@ -173,6 +262,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/dashboard`, dashBoardRouter);
   app.use(`${prefix}/attendance`, attendanceRouter);
   app.use(`${prefix}/notifications`, notificationRouter);
+  app.use(`${prefix}/setup`, setupRouter);
   app.use(`${prefix}/og-ped-rotations`, routerFor500LevelPostings);
   app.use(`${prefix}/rotation-schedules`, rotationSchedulesRouter);
   app.use(`${prefix}/logbook-entries`, logbookEntryRouter);

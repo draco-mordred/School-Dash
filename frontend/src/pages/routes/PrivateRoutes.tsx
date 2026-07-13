@@ -6,6 +6,24 @@ import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import AppShell from "@/components/layout/AppShell";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
 
+const getPortalLoginPath = () => {
+  const lastPortalRole = localStorage.getItem("lastPortalRole");
+
+  switch (lastPortalRole) {
+    case "admin":
+      return "/admin";
+    case "student":
+      return "/student";
+    case "teacher":
+    case "unitconsultant":
+    case "unitresident":
+    case "parent":
+      return "/staff";
+    default:
+      return "/student";
+  }
+};
+
 const PrivateRoutes = () => {
   const { loading, user, year } = useAuth();
 
@@ -18,7 +36,7 @@ const PrivateRoutes = () => {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={getPortalLoginPath()} replace />;
   }
 
   if (!year && user.role !== "admin") {

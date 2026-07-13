@@ -23,6 +23,31 @@ const normalizeRole = (role?: string): string | undefined => {
     return undefined;
 };
 
+export const resolveLoginIdentifier = (payload: { email?: unknown; idNumber?: unknown; matricNumber?: unknown; credential?: unknown }) => {
+    const candidates = [payload.credential, payload.idNumber, payload.matricNumber, payload.email];
+    for (const candidate of candidates) {
+        if (typeof candidate === "string") {
+            const trimmed = candidate.trim();
+            if (trimmed) {
+                return trimmed;
+            }
+        }
+    }
+
+    return "";
+};
+
+export const normalizeLoginIdentifier = (value: unknown): string => {
+    if (typeof value !== "string") return "";
+    return value.trim().toLowerCase().replace(/[\s._/-]+/g, "");
+};
+
+export const identifierMatches = (candidate: unknown, target: unknown): boolean => {
+    const normalizedCandidate = normalizeLoginIdentifier(candidate);
+    const normalizedTarget = normalizeLoginIdentifier(target);
+    return Boolean(normalizedCandidate && normalizedTarget && normalizedCandidate === normalizedTarget);
+};
+
 const findDepartment = async (departmentInput?: string) => {
     if (!departmentInput) return null;
     const identifier = String(departmentInput).trim();
@@ -590,8 +615,47 @@ export const login = async (
     res: Response
 ): Promise<void> =>{
     try {
-        const {email, password} = req.body;
-        const user = await User.findOne({ email })
+        const { password } = req.body;
+        const resolvedIdentifier = resolveLoginIdentifier(req.body);
+        const trimmedIdentifier = resolvedIdentifier.trim();
+        const lookupCandidates = [
+            trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
+            trimmedIdentifier ? { email: trimmedIdentifier } : null,
+            trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
+            trimmedIdentifier ? { studentId: trimmedIdentifier } : null,
+        ].filter(Boolean) as Array<Record<string, string>>;
+
+        let user = null as any;
+        for (const criteria of lookupCandidates) {
+            user = await User.findOne(criteria);
+            if (user) {
+                break;
+            }
+        }
+
+        if (!user && trimmedIdentifier) {
+            const normalizedIdentifier = normalizeLoginIdentifier(trimmedIdentifier);
+            const possibleMatches = await User.find({
+                $or: [
+                    { idNumber: { $exists: true, $ne: "" } },
+                    { email: { $exists: true, $ne: "" } },
+                    { matricNumber: { $exists: true, $ne: "" } },
+                    { studentId: { $exists: true, $ne: "" } },
+                ],
+            }).limit(200);
+
+            user = possibleMatches.find((candidate: any) => (
+                identifierMatches(candidate.idNumber, trimmedIdentifier) ||
+                identifierMatches(candidate.matricNumber, trimmedIdentifier) ||
+                identifierMatches(candidate.studentId, trimmedIdentifier) ||
+                identifierMatches(candidate.email, trimmedIdentifier)
+            )) || null;
+        }
+
+        if (!user && normalizeLoginIdentifier(trimmedIdentifier)) {
+            user = await User.findOne({ email: trimmedIdentifier });
+        }
+
         // check if user exists and password matches 
         if (user && (await user.matchPassword(password))){
             if (user.approvalStatus !== "approved") {
@@ -646,7 +710,7 @@ export const login = async (
             res.status(201).json(responsePayload);
             return;
         } else {
-            res.status(401).json({ message: "Invalid email or password"});
+            res.status(401).json({ message: "Invalid matriculation number, email, or password"});
             return;
         }
     } catch (error) {

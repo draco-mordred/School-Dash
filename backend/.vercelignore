@@ -1,0 +1,3 @@
+# Ignore the TypeScript source entrypoint in Vercel deployments.
+# Vercel will deploy the generated JS handler instead.
+api/index.ts

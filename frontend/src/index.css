@@ -258,6 +258,16 @@
   70% { transform: rotate(6deg); }
   100% { transform: rotate(0deg); }
 }
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
 .animate-ring {
   display: inline-block;
   transform-origin: top center;
@@ -842,5 +852,32 @@ input.border.rounded-md {
   --sidebar-accent-foreground: rgb(250, 250, 250);
   --sidebar-border: rgb(41, 41, 41);
   --sidebar-ring: rgb(74, 222, 128);
+}
+
+/* Section reveal animations */
+.section-reveal {
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform 600ms cubic-bezier(.22,.9,.36,1), opacity 420ms ease;
+  will-change: transform, opacity;
+}
+
+.section-reveal.is-revealed {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-reveal,
+  .section-reveal.is-revealed {
+    transform: none !important;
+    opacity: 1 !important;
+    transition: none !important;
+  }
+}
+
+/* Prefer native smooth scrolling when available; JS handler provides offset fix */
+html {
+  scroll-behavior: smooth;
 }
     

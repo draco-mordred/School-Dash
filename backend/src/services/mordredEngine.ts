@@ -1,6 +1,10 @@
 import User from "../models/user"; // Path to your User model
 import mongoose from "mongoose";
 
+import { Chat } from "chat";
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { createRedisState } from "@chat-adapter/state-redis";
+
 export async function routeTaskToStaff(departmentName: string, taskType: string, referenceId: string) {
   try {
     const permissionKey = `mordred_rules.${taskType}`;

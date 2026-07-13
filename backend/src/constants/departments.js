@@ -7,7 +7,7 @@ export var DepartmentName;
     DepartmentName["obstetricsAndGynecology"] = "Obstetrics and Gynecology";
     DepartmentName["surgery"] = "Surgery";
     DepartmentName["psychiatry"] = "Psychiatry";
-    DepartmentName["earNoseAndThroat"] = "Ear, Nose, and Throat";
+    DepartmentName["earNoseAndThroat"] = "ENT" || "Otolaryngology" || "Otorhinolaryngology";
     DepartmentName["anaesthesiology"] = "Anaesthesiology";
     DepartmentName["radiology"] = "Radiology";
     DepartmentName["ophthalmology"] = "Ophthalmology";

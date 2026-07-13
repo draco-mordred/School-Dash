@@ -2,7 +2,7 @@ import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import MordredMessage from "../models/mordredMessenger";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateObject } from "ai"; // Vercel AI SDK helper for structured schemas
+import { generateObject, streamText } from "ai"; // Vercel AI SDK helper for structured schemas
 import { z } from "zod";
 import { routeTaskToStaff } from "../services/mordredEngine";
 import { inngest } from "../inngest/client";
@@ -86,7 +86,7 @@ export const mordredsWords = async (req: Request, res: Response) => {
     const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
     const canExecuteSystemActions = isAdminRole(userRole);
 
-    const apiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+    const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
 
     if (!apiKey) {
       console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using fallback response.");
@@ -99,12 +99,24 @@ export const mordredsWords = async (req: Request, res: Response) => {
         )
       );
     }
-
+    const models = {
+      geminiAI: 'google/gemini-3.5-pro',
+      openAI: 'openai/gpt-5.5',
+      anthropicAI: 'anthropic/claude-fable-5',
+      xAI: 'xai/grok-4.5',
+      ossAI: 'moonshotai/kimi-k2.7-code'
+    }
     try {
       const googleAI = createGoogleGenerativeAI({ apiKey });
+      // const vercelAI = streamText({
+      //   //so I want the model here to pick from any of the available models in the models variable at a time
+      //   model: models,
+      //   prompt: "why is the sky blue?"
+      // })
       const activeModel = googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash");
+      const vercelModel = models.geminiAI;
       const { object: mordredDecision } = await generateObject({
-        model: activeModel,
+        model: vercelModel,
         system: `
         You are MORDRED (Medlog Operational Rotation, Dialogue, & Record Engagement Director).
         Your persona is a vigilant, polite, and clinically precise digital steward.

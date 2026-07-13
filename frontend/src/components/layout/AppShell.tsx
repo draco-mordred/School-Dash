@@ -299,9 +299,12 @@ export default function AppShell({ children }: PropsWithChildren) {
   );
 
   const handleLogout = () => {
+    const role = user?.role;
     localStorage.removeItem("token");
     setUser(null);
-    navigate("/login");
+    if (role === "student") navigate("/student");
+    else if (role === "admin") navigate("/admin");
+    else navigate("/staff");
   };
 
   return (
