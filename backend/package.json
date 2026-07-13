@@ -9,7 +9,6 @@
     "build:inngest": "bun run src/inngest/server.ts",
     "build": "bunx esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.js",
     "build:vercel": "npx esbuild api/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=api/index.js",
-    "postinstall": "npx esbuild api/index.ts --bundle --platform=node --target=node18 --format=esm --outfile=api/index.js",
     "server": "bunx inngest-cli@latest dev -u http://localhost:${PORT}/api/inngest",
     "test": "mocha -r ts-node/register tests/**/*.spec.ts --exit --timeout 20000"
   },
