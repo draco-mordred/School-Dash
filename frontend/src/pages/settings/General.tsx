@@ -34,6 +34,19 @@ type DepartmentConstantsResponse = {
   departmentUnits: Record<string, DepartmentUnitsData>;
 };
 
+type InstitutionProfile = {
+  name: string;
+  shortName: string;
+  type: string;
+  country: string;
+  state: string;
+  city: string;
+  academicCalendarType: string;
+  timezone: string;
+  logoUrl: string;
+  backgroundImageUrl: string;
+};
+
 const normalizeUnitName = (unitEntry: DepartmentUnitMeta | string) =>
   typeof unitEntry === "string" ? unitEntry.trim() : unitEntry?.name?.trim() ?? "";
 
@@ -267,6 +280,118 @@ const SchoolSettings = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const institutionLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const institutionBackgroundInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [institutionProfile, setInstitutionProfile] = useState<InstitutionProfile>({
+    name: "",
+    shortName: "",
+    type: "",
+    country: "",
+    state: "",
+    city: "",
+    academicCalendarType: "",
+    timezone: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+  });
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+  const [institutionSaving, setInstitutionSaving] = useState(false);
+
+  const fetchInstitution = useCallback(async () => {
+    setInstitutionLoading(true);
+    try {
+      const response = await api.get("/setup/status");
+      const institution = response.data?.institution;
+      if (institution) {
+        setInstitutionProfile({
+          name: institution.name || "",
+          shortName: institution.shortName || "",
+          type: institution.type || "",
+          country: institution.country || "",
+          state: institution.state || "",
+          city: institution.city || "",
+          academicCalendarType: institution.academicCalendarType || "",
+          timezone: institution.timezone || "",
+          logoUrl: institution.logoUrl || "",
+          backgroundImageUrl: institution.backgroundImageUrl || "",
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load institution settings.");
+    } finally {
+      setInstitutionLoading(false);
+    }
+  }, []);
+
+  const updateInstitutionField = (field: keyof InstitutionProfile, value: string) => {
+    setInstitutionProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Unable to read file."));
+        }
+      };
+      reader.onerror = () => reject(new Error("Unable to read file."));
+      reader.readAsDataURL(file);
+    });
+
+  const handleInstitutionImageSelect = async (
+    field: "logoUrl" | "backgroundImageUrl",
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      updateInstitutionField(field, dataUrl);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to read image file.");
+    }
+  };
+
+  const saveInstitutionSettings = async () => {
+    setInstitutionSaving(true);
+    try {
+      const payload = {
+        institutionProfile: {
+          ...institutionProfile,
+        },
+      };
+      const response = await api.patch("/setup", payload);
+      const updated = response.data?.institution;
+      if (updated) {
+        setInstitutionProfile((prev) => ({
+          ...prev,
+          name: updated.name || prev.name,
+          shortName: updated.shortName || prev.shortName,
+          type: updated.type || prev.type,
+          country: updated.country || prev.country,
+          state: updated.state || prev.state,
+          city: updated.city || prev.city,
+          academicCalendarType: updated.academicCalendarType || prev.academicCalendarType,
+          timezone: updated.timezone || prev.timezone,
+          logoUrl: updated.logoUrl || prev.logoUrl,
+          backgroundImageUrl: updated.backgroundImageUrl || prev.backgroundImageUrl,
+        }));
+      }
+      toast.success("Institution settings saved.");
+    } catch (error: unknown) {
+      console.error(error);
+      const maybeResponse = error as { response?: { data?: { message?: string } } };
+      toast.error(maybeResponse.response?.data?.message || "Failed to save institution settings.");
+    } finally {
+      setInstitutionSaving(false);
+    }
+  };
 
   const fetchDepartments = useCallback(async () => {
     setLoading(true);
@@ -299,6 +424,10 @@ const SchoolSettings = () => {
   useEffect(() => {
     void fetchDepartments();
   }, [fetchDepartments]);
+
+  useEffect(() => {
+    void fetchInstitution();
+  }, [fetchInstitution]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -461,6 +590,166 @@ const SchoolSettings = () => {
           </div>
         </div>
       </div>
+
+      <Card className="overflow-hidden rounded-3xl shadow-sm" style={institutionProfile.backgroundImageUrl ? { backgroundImage: `url(${institutionProfile.backgroundImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
+        <div className="relative overflow-hidden rounded-3xl bg-slate-950/90">
+          {institutionProfile.backgroundImageUrl && <div className="absolute inset-0 bg-slate-950/80" />}
+          <div className="relative p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-300">Institution Setup</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Institution profile</h2>
+                <p className="mt-2 text-sm text-slate-300">Update the institution settings originally configured during setup.</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                  {institutionProfile.logoUrl ? (
+                    <img src={institutionProfile.logoUrl} alt="Institution logo" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/70">Logo</div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300/80">Institution</p>
+                  <p className="text-xl font-semibold text-white">{institutionProfile.name || "Not configured"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
+                <div className="space-y-2">
+                  <Label htmlFor="institution-name" className="text-slate-200">Institution Name</Label>
+                  <Input
+                    id="institution-name"
+                    value={institutionProfile.name}
+                    onChange={(event) => updateInstitutionField("name", event.target.value)}
+                    placeholder="University of Example"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-short-name" className="text-slate-200">Short Name</Label>
+                  <Input
+                    id="institution-short-name"
+                    value={institutionProfile.shortName}
+                    onChange={(event) => updateInstitutionField("shortName", event.target.value)}
+                    placeholder="UoE"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-type" className="text-slate-200">Type</Label>
+                    <Input
+                      id="institution-type"
+                      value={institutionProfile.type}
+                      onChange={(event) => updateInstitutionField("type", event.target.value)}
+                      placeholder="University"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-timezone" className="text-slate-200">Timezone</Label>
+                    <Input
+                      id="institution-timezone"
+                      value={institutionProfile.timezone}
+                      onChange={(event) => updateInstitutionField("timezone", event.target.value)}
+                      placeholder="UTC"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-country" className="text-slate-200">Country</Label>
+                    <Input
+                      id="institution-country"
+                      value={institutionProfile.country}
+                      onChange={(event) => updateInstitutionField("country", event.target.value)}
+                      placeholder="Nigeria"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-state" className="text-slate-200">State</Label>
+                    <Input
+                      id="institution-state"
+                      value={institutionProfile.state}
+                      onChange={(event) => updateInstitutionField("state", event.target.value)}
+                      placeholder="Lagos"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-city" className="text-slate-200">City</Label>
+                  <Input
+                    id="institution-city"
+                    value={institutionProfile.city}
+                    onChange={(event) => updateInstitutionField("city", event.target.value)}
+                    placeholder="Ikeja"
+                    disabled={institutionLoading}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
+                <div className="space-y-2">
+                  <Label htmlFor="institution-academic-calendar" className="text-slate-200">Academic Calendar</Label>
+                  <Input
+                    id="institution-academic-calendar"
+                    value={institutionProfile.academicCalendarType}
+                    onChange={(event) => updateInstitutionField("academicCalendarType", event.target.value)}
+                    placeholder="Semester"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Institution Logo</Label>
+                    <label className="flex cursor-pointer items-center justify-between rounded-xl border border-white/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 transition hover:bg-slate-950/60">
+                      <span>{institutionProfile.logoUrl ? "Change logo" : "Upload logo"}</span>
+                      <Upload className="h-4 w-4" />
+                      <input
+                        ref={institutionLogoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(event) => handleInstitutionImageSelect("logoUrl", event)}
+                        disabled={institutionLoading || institutionSaving}
+                      />
+                    </label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Background Image</Label>
+                    <label className="flex cursor-pointer items-center justify-between rounded-xl border border-white/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 transition hover:bg-slate-950/60">
+                      <span>{institutionProfile.backgroundImageUrl ? "Change background" : "Upload background"}</span>
+                      <Upload className="h-4 w-4" />
+                      <input
+                        ref={institutionBackgroundInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(event) => handleInstitutionImageSelect("backgroundImageUrl", event)}
+                        disabled={institutionLoading || institutionSaving}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={saveInstitutionSettings}
+                  disabled={institutionLoading || institutionSaving}
+                  className="w-full"
+                >
+                  {institutionSaving ? "Saving institution…" : "Save Institution Settings"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card className="order-2 lg:order-1 shadow-sm">

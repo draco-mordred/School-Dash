@@ -30,10 +30,24 @@ const developers = [
     email: "israelicheal227@gmail.com",
     phone: "+234 9067604081",
     website: "https://draco-mordred.vercel.app",
+    company: {
+      name: "Avalon Corp.",
+      logo: "https://images.unsplash.com/photo-1502685104226-ee32379fefbe?auto=format&fit=crop&w=280&q=80",
+      website: "https://avaloncorp.com",
+    }
   },
   {
     name: "Charles Nwaeze",
     role: "Product Designer & Frontend Lead",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=280&q=80",
+    github: "Charliecodenaija",
+    email: "https://Charliecodenaija",
+    phone: "+234 812 345 6789",
+    website: "https://schooldash.app",
+  },
+    {
+    name: "Prof. I. Abok",
+    role: "Technical Advisor",
     avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=280&q=80",
     github: "nwaezecharles",
     email: "ada@schooldash.app",

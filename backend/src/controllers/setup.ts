@@ -165,6 +165,128 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
   }
 };
 
+const sanitizeSetupString = (value: unknown) => String(value ?? "").trim();
+
+export const updateSetup = async (req: Request, res: Response) => {
+  const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
+  console.info(`[CONTROLLER] enter updateSetup for ${requestLabel}`);
+
+  try {
+    const { institutionProfile, brandingSettings } = req.body;
+
+    if (!institutionProfile && !brandingSettings) {
+      return res.status(400).json({ status: "Error", message: "No setup data provided to update." });
+    }
+
+    const existingInstitution = await Institution.findOne().exec();
+    if (!existingInstitution) {
+      return res.status(404).json({ status: "Error", message: "Institution has not been configured yet." });
+    }
+
+    const institutionUpdates: Record<string, unknown> = {};
+    if (institutionProfile && typeof institutionProfile === "object") {
+      const fields = [
+        "name",
+        "shortName",
+        "type",
+        "country",
+        "state",
+        "city",
+        "academicCalendarType",
+        "timezone",
+        "logoUrl",
+        "backgroundImageUrl",
+      ] as const;
+
+      for (const field of fields) {
+        if (Object.prototype.hasOwnProperty.call(institutionProfile, field)) {
+          institutionUpdates[field] = sanitizeSetupString((institutionProfile as Record<string, unknown>)[field]);
+        }
+      }
+    }
+
+    let brandingData: { primaryColor?: string; accentColor?: string } | null = null;
+    if (brandingSettings && typeof brandingSettings === "object") {
+      const brandingUpdate: Record<string, string> = {};
+      if (brandingSettings.primaryColor !== undefined) {
+        brandingUpdate.primaryColor = sanitizeSetupString(brandingSettings.primaryColor);
+      }
+      if (brandingSettings.accentColor !== undefined) {
+        brandingUpdate.accentColor = sanitizeSetupString(brandingSettings.accentColor);
+      }
+
+      if (Object.keys(brandingUpdate).length > 0) {
+        if (existingInstitution.brandingSettings) {
+          brandingData = await BrandingSettings.findByIdAndUpdate(
+            existingInstitution.brandingSettings,
+            brandingUpdate,
+            { new: true }
+          )
+            .lean()
+            .exec();
+        } else {
+          const createdBranding = await BrandingSettings.create([brandingUpdate]);
+          if (createdBranding?.[0]?._id) {
+            institutionUpdates.brandingSettings = createdBranding[0]._id;
+            brandingData = createdBranding[0];
+          }
+        }
+      }
+    }
+
+    if (Object.keys(institutionUpdates).length > 0) {
+      await Institution.findByIdAndUpdate(existingInstitution._id, institutionUpdates, { new: true }).exec();
+    }
+
+    cachedInstitution = null;
+    lastCacheTime = 0;
+
+    const updatedInstitution = await Institution.findById(existingInstitution._id)
+      .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .lean()
+      .exec();
+
+    if (!updatedInstitution) {
+      return res.status(500).json({ status: "Error", message: "Unable to load updated institution." });
+    }
+
+    if (!brandingData && updatedInstitution.brandingSettings) {
+      brandingData = await BrandingSettings.findById(updatedInstitution.brandingSettings)
+        .select('primaryColor accentColor')
+        .lean()
+        .exec();
+    }
+
+    res.status(200).json({
+      status: "Success",
+      institution: {
+        name: updatedInstitution.name,
+        shortName: updatedInstitution.shortName,
+        type: updatedInstitution.type,
+        country: updatedInstitution.country,
+        state: updatedInstitution.state,
+        city: updatedInstitution.city,
+        academicCalendarType: updatedInstitution.academicCalendarType,
+        timezone: updatedInstitution.timezone,
+        logoUrl: updatedInstitution.logoUrl || "",
+        backgroundImageUrl: updatedInstitution.backgroundImageUrl || "",
+        brandingSettings: brandingData
+          ? {
+              primaryColor: brandingData.primaryColor || "#2563eb",
+              accentColor: brandingData.accentColor || "#4f46e5",
+            }
+          : {
+              primaryColor: "#2563eb",
+              accentColor: "#4f46e5",
+            },
+      },
+    });
+  } catch (error) {
+    console.error(`[CONTROLLER] updateSetup error for ${requestLabel}:`, (error as Error).message);
+    res.status(500).json({ status: "Error", message: "Unable to update setup settings." });
+  }
+};
+
 export const createInitialSetup = async (req: Request, res: Response) => {
   const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
   console.info(`[CONTROLLER] enter createInitialSetup for ${requestLabel}`);
