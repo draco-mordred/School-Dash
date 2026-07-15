@@ -145,7 +145,7 @@ export default function UsersPage() {
               },
             ]}
             loading={loading}
-            navigationPath="/admin/users/parents"
+            navigationPath="/users/parents"
             onViewUser={handleViewUser}
             onEditUser={handleEditUser}
           />
@@ -181,7 +181,7 @@ export default function UsersPage() {
               },
             ]}
             loading={loading}
-            navigationPath="/admin/users/staff"
+            navigationPath="/users/staff"
             onViewUser={handleViewUser}
             onEditUser={handleEditUser}
           />
@@ -200,7 +200,7 @@ export default function UsersPage() {
               },
             ]}
             loading={loading}
-            navigationPath="/admin/users/admins"
+            navigationPath="/users/admins"
             onViewUser={handleViewUser}
             onEditUser={handleEditUser}
           />

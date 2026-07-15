@@ -26,23 +26,20 @@ const DefaultLogo = () => (
 export function TeamSwitcher({
   teams,
   yearName,
+  institution,
 }: {
   teams: {
     name: string;
     logo?: React.ElementType;
   }[];
   yearName: string;
+  institution?: { name?: string; logoUrl?: string | null } | null;
 }) {
   const { isMobile } = useSidebar();
-  const [activeTeam, setActiveTeam] = React.useState(
-    teams[0] ?? { name: "Team", logo: DefaultLogo }
-  );
 
-  if (!activeTeam) {
-    return null;
-  }
-
-  const ActiveLogo = activeTeam.logo ?? DefaultLogo;
+  // If an institution is provided, prefer rendering it as the active "team".
+  const activeName = institution?.name ?? teams[0]?.name ?? "Team";
+  const activeLogoUrl = institution?.logoUrl ?? null;
 
   return (
     <SidebarMenu>
@@ -54,10 +51,14 @@ export function TeamSwitcher({
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
-                <ActiveLogo className="size-4" />
+                {activeLogoUrl ? (
+                  <img src={activeLogoUrl} alt={activeName} className="size-4 rounded-md object-cover" />
+                ) : (
+                  <DefaultLogo />
+                )}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{activeTeam.name}</span>
+                <span className="truncate font-medium">{activeName}</span>
                 <span className="truncate text-xs">{yearName}</span>
               </div>
               <ChevronsUpDown className="ml-auto" />
@@ -69,15 +70,9 @@ export function TeamSwitcher({
             side={isMobile ? "bottom" : "right"}
             sideOffset={4}
           >
-            <DropdownMenuLabel className="text-muted-foreground text-xs">
-              Teams
-            </DropdownMenuLabel>
+            <DropdownMenuLabel className="text-muted-foreground text-xs">Teams</DropdownMenuLabel>
             {teams.map((team, index) => (
-              <DropdownMenuItem
-                key={team.name}
-                onClick={() => setActiveTeam(team)}
-                className="gap-2 p-2"
-              >
+              <DropdownMenuItem key={team.name} className="gap-2 p-2">
                 <div className="flex size-6 items-center justify-center rounded-md border">
                   {team.logo ? (
                     <team.logo className="size-3.5 shrink-0" />

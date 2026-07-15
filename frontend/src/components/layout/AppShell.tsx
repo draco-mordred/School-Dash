@@ -530,10 +530,12 @@ export default function AppShell({ children }: PropsWithChildren) {
                   </DropdownMenu>
                 </div>
               </div>
-            </header>
+            </header> 
           )}
 
-          <main id="app-main" className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
+          <main id="app-main" className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>
+            <div key={location.pathname} className="page-transition">{children ?? <Outlet />}</div>
+          </main>
           <MordredFloatingChat />
           {isProtected && (
             <footer

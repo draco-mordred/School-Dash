@@ -531,6 +531,22 @@ html.dark, .dark {
   }
 }
 
+/* Page transition: subtle slide + fade for route changes */
+.page-transition {
+  animation: page-slide-fade-in 260ms ease both;
+}
+
+@keyframes page-slide-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .animate-card-pop {
   animation: card-pop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   animation-iteration-count: 2;

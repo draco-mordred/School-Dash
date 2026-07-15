@@ -267,6 +267,10 @@ export const router = createBrowserRouter([
             element: <ClinicalRotations />,
           },
           {
+            path: "rotation-teams",
+            element: <ClinicalRotations />,
+          },
+          {
             path: "departments",
             element: <AdminDepartments />,
           },

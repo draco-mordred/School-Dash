@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
@@ -26,13 +26,14 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAdminDashboard } from "@/hooks/useAdminDashboard";
-import { KPICards } from "@/components/admin/dashboard/KPICards";
-import { Snapshots } from "@/components/admin/dashboard/Snapshots";
-import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlerts";
-import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
-import { QuickActions } from "@/components/admin/dashboard/QuickActions";
-import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
-import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
+const KPICards = lazy(() => import("@/components/admin/dashboard/KPICards").then(mod => ({ default: mod.KPICards })));
+const AcademicSnapshot = lazy(() => import("@/components/admin/dashboard/Snapshots").then(mod => ({ default: mod.AcademicSnapshot })));
+const ClinicalSnapshot = lazy(() => import("@/components/admin/dashboard/Snapshots").then(mod => ({ default: mod.ClinicalSnapshot })));
+const OperationalAlerts = lazy(() => import("@/components/admin/dashboard/OperationalAlerts").then(mod => ({ default: mod.OperationalAlerts })));
+const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/RecentActivityFeed").then(mod => ({ default: mod.RecentActivityFeed })));
+const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
+const AnalyticsWidgets = lazy(() => import("@/components/admin/dashboard/AnalyticsWidgets").then(mod => ({ default: mod.AnalyticsWidgets })));
+const AIInsightWidget = lazy(() => import("@/components/dashboard/ai-insight-widget").then(mod => ({ default: mod.AIInsightWidget })));
 
 function NotificationsCard() {
   const navigate = useNavigate();
@@ -275,10 +276,10 @@ export default function Dashboard() {
   }, [user]);
 
   const isAdmin = user?.role === "admin";
-  const isTeacher = user?.role === "teacher";
+  const isTeacher = user?.role === "teacher" || user?.role === "unitconsultant" || user?.role === "unitresident";
   const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
-  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent;
+  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent || isStudent;
 
   // Derived UI values for class overview
   const classesWithTimetableCount = classStatuses.filter((c) => c.timetableStatus === "active").length;
@@ -347,7 +348,9 @@ export default function Dashboard() {
     );
   });
 
-  if (loading) {
+  // If global loading or (admin user whose admin-specific data hasn't loaded),
+  // show the skeleton to avoid briefly rendering the general dashboard for admins.
+  if (loading || (isAdmin && (adminLoading || !adminDashboardData))) {
     return (
       <div className="flex-1 space-y-6 p-6">
         {/* Charts skeleton */}
@@ -388,28 +391,69 @@ export default function Dashboard() {
         </div>
 
         {/* KPI Cards */}
-        <KPICards stats={adminDashboardData.stats} loading={adminLoading} />
-
+        <Suspense fallback={<Skeleton className="h-36 w-full rounded-xl" />}>
+          <KPICards stats={adminDashboardData.stats} loading={adminLoading} />
+        </Suspense>
+ 
         {/* Academic & Clinical Snapshots */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Snapshots.Academic loading={adminLoading} />
-          <Snapshots.Clinical loading={adminLoading} />
+          <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+            <AcademicSnapshot loading={adminLoading} data={adminDashboardData?.academicData} />
+          </Suspense>
+          <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+            <ClinicalSnapshot loading={adminLoading} data={adminDashboardData?.clinicalData} />
+          </Suspense>
         </div>
 
         {/* Operational Alerts */}
-        <OperationalAlerts alerts={adminDashboardData?.alerts ?? []} loading={adminLoading} />
+        <Suspense fallback={<Skeleton className="h-32 w-full rounded-xl" />}>
+          <OperationalAlerts alerts={adminDashboardData?.alerts ?? []} loading={adminLoading} />
+        </Suspense>
 
         {/* Activity Feed & Quick Actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <RecentActivityFeed activities={adminDashboardData?.activities ?? []} loading={adminLoading} />
+            <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+              <RecentActivityFeed activities={adminDashboardData?.activities ?? []} loading={adminLoading} />
+            </Suspense>
+            {/* Insert mordred insights card here */}
+            
           </div>
-          <QuickActions />
+          
+          <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+            <QuickActions />
+          </Suspense>
         </div>
 
         {/* Analytics Widgets */}
-        <AnalyticsWidgets />
+        <Suspense fallback={<Skeleton className="h-60 w-full rounded-xl" />}>
+          <AnalyticsWidgets />
+        </Suspense>
+        {/* Below tag is for notifications imported into the admin's dashboard */}
+        <NotificationsCard /> 
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold">Clinical progress chart</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — line chart</p>
+          </div>
+          <div className="p-5">
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={weeklyActivity.length ? weeklyActivity : [{ name: "W1", attendance: 10, rotation: 6 }, { name: "W2", attendance: 35, rotation: 12 }, { name: "W3", attendance: 50, rotation: 16 }, { name: "W4", attendance: 25, rotation: 8 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="rotation" name="Rotation" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
       </div>
+      
     );
   }
 
@@ -584,7 +628,9 @@ export default function Dashboard() {
 
       {canViewMordredInsights && (
         <div className="grid grid-cols-1 gap-6">
-          <AIInsightWidget />
+          <Suspense fallback={<Skeleton className="h-24 w-full rounded-xl" />}>
+            <AIInsightWidget />
+          </Suspense>
         </div>
       )}
 

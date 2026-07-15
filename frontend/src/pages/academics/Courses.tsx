@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2, Pencil } from "lucide-react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
@@ -124,6 +125,8 @@ export default function Courses() {
   const isAdminOrTeacher = user?.role === "admin" || user?.role === "teacher";
   const canManageCourses = ["admin", "teacher", "unitconsultant"].includes(user?.role ?? "");
   const isAdmin = user?.role === "admin";
+  // Allow create/add actions for any user except students and parents
+  const canCreateCourse = Boolean(user) && !["student", "parent"].includes(user?.role ?? "");
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loadingState, setLoadingState] = useState<LoadingState>("idle");
@@ -133,6 +136,7 @@ export default function Courses() {
   const [search, setSearch] = useState("");
   const [addCourseOpen, setAddCourseOpen] = useState(false);
   const [createCourseOpen, setCreateCourseOpen] = useState(false);
+  const [createCourseForClassId, setCreateCourseForClassId] = useState<string | null>(null);
   const [editingCourse, setEditingCourse] = useState<courses | null>(null);
   const [allCourses, setAllCourses] = useState<courses[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
@@ -203,6 +207,15 @@ export default function Courses() {
     if (Array.isArray(subjectsLegacy)) return subjectsLegacy;
     return [];
   }, [selectedClass]);
+
+  const createCourseTargetClass = useMemo(() => {
+    if (createCourseForClassId) {
+      return classes.find((cls) => cls._id === createCourseForClassId) ?? selectedClass;
+    }
+    return selectedClass;
+  }, [classes, createCourseForClassId, selectedClass]);
+
+  const shouldShowAssignCheckbox = !createCourseTargetClass;
 
   // Filter units by selected department
   const selectedCourseDepartmentId = createForm.watch("department");
@@ -341,12 +354,18 @@ export default function Courses() {
     }
   };
 
-  const handleOpenCreateCourse = (open: boolean) => {
+  const handleOpenCreateCourse = (open: boolean, classId?: string) => {
     setCreateCourseOpen(open);
     if (!open) {
+      setCreateCourseForClassId(null);
       setEditingCourse(null);
       return;
     }
+
+    const targetClassId = classId ?? selectedClassId;
+    const targetClass = classes.find((c) => c._id === targetClassId) ?? selectedClass;
+
+    setCreateCourseForClassId(targetClassId ?? null);
     createForm.reset({
       name: "",
       code: "",
@@ -354,12 +373,12 @@ export default function Courses() {
       department: "",
       unit: "",
       semester: "First",
-      academicYearId: selectedClass?.academicYear?._id ?? "",
+      academicYearId: targetClass?.academicYear?._id ?? "",
       lecturer: "",
       isActive: true,
-      assignToClass: Boolean(selectedClass),
+      assignToClass: Boolean(targetClass),
     });
-    void fetchTeachers();
+    void fetchTeachers(targetClass?.department?._id ?? undefined);
     void fetchCourseMeta();
   };
 
@@ -495,16 +514,18 @@ export default function Courses() {
         isActive: values.isActive,
       };
       const { data } = await api.post("/courses", payload);
-      if (values.assignToClass && selectedClassId) {
+      const classIdToAssign = createCourseForClassId ?? selectedClassId;
+      if (values.assignToClass && classIdToAssign) {
         try {
           const existingIds = selectedCourses.map((c) => c._id).filter(Boolean) as string[];
-          await api.patch(`/classes/update/${selectedClassId}`, { courses: [...existingIds, data._id] });
+          await api.patch(`/classes/update/${classIdToAssign}`, { courses: [...existingIds, data._id] });
         } catch {
           toast.error("Course created, but failed to assign it to the selected class.");
         }
       }
       toast.success(`Course "${values.name}" created successfully`);
       setCreateCourseOpen(false);
+      setCreateCourseForClassId(null);
       void fetchAllCourses();
       void fetchClasses();
     } catch (e: unknown) {
@@ -633,11 +654,18 @@ export default function Courses() {
                 <RefreshCw className="mr-1 h-4 w-4" />
                 {uploadingCourses ? "Uploading..." : "Bulk Upload"}
               </Button>
-              <Button variant="default" size="sm" onClick={() => handleOpenCreateCourse(true)}>
-                <PlusCircle className="mr-1 h-4 w-4" />
-                New Course
-              </Button>
             </>
+          )}
+          {canCreateCourse && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleOpenCreateCourse(true, selectedClassId ?? undefined)}
+              title={selectedClass ? "Create course for the selected class" : "Create a course"}
+            >
+              <PlusCircle className="mr-1 h-4 w-4" />
+              New Course
+            </Button>
           )}
           <div className="md:hidden">
             <SidebarTrigger />
@@ -702,26 +730,14 @@ export default function Courses() {
             <div className="flex items-center gap-2">
               <Badge variant="secondary">{selectedCourses.length}</Badge>
               {selectedClass && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenAddCourse(true)}
-                  >
-                    <PlusCircle className="mr-1 h-4 w-4" />
-                    Add
-                  </Button>
-                  {canManageCourses && (
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => handleOpenCreateCourse(true)}
-                    >
-                      <PlusCircle className="mr-1 h-4 w-4" />
-                      New Course
-                    </Button>
-                  )}
-                </>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleOpenAddCourse(true)}
+                >
+                  <PlusCircle className="mr-1 h-4 w-4" />
+                  Add
+                </Button>
               )}
             </div>
           </div>
@@ -943,6 +959,8 @@ export default function Courses() {
         title={editingCourse ? "Edit Course" : "Create New Course"}
         description={editingCourse
           ? `Update course "${editingCourse.name}".`
+          : createCourseTargetClass
+          ? `Create a new course and assign it to ${createCourseTargetClass.name}.`
           : "Add a new course subject to the system. Admin and teachers can create courses."}
       >
         <form
@@ -1052,16 +1070,31 @@ export default function Courses() {
               />
               <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="assignToClass"
-                {...createForm.register("assignToClass")}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
-            </div>
+            {shouldShowAssignCheckbox && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="assignToClass"
+                  {...createForm.register("assignToClass")}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
+              </div>
+            )}
           </div>
+
+          {createCourseTargetClass && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-slate-700">
+              <div className="font-medium">Selected class</div>
+              <div>{createCourseTargetClass.name}</div>
+              <Link
+                to={`/classes?selected=${createCourseTargetClass._id}`}
+                className="text-primary underline"
+              >
+                View class details
+              </Link>
+            </div>
+          )}
 
           <Button
             type="submit"

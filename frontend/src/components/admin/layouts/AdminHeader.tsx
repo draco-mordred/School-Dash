@@ -85,10 +85,10 @@ export const AdminHeader = () => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => navigate("/admin/settings/institution")}>
+              <DropdownMenuItem onClick={() => navigate("/settings/general")}>
                 Settings
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate("/admin/settings/authentication")}>
+              <DropdownMenuItem onClick={() => navigate("/settings/account")}>
                 Authentication
               </DropdownMenuItem>
               <DropdownMenuSeparator />

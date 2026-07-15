@@ -140,7 +140,6 @@ const DepartmentFormCard = ({
 
 const DepartmentUnitsSection = ({ search }: { search: string }) => {
   const [departmentUnits, setDepartmentUnits] = useState<Record<string, DepartmentUnitsData>>({});
-  const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
   const [loadingUnits, setLoadingUnits] = useState(false);
 
   const fetchConstants = useCallback(async () => {
@@ -179,12 +178,23 @@ const DepartmentUnitsSection = ({ search }: { search: string }) => {
     );
   }, [departmentUnits, search]);
 
+  const sortedDepartments = useMemo(() => {
+    return [...visibleDepartments].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
+  }, [visibleDepartments]);
+
   return (
     <Card className="shadow-sm">
       <CardHeader>
-        <div>
-          <CardTitle className="text-card-foreground">Units</CardTitle>
-          <CardDescription className="text-muted-foreground">Unit metadata is loaded from department constants and grouped by department.</CardDescription>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-card-foreground">Units</CardTitle>
+            <CardDescription className="text-muted-foreground">Browse units grouped under each department.</CardDescription>
+          </div>
+          <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+            {sortedDepartments.length} groups
+          </span>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -192,67 +202,56 @@ const DepartmentUnitsSection = ({ search }: { search: string }) => {
           <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
             Loading units…
           </div>
-        ) : visibleDepartments.length === 0 ? (
+        ) : sortedDepartments.length === 0 ? (
           <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
             No unit metadata found.
           </div>
         ) : (
-          <div className="space-y-4">
-            {visibleDepartments.map((unitMeta) => {
-              const isOpen = expandedUnits[unitMeta.id] ?? false;
+          <div className="space-y-3">
+            {sortedDepartments.map((unitMeta) => {
               const activeUnits = unitMeta.units.active.map(normalizeUnitName).filter(Boolean);
               const reserveUnits = unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean);
 
               return (
-                <div key={unitMeta.id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedUnits((prev) => ({ ...prev, [unitMeta.id]: !prev[unitMeta.id] }))}
-                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-                  >
+                <div key={unitMeta.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-lg font-semibold text-card-foreground">{unitMeta.name}</p>
+                      <p className="text-base font-semibold text-card-foreground">{unitMeta.name}</p>
                       <p className="text-sm text-muted-foreground">{unitMeta.id} · {unitMeta.postingType ?? "Department"}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                        {activeUnits.length} active
-                      </span>
-                      {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                    </div>
-                  </button>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Department
+                    </span>
+                  </div>
 
-                  {isOpen && (
-                    <div className="border-t border-border bg-muted px-5 py-4">
-                      <div className="mb-4 flex flex-wrap gap-3 text-sm text-muted-foreground">
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Rotation {unitMeta.rotationDurationWeeks} weeks</span>
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Active {activeUnits.length}</span>
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Reserve {reserveUnits.length}</span>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-border bg-muted/70 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-card-foreground">Active units</p>
+                        <span className="rounded-full bg-card px-2 py-1 text-xs text-muted-foreground">{activeUnits.length}</span>
                       </div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-sm font-semibold text-card-foreground">Active units</p>
-                          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                            {activeUnits.map((unit) => (
-                              <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                {unit}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
-                          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                            {reserveUnits.map((unit) => (
-                              <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                {unit}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                      <div className="flex flex-wrap gap-2">
+                        {activeUnits.map((unit) => (
+                          <span key={unit} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                            {unit}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  )}
+                    <div className="rounded-xl border border-border bg-muted/70 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
+                        <span className="rounded-full bg-card px-2 py-1 text-xs text-muted-foreground">{reserveUnits.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {reserveUnits.map((unit) => (
+                          <span key={unit} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                            {unit}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -445,6 +444,12 @@ const SchoolSettings = () => {
       )
     );
   }, [departments, debouncedSearch]);
+
+  const sortedDepartments = useMemo(() => {
+    return [...filteredDepartments].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
+  }, [filteredDepartments]);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -756,7 +761,7 @@ const SchoolSettings = () => {
           <CardHeader>
             <div className="flex flex-col gap-2">
               <CardTitle className="text-card-foreground">Departments</CardTitle>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Click a department card to expand its details and unit preview.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Review the institution departments and manage them directly from this list.</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -764,90 +769,43 @@ const SchoolSettings = () => {
               <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
                 Loading departments…
               </div>
-            ) : filteredDepartments.length === 0 ? (
+            ) : sortedDepartments.length === 0 ? (
               <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
                 No departments found.
               </div>
             ) : (
-              <div className="space-y-4">
-                {filteredDepartments.map((department) => {
+              <div className="space-y-3">
+                {sortedDepartments.map((department) => {
                   const unitMeta = departmentUnitsByCode[department.code.toUpperCase()];
                   const activeUnits = unitMeta
                     ? unitMeta.units.active.map(normalizeUnitName).filter(Boolean)
                     : [];
-                  const reserveUnits = unitMeta
-                    ? unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean)
-                    : [];
-                  const isOpen = expandedDepartments[department._id] ?? false;
 
                   return (
-                    <div key={department._id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedDepartments((prev) => ({ ...prev, [department._id]: !prev[department._id] }))}
-                        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-                      >
+                    <div key={department._id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-lg font-semibold text-card-foreground">{department.name}</p>
+                          <p className="text-base font-semibold text-card-foreground">{department.name}</p>
                           <p className="text-sm text-slate-600 dark:text-slate-400">{department.code} · {department.departmentID}</p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            {activeUnits.length} units
-                          </span>
-                          {isOpen ? <ChevronUp className="h-4 w-4 text-slate-600" /> : <ChevronDown className="h-4 w-4 text-slate-600" />}
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditForm(department)}>
+                            <Pencil className="h-4 w-4" /> Edit
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => { setDeleteId(department._id); setIsDeleteOpen(true); }}>
+                            <Trash className="h-4 w-4" /> Delete
+                          </Button>
                         </div>
-                      </button>
+                      </div>
 
-                      {isOpen && (
-                        <div className="border-t border-border bg-muted px-5 py-4">
-                          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-card-foreground">Department details</p>
-                              <p className="text-sm text-slate-600 dark:text-slate-400">Use the buttons below to edit or delete.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEditForm(department)}>
-                                <Pencil className="h-4 w-4" /> Edit
-                              </Button>
-                              <Button variant="destructive" size="sm" onClick={() => { setDeleteId(department._id); setIsDeleteOpen(true); }}>
-                                <Trash className="h-4 w-4" /> Delete
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Active units</p>
-                              {activeUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {activeUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No unit metadata available.</p>
-                              )}
-                            </div>
-                            <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
-                              {reserveUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {reserveUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No reserve units defined.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                          {activeUnits.length} units
+                        </span>
+                        <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
+                          Department
+                        </span>
+                      </div>
                     </div>
                   );
                 })}

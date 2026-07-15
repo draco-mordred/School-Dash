@@ -1,10 +1,12 @@
-import { useEffect, useState, useRef, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, useRef, type FormEvent, type MouseEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useInstitution } from "@/lib/useInstitution";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Link } from "react-router-dom";
 
 import {
   Dialog,
@@ -74,6 +76,7 @@ interface SubjectOption {
 interface Class {
   _id: string;
   name: string;
+  academicYear?: { _id: string; name: string };
 }
 
 interface TimetablePeriod {
@@ -98,6 +101,7 @@ export default function TeacherCourses() {
   const [addSubjectDialogOpen, setAddSubjectDialogOpen] = useState(false);
   const [courseToAddSubject, setCourseToAddSubject] = useState<Course | null>(null);
   const { user } = useAuth();
+  const { institution } = useInstitution();
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -111,6 +115,23 @@ export default function TeacherCourses() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "subjects-high" | "subjects-low">("name-asc");
+  const [createCourseDialogOpen, setCreateCourseDialogOpen] = useState(false);
+  const [createCourseLoading, setCreateCourseLoading] = useState(false);
+  const [createCourseError, setCreateCourseError] = useState<string | null>(null);
+  const [createDepartments, setCreateDepartments] = useState<Array<{ _id: string; name: string; departmentID: string; code: string }>>([]);
+  const [createUnits, setCreateUnits] = useState<Array<{ _id: string; name: string; unitID: string; department: string | { _id?: string } }>>([]);
+  const [createAcademicYears, setCreateAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [createCourseForm, setCreateCourseForm] = useState({
+    name: "",
+    code: "",
+    courseID: "",
+    semester: "First" as "First" | "Second",
+    department: "",
+    unit: "",
+    academicYearId: "",
+    isActive: true,
+    assignToClass: false,
+  });
 
   // Hover and expand animations
   const [hoveredCourseId, setHoveredCourseId] = useState<string | null>(null);
@@ -126,6 +147,97 @@ export default function TeacherCourses() {
   const cardTransforms = useRef<Record<string, { dx: number; dy: number; scale: number; anchorX: number; anchorY: number }>>({});
   const pointerRef = useRef<Record<string, { x: number; y: number }>>({});
 
+  const selectedClass = useMemo(
+    () => classes.find((cls) => cls._id === selectedClassId) ?? null,
+    [classes, selectedClassId]
+  );
+
+  const filteredUnits = useMemo(() => {
+    if (!createCourseForm.department) return createUnits;
+    return createUnits.filter((u) => {
+      const deptId = typeof u.department === "object" ? u.department._id : u.department;
+      return String(deptId) === String(createCourseForm.department);
+    });
+  }, [createUnits, createCourseForm.department]);
+
+  useEffect(() => {
+    const loadCourseMeta = async () => {
+      try {
+        const { data } = await api.get("/courses/meta");
+        setCreateDepartments(Array.isArray(data.departments) ? data.departments : []);
+        setCreateUnits(Array.isArray(data.units) ? data.units : []);
+        setCreateAcademicYears(Array.isArray(data.academicYears) ? data.academicYears : []);
+      } catch (error) {
+        console.error("Failed to load course metadata", error);
+      }
+    };
+
+    void loadCourseMeta();
+  }, []);
+
+  const canCreateCourse = ["admin", "teacher", "unitconsultant"].includes(user?.role ?? "");
+
+  const handleOpenCreateCourse = (open: boolean) => {
+    setCreateCourseDialogOpen(open);
+    if (open) {
+      setCreateCourseForm((prev) => ({
+        ...prev,
+        assignToClass: Boolean(selectedClassId),
+      }));
+      setCreateCourseError(null);
+    }
+  };
+
+  const handleCreateCourseSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCreateCourseError(null);
+    setCreateCourseLoading(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: createCourseForm.name.trim(),
+        code: createCourseForm.code.trim(),
+        courseID: createCourseForm.courseID.trim(),
+        department: createCourseForm.department,
+        semester: createCourseForm.semester,
+        academicYearId: createCourseForm.academicYearId,
+        isActive: createCourseForm.isActive,
+      };
+
+      if (createCourseForm.unit) {
+        payload.unit = createCourseForm.unit;
+      }
+
+      if (selectedClassId) {
+        payload.studentClasses = [selectedClassId];
+      }
+
+      await api.post("/courses", payload);
+      toast.success("Course created successfully");
+      setCreateCourseDialogOpen(false);
+      setCreateCourseForm({
+        name: "",
+        code: "",
+        courseID: "",
+        semester: "First",
+        department: "",
+        unit: "",
+        academicYearId: "",
+        isActive: true,
+        assignToClass: Boolean(selectedClassId),
+      });
+      if (selectedClassId) {
+        const { data } = await api.get(`/courses?class=${selectedClassId}&topLevel=true`);
+        setCourses(Array.isArray(data.courses) ? data.courses : []);
+      }
+    } catch (error: unknown) {
+      console.error(error);
+      const err = error as { response?: { data?: { message?: string } } };
+      setCreateCourseError(err.response?.data?.message ?? "Failed to create course");
+    } finally {
+      setCreateCourseLoading(false);
+    }
+  };
+
   useEffect(() => {
     return () => {
       Object.values(hoverTimeoutRef.current).forEach((timeout) => clearTimeout(timeout));
@@ -135,8 +247,10 @@ export default function TeacherCourses() {
 
     useEffect(() => {
       if (!subjectsPanelCourseId || !expandedCourseId) {
-        setSubjectsPanelPosition(null);
-        return;
+        const timeoutId = window.setTimeout(() => {
+          setSubjectsPanelPosition(null);
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
       }
   
       const updatePanelPosition = () => {
@@ -196,10 +310,10 @@ export default function TeacherCourses() {
         if (allClasses.length > 0) {
           setSelectedClassId(allClasses[0]._id);
         }
-      } catch (err: unknown) {
-        console.error("Failed to fetch classes:", err);
-        setError("Failed to load classes");
-      } finally {
+      } catch (error: unknown) {
+        console.error(error);
+        const err = error as { response?: { data?: { message?: string } } };
+        setCreateCourseError(err.response?.data?.message ?? "Failed to create course");
         setLoadingClasses(false);
       }
     };
@@ -548,21 +662,7 @@ const { dx, dy, scale } = transform;
     selectedSubjectIds: [] as string[],
   });
   const [courseSubjectOptions, setCourseSubjectOptions] = useState<SubjectOption[]>([]);
-  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
   const [departmentTeachers, setDepartmentTeachers] = useState<Array<{ _id: string; name: string; email?: string; role?: string }>>([]);
-
-  useEffect(() => {
-    const loadCourseMeta = async () => {
-      try {
-        const { data } = await api.get("/courses/meta");
-        setAcademicYears(Array.isArray(data.academicYears) ? data.academicYears : []);
-      } catch (error) {
-        console.error("Failed to load course meta", error);
-      }
-    };
-
-    void loadCourseMeta();
-  }, []);
 
   useEffect(() => {
     if (!courseToEdit) return;
@@ -627,17 +727,21 @@ const { dx, dy, scale } = transform;
       ? (typeof courseToEdit.lecturer[0] === "string" ? courseToEdit.lecturer[0] : courseToEdit.lecturer[0]?._id ?? "")
       : "";
 
-    setCourseEditForm({
-      name: courseToEdit.name ?? "",
-      code: courseToEdit.code ?? "",
-      semester: courseToEdit.semester ?? "",
-      academicYear: typeof courseToEdit.academicYear === "object" ? courseToEdit.academicYear?._id ?? "" : "",
-      departmentCode: courseToEdit.department?.code ?? "",
-      departmentName: courseToEdit.department?.name ?? "",
-      className: selectedClassId ? classes.find((cls) => cls._id === selectedClassId)?.name ?? "" : "",
-      hodId: existingHodId || courseToEdit.department?.head?._id || "",
-      selectedSubjectIds: (courseToEdit.subjects ?? []).map((subject) => subject._id),
+    const frameId = window.requestAnimationFrame(() => {
+      setCourseEditForm({
+        name: courseToEdit.name ?? "",
+        code: courseToEdit.code ?? "",
+        semester: courseToEdit.semester ?? "",
+        academicYear: typeof courseToEdit.academicYear === "object" ? courseToEdit.academicYear?._id ?? "" : "",
+        departmentCode: courseToEdit.department?.code ?? "",
+        departmentName: courseToEdit.department?.name ?? "",
+        className: selectedClassId ? classes.find((cls) => cls._id === selectedClassId)?.name ?? "" : "",
+        hodId: existingHodId || courseToEdit.department?.head?._id || "",
+        selectedSubjectIds: (courseToEdit.subjects ?? []).map((subject) => subject._id),
+      });
     });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [courseToEdit, classes, selectedClassId]);
 
   const submitCourseEdit = async () => {
@@ -717,12 +821,16 @@ const { dx, dy, scale } = transform;
     };
 
     void loadDepartmentTeachers();
-    setAddSubjectForm({
-      name: "",
-      code: "",
-      semester: "First",
-      lecturerId: "",
+    const frameId = window.requestAnimationFrame(() => {
+      setAddSubjectForm({
+        name: "",
+        code: "",
+        semester: "First",
+        lecturerId: "",
+      });
     });
+
+    return () => window.cancelAnimationFrame(frameId);
   }, [courseToAddSubject]);
 
   const submitAddSubject = async () => {
@@ -742,7 +850,7 @@ const { dx, dy, scale } = transform;
           const { data } = await api.get(`/courses/${courseToAddSubject._id}`);
           const dept = data?.department;
           departmentIdentifier = dept?.departmentID ?? dept?.code ?? dept?._id ?? dept?.name ?? departmentIdentifier;
-        } catch (err) {
+        } catch {
           // fallback to previously-determined identifier
         }
       }
@@ -847,7 +955,7 @@ const { dx, dy, scale } = transform;
                 <SelectValue placeholder="Select academic year" />
               </SelectTrigger>
               <SelectContent>
-                {academicYears.map((year) => (
+                      {createAcademicYears.map((year) => (
                   <SelectItem key={year._id} value={year._id}>
                     {year.name}
                   </SelectItem>
@@ -931,6 +1039,113 @@ const { dx, dy, scale } = transform;
               Save
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createCourseDialogOpen}
+        onOpenChange={(open) => setCreateCourseDialogOpen(open)}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Create New Course</DialogTitle>
+            <DialogDescription>
+              Create a top-level course and assign it to the currently selected class.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleCreateCourseSubmit} className="space-y-4 py-2">
+            <Input
+              placeholder="Course Name"
+              value={createCourseForm.name}
+              onChange={(e) => setCreateCourseForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+            <Input
+              placeholder="Course Code"
+              value={createCourseForm.code}
+              onChange={(e) => setCreateCourseForm((prev) => ({ ...prev, code: e.target.value }))}
+            />
+            <Input
+              placeholder="Course Group ID"
+              value={createCourseForm.courseID}
+              onChange={(e) => setCreateCourseForm((prev) => ({ ...prev, courseID: e.target.value }))}
+            />
+            <Select value={createCourseForm.semester} onValueChange={(value) => setCreateCourseForm((prev) => ({ ...prev, semester: value as "First" | "Second" }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Semester" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="First">First</SelectItem>
+                <SelectItem value="Second">Second</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={createCourseForm.department} onValueChange={(value) => setCreateCourseForm((prev) => ({ ...prev, department: value }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
+              <SelectContent>
+                {createDepartments.map((dept) => (
+                  <SelectItem key={dept._id} value={dept._id}>
+                    {dept.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={createCourseForm.unit} onValueChange={(value) => setCreateCourseForm((prev) => ({ ...prev, unit: value }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Unit (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredUnits.map((unit) => (
+                  <SelectItem key={unit._id} value={unit._id}>
+                    {unit.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={createCourseForm.academicYearId} onValueChange={(value) => setCreateCourseForm((prev) => ({ ...prev, academicYearId: value }))}>
+              <SelectTrigger>
+                <SelectValue placeholder="Academic Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {createAcademicYears.map((year) => (
+                  <SelectItem key={year._id} value={year._id}>
+                    {year.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={createCourseForm.isActive}
+                onCheckedChange={(checked) => setCreateCourseForm((prev) => ({ ...prev, isActive: Boolean(checked) }))}
+              />
+              <span className="text-sm">Active course</span>
+            </div>
+            {!selectedClass && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={createCourseForm.assignToClass}
+                  onCheckedChange={(checked) => setCreateCourseForm((prev) => ({ ...prev, assignToClass: Boolean(checked) }))}
+                />
+                <span className="text-sm">Assign to selected class after create</span>
+              </div>
+            )}
+            {selectedClass && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+                <p className="font-semibold">Selected class</p>
+                <p>{selectedClass.name}</p>
+                <p className="text-xs text-muted-foreground">Academic year: {selectedClass.academicYear?.name ?? "Unknown"}</p>
+                <Link to={`/classes?selected=${selectedClass._id}`} className="text-primary underline">
+                  View class details
+                </Link>
+              </div>
+            )}
+            {createCourseError && <p className="text-sm text-destructive">{createCourseError}</p>}
+            <Button type="submit" className="w-full" disabled={createCourseLoading}>
+              {createCourseLoading ? "Creating..." : "Create Course"}
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1027,6 +1242,40 @@ const { dx, dy, scale } = transform;
       </Dialog>
 
       <div className="space-y-6 p-6">
+        <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-primary/10 text-primary">
+                {institution?.logoUrl ? (
+                  <img src={institution.logoUrl} alt="Institution logo" className="h-full w-full rounded-3xl object-cover" />
+                ) : (
+                  <span className="text-xl font-semibold">
+                    {String(institution?.shortName ?? institution?.name ?? "?").slice(0, 2).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div>
+                <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Institution</p>
+                <p className="text-lg font-semibold">{institution?.name ?? "Institution"}</p>
+              </div>
+            </div>
+            <div className="grid gap-1 text-right">
+              <p className="text-sm uppercase tracking-[0.24em] text-muted-foreground">Active academic year</p>
+              <p className="text-lg font-semibold">{selectedClass?.academicYear?.name ?? "Not set"}</p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">Selected class</p>
+              <p className="font-semibold">{selectedClass?.name ?? "No class selected"}</p>
+            </div>
+            {canCreateCourse && (
+              <Button variant="default" onClick={() => handleOpenCreateCourse(true)}>
+                Create Course
+              </Button>
+            )}
+          </div>
+        </div>
       {/* Header with Class Selection */}
       <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div className="mb-4">

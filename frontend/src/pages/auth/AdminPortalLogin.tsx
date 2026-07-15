@@ -213,7 +213,7 @@ export default function AdminPortalLogin() {
         </Button>
 
         <div className="space-y-3 border-t border-slate-200/70 pt-4 text-center dark:border-slate-800/70">
-          <a href="/admin/forgot-password" className="block text-sm text-[#6e56cf] hover:underline font-medium">
+          <a href="/forgot-password" className="block text-sm text-[#6e56cf] hover:underline font-medium">
             Forgot your password?
           </a>
           <p className="text-xs text-slate-600 dark:text-slate-400">

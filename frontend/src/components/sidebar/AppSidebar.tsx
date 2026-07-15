@@ -25,6 +25,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ThemeToogle } from "./ThemeToogle";
 import { sidebardata } from "./sidebardata";
+import { useInstitution } from "@/lib/useInstitution";
 
 export interface NavItem {
   title: string;
@@ -101,10 +102,12 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
       toast.error("Logout failed. Please try again.");
     }
   }; 
+  const { institution } = useInstitution();
+
   return (
     <Sidebar collapsible={collapsible} {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={sidebardata.teams} yearName={year?.name ?? "Year"} />
+        <TeamSwitcher teams={sidebardata.teams} yearName={year?.name ?? "Year"} institution={institution ?? null} />
       </SidebarHeader>
       <SidebarContent>
         {/* Expanded sidebar: click Collapsible (NavMain visible when expanded) */}
