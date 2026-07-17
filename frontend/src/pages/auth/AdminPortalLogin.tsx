@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -213,9 +213,9 @@ export default function AdminPortalLogin() {
         </Button>
 
         <div className="space-y-3 border-t border-slate-200/70 pt-4 text-center dark:border-slate-800/70">
-          <a href="/forgot-password" className="block text-sm text-[#6e56cf] hover:underline font-medium">
+          <Link to="/forgot-password" className="block text-sm text-[#6e56cf] hover:underline font-medium">
             Forgot your password?
-          </a>
+          </Link>
           <p className="text-xs text-slate-600 dark:text-slate-400">
             All login attempts are recorded and monitored for security purposes.
           </p>

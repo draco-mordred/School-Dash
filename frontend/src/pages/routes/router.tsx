@@ -49,7 +49,9 @@ import StudyMaterials from "@/pages/lms/StudyMaterials";
 import Account from "@/pages/settings/Account";
 import Notifications from "@/pages/Notifications";
 import InstitutionSetupPage from "@/pages/setup/InstitutionSetupPage";
+import SchoolProfile from "@/pages/SchoolProfile";
 import SetupRouteGate from "@/pages/routes/SetupRouteGate";
+import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import { useAuth } from "@/hooks/useAuth";
 
 // Wrapper component for courses route - renders based on user role
@@ -87,6 +89,9 @@ export const router = createBrowserRouter([
       { path: "student", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading student portal…</div>}><StudentPortalLogin /></Suspense> },
       { path: "staff", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading staff portal…</div>}><StaffPortalLogin /></Suspense> },
       { path: "admin", element: <Suspense fallback={<div className="flex min-h-screen items-center justify-center">Loading admin portal…</div>}><AdminPortalLogin /></Suspense> },
+      { path: "forgot-password", element: <ForgotPasswordPage kind="admin" /> },
+      { path: "student/forgot-password", element: <ForgotPasswordPage kind="student" /> },
+      { path: "staff/forgot-password", element: <ForgotPasswordPage kind="staff" /> },
       // protected routes would go here
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported
@@ -223,6 +228,10 @@ export const router = createBrowserRouter([
             element: <StudentSection title="Today" description="Your schedule and highlights for today." />,
           },
           {
+            path: "student/schedule/daily-activities",
+            element: <StudentSection title="Daily activities" description="See the day’s clinical activities, supervisors, and attendance status." />,
+          },
+          {
             path: "student/schedule/week",
             element: <StudentSection title="This Week" description="View your schedule and key events for the current week." />,
           },
@@ -299,6 +308,10 @@ export const router = createBrowserRouter([
           {
             path: "notifications",
             element: <Notifications />,
+          },
+          {
+            path: "school-profile",
+            element: <SchoolProfile />,
           },
           {
             path: "settings/general",

@@ -77,7 +77,7 @@ export function NavMainMiniSidebar({
                     <SidebarMenuButton
                       tooltip={item.title}
                       className={cn(
-                        "h-9 w-full flex items-center justify-center rounded-md transition-colors",
+                        "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
                         "hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
@@ -88,7 +88,7 @@ export function NavMainMiniSidebar({
                     side="right"
                     align="start"
                     sideOffset={8}
-                    className="w-48 border-border bg-background p-0 shadow-lg"
+                    className="w-48 border-border bg-background p-0 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-left-2 data-[state=open]:slide-in-from-left-2 duration-200"
                     onMouseEnter={() => {
                       clearCloseTimeout();
                       setOpenItem(item.title);
@@ -128,7 +128,7 @@ export function NavMainMiniSidebar({
                   <SidebarMenuButton
                     tooltip={item.title}
                     className={cn(
-                      "h-9 w-full flex items-center justify-center rounded-md transition-colors",
+                      "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
                       "hover:bg-accent hover:text-accent-foreground"
                     )}
                   >

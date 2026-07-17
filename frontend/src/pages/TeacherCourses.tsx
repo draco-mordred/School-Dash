@@ -296,7 +296,7 @@ export default function TeacherCourses() {
         // Fetch all classes - can be expanded based on how backend links unit residents to classes
         const response = await api.get("/classes");
         const allClasses = Array.isArray(response.data.classes) ? response.data.classes : [];
-        
+
         setClasses(allClasses);
         if (allClasses.length > 0) {
           setSelectedClassId(allClasses[0]._id);
@@ -305,11 +305,12 @@ export default function TeacherCourses() {
         console.error(error);
         const err = error as { response?: { data?: { message?: string } } };
         setCreateCourseError(err.response?.data?.message ?? "Failed to create course");
+      } finally {
         setLoadingClasses(false);
       }
     };
 
-    fetchUnitResidentClasses();
+    void fetchUnitResidentClasses();
   }, [user?._id]);
 
   // Fetch courses for selected class

@@ -1,13 +1,11 @@
 
 "use client";
 
-import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users, type LucideIcon } from "lucide-react";
 
 import { NavMain } from "@/components/sidebar/nav-main";
 import { NavMainMiniSidebar } from "@/components/sidebar/nav-main-mini-sidebar";
 import { NavUser } from "@/components/sidebar/nav-user";
-import { TeamSwitcher } from "@/components/sidebar/team-switcher";
 import {
   Sidebar,
   SidebarContent,
@@ -26,7 +24,10 @@ import { Button } from "@/components/ui/button";
 import { ThemeToogle } from "./ThemeToogle";
 import { sidebardata } from "./sidebardata";
 import { useInstitution } from "@/lib/useInstitution";
+import { getInstitutionDisplayName, getInstitutionSubtitle } from "@/lib/institutionDisplay";
 
+// NOTE: AppSidebar header customization (institution + academic year)
+// NavItem is intentionally left as-is for compatibility.
 export interface NavItem {
   title: string;
   url: string; // Used for linking and active state matching
@@ -54,20 +55,23 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
   };
 
   const userRole = (user?.role || "student") as UserRole;
+  const normalizedUserRole = ((userRole as string) === "staff" ? "teacher" : userRole) as UserRole | "teacher";
 
-  const roleMeta: Record<UserRole, { icon: LucideIcon; label: string }> = {
+  const roleMeta: Record<string, { icon: LucideIcon; label: string }> = {
     admin: { icon: ShieldCheck, label: "Administrator" },
     teacher: { icon: BookOpen, label: "Teacher" },
     student: { icon: GraduationCap, label: "Student" },
     parent: { icon: Users, label: "Parent" },
+    unitconsultant: { icon: BookOpen, label: "Unit Consultant" },
+    unitresident: { icon: GraduationCap, label: "Unit Resident" },
   };
 
-  const roleInfo = roleMeta[userRole] ?? roleMeta.student;
+  const roleInfo = roleMeta[normalizedUserRole] ?? roleMeta.student;
   const RoleIcon = roleInfo.icon;
 
   const filteredNav = useMemo(() => {
     return sidebardata.navMain
-      .filter((item) => !item.roles || item.roles.includes(userRole))
+      .filter((item) => !item.roles || item.roles.includes(normalizedUserRole))
       .map((item) => {
         const isChildActive = item.items?.some((sub) => sub.url === pathname);
         const isMainActive = item.url === pathname;
@@ -76,7 +80,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
           isActive: isMainActive || isChildActive,
           items: item.items
             ?.filter(
-              (subItem) => !subItem.roles || subItem.roles.includes(userRole),
+              (subItem) => !subItem.roles || subItem.roles.includes(normalizedUserRole),
             )
             .map((subItem) => ({
               ...subItem,
@@ -84,7 +88,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
             })),
         };
       });
-  }, [pathname, userRole]);
+  }, [pathname, normalizedUserRole]);
  
   const logout = async () => {
     try {
@@ -103,11 +107,43 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
     }
   }; 
   const { institution } = useInstitution();
+  const institutionName = getInstitutionDisplayName(institution);
+  const institutionSubtitle = getInstitutionSubtitle(institution, year?.name ?? "") || "Institution profile";
 
   return (
     <Sidebar collapsible={collapsible} {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={sidebardata.teams} yearName={year?.name ?? "Year"} institution={institution ?? null} />
+        {(() => {
+          const institutionLogoUrl = institution?.logoUrl ?? null;
+          return (
+            <div className="w-full px-1">
+              <div className="flex items-center gap-3 py-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted overflow-hidden border border-border/70 shrink-0">
+                  {institutionLogoUrl ? (
+                    <img
+                      src={institutionLogoUrl}
+                      alt={institutionName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[11px] font-semibold text-muted-foreground">
+                      {institutionName.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{institutionName}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{institutionSubtitle}</p>
+                </div>
+              </div>
+
+              {/* <div className="mt-2 rounded-lg bg-muted/50 px-2 py-2 items-center">
+                <p className="text-xs text-muted-foreground">{academicYearName}</p>
+              </div> */}
+            </div>
+          );
+        })()}
       </SidebarHeader>
       <SidebarContent>
         {/* Expanded sidebar: click Collapsible (NavMain visible when expanded) */}
@@ -179,6 +215,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
               <div>
                 <p className="text-sm font-semibold">{roleInfo.label}</p>
                 <p className="text-xs text-muted-foreground">UNIJOS, JOS, Nigeria</p>
+                <p className="truncate text-[7px] text-muted-foreground">{institutionSubtitle}</p>
               </div>
             </div>
           </div>

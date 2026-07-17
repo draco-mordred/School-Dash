@@ -107,14 +107,11 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     const start = Date.now();
     console.info("Request /api/setup/status: received (cache miss)");
 
-    const institution = await Promise.race([
-      Institution.findOne()
-        .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
-        .lean()
-        .exec()
-        .then((value) => value as any),
-      new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
-    ]);
+    const institution = await Institution.findOne()
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .lean()
+      .exec()
+      .then((value) => value as any);
 
     let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
     if (institution?.brandingSettings) {
@@ -144,6 +141,12 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             country: institution.country,
             state: institution.state,
             city: institution.city,
+            addressLine1: institution.addressLine1 || "",
+            addressLine2: institution.addressLine2 || "",
+            contactEmail: institution.contactEmail || "",
+            phone: institution.phone || "",
+            website: institution.website || "",
+            description: institution.description || "",
             academicCalendarType: institution.academicCalendarType,
             timezone: institution.timezone,
             logoUrl: institution.logoUrl || "",
@@ -166,6 +169,11 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
 };
 
 const sanitizeSetupString = (value: unknown) => String(value ?? "").trim();
+
+export const buildInstitutionUpdateOptions = () => ({
+  returnDocument: "after" as const,
+  runValidators: true,
+});
 
 export const updateSetup = async (req: Request, res: Response) => {
   const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
@@ -192,6 +200,12 @@ export const updateSetup = async (req: Request, res: Response) => {
         "country",
         "state",
         "city",
+        "addressLine1",
+        "addressLine2",
+        "contactEmail",
+        "phone",
+        "website",
+        "description",
         "academicCalendarType",
         "timezone",
         "logoUrl",
@@ -220,7 +234,7 @@ export const updateSetup = async (req: Request, res: Response) => {
           brandingData = await BrandingSettings.findByIdAndUpdate(
             existingInstitution.brandingSettings,
             brandingUpdate,
-            { new: true }
+            buildInstitutionUpdateOptions()
           )
             .lean()
             .exec();
@@ -235,14 +249,14 @@ export const updateSetup = async (req: Request, res: Response) => {
     }
 
     if (Object.keys(institutionUpdates).length > 0) {
-      await Institution.findByIdAndUpdate(existingInstitution._id, institutionUpdates, { new: true }).exec();
+      await Institution.findByIdAndUpdate(existingInstitution._id, institutionUpdates, buildInstitutionUpdateOptions()).exec();
     }
 
     cachedInstitution = null;
     lastCacheTime = 0;
 
     const updatedInstitution = await Institution.findById(existingInstitution._id)
-      .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
       .lean()
       .exec();
 
@@ -266,6 +280,12 @@ export const updateSetup = async (req: Request, res: Response) => {
         country: updatedInstitution.country,
         state: updatedInstitution.state,
         city: updatedInstitution.city,
+        addressLine1: updatedInstitution.addressLine1 || "",
+        addressLine2: updatedInstitution.addressLine2 || "",
+        contactEmail: updatedInstitution.contactEmail || "",
+        phone: updatedInstitution.phone || "",
+        website: updatedInstitution.website || "",
+        description: updatedInstitution.description || "",
         academicCalendarType: updatedInstitution.academicCalendarType,
         timezone: updatedInstitution.timezone,
         logoUrl: updatedInstitution.logoUrl || "",
@@ -564,8 +584,20 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         country: institutionProfile.country,
         state: institutionProfile.state,
         city: institutionProfile.city,
+        addressLine1: String(institutionProfile.addressLine1 || ""),
+        addressLine2: String(institutionProfile.addressLine2 || ""),
+        contactEmail: String(institutionProfile.contactEmail || ""),
+        phone: String(institutionProfile.phone || ""),
+        website: String(institutionProfile.website || ""),
+        description: String(institutionProfile.description || ""),
         academicCalendarType: institutionProfile.academicCalendarType,
         timezone: institutionProfile.timezone,
+        addressLine1: String(institutionProfile.addressLine1 || ""),
+        addressLine2: String(institutionProfile.addressLine2 || ""),
+        contactEmail: String(institutionProfile.contactEmail || ""),
+        phone: String(institutionProfile.phone || ""),
+        website: String(institutionProfile.website || ""),
+        description: String(institutionProfile.description || ""),
         logoUrl: String(institutionProfile.logoUrl || ""),
         backgroundImageUrl: String(institutionProfile.backgroundImageUrl || ""),
         academicSession: academicSessionDoc[0]._id,

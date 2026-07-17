@@ -15,6 +15,7 @@ import {
   BarChart3,
   MessageSquare,
   CheckSquare,
+  Building2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -225,7 +226,7 @@ export const sidebardata = {
       ],
     },
     {
-      title: "Learning (LMS)",
+      title: "Clinical Learning (LMS)",
       url: "#",
       icon: GraduationCap,
       roles: ["teacher", "admin", "unitconsultant", "unitresident", "parent"],
@@ -266,26 +267,26 @@ export const sidebardata = {
       ],
     },
     {
+      title: "Clinical Schedule",
+      url: "#",
+      icon: CalendarDays,
+      roles: ["student"],
+      items: [
+        { title: "Daily activities", url: "/student/schedule/daily-activities" },
+        { title: "This Week", url: "/student/schedule/week" },
+        { title: "Calendar", url: "/student/schedule/calendar" },
+        { title: "Upcoming", url: "/student/schedule/upcoming" },
+      ],
+    },
+    {
       title: "Timetable",
       url: "#",
       icon: CalendarDays,
       roles: ["student"],
       items: [
         { title: "Weekly Timetable", url: "/timetable" },
-        { title: "Daily View", url: "/student/schedule/today" },
-        { title: "Download", url: "/student/timetable/download" },
-      ],
-    },
-    {
-      title: "Schedule",
-      url: "#",
-      icon: CalendarDays,
-      roles: ["student"],
-      items: [
         { title: "Today", url: "/student/schedule/today" },
-        { title: "This Week", url: "/student/schedule/week" },
-        { title: "Calendar", url: "/student/schedule/calendar" },
-        { title: "Upcoming", url: "/student/schedule/upcoming" },
+        { title: "Download", url: "/student/timetable/download" },
       ],
     },
     {
@@ -311,6 +312,12 @@ export const sidebardata = {
       url: "/settings/account",
       icon: Users,
       roles: ["student"],
+    },
+    {
+      title: "Institution Profile",
+      url: "/school-profile",
+      icon: Building2,
+      roles: ["student", "parent"],
     },
     {
       title: "People",
@@ -339,9 +346,9 @@ export const sidebardata = {
       roles: ["teacher"],
       items: [
         { title: "Notifications", url: "/notifications" },
-        { title: "School Settings", url: "/settings/general" },
-        { title: "Academic Years", url: "/timetable/calendar" },
-        { title: "Roles & Permissions", url: "/settings/roles" },
+        { title: "School Profile", url: "/school-profile" },
+        { title: "Academic Years", url: "/settings/academic-years" },
+        // { title: "Roles & Permissions", url: "/settings/roles" },
       ],
     },
   ] as NavItem[],

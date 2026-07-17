@@ -7,6 +7,12 @@ export interface IInstitution extends Document {
   country: string;
   state: string;
   city: string;
+  addressLine1: string;
+  addressLine2: string;
+  contactEmail: string;
+  phone: string;
+  website: string;
+  description: string;
   academicCalendarType: string;
   timezone: string;
   logoUrl: string;
@@ -30,6 +36,12 @@ const InstitutionSchema = new Schema<IInstitution>(
     country: { type: String, required: [true, "Country is required"] },
     state: { type: String, required: [true, "State is required"] },
     city: { type: String, required: [true, "City is required"] },
+    addressLine1: { type: String, default: "" },
+    addressLine2: { type: String, default: "" },
+    contactEmail: { type: String, default: "" },
+    phone: { type: String, default: "" },
+    website: { type: String, default: "" },
+    description: { type: String, default: "" },
     academicCalendarType: { type: String, required: [true, "Academic calendar type is required"] },
     timezone: { type: String, required: [true, "Timezone is required"] },
     logoUrl: { type: String, default: "" },

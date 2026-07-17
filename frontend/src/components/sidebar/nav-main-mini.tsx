@@ -53,7 +53,7 @@ export function NavMainMini({
                     <SidebarMenuButton
                       tooltip={item.title}
                       className={cn(
-                        "h-9 w-9 flex items-center justify-center rounded-md transition-colors",
+                        "h-9 w-9 flex items-center justify-center rounded-md transition-colors text-foreground",
                         "hover:bg-accent hover:text-accent-foreground",
                         openPopover === item.title && "bg-accent text-accent-foreground"
                       )}
@@ -105,7 +105,7 @@ export function NavMainMini({
                   <SidebarMenuButton
                     tooltip={item.title}
                     className={cn(
-                      "h-9 w-9 flex items-center justify-center rounded-md transition-colors",
+                      "h-9 w-9 flex items-center justify-center rounded-md transition-colors text-foreground",
                       "hover:bg-accent hover:text-accent-foreground"
                     )}
                     isActive={Boolean(item.isActive)}

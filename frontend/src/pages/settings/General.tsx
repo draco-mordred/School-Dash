@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Pencil, Plus, Trash, Upload, ChevronDown, ChevronUp } from "lucide-react";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
@@ -41,6 +42,12 @@ type InstitutionProfile = {
   country: string;
   state: string;
   city: string;
+  addressLine1: string;
+  addressLine2: string;
+  contactEmail: string;
+  phone: string;
+  website: string;
+  description: string;
   academicCalendarType: string;
   timezone: string;
   logoUrl: string;
@@ -141,6 +148,7 @@ const DepartmentFormCard = ({
 const DepartmentUnitsSection = ({ search }: { search: string }) => {
   const [departmentUnits, setDepartmentUnits] = useState<Record<string, DepartmentUnitsData>>({});
   const [loadingUnits, setLoadingUnits] = useState(false);
+  const [isUnitsSectionOpen, setIsUnitsSectionOpen] = useState(true);
 
   const fetchConstants = useCallback(async () => {
     setLoadingUnits(true);
@@ -186,17 +194,21 @@ const DepartmentUnitsSection = ({ search }: { search: string }) => {
 
   return (
     <Card className="shadow-sm">
-      <CardHeader>
+      <CardHeader className="cursor-pointer" onClick={() => setIsUnitsSectionOpen((prev) => !prev)}>
         <div className="flex items-center justify-between gap-3">
           <div>
             <CardTitle className="text-card-foreground">Units</CardTitle>
             <CardDescription className="text-muted-foreground">Browse units grouped under each department.</CardDescription>
           </div>
-          <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            {sortedDepartments.length} groups
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              {sortedDepartments.length} groups
+            </span>
+            {isUnitsSectionOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </div>
         </div>
       </CardHeader>
+      {isUnitsSectionOpen && (
       <CardContent className="space-y-4">
         {loadingUnits ? (
           <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
@@ -258,6 +270,7 @@ const DepartmentUnitsSection = ({ search }: { search: string }) => {
           </div>
         )}
       </CardContent>
+      )}
     </Card>
   );
 };
@@ -289,6 +302,12 @@ const SchoolSettings = () => {
     country: "",
     state: "",
     city: "",
+    addressLine1: "",
+    addressLine2: "",
+    contactEmail: "",
+    phone: "",
+    website: "",
+    description: "",
     academicCalendarType: "",
     timezone: "",
     logoUrl: "",
@@ -296,6 +315,8 @@ const SchoolSettings = () => {
   });
   const [institutionLoading, setInstitutionLoading] = useState(false);
   const [institutionSaving, setInstitutionSaving] = useState(false);
+  const [isInstitutionSectionOpen, setIsInstitutionSectionOpen] = useState(true);
+  const [isDepartmentsSectionOpen, setIsDepartmentsSectionOpen] = useState(true);
 
   const fetchInstitution = useCallback(async () => {
     setInstitutionLoading(true);
@@ -310,6 +331,12 @@ const SchoolSettings = () => {
           country: institution.country || "",
           state: institution.state || "",
           city: institution.city || "",
+          addressLine1: institution.addressLine1 || "",
+          addressLine2: institution.addressLine2 || "",
+          contactEmail: institution.contactEmail || "",
+          phone: institution.phone || "",
+          website: institution.website || "",
+          description: institution.description || "",
           academicCalendarType: institution.academicCalendarType || "",
           timezone: institution.timezone || "",
           logoUrl: institution.logoUrl || "",
@@ -376,6 +403,12 @@ const SchoolSettings = () => {
           country: updated.country || prev.country,
           state: updated.state || prev.state,
           city: updated.city || prev.city,
+          addressLine1: updated.addressLine1 || prev.addressLine1,
+          addressLine2: updated.addressLine2 || prev.addressLine2,
+          contactEmail: updated.contactEmail || prev.contactEmail,
+          phone: updated.phone || prev.phone,
+          website: updated.website || prev.website,
+          description: updated.description || prev.description,
           academicCalendarType: updated.academicCalendarType || prev.academicCalendarType,
           timezone: updated.timezone || prev.timezone,
           logoUrl: updated.logoUrl || prev.logoUrl,
@@ -606,7 +639,14 @@ const SchoolSettings = () => {
                 <h2 className="mt-2 text-2xl font-semibold text-white">Institution profile</h2>
                 <p className="mt-2 text-sm text-slate-300">Update the institution settings originally configured during setup.</p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsInstitutionSectionOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-sm text-slate-100"
+                >
+                  {isInstitutionSectionOpen ? <><ChevronUp className="h-4 w-4" /> Collapse</> : <><ChevronDown className="h-4 w-4" /> Expand</>}
+                </button>
                 <div className="h-16 w-16 overflow-hidden rounded-full border border-white/20 bg-white/10">
                   {institutionProfile.logoUrl ? (
                     <img src={institutionProfile.logoUrl} alt="Institution logo" className="h-full w-full object-cover" />
@@ -621,6 +661,7 @@ const SchoolSettings = () => {
               </div>
             </div>
 
+            {isInstitutionSectionOpen && (
             <div className="mt-6 grid gap-6 lg:grid-cols-2">
               <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
                 <div className="space-y-2">
@@ -697,6 +738,70 @@ const SchoolSettings = () => {
                     disabled={institutionLoading}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-address-1" className="text-slate-200">Address Line 1</Label>
+                  <Input
+                    id="institution-address-1"
+                    value={institutionProfile.addressLine1}
+                    onChange={(event) => updateInstitutionField("addressLine1", event.target.value)}
+                    placeholder="12 Herbert Macaulay Way"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-address-2" className="text-slate-200">Address Line 2</Label>
+                  <Input
+                    id="institution-address-2"
+                    value={institutionProfile.addressLine2}
+                    onChange={(event) => updateInstitutionField("addressLine2", event.target.value)}
+                    placeholder="Suite 3"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-contact-email" className="text-slate-200">Contact Email</Label>
+                    <Input
+                      id="institution-contact-email"
+                      type="email"
+                      value={institutionProfile.contactEmail}
+                      onChange={(event) => updateInstitutionField("contactEmail", event.target.value)}
+                      placeholder="info@institution.edu"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-phone" className="text-slate-200">Phone</Label>
+                    <Input
+                      id="institution-phone"
+                      value={institutionProfile.phone}
+                      onChange={(event) => updateInstitutionField("phone", event.target.value)}
+                      placeholder="09067604081"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-website" className="text-slate-200">Website</Label>
+                  <Input
+                    id="institution-website"
+                    value={institutionProfile.website}
+                    onChange={(event) => updateInstitutionField("website", event.target.value)}
+                    placeholder="https://www.example.edu"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-description" className="text-slate-200">Description</Label>
+                  <Textarea
+                    id="institution-description"
+                    value={institutionProfile.description}
+                    onChange={(event) => updateInstitutionField("description", event.target.value)}
+                    placeholder="Describe the institution profile"
+                    disabled={institutionLoading}
+                    rows={4}
+                  />
+                </div>
               </div>
 
               <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
@@ -752,18 +857,23 @@ const SchoolSettings = () => {
                 </Button>
               </div>
             </div>
+            )}
           </div>
         </div>
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card className="order-2 lg:order-1 shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col gap-2">
-              <CardTitle className="text-card-foreground">Departments</CardTitle>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Review the institution departments and manage them directly from this list.</p>
+          <CardHeader className="cursor-pointer" onClick={() => setIsDepartmentsSectionOpen((prev) => !prev)}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-2">
+                <CardTitle className="text-card-foreground">Departments</CardTitle>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Review the institution departments and manage them directly from this list.</p>
+              </div>
+              {isDepartmentsSectionOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </div>
           </CardHeader>
+          {isDepartmentsSectionOpen && (
           <CardContent className="space-y-4">
             {loading ? (
               <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
@@ -812,6 +922,7 @@ const SchoolSettings = () => {
               </div>
             )}
           </CardContent>
+          )}
         </Card>
 
         <DepartmentFormCard

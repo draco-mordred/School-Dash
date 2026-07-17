@@ -221,7 +221,7 @@ export default function AppShell({ children }: PropsWithChildren) {
   const { user, setUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { unreadCount } = useNotifications();
+  const { notifications, unreadCount, isLoading } = useNotifications(1, 5);
 
   const pageTitle = getPageTitle(location.pathname);
   const isProtected = location.pathname !== "/" && location.pathname !== "/login";
@@ -448,27 +448,67 @@ export default function AppShell({ children }: PropsWithChildren) {
                     )}
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => navigate("/notifications")}
-                    aria-label="Notifications"
-                    className="relative h-8 w-8"
-                  >
-                    <Bell
-                      className={cn(
-                        "h-4 w-4 transition-transform",
-                        unreadCount > 0 && "animate-ring"
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Notifications"
+                        className="relative h-8 w-8"
+                      >
+                        <Bell
+                          className={cn(
+                            "h-4 w-4 transition-transform",
+                            unreadCount > 0 && "animate-ring"
+                          )}
+                        />
+                        {unreadCount > 0 ? (
+                          <span className="absolute -top-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                            {unreadCount > 99 ? "99+" : unreadCount}
+                          </span>
+                        ) : (
+                          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" side="bottom" className="w-80 p-0">
+                      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                        <div>
+                          <p className="text-sm font-semibold">Notifications</p>
+                          <p className="text-xs text-muted-foreground">
+                            {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => navigate("/notifications")}>
+                          View all
+                        </Button>
+                      </div>
+                      {isLoading ? (
+                        <div className="space-y-2 p-3">
+                          <div className="h-8 animate-pulse rounded bg-muted" />
+                          <div className="h-8 animate-pulse rounded bg-muted" />
+                        </div>
+                      ) : notifications.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-muted-foreground">No recent notifications</div>
+                      ) : (
+                        <div className="max-h-80 overflow-y-auto">
+                          {notifications.slice(0, 5).map((notification) => (
+                            <DropdownMenuItem
+                              key={notification._id}
+                              onSelect={() => navigate(notification.link || "/notifications")}
+                              className="flex cursor-pointer flex-col items-start gap-1 rounded-none px-3 py-2"
+                            >
+                              <div className="flex w-full items-center justify-between gap-3">
+                                <span className="truncate text-sm font-medium">{notification.title}</span>
+                                {!notification.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                              </div>
+                              <span className="text-xs text-muted-foreground">{notification.message}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </div>
                       )}
-                    />
-                    {unreadCount > 0 ? (
-                      <span className="absolute -top-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                        {unreadCount > 99 ? "99+" : unreadCount}
-                      </span>
-                    ) : (
-                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
-                    )}
-                  </Button>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

@@ -21,12 +21,14 @@ import {
 import { ThemeToogle } from "@/components/sidebar/ThemeToogle";
 import { NavUser } from "@/components/sidebar/nav-user";
 import { Button } from "@/components/ui/button";
-import { LogOut } from "lucide-react";
+import { ShieldCheck, GraduationCap, BookOpen, Users, LogOut } from "lucide-react";
 import appIcon from "@/image/medlog icons2.png";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useInstitution } from "@/lib/useInstitution";
+import { getInstitutionDisplayName, getInstitutionSubtitle } from "@/lib/institutionDisplay";
 
 /**
  * Mini sidebar: icons-only, used on medium + smaller screens.
@@ -40,12 +42,14 @@ export function AppMiniSidebar({
   const { user, year, setUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { institution } = useInstitution();
 
   const pathname = location.pathname;
   const userRole = (user?.role || "student") as UserRole;
+  const normalizedUserRole = ((userRole as string) === "staff" ? "teacher" : userRole) as UserRole | "teacher";
 
   const filteredNav = sidebardata.navMain
-    .filter((item) => !item.roles || item.roles.includes(userRole))
+    .filter((item) => !item.roles || item.roles.includes(normalizedUserRole))
     .map((item) => {
       const isChildActive = item.items?.some((sub: { url: string }) => sub.url === pathname);
       const isMainActive = item.url === pathname;
@@ -53,7 +57,7 @@ export function AppMiniSidebar({
         ...item,
         isActive: isMainActive || isChildActive,
         items: item.items
-          ?.filter((subItem) => !subItem.roles || subItem.roles.includes(userRole))
+          ?.filter((subItem) => !subItem.roles || subItem.roles.includes(normalizedUserRole))
           .map((subItem) => ({
             ...subItem,
             isActive: subItem.url === pathname,
@@ -66,6 +70,21 @@ export function AppMiniSidebar({
     email: user?.email || "",
     avatar: user?.profileImage ?? "",
   };
+
+  const institutionName = getInstitutionDisplayName(institution);
+  const institutionSubtitle = getInstitutionSubtitle(institution, year?.name ?? yearNameOverride ?? "") || "Institution profile";
+
+  const roleMeta: Record<string, { icon: LucideIcon; label: string }> = {
+    admin: { icon: ShieldCheck, label: "Administrator" },
+    teacher: { icon: BookOpen, label: "Teacher" },
+    student: { icon: GraduationCap, label: "Student" },
+    parent: { icon: Users, label: "Parent" },
+    unitconsultant: { icon: BookOpen, label: "Unit Consultant" },
+    unitresident: { icon: GraduationCap, label: "Unit Resident" },
+  };
+
+  const roleInfo = roleMeta[normalizedUserRole] ?? roleMeta.student;
+  const RoleIcon = roleInfo.icon;
 
   const logout = async () => {
     try {
@@ -94,12 +113,13 @@ export function AppMiniSidebar({
       <SidebarHeader className="px-2 py-2">
         <div className="flex items-center gap-2">
           <img
-            src={appIcon}
-            alt="School Dash"
+            src={institution?.logoUrl ?? appIcon}
+            alt={institutionName}
             className="w-7 h-7 rounded-md bg-sidebar-primary text-sidebar-primary-foreground shrink-0 object-cover"
           />
           <div className="flex-1 text-left text-sm leading-tight overflow-hidden">
-            <span className="truncate font-medium text-xs">{year?.name ?? yearNameOverride ?? "School Dash"}</span>
+            <span className="block truncate font-medium text-xs">{institutionName}</span>
+            <span className="block truncate text-[11px] text-muted-foreground">{institutionSubtitle}</span>
           </div>
         </div>
       </SidebarHeader>
@@ -133,6 +153,9 @@ export function AppMiniSidebar({
             <LogOut className="h-3.5 w-3.5" />
           </Button>
           <ThemeToogle />
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <RoleIcon className="h-4 w-4" />
+          </span>
         </div>
         <div className="hidden" aria-hidden>
           {/* NavUser exists for footer spacing in AppSidebar */}

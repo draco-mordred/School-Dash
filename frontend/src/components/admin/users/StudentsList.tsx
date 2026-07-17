@@ -118,7 +118,6 @@ export function StudentsList({
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [focusedStudentId, setFocusedStudentId] = useState<string | null>(null);
-  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
 
   const uniqueClasses = useMemo(
     () => Array.from(new Set(students.map((s) => s.class))).sort(),
@@ -327,14 +326,11 @@ export function StudentsList({
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {studentsInClass.map((student) => {
                   const isFocused = focusedStudentId === student.id;
-                  const isHovered = hoveredStudentId === student.id;
                   const theme = getProfileTheme(student.theme || student.id);
                   return (
                     <div
                       key={student.id}
                       onClick={() => setFocusedStudentId(isFocused ? null : student.id)}
-                      onMouseEnter={() => setHoveredStudentId(student.id)}
-                      onMouseLeave={() => setHoveredStudentId(null)}
                       onBlur={() => setFocusedStudentId(null)}
                       role="button"
                       tabIndex={0}
@@ -343,11 +339,6 @@ export function StudentsList({
                           ? `overflow-visible shadow-xl z-30 ring-1 ${theme.ring}`
                           : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
                       }`}
-                      style={{
-                        transform: isFocused
-                          ? "scale(1.04) translateY(-6px)"
-                          : "scale(1) translateY(0)",
-                      }}
                     >
                       <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`} />
                       <div className="flex items-start justify-between gap-4">
@@ -355,9 +346,8 @@ export function StudentsList({
                           <div
                             className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
                             style={{
-                              width: isFocused ? "68px" : "40px",
-                              height: isFocused ? "68px" : "40px",
-                              transform: isFocused ? "scale(1.23)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              width: "40px",
+                              height: "40px",
                               position: "relative",
                               top: "auto",
                               right: "auto",

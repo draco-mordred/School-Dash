@@ -24,7 +24,8 @@ export function useSetupStatus() {
       }
 
       const response = await api.get("/setup/status");
-      const configured = Boolean(response.data?.configured);
+      const institution = response.data?.institution;
+      const configured = Boolean(institution || response.data?.configured);
       setIsSetupConfigured(configured);
       try {
         localStorage.setItem(CACHE_KEY, configured ? "true" : "false");

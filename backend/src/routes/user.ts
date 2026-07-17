@@ -4,6 +4,8 @@ import {
     login,
     registerUser,
     registerPublic,
+    requestPasswordReset,
+    resetPassword,
     approvePendingUser,
     updateUser,
     deleteUser,
@@ -15,6 +17,8 @@ import {
     extractFromPDF,
     extractFromImage,
     isFirstUser,
+    requestPasswordReset,
+    resetPassword,
 } from "../controllers/user";
 import { protect, authorize } from "../middleware/auth";
 
@@ -28,6 +32,8 @@ userRoutes.post("/register",
 // Public registration endpoints
 userRoutes.get("/public/is-first", isFirstUser);
 userRoutes.post("/public/register", registerPublic);
+userRoutes.post("/forgot-password", requestPasswordReset);
+userRoutes.post("/reset-password", resetPassword);
 userRoutes.post("/login", login); 
 userRoutes.post("/logout", logoutUser); 
 userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route    

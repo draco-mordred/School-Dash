@@ -26,9 +26,9 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAdminDashboard } from "@/hooks/useAdminDashboard";
+import { AcademicSnapshot, ClinicalSnapshot } from "@/components/admin/dashboard/Snapshots";
+import { shouldShowAdminDashboardSkeleton } from "@/lib/dashboardState";
 const KPICards = lazy(() => import("@/components/admin/dashboard/KPICards").then(mod => ({ default: mod.KPICards })));
-const AcademicSnapshot = lazy(() => import("@/components/admin/dashboard/Snapshots").then(mod => ({ default: mod.AcademicSnapshot })));
-const ClinicalSnapshot = lazy(() => import("@/components/admin/dashboard/Snapshots").then(mod => ({ default: mod.ClinicalSnapshot })));
 const OperationalAlerts = lazy(() => import("@/components/admin/dashboard/OperationalAlerts").then(mod => ({ default: mod.OperationalAlerts })));
 const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/RecentActivityFeed").then(mod => ({ default: mod.RecentActivityFeed })));
 const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
@@ -280,6 +280,40 @@ export default function Dashboard() {
   const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
   const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent || isStudent;
+  const resolvedAdminDashboardData = adminDashboardData ?? {
+    stats: {
+      totalStudents: 0,
+      totalParents: 0,
+      totalStaff: 0,
+      activeSession: "N/A",
+    },
+    academicData: {
+      sessions: 0,
+      semesters: 0,
+      classes: 0,
+      courses: 0,
+      assessments: 0,
+      details: {
+        activeAcademicYear: null,
+        currentSemester: null,
+        classes: [],
+      },
+    },
+    clinicalData: {
+      postings: 0,
+      departments: 0,
+      units: 0,
+      teams: 0,
+      rotations: 0,
+      details: {
+        postings: [],
+        rotationTeams: [],
+        rotations: [],
+      },
+    },
+    alerts: [],
+    activities: [],
+  };
 
   // Derived UI values for class overview
   const classesWithTimetableCount = classStatuses.filter((c) => c.timetableStatus === "active").length;
@@ -348,9 +382,9 @@ export default function Dashboard() {
     );
   });
 
-  // If global loading or (admin user whose admin-specific data hasn't loaded),
-  // show the skeleton to avoid briefly rendering the general dashboard for admins.
-  if (loading || (isAdmin && (adminLoading || !adminDashboardData))) {
+  // Keep the dashboard shell visible for admins once initial loading is done,
+  // but still show a skeleton while the admin overview is being fetched.
+  if (shouldShowAdminDashboardSkeleton(loading, isAdmin, adminLoading, adminDashboardData)) {
     return (
       <div className="flex-1 space-y-6 p-6">
         {/* Charts skeleton */}
@@ -375,7 +409,7 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════
   // ADMIN DASHBOARD — Specialized view for admin users
   // ═══════════════════════════════════════════════════════════════
-  if (isAdmin && adminDashboardData) {
+  if (isAdmin) {
     return (
       <div className="flex-1 space-y-6 p-6">
         {/* Page Header */}
@@ -392,29 +426,29 @@ export default function Dashboard() {
 
         {/* KPI Cards */}
         <Suspense fallback={<Skeleton className="h-36 w-full rounded-xl" />}>
-          <KPICards stats={adminDashboardData.stats} loading={adminLoading} />
+          <KPICards stats={resolvedAdminDashboardData.stats} loading={adminLoading} />
         </Suspense>
  
         {/* Academic & Clinical Snapshots */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
-            <AcademicSnapshot loading={adminLoading} data={adminDashboardData?.academicData} />
+            <AcademicSnapshot loading={adminLoading} data={resolvedAdminDashboardData.academicData} />
           </Suspense>
           <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
-            <ClinicalSnapshot loading={adminLoading} data={adminDashboardData?.clinicalData} />
+            <ClinicalSnapshot loading={adminLoading} data={resolvedAdminDashboardData.clinicalData} />
           </Suspense>
         </div>
 
         {/* Operational Alerts */}
         <Suspense fallback={<Skeleton className="h-32 w-full rounded-xl" />}>
-          <OperationalAlerts alerts={adminDashboardData?.alerts ?? []} loading={adminLoading} />
+          <OperationalAlerts alerts={resolvedAdminDashboardData.alerts} loading={adminLoading} />
         </Suspense>
 
         {/* Activity Feed & Quick Actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
-              <RecentActivityFeed activities={adminDashboardData?.activities ?? []} loading={adminLoading} />
+              <RecentActivityFeed activities={resolvedAdminDashboardData.activities} loading={adminLoading} />
             </Suspense>
             {/* Insert mordred insights card here */}
             
