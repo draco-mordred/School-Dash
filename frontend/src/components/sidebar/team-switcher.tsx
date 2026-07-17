@@ -33,12 +33,12 @@ export function TeamSwitcher({
     logo?: React.ElementType;
   }[];
   yearName: string;
-  institution?: { name?: string; logoUrl?: string | null } | null;
+  institution?: { name?: string; shortName?: string; logoUrl?: string | null } | null;
 }) {
   const { isMobile } = useSidebar();
 
   // If an institution is provided, prefer rendering it as the active "team".
-  const activeName = institution?.name ?? teams[0]?.name ?? "Team";
+  const activeName = institution?.name || institution?.shortName || teams[0]?.name || "Team";
   const activeLogoUrl = institution?.logoUrl ?? null;
 
   return (

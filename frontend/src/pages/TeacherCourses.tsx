@@ -29,13 +29,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-
-
-
-
-
-
-
 interface Course {
   _id: string;
   name: string;
@@ -86,8 +79,6 @@ interface TimetablePeriod {
   endTime: string;
   displayLabel?: string | null;
 }
-
-
 
 
 interface TimetableSchedule {

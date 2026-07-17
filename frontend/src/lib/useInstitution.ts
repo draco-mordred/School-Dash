@@ -16,26 +16,72 @@ export function useInstitution() {
         const cachedTs = Number(localStorage.getItem(CACHE_TS_KEY) || "0");
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached && Date.now() - cachedTs < TTL_MS) {
-          setInstitution(JSON.parse(cached));
-          setLoading(false);
-          return;
+          try {
+            const parsed = JSON.parse(cached);
+            // If parsed is a non-null institution object, use it. If it's explicitly null, treat as a cache miss.
+            if (parsed !== null) {
+              setInstitution(parsed);
+              setLoading(false);
+              return;
+            }
+          } catch {
+            // ignore parse errors and continue to fetch
+          }
         }
       }
 
-      const res = await api.get("/institution");
-      const data = res.data || null;
+      const res = await api.get("/setup/status");
+      const data = res.data?.institution ?? null;
       setInstitution(data);
       try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-        localStorage.setItem(CACHE_TS_KEY, String(Date.now()));
+        if (data) {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+          localStorage.setItem(CACHE_TS_KEY, String(Date.now()));
+        } else {
+          // remove cached nulls so we don't short-circuit future fetches
+          localStorage.removeItem(CACHE_KEY);
+          localStorage.removeItem(CACHE_TS_KEY);
+        }
       } catch (e) {
         // ignore storage errors
       }
     } catch (err) {
-      // fallback to cached
+      // fallback to cached or alternative portal caches
       const cached = localStorage.getItem(CACHE_KEY);
-      if (cached) setInstitution(JSON.parse(cached));
-      else setInstitution(null);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          setInstitution(parsed ?? null);
+          setLoading(false);
+          return;
+        } catch {
+          // continue to alt caches
+        }
+      }
+
+      const altKeys = [
+        "adminPortalInstitutionCache",
+        "staffPortalInstitutionCache",
+        "studentPortalInstitutionCache",
+        "teacherPortalInstitutionCache",
+      ];
+      for (const k of altKeys) {
+        const v = localStorage.getItem(k);
+        if (v) {
+          try {
+            const parsed = JSON.parse(v);
+            if (parsed) {
+              setInstitution(parsed as any);
+              setLoading(false);
+              return;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+
+      setInstitution(null);
     } finally {
       setLoading(false);
     }
