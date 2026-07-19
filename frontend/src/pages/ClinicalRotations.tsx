@@ -1131,55 +1131,57 @@ export default function ClinicalRotations() {
       setSelectedPostingSchedule(null);
     }
 
-    const fallbackStudents = (rotations ?? [])
-      .map((rotation) => rotation.student)
-      .filter((student): student is { _id: string; name: string; idNumber?: string } => Boolean(student?.name))
-      .map((student) => ({
-        _id: student._id,
-        name: student.name,
-        idNumber: student.idNumber,
-      }));
-
-    const studentList = selectedClassStudents.length > 0 ? selectedClassStudents : fallbackStudents;
-
-    if (supportsOgPedsJuniorPosting && postingGenerateLevel === "fifth") {
-      const generatedSchedule = buildOgPedsJuniorPostingSchedule({
-        postingName: postingGenerateName.trim() || `${selectedClass?.name ?? "500 Level"} O&G/Pediatrics Junior Posting`,
-        postingType: "OG_PEDS",
-        startDate: postingGenerateStartDate || new Date().toISOString().slice(0, 10),
-        endDate: postingGenerateEndDate || new Date(new Date(postingGenerateStartDate || new Date()).setMonth(new Date(postingGenerateStartDate || new Date()).getMonth() + Math.max(1, currentPhaseDuration || 2) * 2)).toISOString().slice(0, 10),
-        durationMonths: Math.max(1, currentPhaseDuration || 2),
-        students: studentList.length > 0 ? studentList : undefined,
-      });
-
-      savePersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey, generatedSchedule);
-      setSelectedPostingSchedule(generatedSchedule);
-      userSelectedScheduleRef.current = true;
-      setShowPostingGenerateDialog(false);
-      toast.success("O&G/Pediatrics junior posting schedule generated");
+    if (!selectedClassId || !selectedClass) {
+      toast.error("Please select a class first");
       return;
     }
 
-    if (supportsOgPedsSeniorPosting && postingGenerateLevel === "sixth") {
-      const generatedSchedule = buildOgPedsSeniorPostingSchedule({
-        postingName: postingGenerateName.trim() || `${selectedClass?.name ?? "600 Level"} O&G/Pediatrics Senior Posting`,
-        postingType: "OG_PEDS_SENIOR",
-        startDate: postingGenerateStartDate || new Date().toISOString().slice(0, 10),
-        endDate: postingGenerateEndDate || new Date(new Date(postingGenerateStartDate || new Date()).setMonth(new Date(postingGenerateStartDate || new Date()).getMonth() + Math.max(1, currentPhaseDuration || 2) * 2)).toISOString().slice(0, 10),
-        durationMonths: Math.max(1, currentPhaseDuration || 2),
-        students: studentList.length > 0 ? studentList : undefined,
-      });
+    try {
+      // Build Krysta generator payload with basic department structure
+      // For now, use a simple single-department setup; UI can be enhanced later for multi-dept selection
+      const startDate = postingGenerateStartDate || new Date().toISOString().slice(0, 10);
+      const endDate = postingGenerateEndDate || new Date(new Date(startDate).setMonth(new Date(startDate).getMonth() + Math.max(1, currentPhaseDuration || 2))).toISOString().slice(0, 10);
 
-      savePersistedPostingSchedule(selectedClassId, currentPostingScheduleStorageKey, generatedSchedule);
-      setSelectedPostingSchedule(generatedSchedule);
-      userSelectedScheduleRef.current = true;
-      setShowPostingGenerateDialog(false);
-      toast.success("O&G/Pediatrics senior posting schedule generated");
-      return;
+      const payload = {
+        class: selectedClassId,
+        name: postingGenerateName.trim() || `${selectedClass.name} ${postingGenerateLevel?.toUpperCase() || "Level"} Posting`,
+        startDate: new Date(startDate).toISOString(),
+        endDate: new Date(endDate).toISOString(),
+        generateWith: "krysta",
+        krysta: true,
+        // Simple single-department config; can be enhanced with UI department selector
+        departments: [
+          {
+            departmentId: "dept-default",
+            activeUnitIds: ["unit-1", "unit-2"],
+            departmentDurationDays: Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24))),
+            unitDurationDays: 7,
+          },
+        ],
+      };
+
+      const { data } = await api.post("/rotation-schedules", payload);
+
+      if (data?._id) {
+        // Store reference to the generated schedule
+        setSelectedPostingSchedule({
+          _id: data._id,
+          postingName: data.name,
+          postingType: "KRYSTA",
+          timeline: data.meta?.timeline || [],
+          supervisors: {},
+        });
+        userSelectedScheduleRef.current = true;
+        setShowPostingGenerateDialog(false);
+        toast.success(`Posting schedule generated: ${data.name}`);
+        return;
+      }
+
+      toast.error("Failed to generate posting schedule");
+    } catch (err: any) {
+      console.error("Posting generation error:", err);
+      toast.error(err?.response?.data?.message || "Failed to generate posting schedule");
     }
-
-    setShowPostingGenerateDialog(false);
-    toast.success('Posting generation form submitted');
   };
 
   const confirmGenerate = async () => {

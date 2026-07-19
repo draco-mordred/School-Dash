@@ -1,6 +1,7 @@
 import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
 import generateKrystaSchedule from '../services/krystaGenerator';
+import runRotationSnapshot from '../services/rotationRunner';
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -113,6 +114,28 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
     }
 
     plan.meta = { ...(plan.meta || {}), timeline };
+
+    // Also persist supervisor in postings.groups for easier lookup
+    const postings = plan.postings || [];
+    for (const p of postings) {
+      const groups = p.groups || [];
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        // Match this group with windows that have matching departmentGroupIndex
+        let supervisorForGroup: any = null;
+        for (const t of timeline) {
+          if (t.departmentGroupIndex === i && t.supervisorId) {
+            supervisorForGroup = t.supervisorId;
+            break;
+          }
+        }
+        if (supervisorForGroup) {
+          g.supervisor = supervisorForGroup;
+          g.supervisorName = supervisorForGroup; // will be replaced on client with actual name
+        }
+      }
+    }
+
     await plan.save();
     res.json({ message: 'Supervisor assigned', id, timeline });
   } catch (err) {
@@ -246,6 +269,50 @@ export const getStudentScheduleHistory = async (req: Request, res: Response) => 
     res.json({ history: history.slice(0, limit) });
   } catch (err) {
     console.error('getStudentScheduleHistory error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// POST /api/rotation-schedules/:id/run
+export const runRotationRunner = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { snapshotTime, windowIndex } = req.body as any;
+    const snap = await runRotationSnapshot(id, { snapshotTime, windowIndex });
+    res.json({ message: 'Snapshot persisted', snapshot: snap });
+  } catch (err) {
+    console.error('runRotationRunner error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// GET /api/rotation-schedules/:id/supervisors
+export const listScheduleSupervisors = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const plan = await RotationPlan.findById(id).lean();
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const timeline = (plan.meta && plan.meta.timeline) || [];
+    const supervisors: Record<string, any> = {};
+
+    // Build supervisor map from timeline windows
+    for (const t of timeline) {
+      if (t.supervisorId) {
+        const key = `dept_${t.departmentIndex}_group_${t.departmentGroupIndex}`;
+        if (!supervisors[key]) {
+          supervisors[key] = {
+            departmentIndex: t.departmentIndex,
+            departmentGroupIndex: t.departmentGroupIndex,
+            supervisorId: t.supervisorId,
+          };
+        }
+      }
+    }
+
+    res.json({ id, supervisors: Object.values(supervisors) });
+  } catch (err) {
+    console.error('listScheduleSupervisors error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
