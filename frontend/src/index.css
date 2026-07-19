@@ -474,9 +474,9 @@ html.dark, .dark {
 }
 
 [role=dialog].bg-background {
-    top: 20%;
+    /* top: 20%; */
     pointer-events: auto;
-    transform: translate(0, 15%);
+    /* transform: translate(0, 15%); */
     margin: 0% 0px 0 0px;
 
 }
@@ -485,6 +485,10 @@ html.dark, .dark {
     padding: 15px 10px 5px 10px;
     border: 1px solid var(--border);
     border-radius: 15px;
+}
+
+header.fixed{
+  z-index: 50;
 }
 
   /* .bg-card {
@@ -643,9 +647,12 @@ input.border.rounded-md {
     }
 
     #mainCardHeader {
-      background: var(--background);
-      padding: 15px 30px 10px 30px;
-      margin: -22px 0px 0px 0px;
+    background: var(--background);
+    padding: 15px 20px 10px 20px;
+    margin: -24px 0px 0px 0px;
+    border-top-right-radius: 20px;
+    border-top-left-radius: 15px;
+    border-top-left-radius: 15px;
     }
 
     #chatBubbles{

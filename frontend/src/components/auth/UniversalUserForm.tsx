@@ -292,6 +292,9 @@ const UniversalUserForm = ({ type, initialData, onSuccess, role, singleColumn }:
       return allRoles.map((r) => ({ label: roleDisplayMap[r] ?? r, value: r }));
     }
     if (role) return [{ label: roleDisplayMap[role] ?? role, value: role }];
+    if (!isLogin && type === "create") {
+      return allRoles.map((r) => ({ label: roleDisplayMap[r] ?? r, value: r }));
+    }
     return [];
   })();
 

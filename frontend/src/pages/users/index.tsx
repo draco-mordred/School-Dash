@@ -7,10 +7,11 @@ import type { pagination, user, UserRole } from "@/types";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
 import { useAuth } from "@/hooks/useAuth";
-import { StudentsList } from "@/components/admin/users/StudentsList";
+import { StudentsList, type Student } from "@/components/admin/users/StudentsList";
 import { UsersList } from "@/components/admin/users/UsersList";
 import { UserOverviewCards } from "@/components/admin/users/UserOverviewCards";
 import { useUserManagement } from "@/hooks/useUserManagement";
+import UniversalUserForm from "@/components/auth/UniversalUserForm";
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -52,6 +53,8 @@ export default function UserManagementPage({
 
   // Form States
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
+  const [isCreatePanelVisible, setIsCreatePanelVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<user | null>(null);
   const [viewingUser, setViewingUser] = useState<user | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -110,6 +113,28 @@ export default function UserManagementPage({
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  useEffect(() => {
+    if (isCreatePanelOpen) {
+      setIsCreatePanelVisible(true);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setIsCreatePanelVisible(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [isCreatePanelOpen]);
+
+  const roleLabelMap: Record<string, string> = {
+    student: "Student",
+    parent: "Parent",
+    teacher: "Teacher",
+    admin: "Admin",
+    unitconsultant: "Unit Consultant",
+    unitresident: "Unit Resident",
+    user: "User",
+  };
+
+  const getRoleLabel = (value: string) => roleLabelMap[value] ?? value.charAt(0).toUpperCase() + value.slice(1);
 
   const handleBulkDelete = async (ids: string[]) => {
     if (!ids.length) return;
@@ -171,36 +196,43 @@ export default function UserManagementPage({
 
   const handleCreate = () => {
     setEditingUser(null);
-    setIsFormOpen(true);
+    setIsFormOpen(false);
+    setIsCreatePanelOpen((open) => !open);
+  };
+
+  const handleCreateSuccess = () => {
+    setIsCreatePanelOpen(false);
+    void fetchUsers();
+  };
+
+  const resolveUserMatch = (userId: string) => {
+    const normalizedId = userId?.trim();
+    const sourceUsers = [
+      ...users,
+      ...(adminUsers?.students ?? []),
+      ...(adminUsers?.parents ?? []),
+      ...(adminUsers?.staff ?? []),
+      ...(adminUsers?.administrators ?? []),
+    ];
+
+    return (
+      sourceUsers.find((entry) => (entry._id ?? entry.id) === normalizedId) ||
+      null
+    );
   };
 
   const handleViewUser = (userId: string) => {
-    const match =
-      users.find((entry) => entry._id === userId || entry.id === userId) ||
-      [
-        ...(adminUsers?.students ?? []),
-        ...(adminUsers?.parents ?? []),
-        ...(adminUsers?.staff ?? []),
-        ...(adminUsers?.administrators ?? []),
-      ].find((entry) => entry._id === userId || entry.id === userId) ||
-      null;
+    const match = resolveUserMatch(userId);
     if (!match) return;
     setViewingUser(match);
     setIsDetailsOpen(true);
   };
 
   const handleEditUser = (userId: string) => {
-    const match =
-      users.find((entry) => entry._id === userId || entry.id === userId) ||
-      [
-        ...(adminUsers?.students ?? []),
-        ...(adminUsers?.parents ?? []),
-        ...(adminUsers?.staff ?? []),
-        ...(adminUsers?.administrators ?? []),
-      ].find((entry) => entry._id === userId || entry.id === userId) ||
-      null;
+    const match = resolveUserMatch(userId);
     if (!match) return;
     setEditingUser(match);
+    setIsCreatePanelOpen(false);
     setIsFormOpen(true);
   };
 
@@ -219,19 +251,31 @@ export default function UserManagementPage({
     }
   };
 
-  const mappedStudents = users.map((user) => ({
-    id: user._id,
-    name: user.name,
-    matricNumber: user.idNumber ?? "—",
-    class: typeof user.studentClasses === "object" && user.studentClasses !== null
-      ? user.studentClasses.name
-      : "Unassigned",
-    currentPosting: undefined,
-    attendancePercentage: 0,
-    status: user?.role === "student" && user?.email ? "active" : "inactive",
-    email: user.email,
-    profileImage: user.profileImage,
-  }));
+  const mappedStudents = users.reduce<Student[]>((acc, user, index) => {
+    const userId = (user as user & { _id?: string; id?: string })._id ?? (user as user & { _id?: string; id?: string }).id ?? "";
+    const rowKey = userId || `${user.name}-${user.idNumber ?? "no-id"}-${user.email ?? "no-email"}-${index}`;
+
+    if (acc.some((entry) => entry.id === userId || entry.rowKey === rowKey)) {
+      return acc;
+    }
+
+    acc.push({
+      id: userId,
+      rowKey,
+      name: user.name,
+      matricNumber: user.idNumber ?? "—",
+      class: typeof user.studentClasses === "object" && user.studentClasses !== null
+        ? user.studentClasses.name
+        : "Unassigned",
+      currentPosting: undefined,
+      attendancePercentage: 0,
+      status: user?.role === "student" && user?.email ? "active" : "inactive",
+      email: user.email,
+      profileImage: user.profileImage,
+    });
+
+    return acc;
+  }, []);
 
   return (
     <div id={`page-users-${role}`} className="p-6 space-y-6">
@@ -251,6 +295,7 @@ export default function UserManagementPage({
             totalPages={totalPages}
             onPageChange={setPage}
             onBulkUpload={() => setIsBulkUploadOpen(true)}
+            onCreateStudent={handleCreate}
             onViewStudent={handleViewUser}
             onEditStudent={handleEditUser}
             onDeleteStudent={(studentId) => {
@@ -266,17 +311,67 @@ export default function UserManagementPage({
             role="student"
             onSuccess={fetchUsers}
           />
+
+          <UserDialog
+            editingUser={editingUser}
+            role={role}
+            open={isFormOpen}
+            setOpen={setIsFormOpen}
+            onSuccess={fetchUsers}
+          />
+
+          <UserDetailsDialog
+            open={isDetailsOpen}
+            setOpen={(open) => {
+              setIsDetailsOpen(open);
+              if (!open) setViewingUser(null);
+            }}
+            user={viewingUser}
+          />
+
+          <CustomAlert
+            isOpen={isDeleteOpen}
+            setIsOpen={setIsDeleteOpen}
+            handleDelete={handleDelete}
+            title="Delete User?"
+            description="This will permanently delete this user from the system."
+          />
         </>
       )}
 
       {/* ADMIN USER MANAGEMENT VIEW */}
       {authUser?.role === "admin" && role === "student" && title !== "Students" && (
         <>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
-            <p className="text-muted-foreground mt-2">
-              Manage all users including students, parents, staff, and administrators
-            </p>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
+              <p className="text-muted-foreground mt-2">
+                Manage all users including students, parents, staff, and administrators
+              </p>
+            </div>
+            <div className="relative flex flex-wrap gap-2">
+              <Button onClick={handleCreate}>
+                <Plus className="mr-2 h-4 w-4" /> Add User
+              </Button>
+              {(isCreatePanelOpen || isCreatePanelVisible) && (
+                <div className={`absolute right-0 top-full z-30 mt-3 w-[min(30rem,calc(100vw-2rem))] origin-top-right transition-all duration-200 ease-out ${isCreatePanelOpen ? "translate-y-0 scale-100 opacity-100" : "-translate-y-2 scale-95 opacity-0"}`}>
+                  <div className="absolute inset-0 -left-4 -right-4 -top-4 -bottom-4 rounded-[2rem] bg-background/25 backdrop-blur-xl" />
+                  <div className="relative overflow-hidden rounded-[1.35rem] border border-border/70 bg-background/95 p-4 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl">
+                    <div className="absolute -top-2 right-6 h-4 w-4 rotate-45 border-l border-t border-border/70 bg-background/95" />
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Create User</p>
+                        <p className="text-xs text-muted-foreground">Add a new account and assign role details.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreatePanelOpen(false)}>
+                        Close
+                      </Button>
+                    </div>
+                    <UniversalUserForm type="create" onSuccess={handleCreateSuccess} singleColumn />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Error Alert */}
@@ -436,7 +531,7 @@ export default function UserManagementPage({
               </h1>
               <p className="text-muted-foreground">{description}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="relative flex flex-wrap gap-2">
               <Search search={search} setSearch={setSearch} title={`${role}s`} />
               {authUser?.role === "admin" && (
                 <Button variant="outline" onClick={() => setIsBulkUploadOpen(true)}>
@@ -445,9 +540,26 @@ export default function UserManagementPage({
               )}
               {authUser?.role !== "parent" && (
                 <Button onClick={handleCreate}>
-                  <Plus className="mr-2 h-4 w-4" /> Add{" "}
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                  <Plus className="mr-2 h-4 w-4" /> Add {getRoleLabel(role)}
                 </Button>
+              )}
+              {(isCreatePanelOpen || isCreatePanelVisible) && (
+                <div className={`absolute right-0 top-full z-30 mt-3 w-[min(30rem,calc(100vw-2rem))] origin-top-right transition-all duration-200 ease-out ${isCreatePanelOpen ? "translate-y-0 scale-100 opacity-100" : "-translate-y-2 scale-95 opacity-0"}`}>
+                  <div className="absolute inset-0 -left-4 -right-4 -top-4 -bottom-4 rounded-[2rem] bg-background/25 backdrop-blur-xl" />
+                  <div className="relative overflow-hidden rounded-[1.35rem] border border-border/70 bg-background/95 p-4 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl">
+                    <div className="absolute -top-2 right-6 h-4 w-4 rotate-45 border-l border-t border-border/70 bg-background/95" />
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Create {getRoleLabel(role)}</p>
+                        <p className="text-xs text-muted-foreground">Add a new account and assign role details.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreatePanelOpen(false)}>
+                        Close
+                      </Button>
+                    </div>
+                    <UniversalUserForm type="create" role={role === "student" && title === "User Management" ? undefined : role} onSuccess={handleCreateSuccess} singleColumn />
+                  </div>
+                </div>
               )}
             </div>
           </div>

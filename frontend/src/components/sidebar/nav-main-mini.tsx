@@ -1,6 +1,6 @@
 "use client";
 
-import { type LucideIcon } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
 import { useState } from "react";
 
 import {
@@ -17,13 +17,21 @@ import {
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
+type SidebarIcon = ComponentType<SVGProps<SVGSVGElement>>;
+
+const DashboardFallbackIcon = ({ className }: { className?: string }) => (
+  <span className={cn("text-[1rem] leading-none", className)} aria-hidden="true">
+    ⌂
+  </span>
+);
+
 export function NavMainMini({
   items,
 }: {
   items: {
     title: string;
     url: string;
-    icon?: LucideIcon;
+    icon?: SidebarIcon;
     isActive?: boolean;
     items?: {
       title: string;
@@ -39,6 +47,7 @@ export function NavMainMini({
       <SidebarMenu className="space-y-0.5">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
+          const Icon = item.title === "Dashboard" ? DashboardFallbackIcon : (item.icon ?? DashboardFallbackIcon);
 
           return (
             <SidebarMenuItem key={item.title} className="px-0.5 py-0.5">
@@ -65,7 +74,7 @@ export function NavMainMini({
                       }}
                       isActive={Boolean(item.isActive)}
                     >
-                      {item.icon && <item.icon className="h-4 w-4" />}
+                      <Icon className="h-4 w-4" />
                     </SidebarMenuButton>
                   </PopoverTrigger>
 
@@ -110,7 +119,7 @@ export function NavMainMini({
                     )}
                     isActive={Boolean(item.isActive)}
                   >
-                    {item.icon && <item.icon className="h-4 w-4" />}
+                    <Icon className="h-4 w-4" />
                   </SidebarMenuButton>
                 </Link>
               )}

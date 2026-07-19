@@ -1,3 +1,5 @@
+import type { ComponentType } from "react";
+import type { LucideProps } from "lucide-react";
 import {
   Home,
   Users,
@@ -12,12 +14,11 @@ import {
   Shield,
   Settings,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 
 export interface AdminNavItem {
   title: string;
   url: string;
-  icon: LucideIcon;
+  icon: ComponentType<LucideProps>;
   badge?: string;
   items?: {
     title: string;

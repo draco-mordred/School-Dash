@@ -103,10 +103,10 @@ export default function ForgotPasswordPage({ kind = "admin" }: ForgotPasswordPag
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 px-4 py-8 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-900 dark:text-slate-50 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-2xl flex-col gap-4">
+      <div className="mx-auto flex max-w-2x2 flex-col gap-4">
         <Link to={portal.loginPath} className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-[#6e56cf] dark:text-slate-300">
           <ArrowLeft className="h-4 w-4" />
-          Return to sign in
+          Return to Sign in
         </Link>
 
         <PortalAuthLayout
@@ -123,7 +123,7 @@ export default function ForgotPasswordPage({ kind = "admin" }: ForgotPasswordPag
           <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
             <div className="mb-2 flex items-center gap-2 font-semibold text-slate-900 dark:text-slate-100">
               <LockKeyhole className="h-4 w-4" />
-              Secure recovery
+              Secure recovery <p className="text-xs font-medium text-slate-800">powered by M.O.R.D.R.E.D</p>
             </div>
             <p>{message || "Enter your identifier to receive a recovery code. If your account exists, the code will be shown here in development mode so you can continue immediately."}</p>
           </div>
@@ -163,7 +163,7 @@ export default function ForgotPasswordPage({ kind = "admin" }: ForgotPasswordPag
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-400">
                   <div className="flex items-center gap-2 font-semibold">
                     <CheckCircle2 className="h-4 w-4" />
-                    Development recovery code
+                    Recovery code
                   </div>
                   <p className="mt-1 break-all">{devResetToken}</p>
                 </div>

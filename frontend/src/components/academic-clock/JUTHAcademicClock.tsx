@@ -5,6 +5,7 @@ import {
   ACADEMIC_CLOCK_DAYS_PER_MONTH,
   ACADEMIC_CLOCK_PHASES,
   getClockPhaseId,
+  normalizePhasePlan,
   type AcademicClockPhaseDefinition,
 } from "@/lib/academicClock";
 
@@ -15,6 +16,7 @@ interface JUTHAcademicClockProps {
   currentPhaseId?: AcademicClockPhase | null;
   phasePlan?: AcademicClockPhaseDefinition[];
   onComplete?: () => void;
+  institutionName?: string | null;
 }
 
 const RADIUS = Math.round(150 * 0.75); // reduced by 25%
@@ -30,6 +32,11 @@ const getCoordinatesForPercent = (percent: number) => {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
+export const getAcademicClockHeading = (institutionName?: string | null) => {
+  const trimmedName = institutionName?.trim();
+  return `${trimmedName || "Institution"} Class Clocks`;
+};
+
 const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   startDate,
   currentDate,
@@ -37,11 +44,12 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   currentPhaseId,
   phasePlan,
   onComplete,
+  institutionName,
 }) => {
-  const plan = phasePlan ?? ACADEMIC_CLOCK_PHASES;
+  const plan = normalizePhasePlan(phasePlan ?? ACADEMIC_CLOCK_PHASES);
   const completionTriggeredRef = useRef(false);
 
-  const totalMonths = plan.reduce((s, p) => s + p.durationMonths, 0);
+  const totalMonths = Math.max(1, plan.reduce((s, p) => s + p.durationMonths, 0));
   const totalDays = totalMonths * ACADEMIC_CLOCK_DAYS_PER_MONTH;
 
   const elapsedDays = clamp(
@@ -74,8 +82,8 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   ).arcs;
 
   const resolvedPhaseId = currentPhaseId ?? getClockPhaseId(startDate, currentDate, plan as any);
-  let currentPhase = plan.find((phase) => phase.id === resolvedPhaseId) ?? plan[plan.length - 1];
-  let currentPosting = currentPhase.subPostings[0];
+  let currentPhase = plan.find((phase) => phase.id === resolvedPhaseId) ?? plan[plan.length - 1] ?? null;
+  let currentPosting = currentPhase?.subPostings?.[0] ?? currentPhase?.name ?? "No posting defined";
   let localMonth = currentMonth;
   let phaseStartMonths = 0;
   let handAngle = 0;
@@ -83,12 +91,12 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   for (const phase of plan) {
     if (localMonth < phase.durationMonths || phase === plan[plan.length - 1]) {
       currentPhase = phase;
-      const monthlyStep = phase.durationMonths / phase.subPostings.length;
-      const postingIndex = Math.min(
-        phase.subPostings.length - 1,
-        Math.floor(localMonth / monthlyStep),
-      );
-      currentPosting = phase.subPostings[postingIndex] ?? phase.name;
+      const subPostings = Array.isArray(phase.subPostings) ? phase.subPostings : [];
+      const monthlyStep = subPostings.length > 0 ? phase.durationMonths / subPostings.length : phase.durationMonths;
+      const postingIndex = subPostings.length > 0
+        ? Math.min(subPostings.length - 1, Math.floor(localMonth / monthlyStep))
+        : 0;
+      currentPosting = subPostings[postingIndex] ?? phase.name ?? "No posting defined";
       handAngle = ((phaseStartMonths + localMonth) / totalMonths) * 360;
       break;
     }
@@ -109,10 +117,10 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   }, [elapsedDays, isPaused, onComplete, totalDays]);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(320px,420px)_1fr]">
+    <div className="w-full space-y-6">
       <div className="rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
         <div className="flex flex-col items-center gap-3">
-          <div className="relative h-[400px] w-full max-w-[420px]">
+          <div className="relative aspect-square w-full max-w-full">
             <svg viewBox="0 0 400 400" className="h-full w-full text-slate-900 dark:text-slate-100">
               <circle
                 cx={CENTER}
@@ -196,7 +204,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
         </div>
         <div className="mt-5 space-y-4">
           <div className="rounded-2xl bg-slate-100 p-4 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <div className="font-semibold">JUTH Class Clocks</div>
+            <div className="font-semibold">{getAcademicClockHeading(institutionName)}</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <div>
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
@@ -214,13 +222,13 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
                   Phase
                 </div>
-                <div className="font-semibold">{currentPhase.name}</div>
+                <div className="font-semibold">{currentPhase?.name ?? "No active phase"}</div>
               </div>
               <div>
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
                   Current posting
                 </div>
-                <div className="font-semibold">{currentPosting}</div>
+                <div className="font-semibold">{currentPosting ?? "No posting defined"}</div>
               </div>
             </div>
           </div>
@@ -239,7 +247,7 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                   {phase.durationMonths} month{phase.durationMonths > 1 ? "s" : ""}
                 </div>
                 <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  {phase.subPostings.join(" • ")}
+                  {(phase.subPostings ?? []).join(" • ") || "No postings defined."}
                 </div>
               </div>
             ))}

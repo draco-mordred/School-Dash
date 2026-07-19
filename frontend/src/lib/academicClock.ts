@@ -160,6 +160,20 @@ export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinitio
   ],
 };
 
+export const normalizePhasePlan = (plan?: AcademicClockPhaseDefinition[] | null): AcademicClockPhaseDefinition[] => {
+  if (!Array.isArray(plan) || plan.length === 0) {
+    return [];
+  }
+
+  return plan.map((phase, index) => ({
+    id: phase?.id ?? `phase-${index + 1}`,
+    name: phase?.name ?? `Phase ${index + 1}`,
+    durationMonths: Number.isFinite(phase?.durationMonths) ? phase.durationMonths : 1,
+    color: phase?.color ?? "#3B82F6",
+    subPostings: Array.isArray(phase?.subPostings) ? phase.subPostings.filter(Boolean) : [],
+  }));
+};
+
 export const getClassLevelPhasePlan = (className?: string | null): AcademicClockPhaseDefinition[] => {
   const normalized = (className ?? "").toLowerCase();
 
@@ -182,19 +196,50 @@ export const getClassLevelPhasePlan = (className?: string | null): AcademicClock
   return ACADEMIC_CLOCK_PHASES;
 };
 
+export const buildInitialPhasePlan = ({
+  className,
+  useTemplate = false,
+  existingPlan,
+}: {
+  className?: string | null;
+  useTemplate?: boolean;
+  existingPlan?: AcademicClockPhaseDefinition[] | null;
+}): AcademicClockPhaseDefinition[] => {
+  if (existingPlan && existingPlan.length > 0) {
+    return existingPlan.map((phase) => ({
+      ...phase,
+      subPostings: [...(phase.subPostings ?? [])],
+    }));
+  }
+
+  if (!useTemplate) {
+    return [];
+  }
+
+  return getClassLevelPhasePlan(className).map((phase) => ({
+    ...phase,
+    subPostings: [...phase.subPostings],
+  }));
+};
+
+export const getTotalPhaseMonths = (phasePlan: Array<AcademicClockPhasePlanEntry> = ACADEMIC_CLOCK_PHASES) =>
+  phasePlan.reduce((total, phase) => total + Math.max(0, phase.durationMonths), 0);
+
 export const getClockPhaseId = (
   startDate: Date,
   currentDate: Date,
   phasePlan: Array<AcademicClockPhasePlanEntry> = ACADEMIC_CLOCK_PHASES,
 ): AcademicClockPhase => {
+  const totalMonths = Math.max(0, getTotalPhaseMonths(phasePlan));
+  const maxDays = totalMonths * ACADEMIC_CLOCK_DAYS_PER_MONTH;
   const elapsedDays = clamp(
     Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)),
     0,
-    TOTAL_ACADEMIC_CLOCK_DAYS,
+    maxDays,
   );
 
-  const progressMonths = elapsedDays / ACADEMIC_CLOCK_DAYS_PER_MONTH;
-  const currentMonth = clamp(progressMonths, 0, TOTAL_ACADEMIC_CLOCK_MONTHS);
+  const progressMonths = totalMonths > 0 ? elapsedDays / ACADEMIC_CLOCK_DAYS_PER_MONTH : 0;
+  const currentMonth = clamp(progressMonths, 0, totalMonths);
   let localMonth = currentMonth;
 
   for (const phase of phasePlan) {

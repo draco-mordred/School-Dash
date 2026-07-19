@@ -61,6 +61,54 @@ export interface DashboardData {
   activities: any[];
 }
 
+export const buildAdminDashboardData = (
+  statsData: any,
+  overviewData: any,
+  previousData: DashboardData | null = null,
+): DashboardData => {
+  const previousStats = previousData?.stats;
+  const previousAcademicData = previousData?.academicData;
+  const previousClinicalData = previousData?.clinicalData;
+  const overview = overviewData && typeof overviewData === "object" ? overviewData : {};
+  const academicOverview = overview.academic && typeof overview.academic === "object" ? overview.academic : {};
+  const clinicalOverview = overview.clinical && typeof overview.clinical === "object" ? overview.clinical : {};
+
+  return {
+    stats: {
+      totalStudents: statsData?.totalStudents ?? previousStats?.totalStudents ?? 450,
+      totalParents: statsData?.totalParents ?? previousStats?.totalParents ?? 380,
+      totalStaff: statsData?.totalStaff ?? previousStats?.totalStaff ?? 65,
+      activeSession: statsData?.activeSession ?? previousStats?.activeSession ?? "2024-2025",
+    },
+    academicData: {
+      sessions: academicOverview.sessions ?? previousAcademicData?.sessions ?? 0,
+      semesters: academicOverview.semesters ?? previousAcademicData?.semesters ?? 0,
+      classes: academicOverview.classes ?? previousAcademicData?.classes ?? 0,
+      courses: academicOverview.courses ?? previousAcademicData?.courses ?? 0,
+      assessments: academicOverview.assessments ?? previousAcademicData?.assessments ?? 0,
+      details: {
+        activeAcademicYear: academicOverview.details?.activeAcademicYear ?? previousAcademicData?.details?.activeAcademicYear ?? null,
+        currentSemester: academicOverview.details?.currentSemester ?? previousAcademicData?.details?.currentSemester ?? null,
+        classes: academicOverview.details?.classes ?? previousAcademicData?.details?.classes ?? [],
+      },
+    },
+    clinicalData: {
+      postings: clinicalOverview.postings ?? previousClinicalData?.postings ?? 0,
+      departments: clinicalOverview.departments ?? previousClinicalData?.departments ?? 0,
+      units: clinicalOverview.units ?? previousClinicalData?.units ?? 0,
+      teams: clinicalOverview.teams ?? previousClinicalData?.teams ?? 0,
+      rotations: clinicalOverview.rotations ?? previousClinicalData?.rotations ?? 0,
+      details: {
+        postings: clinicalOverview.details?.postings ?? previousClinicalData?.details?.postings ?? [],
+        rotationTeams: clinicalOverview.details?.rotationTeams ?? previousClinicalData?.details?.rotationTeams ?? [],
+        rotations: clinicalOverview.details?.rotations ?? previousClinicalData?.details?.rotations ?? [],
+      },
+    },
+    alerts: previousData?.alerts ?? [],
+    activities: previousData?.activities ?? [],
+  };
+};
+
 /**
  * useAdminDashboard Hook
  * 
@@ -81,44 +129,7 @@ export const useAdminDashboard = () => {
           api.get("/dashboard/overview").catch(() => ({ data: {} })),
         ]);
 
-        const overviewData = overviewRes.data || {};
-        const academicOverview = overviewData.academic || {};
-        const clinicalOverview = overviewData.clinical || {};
-
-        const initial: DashboardData = {
-          stats: {
-            totalStudents: statsRes.data?.totalStudents ?? 450,
-            totalParents: statsRes.data?.totalParents ?? 380,
-            totalStaff: statsRes.data?.totalStaff ?? 65,
-            activeSession: statsRes.data?.activeSession ?? "2024-2025",
-          },
-          academicData: {
-            sessions: academicOverview.sessions ?? 0,
-            semesters: academicOverview.semesters ?? 0,
-            classes: academicOverview.classes ?? 0,
-            courses: academicOverview.courses ?? 0,
-            assessments: academicOverview.assessments ?? 0,
-            details: academicOverview.details ? {
-              activeAcademicYear: academicOverview.details.activeAcademicYear ?? null,
-              currentSemester: academicOverview.details.currentSemester ?? null,
-              classes: academicOverview.details.classes ?? [],
-            } : undefined,
-          },
-          clinicalData: {
-            postings: clinicalOverview.postings ?? 0,
-            departments: clinicalOverview.departments ?? 0,
-            units: clinicalOverview.units ?? 0,
-            teams: clinicalOverview.teams ?? 0,
-            rotations: clinicalOverview.rotations ?? 0,
-            details: clinicalOverview.details ? {
-              postings: clinicalOverview.details.postings ?? [],
-              rotationTeams: clinicalOverview.details.rotationTeams ?? [],
-              rotations: clinicalOverview.details.rotations ?? [],
-            } : undefined,
-          },
-          alerts: [],
-          activities: [],
-        };
+        const initial = buildAdminDashboardData(statsRes.data, overviewRes.data);
 
         setData(initial);
         setError(null);
@@ -169,7 +180,10 @@ export const useAdminDashboard = () => {
               }))
             : [];
 
-          setData((prev) => prev ? { ...prev, alerts, activities } : { ...initial, alerts, activities });
+          setData((prev) => {
+            const next = buildAdminDashboardData(statsRes.data, overviewRes.data, prev);
+            return { ...next, alerts, activities };
+          });
         } catch (bgErr) {
           // background fetch failed — keep initial data but log
           console.warn("Background dashboard fetch failed", bgErr);

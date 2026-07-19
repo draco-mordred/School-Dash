@@ -28,6 +28,8 @@ export interface IAcademicYear extends Document {
           duration: number;
           postingType: string | null;
           postingId?: mongoose.Types.ObjectId | null;
+          color?: string;
+          subPostings?: string[];
         }
       >;
     }

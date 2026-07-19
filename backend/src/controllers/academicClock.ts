@@ -47,7 +47,8 @@ export const createAcademicClock = async (req: Request, res: Response): Promise<
     }
 
     const resolvedClassLevel = classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
-    const resolvedPhaseConfig = phaseConfig ?? buildPhaseConfigForClassLevel(resolvedClassLevel);
+    const useTemplatePhaseConfig = Boolean(req.body?.useTemplatePhaseConfig);
+    const resolvedPhaseConfig = phaseConfig ?? (useTemplatePhaseConfig ? buildPhaseConfigForClassLevel(resolvedClassLevel) : {});
 
     const academicClock = await AcademicClock.create({
       academicYear: academicYearId,
@@ -155,7 +156,9 @@ export const updateAcademicClock = async (req: Request, res: Response): Promise<
         : academicClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
 
     if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) {
-      updateData.phaseConfig = buildPhaseConfigForClassLevel(resolvedClassLevel);
+      updateData.phaseConfig = req.body?.useTemplatePhaseConfig
+        ? buildPhaseConfigForClassLevel(resolvedClassLevel)
+        : {};
     }
 
     if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "classLevel")) {

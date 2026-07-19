@@ -769,7 +769,7 @@ function AdminNotifications() {
                 ) : (
                   <div className="space-y-2">
                     {(systemNotificationsAdmin || []).map((n) => (
-                      <div key={n._id} className="flex items-start gap-3 border rounded-md p-3">
+                      <div key={n._id} className="flex items-start gap-3 border rounded-md p-3" style={{ backgroundColor: n.unreadForUser ? '#fef3c7' : 'transparent', overflow: "auto" }}>
                         <input aria-label={`Select notification ${n.title}`} type="checkbox" checked={!!selectedIds[n._id]} onChange={() => toggleSelect(n._id)} />
                         <div className="flex-1">
                           <div className="flex items-center justify-between">
