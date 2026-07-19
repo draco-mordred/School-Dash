@@ -151,3 +151,101 @@ export const getStudentAssignments = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
+
+// GET /api/rotation-schedules/student/:studentId/current
+export const getStudentCurrentSchedule = async (req: Request, res: Response) => {
+  try {
+    const { studentId } = req.params as any;
+    if (!studentId) return res.status(400).json({ message: 'Missing studentId' });
+
+    const schedules = await RotationPlan.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    const now = new Date();
+    const current: any[] = [];
+
+    for (const s of schedules) {
+      const timeline = (s.meta && s.meta.timeline) || [];
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        const start = new Date(t.startDate);
+        const end = new Date(t.endDate);
+        const students = Array.isArray(t.studentIds) ? t.studentIds : [];
+        if (students.some((st: any) => String(st) === String(studentId))) {
+          if (start <= now && now < end) {
+            current.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
+          }
+        }
+      }
+    }
+
+    res.json({ current });
+  } catch (err) {
+    console.error('getStudentCurrentSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// GET /api/rotation-schedules/student/:studentId/upcoming
+export const getStudentUpcomingSchedule = async (req: Request, res: Response) => {
+  try {
+    const { studentId } = req.params as any;
+    const limit = Number(req.query.limit || 5);
+    if (!studentId) return res.status(400).json({ message: 'Missing studentId' });
+
+    const schedules = await RotationPlan.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    const now = new Date();
+    const upcoming: any[] = [];
+
+    for (const s of schedules) {
+      const timeline = (s.meta && s.meta.timeline) || [];
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        const start = new Date(t.startDate);
+        const students = Array.isArray(t.studentIds) ? t.studentIds : [];
+        if (students.some((st: any) => String(st) === String(studentId))) {
+          if (start > now) {
+            upcoming.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
+          }
+        }
+      }
+    }
+
+    upcoming.sort((a, b) => new Date(a.window.startDate).getTime() - new Date(b.window.startDate).getTime());
+    res.json({ upcoming: upcoming.slice(0, limit) });
+  } catch (err) {
+    console.error('getStudentUpcomingSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// GET /api/rotation-schedules/student/:studentId/history
+export const getStudentScheduleHistory = async (req: Request, res: Response) => {
+  try {
+    const { studentId } = req.params as any;
+    const limit = Number(req.query.limit || 50);
+    if (!studentId) return res.status(400).json({ message: 'Missing studentId' });
+
+    const schedules = await RotationPlan.find({}).sort({ createdAt: -1 }).limit(200).lean();
+    const now = new Date();
+    const history: any[] = [];
+
+    for (const s of schedules) {
+      const timeline = (s.meta && s.meta.timeline) || [];
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        const end = new Date(t.endDate);
+        const students = Array.isArray(t.studentIds) ? t.studentIds : [];
+        if (students.some((st: any) => String(st) === String(studentId))) {
+          if (end <= now) {
+            history.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
+          }
+        }
+      }
+    }
+
+    history.sort((a, b) => new Date(b.window.startDate).getTime() - new Date(a.window.startDate).getTime());
+    res.json({ history: history.slice(0, limit) });
+  } catch (err) {
+    console.error('getStudentScheduleHistory error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
