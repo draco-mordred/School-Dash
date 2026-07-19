@@ -253,9 +253,9 @@ export default function UserManagementPage({
 
   const mappedStudents = users.reduce<Student[]>((acc, user, index) => {
     const userId = (user as user & { _id?: string; id?: string })._id ?? (user as user & { _id?: string; id?: string }).id ?? "";
-    const rowKey = userId || `${user.name}-${user.idNumber ?? "no-id"}-${user.email ?? "no-email"}-${index}`;
+    const rowKey = `${userId || "unknown"}-${index}`;
 
-    if (acc.some((entry) => entry.id === userId || entry.rowKey === rowKey)) {
+    if (acc.some((entry) => entry.id === userId && entry.rowKey === rowKey)) {
       return acc;
     }
 
@@ -604,10 +604,10 @@ export default function UserManagementPage({
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {parentChildren.map((child) => {
+                  {parentChildren.map((child, index) => {
                     const childUser = typeof child === "string" ? null : child;
                     return (
-                      <div key={childUser?._id ?? child} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div key={childUser?._id ? `${childUser._id}-${index}` : child ?? index} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                         <p className="font-medium">{childUser?.name ?? "Student"}</p>
                         <p className="text-sm text-muted-foreground">{childUser?.email}</p>
                         <p className="text-sm text-muted-foreground">ID: {childUser?.idNumber ?? "N/A"}</p>
