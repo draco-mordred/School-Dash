@@ -843,6 +843,20 @@ export default function ClinicalRotations() {
     };
   }, [selectedClassId]);
 
+  // Reset posting generation form when dialog opens/closes
+  useEffect(() => {
+    if (!showPostingGenerateDialog) {
+      // Reset form when dialog closes
+      setPostingGenerateName("");
+      setPostingGenerateStartDate(new Date().toISOString().slice(0, 10));
+      setPostingGenerateEndDate("");
+      setSelectedDepartments({});
+      setUnitsByDept({});
+      setDepartmentDurationDays({});
+      setUnitDurationDays({});
+    }
+  }, [showPostingGenerateDialog]);
+
   const fetchRotations = useCallback(async () => {
     try {
       setLoading(true);
@@ -947,6 +961,10 @@ export default function ClinicalRotations() {
   const [postingGenerateName, setPostingGenerateName] = useState<string>("");
   const [postingGenerateStartDate, setPostingGenerateStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
+  const [selectedDepartments, setSelectedDepartments] = useState<Record<string, boolean>>({});
+  const [unitsByDept, setUnitsByDept] = useState<Record<string, string[]>>({});
+  const [departmentDurationDays, setDepartmentDurationDays] = useState<Record<string, number>>({});
+  const [unitDurationDays, setUnitDurationDays] = useState<Record<string, number>>({});
   const [showDeleteScheduleDialog, setShowDeleteScheduleDialog] = useState(false);
   const scheduleRef = useRef<HTMLDivElement | null>(null);
   // Disabled student class schedule load on page load.
@@ -1136,11 +1154,25 @@ export default function ClinicalRotations() {
       return;
     }
 
+    // Validate at least one department is selected
+    const selectedDeptIds = Object.keys(selectedDepartments).filter(d => selectedDepartments[d]);
+    if (selectedDeptIds.length === 0) {
+      toast.error("Please select at least one department");
+      return;
+    }
+
     try {
-      // Build Krysta generator payload with basic department structure
-      // For now, use a simple single-department setup; UI can be enhanced later for multi-dept selection
       const startDate = postingGenerateStartDate || new Date().toISOString().slice(0, 10);
       const endDate = postingGenerateEndDate || new Date(new Date(startDate).setMonth(new Date(startDate).getMonth() + Math.max(1, currentPhaseDuration || 2))).toISOString().slice(0, 10);
+      const totalDays = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)));
+
+      // Build departments array from selected departments
+      const departments = selectedDeptIds.map(deptId => ({
+        departmentId: deptId,
+        activeUnitIds: (unitsByDept[deptId] || []).filter(u => u.trim()).length > 0 ? (unitsByDept[deptId] || []).filter(u => u.trim()) : [`${deptId}-unit-1`],
+        departmentDurationDays: Math.max(1, departmentDurationDays[deptId] || totalDays),
+        unitDurationDays: Math.max(1, unitDurationDays[deptId] || 7),
+      }));
 
       const payload = {
         class: selectedClassId,
@@ -1149,15 +1181,7 @@ export default function ClinicalRotations() {
         endDate: new Date(endDate).toISOString(),
         generateWith: "krysta",
         krysta: true,
-        // Simple single-department config; can be enhanced with UI department selector
-        departments: [
-          {
-            departmentId: "dept-default",
-            activeUnitIds: ["unit-1", "unit-2"],
-            departmentDurationDays: Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24))),
-            unitDurationDays: 7,
-          },
-        ],
+        departments,
       };
 
       const { data } = await api.post("/rotation-schedules", payload);
@@ -2612,7 +2636,7 @@ export default function ClinicalRotations() {
         </Dialog>
 
         <Dialog open={showPostingGenerateDialog} onOpenChange={setShowPostingGenerateDialog}>
-          <DialogContent>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Generate Posting Schedule</DialogTitle>
               <DialogDescription>
@@ -2620,21 +2644,20 @@ export default function ClinicalRotations() {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4">
+              {/* Basic Info Section */}
               <div>
                 <label className="text-xs font-medium mb-1 block">Posting Name</label>
                 <Input value={postingGenerateName} onChange={(e) => setPostingGenerateName(e.target.value)} placeholder="Enter posting name" />
               </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Class</label>
-                <Input value={selectedClass?.name ?? ""} readOnly />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Posting Level</label>
-                <Input value={postingGenerateLevel === "fourth" ? "400 Level" : postingGenerateLevel ? `${postingGenerateLevel.toUpperCase()} Level` : "N/A"} readOnly />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Selected Posting</label>
-                <Input value={selectedGeneratePostingOption?.label ?? ""} readOnly />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium mb-1 block">Class</label>
+                  <Input value={selectedClass?.name ?? ""} readOnly />
+                </div>
+                <div>
+                  <label className="text-xs font-medium mb-1 block">Posting Level</label>
+                  <Input value={postingGenerateLevel === "fourth" ? "400 Level" : postingGenerateLevel ? `${postingGenerateLevel.toUpperCase()} Level` : "N/A"} readOnly />
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -2646,6 +2669,72 @@ export default function ClinicalRotations() {
                   <Input type="date" value={postingGenerateEndDate} onChange={(e) => setPostingGenerateEndDate(e.target.value)} />
                 </div>
               </div>
+
+              {/* Department Selection Section */}
+              <div className="border-t pt-4">
+                <label className="text-xs font-medium mb-2 block">Select Departments</label>
+                <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
+                  {['Medicine', 'Surgery', 'Pediatrics', 'Obstetrics and Gynecology', 'Psychiatry', 'ENT', 'Radiology', 'Ophthalmology', 'Dermatology'].map(dept => (
+                    <div key={dept} className="flex items-center gap-2">
+                      <Checkbox
+                        id={dept}
+                        checked={selectedDepartments[dept] || false}
+                        onCheckedChange={(checked) => {
+                          const newSelected = { ...selectedDepartments, [dept]: !!checked };
+                          setSelectedDepartments(newSelected);
+                          // Initialize units and durations for new department
+                          if (checked && !unitsByDept[dept]) {
+                            setUnitsByDept(prev => ({ ...prev, [dept]: [`${dept}-Unit-1`] }));
+                            setDepartmentDurationDays(prev => ({ ...prev, [dept]: 60 }));
+                            setUnitDurationDays(prev => ({ ...prev, [dept]: 7 }));
+                          }
+                        }}
+                      />
+                      <label htmlFor={dept} className="text-sm font-medium cursor-pointer">{dept}</label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Department Configuration Section */}
+              {Object.keys(selectedDepartments).filter(d => selectedDepartments[d]).map(dept => (
+                <div key={dept} className="border rounded p-3 bg-muted/30">
+                  <h4 className="text-sm font-semibold mb-3">{dept} Configuration</h4>
+                  <div className="grid gap-3">
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Active Units (comma-separated)</label>
+                      <Input
+                        value={(unitsByDept[dept] || []).join(', ')}
+                        onChange={(e) => setUnitsByDept(prev => ({ ...prev, [dept]: e.target.value.split(',').map(u => u.trim()) }))}
+                        placeholder={`e.g., ${dept}-Ward, ${dept}-ICU, ${dept}-OPD`}
+                        className="text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium mb-1 block">Department Duration (days)</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={departmentDurationDays[dept] || 60}
+                          onChange={(e) => setDepartmentDurationDays(prev => ({ ...prev, [dept]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium mb-1 block">Unit Duration (days)</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={unitDurationDays[dept] || 7}
+                          onChange={(e) => setUnitDurationDays(prev => ({ ...prev, [dept]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowPostingGenerateDialog(false)}>
