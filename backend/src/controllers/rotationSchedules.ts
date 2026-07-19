@@ -1,11 +1,33 @@
 import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
+import generateKrystaSchedule from '../services/krystaGenerator';
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
   try {
     const payload = req.body || {};
     payload.createdBy = (req as any).user?._id;
+    // If payload requests Krysta generator or provides departments, generate canonical schedule
+    if (payload.generateWith === 'krysta' || payload.krysta === true || Array.isArray(payload.departments)) {
+      try {
+        const planObj = await generateKrystaSchedule({
+          classId: payload.class,
+          name: payload.name || 'Krysta Rotation',
+          startDate: payload.startDate || new Date().toISOString(),
+          endDate: payload.endDate || new Date().toISOString(),
+          departments: payload.departments || [],
+          createdBy: payload.createdBy,
+        });
+
+        // merge any additional meta and persist
+        const doc = await RotationPlan.create(planObj);
+        return res.status(201).json(doc);
+      } catch (gErr) {
+        console.error('Krysta generation failed', gErr);
+        return res.status(500).json({ message: 'Generation failed', error: String(gErr) });
+      }
+    }
+
     const doc = await RotationPlan.create(payload);
     res.status(201).json(doc);
   } catch (err) {
@@ -58,6 +80,43 @@ export const deleteRotationSchedule = async (req: Request, res: Response) => {
     res.json({ message: 'Schedule deleted' });
   } catch (err) {
     console.error('deleteRotationSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// POST /api/rotation-schedules/:id/assign-supervisor
+export const assignSupervisorToWindow = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { windowIndex, supervisorId } = req.body as any;
+    if (typeof windowIndex !== 'number' && !req.body.matching) return res.status(400).json({ message: 'Missing windowIndex or matching criteria' });
+
+    const plan = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const timeline = (plan.meta && plan.meta.timeline) || [];
+
+    if (typeof windowIndex === 'number') {
+      if (!timeline[windowIndex]) return res.status(400).json({ message: 'Invalid windowIndex' });
+      timeline[windowIndex].supervisorId = supervisorId;
+    } else if (req.body.matching) {
+      // allow matching criteria to set multiple windows: { matching: { departmentIndex, departmentGroupIndex, unitGroupIndex } }
+      const m = req.body.matching || {};
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        let ok = true;
+        if (m.departmentIndex !== undefined) ok = ok && t.departmentIndex === m.departmentIndex;
+        if (m.departmentGroupIndex !== undefined) ok = ok && t.departmentGroupIndex === m.departmentGroupIndex;
+        if (m.unitGroupIndex !== undefined) ok = ok && t.unitGroupIndex === m.unitGroupIndex;
+        if (ok) timeline[i].supervisorId = supervisorId;
+      }
+    }
+
+    plan.meta = { ...(plan.meta || {}), timeline };
+    await plan.save();
+    res.json({ message: 'Supervisor assigned', id, timeline });
+  } catch (err) {
+    console.error('assignSupervisorToWindow error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
