@@ -229,7 +229,7 @@ const Classes = () => {
                       </div>
 
                       <div className="mt-5 flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">Hover to reveal details and actions.</p>
+                        {/* <p className="text-xs text-muted-foreground">Hover to reveal details and actions.</p> */}
                         <div
                           className={
                             "flex gap-2 transition-all duration-300 " +

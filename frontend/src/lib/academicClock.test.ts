@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it } from "vitest";
 
-import { buildInitialPhasePlan, getClockPhaseId, normalizePhasePlan } from "./academicClock";
+import { buildInitialPhasePlan, getClockPhaseId, getClassLevelPhasePlan, normalizePhasePlan, resolveActiveAcademicClockPhase } from "./academicClock";
 
 describe("getClockPhaseId", () => {
   it("returns phase2 once the clock has passed the first four months", () => {
@@ -18,6 +18,17 @@ describe("getClockPhaseId", () => {
     expect(getClockPhaseId(startDate, phaseOneDate)).toBe("phase1");
   });
 
+  it("uses the clock start date to compute the active phase even if stored clockPhase is stale", () => {
+    const clock = {
+      clockStartDate: "2024-01-01T00:00:00.000Z",
+      clockPhase: "phase1",
+      classLevel: "fifth",
+    };
+    const result = resolveActiveAcademicClockPhase(clock, "500 Level", new Date("2024-06-15T00:00:00.000Z"));
+
+    expect(result.phaseId).toBe("phase2");
+  });
+
   it("uses a class-specific phase plan when provided", () => {
     const startDate = new Date("2024-01-01T00:00:00.000Z");
     const phaseTwoDate = new Date("2025-01-15T00:00:00.000Z");
@@ -28,6 +39,26 @@ describe("getClockPhaseId", () => {
     ] as const;
 
     expect(getClockPhaseId(startDate, phaseTwoDate, classPhasePlan)).toBe("phase2");
+  });
+});
+
+describe("getClassLevelPhasePlan", () => {
+  it("detects a class-level plan from the class name when the clock does not carry one", () => {
+    expect(getClassLevelPhasePlan("500 Level")).toHaveLength(4);
+    expect(getClassLevelPhasePlan("500 Level")[0]).toMatchObject({ id: "phase1" });
+  });
+});
+
+describe("resolveActiveAcademicClockPhase", () => {
+  it("derives the active phase from the class name when the clock lacks a class level", () => {
+    const result = resolveActiveAcademicClockPhase(
+      { clockStartDate: "2024-01-01T00:00:00.000Z" },
+      "500 Level",
+      new Date("2024-05-15T00:00:00.000Z"),
+    );
+
+    expect(result.phaseId).toBe("phase2");
+    expect(result.phasePlan[0].id).toBe("phase1");
   });
 });
 

@@ -10,6 +10,12 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
     payload.createdBy = (req as any).user?._id;
     // If payload requests Krysta generator or provides departments, generate canonical schedule
     if (payload.generateWith === 'krysta' || payload.krysta === true || Array.isArray(payload.departments)) {
+      if (!payload.class) {
+        return res.status(400).json({ message: 'Missing class id for schedule generation' });
+      }
+      if (!Array.isArray(payload.departments) || payload.departments.length === 0) {
+        return res.status(400).json({ message: 'At least one department is required for schedule generation' });
+      }
       try {
         const planObj = await generateKrystaSchedule({
           classId: payload.class,
@@ -18,14 +24,17 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
           endDate: payload.endDate || new Date().toISOString(),
           departments: payload.departments || [],
           createdBy: payload.createdBy,
+          phaseId: payload.phaseId,
+          phaseName: payload.phaseName,
+          postingScheduleId: payload.postingScheduleId,
         });
 
         // merge any additional meta and persist
         const doc = await RotationPlan.create(planObj);
         return res.status(201).json(doc);
-      } catch (gErr) {
+      } catch (gErr: any) {
         console.error('Krysta generation failed', gErr);
-        return res.status(500).json({ message: 'Generation failed', error: String(gErr) });
+        return res.status(500).json({ message: gErr?.message || 'Generation failed', error: String(gErr) });
       }
     }
 

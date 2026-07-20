@@ -245,6 +245,21 @@
   transform: translateZ(0);
 }
 
+/* Force all Radix portal content above modal dialogs */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
+}
+
+[data-slot="select-content"],
+[data-slot="dropdown-menu-content"],
+[data-slot="popover-content"],
+[data-slot="hover-card-content"],
+[data-slot="tooltip-content"],
+[data-slot="context-menu-content"],
+[data-slot="menubar-content"] {
+  z-index: 9999 !important;
+}
+
 .mordred-panel-transition {
   will-change: transform, opacity;
 }

@@ -251,3 +251,36 @@ export const getClockPhaseId = (
 
   return phasePlan[phasePlan.length - 1]?.id ?? "phase4";
 };
+
+export interface ResolvedAcademicClockPhase {
+  phaseId: AcademicClockPhase | null;
+  phasePlan: AcademicClockPhaseDefinition[];
+}
+
+export const resolveActiveAcademicClockPhase = (
+  clock?: {
+    clockPhase?: string | null;
+    clockStartDate?: string | Date | null;
+    classLevel?: string | null;
+  } | null,
+  classNameOrLevel?: string | null,
+  currentDate: Date = new Date(),
+): ResolvedAcademicClockPhase => {
+  const phasePlan = normalizePhasePlan(getClassLevelPhasePlan(clock?.classLevel ?? classNameOrLevel ?? ""));
+
+  if (clock?.clockStartDate) {
+    const startDate = clock.clockStartDate instanceof Date ? clock.clockStartDate : new Date(clock.clockStartDate);
+    if (!Number.isNaN(startDate.getTime()) && phasePlan.length > 0) {
+      return { phaseId: getClockPhaseId(startDate, currentDate, phasePlan), phasePlan };
+    }
+  }
+
+  if (typeof clock?.clockPhase === "string" && clock.clockPhase) {
+    return { phaseId: clock.clockPhase, phasePlan };
+  }
+
+  return {
+    phaseId: phasePlan[0]?.id ?? null,
+    phasePlan,
+  };
+};

@@ -1,12 +1,13 @@
-import { type Types } from 'mongoose';
+import mongoose, { type Types } from 'mongoose';
 import ClassModel from '../models/classes';
 
 type DeptConfig = {
   departmentId: string;
   activeUnitIds: string[];
   reserveUnitIds?: string[];
-  departmentDurationDays: number;
-  unitDurationDays: number;
+  departmentDurationWeeks: number;
+  unitDurationWeeks: number;
+  useUnits?: boolean;
 };
 
 type GenerateOpts = {
@@ -16,6 +17,9 @@ type GenerateOpts = {
   endDate: string; // ISO
   departments: DeptConfig[];
   createdBy?: string;
+  phaseId?: string;
+  phaseName?: string;
+  postingScheduleId?: string;
 };
 
 function addDays(d: Date, days: number) {
@@ -25,7 +29,7 @@ function addDays(d: Date, days: number) {
 }
 
 export async function generateKrystaSchedule(opts: GenerateOpts) {
-  const { classId, name, startDate, endDate, departments, createdBy } = opts;
+  const { classId, name, startDate, endDate, departments, createdBy, phaseId, phaseName, postingScheduleId } = opts;
 
   // fetch class and students
   const cls = await ClassModel.findById(classId).lean();
@@ -58,18 +62,17 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
 
   for (let dIdx = 0; dIdx < departments.length; dIdx++) {
     const dept = departments[dIdx];
-    const activeUnits = Array.isArray(dept.activeUnitIds) ? dept.activeUnitIds : [];
-    const deptDuration = Math.max(0, Number(dept.departmentDurationDays) || 0);
-    const unitDuration = Math.max(1, Number(dept.unitDurationDays) || 1);
+    const useUnits = dept.useUnits !== false;
+    const activeUnits = Array.isArray(dept.activeUnitIds) ? dept.activeUnitIds.filter(Boolean) : [];
+    const deptDuration = Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7;
+    const unitDuration = Math.max(1, Number(dept.unitDurationWeeks) || 1) * 7;
 
-    // number of unit windows that fit
-    const numWindows = Math.floor(deptDuration / unitDuration);
+    const numWindows = useUnits ? Math.floor(deptDuration / unitDuration) : Math.max(1, Math.floor(deptDuration / Math.max(1, unitDuration)));
 
-    // prepare unit groups per department group
     const perGroupUnitGroups: { unitGroupIndex: number; studentIds: string[] }[][] = [];
     for (const g of deptGroups) {
       const students = g.studentIds;
-      const k = Math.max(1, activeUnits.length || 1);
+      const k = useUnits ? Math.max(1, activeUnits.length || 1) : 1;
       const baseU = Math.floor(students.length / k);
       const groupsForThis: { unitGroupIndex: number; studentIds: string[] }[] = [];
       let cur = 0;
@@ -82,18 +85,16 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       perGroupUnitGroups.push(groupsForThis);
     }
 
-    // generate windows
     for (let w = 0; w < numWindows; w++) {
       const windowStart = addDays(phaseStart, w * unitDuration);
       const windowEnd = addDays(windowStart, unitDuration);
 
       for (let gIdx = 0; gIdx < deptGroups.length; gIdx++) {
         const unitGroups = perGroupUnitGroups[gIdx];
-        const unitCount = activeUnits.length || 1;
-        // each unitGroup advances independently; compute which unit index this window maps to for that unitGroup
+        const unitCount = useUnits ? Math.max(1, activeUnits.length) : 1;
         for (let ugIdx = 0; ugIdx < unitGroups.length; ugIdx++) {
-          const unitIndex = (ugIdx + w) % unitCount; // initial offset = unitGroupIndex
-          const unitId = activeUnits.length ? activeUnits[unitIndex] : null;
+          const unitIndex = useUnits ? (ugIdx + w) % unitCount : 0;
+          const unitId = useUnits ? activeUnits[unitIndex] ?? null : null;
           timeline.push({
             startDate: windowStart.toISOString(),
             endDate: windowEnd.toISOString(),
@@ -110,9 +111,8 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       }
     }
 
-    // check unvisited units
-    if (numWindows < activeUnits.length) {
-      const visitedCount = numWindows; // per unitGroup sequence
+    if (useUnits && numWindows < activeUnits.length) {
+      const visitedCount = numWindows;
       const remaining = activeUnits.slice(visitedCount);
       if (remaining.length) unvisitedUnits.push({ departmentIndex: dIdx, unitIds: remaining });
     }
@@ -125,18 +125,25 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   const rotationPlan: any = {
     name,
     class: classId,
-    createdBy: createdBy ? new Types.ObjectId(createdBy) : undefined,
+    createdBy: createdBy ? new mongoose.Types.ObjectId(createdBy) : undefined,
     postings: [
       {
         name,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         groups: deptGroups.map((g) => ({ groupId: null, group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` } })),
-        meta: { krysta: true, departments, timelineCount: timeline.length },
+        meta: {
+          krysta: true,
+          departments,
+          timelineCount: timeline.length,
+          phaseId,
+          phaseName,
+          postingScheduleId,
+        },
       },
     ],
     groups: deptGroups,
-    meta: { krysta: true, timeline, unvisitedUnits },
+    meta: { krysta: true, timeline, unvisitedUnits, phaseId, phaseName, postingScheduleId },
   };
 
   return rotationPlan;

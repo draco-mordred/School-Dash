@@ -387,6 +387,41 @@ export const DEPARTMENT_UNITS: Partial<Record<DepartmentName, DepartmentUnitsDat
       history: [],
     },
   },
+  [DepartmentName.communityMedicine]: {
+    id: DEPARTMENTS_METADATA[DepartmentName.communityMedicine].code,
+    name: DEPARTMENTS_METADATA[DepartmentName.communityMedicine].name,
+    postingType: "COM&RURAL",
+    rotationDurationWeeks: 2,
+    currentUnit: [],
+    units: {
+      active: [
+        { id: "COM01", name: "Epidemiology Unit" },
+        { id: "COM02", name: "Health Promotion Unit" },
+        { id: "COM03", name: "Environmental Health Unit" },
+        { id: "COM04", name: "Occupational Health Unit" },
+      ],
+      reserve: [{ id: "COMR01", name: "Public Health Research Unit" }],
+      history: [],
+    },
+  },
+  [DepartmentName.hematologyAndBloodTransfusion]: {
+    id: DEPARTMENTS_METADATA[DepartmentName.hematologyAndBloodTransfusion].code,
+    name: DEPARTMENTS_METADATA[DepartmentName.hematologyAndBloodTransfusion].name,
+    postingType: "BLOCK",
+    rotationDurationWeeks: 2,
+    currentUnit: [],
+    units: {
+      active: [
+        { id: "HEM01", name: "General Hematology" },
+        { id: "HEM02", name: "Blood Transfusion Unit" },
+        { id: "HEM03", name: "Hematopathology" },
+      ],
+      reserve: [
+        { id: "HEMR01", name: "Coagulation & Hemostasis Unit" }
+      ],
+      history: [],
+    },
+  },
 };
 
 // Array of all department names for easy iteration (use in dropdowns, forms)

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
@@ -27,7 +27,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,12 +44,18 @@ import {
 } from "@/components/ui/table";
 import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
-import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
+import { getClassLevelPhasePlan, resolveActiveAcademicClockPhase } from "@/lib/academicClock";
+import {
+  getEligibleDepartmentsForPhase,
+  getPostingPhaseOptions,
+  type PostingDepartmentOption,
+} from "@/lib/postingGeneration";
 import {
   deletePersistedPostingSchedule,
   loadPersistedPostingSchedule,
   savePersistedPostingSchedule,
 } from "@/lib/postingScheduleStorage";
+import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
@@ -132,7 +138,7 @@ interface AcademicClockSummary {
   classLevel?: string | null;
   clockPhase?: string | null;
   clockStartDate?: string | null;
-  phaseConfig?: Record<string, { name?: string; duration?: number; postingType?: string | null; postingId?: string | null } | null>;
+  phaseConfig?: Record<string, { name?: string; duration?: number; postingType?: string | null; postingId?: string | null; subPostings?: string[] | null } | null>;
 }
 
 const ROTATION_TYPES: RotationType[] = ["medicine", "surgery", "paediatrics", "obstetrics", "psychiatry", "community", "elective"];
@@ -730,6 +736,13 @@ export default function ClinicalRotations() {
   const [selectedClassStudents, setSelectedClassStudents] = useState<Array<{ _id?: string; name?: string; idNumber?: string }>>([]);
   const [classStudentsLoading, setClassStudentsLoading] = useState(false);
 
+  // Student current posting and group info
+  const [studentCurrentPosting, setStudentCurrentPosting] = useState<any | null>(null);
+  const [studentCurrentGroup, setStudentCurrentGroup] = useState<any | null>(null);
+  const [studentPostingWindow, setStudentPostingWindow] = useState<any | null>(null);
+  const [studentPostingLoading, setStudentPostingLoading] = useState(false);
+  const [studentPostingError, setStudentPostingError] = useState<string | null>(null);
+
   const limit = 15;
 
   const authStudentClassId = (() => {
@@ -754,8 +767,14 @@ export default function ClinicalRotations() {
           }));
 
         setAvailableClasses(mappedClasses);
-        if (!selectedClassId && (!user?.role || user.role !== "student" || !authStudentClassId) && mappedClasses[0]?._id) {
-          setSelectedClassId(mappedClasses[0]._id);
+        if (!selectedClassId && mappedClasses.length) {
+          const preferredClass = authStudentClassId
+            ? mappedClasses.find((cls) => cls._id === authStudentClassId)
+            : null;
+          const fallbackClass = preferredClass ?? mappedClasses[0];
+          if (fallbackClass?._id) {
+            setSelectedClassId(fallbackClass._id);
+          }
         }
       } catch (error) {
         console.error("Failed to load classes", error);
@@ -843,19 +862,180 @@ export default function ClinicalRotations() {
     };
   }, [selectedClassId]);
 
+  // Fetch student's current posting and group info
+  useEffect(() => {
+    const authStudentId = (user as any)?._id ?? (user as any)?.id;
+    if (user?.role !== "student" || !authStudentId) {
+      setStudentCurrentPosting(null);
+      setStudentCurrentGroup(null);
+      setStudentPostingWindow(null);
+      return;
+    }
+
+    let isActive = true;
+
+    const fetchStudentPostingAndGroup = async () => {
+      setStudentPostingLoading(true);
+      setStudentPostingError(null);
+      try {
+        const [{ data: assignmentData }, { data: scheduleData }] = await Promise.all([
+          api.get("/rotation-schedules/student-assignments", {
+            params: { studentId: authStudentId },
+          }),
+          selectedClassId
+            ? api.get("/rotation-schedules", { params: { classId: selectedClassId, limit: 100 } })
+            : Promise.resolve({ data: { schedules: [] } }),
+        ]);
+
+        if (!isActive) return;
+
+        const rawAssignments = assignmentData?.assignments ?? assignmentData?.data ?? assignmentData ?? {};
+        const assignments = Array.isArray(rawAssignments)
+          ? rawAssignments
+          : rawAssignments && typeof rawAssignments === "object"
+            ? Object.entries(rawAssignments).map(([postingName, assignment]: [string, any]) => ({
+                postingName,
+                departmentName: assignment?.groupName || assignment?.supervisorName || "",
+                groupName: assignment?.groupName,
+                supervisorName: assignment?.supervisorName,
+                ...assignment,
+              }))
+            : [];
+
+        if (assignments.length > 0) {
+          const [firstAssignment] = assignments;
+          setStudentCurrentPosting(firstAssignment);
+          setStudentCurrentGroup({
+            name: firstAssignment.groupName || firstAssignment.departmentName || "",
+            supervisor: firstAssignment.supervisorName ? { name: firstAssignment.supervisorName } : undefined,
+          });
+        } else {
+          setStudentCurrentPosting(null);
+          setStudentCurrentGroup(null);
+        }
+
+        const schedules = Array.isArray(scheduleData?.schedules) ? scheduleData.schedules : Array.isArray(scheduleData) ? scheduleData : [];
+        const matchedWindows = schedules.flatMap((schedule: any) => {
+          const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
+          return timeline.flatMap((window: any, index: number) => {
+            const view = buildTimelineWindowView(schedule, window, index, authStudentId);
+            return view.matchesStudent ? [{ ...view, postingName: schedule?.postings?.[0]?.name || schedule?.name || view.postingName }] : [];
+          });
+        });
+
+        const activePhase = resolveActiveAcademicClockPhase(selectedClock, selectedClass?.name ?? authStudentClassId ?? "", new Date()).phaseId;
+        const phaseAwareWindows = activePhase
+          ? matchedWindows.filter((window: any) => !window.phaseId || window.phaseId === activePhase)
+          : matchedWindows;
+        const currentWindow = phaseAwareWindows.find((window: any) => window.status === "current")
+          || phaseAwareWindows.find((window: any) => window.status === "upcoming")
+          || phaseAwareWindows[0] || null;
+        setStudentPostingWindow(currentWindow);
+      } catch (error: any) {
+        if (isActive) {
+          console.error("Failed to fetch student posting:", error);
+          setStudentPostingError(error?.message || "Failed to load posting information");
+        }
+      } finally {
+        if (isActive) {
+          setStudentPostingLoading(false);
+        }
+      }
+    };
+
+    void fetchStudentPostingAndGroup();
+
+    return () => {
+      isActive = false;
+    };
+  }, [user, authStudentClassId, selectedClassId, selectedClock]);
+
+  // State declarations for posting generation dialog
+  const [classPostings, setClassPostings] = useState<PostingEntry[]>([]);
+  const [selectedPostingSchedule, setSelectedPostingSchedule] = useState<any | null>(null);
+  const [selectedPostingId, setSelectedPostingId] = useState<string>("");
+  const [selectedSixthPostingId, setSelectedSixthPostingId] = useState<string>("");
+  const [selectedFourthPostingId, setSelectedFourthPostingId] = useState<string>("");
+  const [showPostingGenerateDialog, setShowPostingGenerateDialog] = useState(false);
+  const [postingGenerateLevel, setPostingGenerateLevel] = useState<string>("");
+  const [postingGenerateName, setPostingGenerateName] = useState<string>("");
+  const [postingGenerateStartDate, setPostingGenerateStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [postingGenerateDurationMonths, setPostingGenerateDurationMonths] = useState<number>(2);
+  const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
+  const [postingGeneratePhaseId, setPostingGeneratePhaseId] = useState<string>("");
+  const [selectedDepartments, setSelectedDepartments] = useState<Record<string, boolean>>({});
+  const [unitsByDept, setUnitsByDept] = useState<Record<string, string[]>>({});
+  const [departmentDurationWeeks, setDepartmentDurationWeeks] = useState<Record<string, number>>({});
+  const [unitDurationWeeks, setUnitDurationWeeks] = useState<Record<string, number>>({});
+  const [useUnitsByDept, setUseUnitsByDept] = useState<Record<string, boolean>>({});
+  const [institutionDepartments, setInstitutionDepartments] = useState<Array<{ _id?: string; id?: string; name?: string; code?: string; departmentID?: string }>>([]);
+  const [showDeleteScheduleDialog, setShowDeleteScheduleDialog] = useState(false);
+  const scheduleRef = useRef<HTMLDivElement | null>(null);
+
+  const calculatePostingEndDate = (startDateValue: string, durationMonths: number) => {
+    if (!startDateValue) {
+      return "";
+    }
+
+    const parsedStartDate = new Date(`${startDateValue}T00:00:00`);
+    if (Number.isNaN(parsedStartDate.getTime())) {
+      return "";
+    }
+
+    const endDate = new Date(parsedStartDate.getFullYear(), parsedStartDate.getMonth() + Math.max(1, durationMonths || 1), parsedStartDate.getDate());
+    const year = endDate.getFullYear();
+    const month = `${endDate.getMonth() + 1}`.padStart(2, "0");
+    const day = `${endDate.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // Reset posting generation form when dialog opens/closes
   useEffect(() => {
     if (!showPostingGenerateDialog) {
-      // Reset form when dialog closes
       setPostingGenerateName("");
       setPostingGenerateStartDate(new Date().toISOString().slice(0, 10));
+      setPostingGenerateDurationMonths(2);
       setPostingGenerateEndDate("");
+      setPostingGeneratePhaseId("");
       setSelectedDepartments({});
       setUnitsByDept({});
-      setDepartmentDurationDays({});
-      setUnitDurationDays({});
+      setDepartmentDurationWeeks({});
+      setUnitDurationWeeks({});
+      setUseUnitsByDept({});
+      setInstitutionDepartments([]);
+      return;
     }
+
+    let isActive = true;
+    const loadDepartments = async () => {
+      try {
+        const { data } = await api.get("/courses/departments");
+        const departments = Array.isArray(data) ? data : (data?.departments ?? data?.data ?? []);
+        if (isActive) {
+          setInstitutionDepartments(departments as Array<{ _id?: string; id?: string; name?: string; code?: string; departmentID?: string }>);
+        }
+      } catch (error) {
+        console.error("Failed to load institution departments", error);
+        if (isActive) {
+          setInstitutionDepartments([]);
+        }
+      }
+    };
+
+    void loadDepartments();
+
+    return () => {
+      isActive = false;
+    };
   }, [showPostingGenerateDialog]);
+
+  useEffect(() => {
+    if (!showPostingGenerateDialog) {
+      return;
+    }
+
+    setPostingGenerateEndDate(calculatePostingEndDate(postingGenerateStartDate, postingGenerateDurationMonths));
+  }, [postingGenerateStartDate, postingGenerateDurationMonths, showPostingGenerateDialog]);
 
   const fetchRotations = useCallback(async () => {
     try {
@@ -951,22 +1131,6 @@ export default function ClinicalRotations() {
   // }, []);
 
   // For students, also load schedules scoped to their class(es) to show class schedule card
-  const [classPostings, setClassPostings] = useState<PostingEntry[]>([]);
-  const [selectedPostingSchedule, setSelectedPostingSchedule] = useState<any | null>(null);
-  const [selectedPostingId, setSelectedPostingId] = useState<string>("");
-  const [selectedSixthPostingId, setSelectedSixthPostingId] = useState<string>("");
-  const [selectedFourthPostingId, setSelectedFourthPostingId] = useState<string>("");
-  const [showPostingGenerateDialog, setShowPostingGenerateDialog] = useState(false);
-  const [postingGenerateLevel, setPostingGenerateLevel] = useState<string>("");
-  const [postingGenerateName, setPostingGenerateName] = useState<string>("");
-  const [postingGenerateStartDate, setPostingGenerateStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
-  const [selectedDepartments, setSelectedDepartments] = useState<Record<string, boolean>>({});
-  const [unitsByDept, setUnitsByDept] = useState<Record<string, string[]>>({});
-  const [departmentDurationDays, setDepartmentDurationDays] = useState<Record<string, number>>({});
-  const [unitDurationDays, setUnitDurationDays] = useState<Record<string, number>>({});
-  const [showDeleteScheduleDialog, setShowDeleteScheduleDialog] = useState(false);
-  const scheduleRef = useRef<HTMLDivElement | null>(null);
   // Disabled student class schedule load on page load.
   // useEffect(() => {
   //   if (user?.role !== "student") return;
@@ -1154,8 +1318,15 @@ export default function ClinicalRotations() {
       return;
     }
 
-    // Validate at least one department is selected
-    const selectedDeptIds = Object.keys(selectedDepartments).filter(d => selectedDepartments[d]);
+    if (!selectedPostingPhaseOption) {
+      toast.error("Please select a posting phase from the class academic clock");
+      return;
+    }
+
+    const selectedDeptIds = Object.entries(selectedDepartments)
+      .filter(([, isSelected]) => isSelected)
+      .map(([deptId]) => deptId);
+
     if (selectedDeptIds.length === 0) {
       toast.error("Please select at least one department");
       return;
@@ -1163,20 +1334,39 @@ export default function ClinicalRotations() {
 
     try {
       const startDate = postingGenerateStartDate || new Date().toISOString().slice(0, 10);
-      const endDate = postingGenerateEndDate || new Date(new Date(startDate).setMonth(new Date(startDate).getMonth() + Math.max(1, currentPhaseDuration || 2))).toISOString().slice(0, 10);
-      const totalDays = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)));
+      const endDate = postingGenerateEndDate || calculatePostingEndDate(startDate, postingGenerateDurationMonths || 2);
+      const totalWeeks = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24 * 7)));
 
-      // Build departments array from selected departments
-      const departments = selectedDeptIds.map(deptId => ({
-        departmentId: deptId,
-        activeUnitIds: (unitsByDept[deptId] || []).filter(u => u.trim()).length > 0 ? (unitsByDept[deptId] || []).filter(u => u.trim()) : [`${deptId}-unit-1`],
-        departmentDurationDays: Math.max(1, departmentDurationDays[deptId] || totalDays),
-        unitDurationDays: Math.max(1, unitDurationDays[deptId] || 7),
-      }));
+      const departments = selectedDeptIds.map((deptId) => {
+        const departmentOption = availablePostingDepartments.find((option) => option.id === deptId);
+        const useUnits = useUnitsByDept[deptId] ?? true;
+        const activeUnitIds = useUnits
+          ? (unitsByDept[deptId] || departmentOption?.units.map((unit) => unit.id) || []).filter((unit) => unit.trim())
+          : [];
+
+        return {
+          departmentId: departmentOption?.canonicalDepartmentID ?? departmentOption?.department.departmentID ?? departmentOption?.department.name ?? deptId,
+          departmentName: departmentOption?.canonicalName ?? departmentOption?.department.name ?? deptId,
+          departmentCode: departmentOption?.canonicalCode ?? departmentOption?.department.code ?? undefined,
+          activeUnitIds,
+          departmentDurationWeeks: Math.max(1, departmentDurationWeeks[deptId] || departmentOption?.departmentDurationWeeks || totalWeeks),
+          unitDurationWeeks: useUnits ? Math.max(1, unitDurationWeeks[deptId] || departmentOption?.unitDurationWeeks || 1) : 1,
+          useUnits,
+        };
+      });
+
+      const generatedPostingName = [
+        selectedClass.name,
+        selectedPostingPhaseOption.label,
+        new Date(startDate).toISOString().slice(0, 10),
+      ].join(" - ");
 
       const payload = {
         class: selectedClassId,
-        name: postingGenerateName.trim() || `${selectedClass.name} ${postingGenerateLevel?.toUpperCase() || "Level"} Posting`,
+        name: postingGenerateName.trim() || generatedPostingName,
+        phaseId: postingGeneratePhaseId,
+        phaseName: selectedPostingPhaseOption.label,
+        postingScheduleId: `${selectedClassId}-${postingGeneratePhaseId}-${Date.now()}`,
         startDate: new Date(startDate).toISOString(),
         endDate: new Date(endDate).toISOString(),
         generateWith: "krysta",
@@ -1187,7 +1377,6 @@ export default function ClinicalRotations() {
       const { data } = await api.post("/rotation-schedules", payload);
 
       if (data?._id) {
-        // Store reference to the generated schedule
         setSelectedPostingSchedule({
           _id: data._id,
           postingName: data.name,
@@ -2063,9 +2252,58 @@ export default function ClinicalRotations() {
     setSelectedClassId(authStudentClass._id);
   }, [user?.role, authStudentClass, selectedClassId]);
 
-  const selectedClassPhasePlan = selectedClock?.classLevel
-    ? getClassLevelPhasePlan(selectedClock.classLevel)
+  const selectedClassPhasePlan = selectedClock?.classLevel || selectedClass?.name
+    ? getClassLevelPhasePlan(selectedClock?.classLevel ?? selectedClass?.name ?? "")
     : [];
+
+  const postingPhaseOptions = useMemo(
+    () => getPostingPhaseOptions(selectedClock, selectedClassPhasePlan),
+    [selectedClock, selectedClassPhasePlan],
+  );
+  const selectedPostingPhaseOption = postingPhaseOptions.find((option) => option.id === postingGeneratePhaseId) ?? postingPhaseOptions[0] ?? null;
+  const availablePostingDepartments = useMemo<PostingDepartmentOption[]>(
+    () => getEligibleDepartmentsForPhase(selectedClock, institutionDepartments, selectedPostingPhaseOption?.id),
+    [selectedClock, institutionDepartments, selectedPostingPhaseOption?.id],
+  );
+
+  const isRecordEqual = <T,>(left: Record<string, T>, right: Record<string, T>) => {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    return leftKeys.every((key) => left[key] === right[key]);
+  };
+
+  useEffect(() => {
+    if (!showPostingGenerateDialog) return;
+    if (!postingPhaseOptions.length) {
+      setPostingGeneratePhaseId("");
+      return;
+    }
+    if (!postingGeneratePhaseId || !postingPhaseOptions.some((option) => option.id === postingGeneratePhaseId)) {
+      setPostingGeneratePhaseId(postingPhaseOptions[0].id);
+    }
+  }, [postingGeneratePhaseId, postingPhaseOptions, showPostingGenerateDialog]);
+
+  useEffect(() => {
+    if (!showPostingGenerateDialog) return;
+
+    const nextSelected: Record<string, boolean> = {};
+    const nextUseUnits: Record<string, boolean> = {};
+
+    availablePostingDepartments.forEach((departmentOption) => {
+      const deptId = departmentOption.id;
+      if (!deptId) return;
+      nextSelected[deptId] = !!selectedDepartments[deptId];
+      nextUseUnits[deptId] = selectedDepartments[deptId] ? (useUnitsByDept[deptId] ?? true) : true;
+    });
+
+    if (!isRecordEqual(nextSelected, selectedDepartments)) {
+      setSelectedDepartments(nextSelected);
+    }
+    if (!isRecordEqual(nextUseUnits, useUnitsByDept)) {
+      setUseUnitsByDept(nextUseUnits);
+    }
+  }, [availablePostingDepartments, selectedDepartments, showPostingGenerateDialog, useUnitsByDept]);
 
   const getPostingOptionsForLevel = (level: string) => {
     if (selectedClock?.classLevel === level && selectedClock.phaseConfig) {
@@ -2089,17 +2327,20 @@ export default function ClinicalRotations() {
     if (!selectedFourthPostingId && fourthOptions.length) setSelectedFourthPostingId(fourthOptions[0].id);
   }, [selectedClock, selectedSixthPostingId, selectedFourthPostingId]);
 
-  const postingOptions = selectedClock?.phaseConfig
-    ? Object.entries(selectedClock.phaseConfig)
-      .filter(([_, config]) => !!config?.name)
-      .map(([id, config]) => ({
-        id,
-        label: `${config?.name ?? id}${config?.postingType ? ` (${config.postingType})` : ""}`.trim(),
-      }))
-    : selectedClassPhasePlan.map((phase) => ({
-      id: phase.id,
-      label: phase.name,
-    })) ?? [];
+  const postingOptions = useMemo(
+    () => selectedClock?.phaseConfig
+      ? Object.entries(selectedClock.phaseConfig)
+        .filter(([_, config]) => !!config?.name)
+        .map(([id, config]) => ({
+          id,
+          label: `${config?.name ?? id}${config?.postingType ? ` (${config.postingType})` : ""}`.trim(),
+        }))
+      : selectedClassPhasePlan.map((phase) => ({
+          id: phase.id,
+          label: phase.name,
+        })) ?? [],
+    [selectedClock, selectedClassPhasePlan],
+  );
   const isFiveHundredLevelClass = selectedClass?.name?.toLowerCase().includes("500") || selectedClass?.name?.toLowerCase().includes("fifth") || selectedClock?.classLevel === "fifth";
   const selectedPostingOption = postingOptions.find((option) => option.id === selectedPostingId) ?? null;
   const selectedPostingOptionId = selectedPostingOption?.id ?? "";
@@ -2182,11 +2423,12 @@ export default function ClinicalRotations() {
     setSelectedPostingSchedule(null);
   }, [selectedClassId, currentPostingScheduleStorageKey]);
 
-  const currentClockPhase = selectedClock
-    ? selectedClock.clockPhase ?? (selectedClock.clockStartDate && selectedClassPhasePlan.length > 0
-      ? getClockPhaseId(new Date(selectedClock.clockStartDate), new Date(), selectedClassPhasePlan)
-      : null)
-    : null;
+  const activeClockPhase = resolveActiveAcademicClockPhase(
+    selectedClock,
+    selectedClass?.name ?? authStudentClass?.name ?? "",
+    new Date(),
+  );
+  const currentClockPhase = activeClockPhase.phaseId;
   const currentPhaseConfig = selectedClock?.phaseConfig?.[currentClockPhase ?? ""] ?? null;
   const currentPhaseDefinition = currentClockPhase
     ? selectedClassPhasePlan.find((phase) => phase.id === currentClockPhase) ?? null
@@ -2195,7 +2437,7 @@ export default function ClinicalRotations() {
   const currentPhaseDuration = currentPhaseConfig?.duration ?? currentPhaseDefinition?.durationMonths ?? 0;
   const postingComponents = currentPhaseDefinition?.subPostings ?? [];
   const currentPostingSubtitle = currentPhaseConfig?.postingType ?? currentPhaseDefinition?.subPostings?.join(", ") ?? "Clinical posting";
-  const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "No active phase";
+  const currentPhaseLabel = currentPhaseConfig?.name ?? currentPhaseDefinition?.name ?? (currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "No active phase");
   const isStudentView = user?.role === "student";
   const currentStudent = isStudentView
     ? selectedClassStudents.find((student) => {
@@ -2298,18 +2540,33 @@ export default function ClinicalRotations() {
                   <p className="mt-2 text-sm text-muted-foreground">
                     {(selectedClass ?? authStudentClass)
                       ? `${(selectedClass ?? authStudentClass)?.name} • ${currentPhaseLabel}`
-                      : "No class selected for this posting."}
+                      : "Class posting information is unavailable."}
+                  </p>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    Active phase: {currentPhaseLabel}
                   </p>
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Badge className="bg-secondary text-secondary-foreground">{currentPhaseLabel}</Badge>
-                    <Badge variant="outline">{currentPostingSubtitle}</Badge>
+                    <Badge variant="outline">{studentPostingWindow?.departmentName || currentPostingSubtitle}</Badge>
                   </div>
                 </>
               )}
             </div>
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Your current posting (department)</p>
-              {studentPostingAssignment ? (
+              {studentPostingLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">Loading posting data…</p>
+              ) : studentPostingWindow ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentPostingWindow.departmentName || "Current posting department"}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentPostingWindow.postingName || currentPostingTitle} • {currentPhaseLabel}
+                  </p>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    This is your current department for the active posting phase in your class schedule.
+                  </p>
+                </>
+              ) : studentPostingAssignment ? (
                 <>
                   <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.posting}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
@@ -2328,6 +2585,26 @@ export default function ClinicalRotations() {
                 </>
               )}
             </div>
+
+            {studentPostingWindow?.postingName && (
+              <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <p className="text-sm font-medium text-muted-foreground">Current posting schedule</p>
+                <h2 className="mt-2 text-xl font-semibold">{studentPostingWindow.postingName}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {studentPostingWindow.departmentName ? `${studentPostingWindow.departmentName} · ${studentPostingWindow.unitGroupLabel}` : "View the schedule for your active posting."}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-3 items-center">
+                  <Button asChild variant="secondary">
+                    <Link to="/student/schedule/calendar">View calendar</Link>
+                  </Button>
+                  {studentPostingWindow.startDate && studentPostingWindow.endDate && (
+                    <div className="rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                      {studentPostingWindow.startDate.toLocaleDateString("en", { dateStyle: "medium" })} – {studentPostingWindow.endDate.toLocaleDateString("en", { dateStyle: "medium" })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {selectedPostingSchedule && (
@@ -2414,7 +2691,9 @@ export default function ClinicalRotations() {
               <>
                 <h2 className="mt-2 text-xl font-semibold">{currentPostingTitle}</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {selectedClass ? `${selectedClass.name} • ${currentPhaseLabel}` : "Select a class to view its current posting."}
+                  {(selectedClass ?? authStudentClass)
+                    ? `${(selectedClass ?? authStudentClass)?.name} • ${currentPhaseLabel}`
+                    : "Select a class to view its current posting."}
                 </p>
                 <div className="mt-3 space-y-2 text-sm text-muted-foreground">
                   <p>Duration: {currentPhaseDuration} month{currentPhaseDuration === 1 ? "" : "s"}</p>
@@ -2434,7 +2713,83 @@ export default function ClinicalRotations() {
           </div>
         </div>
 
-        
+        {/* Student Current Posting and Group Info - Only shown for students */}
+        {user?.role === "student" && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-sm font-medium text-muted-foreground">Your active posting</p>
+              {studentPostingLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">Loading posting data…</p>
+              ) : studentPostingError ? (
+                <p className="mt-2 text-sm text-red-500">{studentPostingError}</p>
+              ) : studentPostingAssignment ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.posting || "Current Posting"}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentPostingAssignment.posting ? `${studentPostingAssignment.posting}` : "Department information pending"}
+                  </p>
+                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {studentPostingAssignment.startDate && (
+                      <p>Start: {new Date(studentPostingAssignment.startDate).toLocaleDateString()}</p>
+                    )}
+                    {studentPostingAssignment.endDate && (
+                      <p>End: {new Date(studentPostingAssignment.endDate).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                </>
+              ) : studentCurrentPosting ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentCurrentPosting.postingName || "Current Posting"}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentCurrentPosting.departmentName ? `${studentCurrentPosting.departmentName}` : "Department information pending"}
+                  </p>
+                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {studentCurrentPosting.startDate && (
+                      <p>Start: {new Date(studentCurrentPosting.startDate).toLocaleDateString()}</p>
+                    )}
+                    {studentCurrentPosting.endDate && (
+                      <p>End: {new Date(studentCurrentPosting.endDate).toLocaleDateString()}</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">No active posting assigned yet</p>
+              )}
+            </div>
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+              <p className="text-sm font-medium text-muted-foreground">Your group assignment</p>
+              {studentPostingLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">Loading group data…</p>
+              ) : studentPostingAssignment ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.groupKey ? (studentPostingAssignment.groupKey === 'groupA' ? 'Group A' : 'Group B') : (studentCurrentGroup?.name || `Group ${studentCurrentGroup?._id?.slice(-4)}`)}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentPostingAssignment.departmentStudents ? `${studentPostingAssignment.departmentStudents.length} member${(studentPostingAssignment.departmentStudents?.length || 0) === 1 ? "" : "s"}` : (studentCurrentGroup?.studentCount ? `${studentCurrentGroup.studentCount} member${studentCurrentGroup.studentCount === 1 ? "" : "s"}` : "Group information pending")}
+                  </p>
+                  {studentPostingAssignment.posting && (
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      <p>Department: {studentPostingAssignment.posting}</p>
+                    </div>
+                  )}
+                </>
+              ) : studentCurrentGroup ? (
+                <>
+                  <h2 className="mt-2 text-xl font-semibold">{studentCurrentGroup.name || `Group ${studentCurrentGroup._id?.slice(-4)}`}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {studentCurrentGroup.studentCount ? `${studentCurrentGroup.studentCount} member${studentCurrentGroup.studentCount === 1 ? "" : "s"}` : "Group information pending"}
+                  </p>
+                  {studentCurrentGroup.supervisor && (
+                    <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      <p>Supervisor: {studentCurrentGroup.supervisor.name || studentCurrentGroup.supervisor}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">No group assignment available</p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className={`grid gap-4 ${visibleLevels.length ? gridColsClass : "md:grid-cols-1"}`}>
           {visibleLevels.map(({ level, title }) => {
@@ -2646,8 +3001,22 @@ export default function ClinicalRotations() {
             <div className="grid gap-4">
               {/* Basic Info Section */}
               <div>
-                <label className="text-xs font-medium mb-1 block">Posting Name</label>
-                <Input value={postingGenerateName} onChange={(e) => setPostingGenerateName(e.target.value)} placeholder="Enter posting name" />
+                <label className="text-xs font-medium mb-1 block">Posting Phase</label>
+                <Select value={postingGeneratePhaseId} onValueChange={setPostingGeneratePhaseId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a posting phase" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {postingPhaseOptions.map((option) => (
+                      <SelectItem key={option.id} value={option.id}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choose a phase from the class academic clock. The generated schedule name will be based on that phase.
+                </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -2665,76 +3034,143 @@ export default function ClinicalRotations() {
                   <Input type="date" value={postingGenerateStartDate} onChange={(e) => setPostingGenerateStartDate(e.target.value)} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium mb-1 block">End Date</label>
-                  <Input type="date" value={postingGenerateEndDate} onChange={(e) => setPostingGenerateEndDate(e.target.value)} />
+                  <label className="text-xs font-medium mb-1 block">Duration (months)</label>
+                  <Input
+                    type="number"
+                    min="1"
+                    value={postingGenerateDurationMonths}
+                    onChange={(e) => setPostingGenerateDurationMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                  />
                 </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium mb-1 block">Calculated End Date</label>
+                <Input value={postingGenerateEndDate} readOnly />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  The posting end date is calculated automatically from the selected start date and duration.
+                </p>
               </div>
 
               {/* Department Selection Section */}
               <div className="border-t pt-4">
                 <label className="text-xs font-medium mb-2 block">Select Departments</label>
-                <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
-                  {['Medicine', 'Surgery', 'Pediatrics', 'Obstetrics and Gynecology', 'Psychiatry', 'ENT', 'Radiology', 'Ophthalmology', 'Dermatology'].map(dept => (
-                    <div key={dept} className="flex items-center gap-2">
-                      <Checkbox
-                        id={dept}
-                        checked={selectedDepartments[dept] || false}
-                        onCheckedChange={(checked) => {
-                          const newSelected = { ...selectedDepartments, [dept]: !!checked };
-                          setSelectedDepartments(newSelected);
-                          // Initialize units and durations for new department
-                          if (checked && !unitsByDept[dept]) {
-                            setUnitsByDept(prev => ({ ...prev, [dept]: [`${dept}-Unit-1`] }));
-                            setDepartmentDurationDays(prev => ({ ...prev, [dept]: 60 }));
-                            setUnitDurationDays(prev => ({ ...prev, [dept]: 7 }));
-                          }
-                        }}
-                      />
-                      <label htmlFor={dept} className="text-sm font-medium cursor-pointer">{dept}</label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                {availablePostingDepartments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground rounded border p-3">
+                    No institution departments matched this posting phase yet. Add matching departments to the institution list first.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-40 overflow-y-auto border rounded p-2">
+                    {availablePostingDepartments.map((departmentOption) => {
+                      const deptId = departmentOption.id;
+                      if (!deptId) return null;
+                      const selected = selectedDepartments[deptId] || false;
+                      const selectedUnits = unitsByDept[deptId] || departmentOption.units.map((unit) => unit.id);
+                      const departmentDurationValue = departmentDurationWeeks[deptId] ?? departmentOption.departmentDurationWeeks;
+                      const unitDurationValue = unitDurationWeeks[deptId] ?? departmentOption.unitDurationWeeks;
 
-              {/* Department Configuration Section */}
-              {Object.keys(selectedDepartments).filter(d => selectedDepartments[d]).map(dept => (
-                <div key={dept} className="border rounded p-3 bg-muted/30">
-                  <h4 className="text-sm font-semibold mb-3">{dept} Configuration</h4>
-                  <div className="grid gap-3">
-                    <div>
-                      <label className="text-xs font-medium mb-1 block">Active Units (comma-separated)</label>
-                      <Input
-                        value={(unitsByDept[dept] || []).join(', ')}
-                        onChange={(e) => setUnitsByDept(prev => ({ ...prev, [dept]: e.target.value.split(',').map(u => u.trim()) }))}
-                        placeholder={`e.g., ${dept}-Ward, ${dept}-ICU, ${dept}-OPD`}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-xs font-medium mb-1 block">Department Duration (days)</label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={departmentDurationDays[dept] || 60}
-                          onChange={(e) => setDepartmentDurationDays(prev => ({ ...prev, [dept]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                          className="text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium mb-1 block">Unit Duration (days)</label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={unitDurationDays[dept] || 7}
-                          onChange={(e) => setUnitDurationDays(prev => ({ ...prev, [dept]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                          className="text-xs"
-                        />
-                      </div>
-                    </div>
+                      return (
+                        <div key={deptId} className="rounded border p-2">
+                          <div className="flex items-start gap-2">
+                            <Checkbox
+                              id={deptId}
+                              checked={selected}
+                              onCheckedChange={(checked) => {
+                                const newSelected = { ...selectedDepartments, [deptId]: !!checked };
+                                setSelectedDepartments(newSelected);
+                                if (!!checked && !unitsByDept[deptId]) {
+                                  setUnitsByDept((prev) => ({ ...prev, [deptId]: departmentOption.units.map((unit) => unit.id) }));
+                                  setDepartmentDurationWeeks((prev) => ({ ...prev, [deptId]: departmentOption.departmentDurationWeeks }));
+                                  setUnitDurationWeeks((prev) => ({ ...prev, [deptId]: departmentOption.unitDurationWeeks }));
+                                  setUseUnitsByDept((prev) => ({ ...prev, [deptId]: true }));
+                                }
+                              }}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <label htmlFor={deptId} className="text-sm font-medium cursor-pointer">
+                                {departmentOption.canonicalName}
+                              </label>
+                              <p className="text-xs text-muted-foreground">Phase posting: {departmentOption.postingName}</p>
+                            </div>
+                          </div>
+                          {selected ? (
+                            <div className="mt-3 space-y-3 rounded bg-background/70 p-3">
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`${deptId}-use-units`}
+                                  checked={useUnitsByDept[deptId] ?? true}
+                                  onCheckedChange={(checked) => {
+                                    setUseUnitsByDept((prev) => ({ ...prev, [deptId]: !!checked }));
+                                    if (!!checked && !unitsByDept[deptId]) {
+                                      setUnitsByDept((prev) => ({ ...prev, [deptId]: departmentOption.units.map((unit) => unit.id) }));
+                                    }
+                                  }}
+                                />
+                                <label htmlFor={`${deptId}-use-units`} className="text-sm cursor-pointer">
+                                  Use units for this department
+                                </label>
+                              </div>
+                              {(useUnitsByDept[deptId] ?? true) ? (
+                                <>
+                                  <div className="space-y-2">
+                                    <label className="text-xs font-medium block">Available units</label>
+                                    <div className="max-h-32 space-y-2 overflow-y-auto rounded border p-2">
+                                      {departmentOption.units.length > 0 ? departmentOption.units.map((unit) => (
+                                        <label key={unit.id} className="flex items-center gap-2 text-sm">
+                                          <Checkbox
+                                            checked={selectedUnits.includes(unit.id)}
+                                            onCheckedChange={(checked) => {
+                                              const nextUnits = checked
+                                                ? Array.from(new Set([...selectedUnits, unit.id]))
+                                                : selectedUnits.filter((activeUnitId) => activeUnitId !== unit.id);
+                                              setUnitsByDept((prev) => ({ ...prev, [deptId]: nextUnits }));
+                                            }}
+                                          />
+                                          <span>{unit.name}</span>
+                                        </label>
+                                      )) : (
+                                        <p className="text-xs text-muted-foreground">No units are configured for this department yet.</p>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                      Defaults come from the department unit registry and you can adjust the unit list here.
+                                    </p>
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="text-xs font-medium mb-1 block">Department Duration (weeks)</label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        value={departmentDurationValue}
+                                        onChange={(e) => setDepartmentDurationWeeks((prev) => ({ ...prev, [deptId]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        className="text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-medium mb-1 block">Unit Duration (weeks)</label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        value={unitDurationValue}
+                                        onChange={(e) => setUnitDurationWeeks((prev) => ({ ...prev, [deptId]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        className="text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  Units are disabled for this department. The generator will use a single posting block without unit splits.
+                                </p>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-              ))}
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowPostingGenerateDialog(false)}>
