@@ -49,6 +49,11 @@ interface PendingApproval {
   qrPayload: string;
 }
 
+interface ClinicalUnitOption {
+  _id: string;
+  name?: string;
+}
+
 const allowedRoles = ["admin", "teacher", "unitconsultant", "unitresident"];
 const APPROVAL_QUEUE_STORAGE_KEY = "clinical-attendance-queue-v1";
 const LAST_SYNC_STORAGE_KEY = "clinical-attendance-last-update";
@@ -67,6 +72,18 @@ export default function SupervisorQrAttendancePage() {
   const [scannerError, setScannerError] = useState("");
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== "undefined" ? navigator.onLine : true);
   const [submitting, setSubmitting] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [units, setUnits] = useState<ClinicalUnitOption[]>([]);
+  const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
+  const [newSessionForm, setNewSessionForm] = useState({
+    activityType: "ward_round",
+    title: "",
+    description: "",
+    date: new Date().toISOString().slice(0, 10),
+    startTime: "08:00",
+    location: "",
+    unit: "",
+  });
 
   const canAccess = allowedRoles.includes(user?.role ?? "");
 
@@ -155,8 +172,36 @@ export default function SupervisorQrAttendancePage() {
       }
     };
 
+    const loadUnitAndAcademicYearOptions = async () => {
+      try {
+        const [unitsResponse, academicYearResponse] = await Promise.all([
+          api.get("/hospital-data/units"),
+          api.get("/academic-years/current"),
+        ]);
+
+        const nextUnits = Array.isArray(unitsResponse.data?.data)
+          ? unitsResponse.data.data
+          : Array.isArray(unitsResponse.data?.units)
+            ? unitsResponse.data.units
+            : [];
+        const nextAcademicYearId = academicYearResponse.data?.year?._id
+          ?? academicYearResponse.data?._id
+          ?? academicYearResponse.data?.data?._id
+          ?? "";
+
+        setUnits(nextUnits);
+        setCurrentAcademicYearId(nextAcademicYearId);
+        if (!newSessionForm.unit && nextUnits.length > 0) {
+          setNewSessionForm((current) => ({ ...current, unit: nextUnits[0]._id }));
+        }
+      } catch (error) {
+        console.error("Failed to load support options for clinical session creation", error);
+      }
+    };
+
     if (user) {
-      fetchSessions();
+      void fetchSessions();
+      void loadUnitAndAcademicYearOptions();
       const queueItems = readQueue();
       setPendingApprovals(queueItems);
       void syncPendingQueue();
@@ -197,6 +242,61 @@ export default function SupervisorQrAttendancePage() {
     }
     setScannerActive(false);
     setScannerError("");
+  };
+
+  const refreshSessions = async () => {
+    try {
+      const response = await api.get("/clinical-attendance/sessions?status=ongoing,planned");
+      const sessionList = response.data?.data ?? [];
+      setSessions(sessionList);
+      if (sessionList.length > 0 && !sessionList.some((session) => session._id === selectedSessionId)) {
+        setSelectedSessionId(sessionList[0]._id);
+      }
+    } catch (error) {
+      console.error("Failed to refresh clinical sessions", error);
+    }
+  };
+
+  const handleCreateSession = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!user?._id) {
+      toast.error("You need to be signed in as a supervisor to create a session.");
+      return;
+    }
+
+    if (!newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || !newSessionForm.unit || !currentAcademicYearId) {
+      toast.error("Please complete the title, date, time, unit, and academic year fields.");
+      return;
+    }
+
+    try {
+      setCreatingSession(true);
+      const response = await api.post("/clinical-attendance/session/create", {
+        ...newSessionForm,
+        supervisor: user._id,
+        academicYear: currentAcademicYearId,
+        startTime: new Date(`${newSessionForm.date}T${newSessionForm.startTime}`).toISOString(),
+      });
+
+      const createdSessionId = response.data?.data?._id;
+      toast.success("Clinical session created successfully.");
+      setNewSessionForm((current) => ({
+        ...current,
+        title: "",
+        description: "",
+        location: "",
+      }));
+      await refreshSessions();
+      if (createdSessionId) {
+        setSelectedSessionId(createdSessionId);
+      }
+    } catch (error: any) {
+      console.error("Failed to create clinical session", error);
+      toast.error(error.response?.data?.message || "Unable to create the clinical session right now.");
+    } finally {
+      setCreatingSession(false);
+    }
   };
 
   const startScanner = async () => {
@@ -375,7 +475,7 @@ export default function SupervisorQrAttendancePage() {
                 </SelectTrigger>
                 <SelectContent>
                   {sessions.length === 0 ? (
-                    <div className="p-2 text-sm text-muted-foreground">No active sessions found.</div>
+                    <div className="p-2 text-sm text-muted-foreground">No active sessions found. Create one below.</div>
                   ) : (
                     sessions.map((session) => (
                       <SelectItem key={session._id} value={session._id}>
@@ -385,6 +485,106 @@ export default function SupervisorQrAttendancePage() {
                   )}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="rounded-lg border border-dashed bg-muted/20 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">Create a new clinical session</p>
+                  <p className="text-xs text-muted-foreground">Use this to populate the supervisor dropdown immediately.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateSession} className="mt-4 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Activity type</label>
+                    <Select value={newSessionForm.activityType} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, activityType: value }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ward_round">Ward round</SelectItem>
+                        <SelectItem value="clinic">Clinic</SelectItem>
+                        <SelectItem value="theatre">Theatre</SelectItem>
+                        <SelectItem value="call_duty">Call duty</SelectItem>
+                        <SelectItem value="procedure">Procedure</SelectItem>
+                        <SelectItem value="simulation">Simulation</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Unit</label>
+                    <Select value={newSessionForm.unit} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, unit: value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {units.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">No units available.</div>
+                        ) : (
+                          units.map((unit) => (
+                            <SelectItem key={unit._id} value={unit._id}>
+                              {unit.name ?? "Unnamed unit"}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Session title</label>
+                  <Input
+                    value={newSessionForm.title}
+                    onChange={(event) => setNewSessionForm((current) => ({ ...current, title: event.target.value }))}
+                    placeholder="Morning ward round"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Description</label>
+                  <Input
+                    value={newSessionForm.description}
+                    onChange={(event) => setNewSessionForm((current) => ({ ...current, description: event.target.value }))}
+                    placeholder="Optional details"
+                  />
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Date</label>
+                    <Input
+                      type="date"
+                      value={newSessionForm.date}
+                      onChange={(event) => setNewSessionForm((current) => ({ ...current, date: event.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium">Start time</label>
+                    <Input
+                      type="time"
+                      value={newSessionForm.startTime}
+                      onChange={(event) => setNewSessionForm((current) => ({ ...current, startTime: event.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium">Location</label>
+                  <Input
+                    value={newSessionForm.location}
+                    onChange={(event) => setNewSessionForm((current) => ({ ...current, location: event.target.value }))}
+                    placeholder="Ward A"
+                  />
+                </div>
+
+                <Button type="submit" className="w-full" disabled={creatingSession}>
+                  {creatingSession ? "Creating session..." : "Create session"}
+                </Button>
+              </form>
             </div>
 
             {selectedSession && (
