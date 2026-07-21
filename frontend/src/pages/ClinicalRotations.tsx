@@ -57,7 +57,7 @@ import {
 } from "@/lib/postingScheduleStorage";
 import { getPostingDurationControlVisibility } from "@/lib/postingScheduleDuration";
 import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
-import { normalizePostingScheduleForDisplay } from "@/lib/postingScheduleDisplay";
+import { getPersistedPostingScheduleKey, normalizePostingScheduleForDisplay } from "@/lib/postingScheduleDisplay";
 
 type RotationStatus = "upcoming" | "active" | "completed";
 type RotationType = "medicine" | "surgery" | "paediatrics" | "obstetrics" | "psychiatry" | "community" | "elective";
@@ -1289,14 +1289,12 @@ export default function ClinicalRotations() {
   const [genAcademicYearId, setGenAcademicYearId] = useState<string>("");
   const [genClassId, setGenClassId] = useState<string>("");
   const [genLevel, setGenLevel] = useState<number>(400);
-  const [genPostingScheduleType, setGenPostingScheduleType] = useState<string>("");
   const [genStartDate, setGenStartDate] = useState<string>(new Date().toISOString().slice(0,10));
 
   const selectedGenClass = genClasses.find((c) => c._id === genClassId);
   const className = selectedGenClass?.name?.trim().toLowerCase() ?? "";
 
   const openGenerateDialog = async () => {
-    setGenPostingScheduleType("");
     setShowGenerateDialog(true);
     try {
       const [{ data: years }, { data: classesRes }] = await Promise.all([
@@ -1395,35 +1393,18 @@ export default function ClinicalRotations() {
 
   const confirmGenerate = async () => {
     try {
-      const selectedClass = genClasses.find((c) => c._id === genClassId);
-      const is500LevelClass = selectedClass?.name?.toLowerCase().includes('500') || genLevel === 500;
-      if (is500LevelClass) {
-        if (!genPostingScheduleType) {
-          toast.error('Please select a posting schedule type for 500 Level classes.');
-          return;
-        }
-        if (genPostingScheduleType === 'ogPedJunior') {
-          const { data } = await api.post('/og-ped-rotations/oGPeds-JuniorPosting-Schedule', {
-            classId: genClassId,
-            postingName: '500 Level O&G/Pediatrics Junior Posting Schedule',
-            postingStartDate: genStartDate,
-          });
-          if (data?.schedule) {
-            savePersistedPostingSchedule(genClassId, genPostingScheduleType === 'ogPedJunior' ? 'og-ped-junior' : 'og-ped-senior', data.schedule);
-            setSelectedPostingSchedule(transformRotationPlanToPostingSchedule(data.schedule));
-            userSelectedScheduleRef.current = true;
-            if (data?.saved?._id) {
-              setSavedSchedules((prev) => [data.saved, ...prev.filter((s) => s._id !== data.saved._id)]);
-            }
-            toast.success('500 Level posting schedule generated');
-            setShowGenerateDialog(false);
-            return;
-          }
-        }
+      if (!genClassId || !genAcademicYearId) {
+        toast.error('Please select a class and academic year before generating a schedule.');
+        return;
       }
 
-      // Default fallback for non-500 work (future schedule generation paths)
-      await api.post('/rotation-schedules/generate', { academicYearId: genAcademicYearId, classId: genClassId, level: genLevel, options: { startDate: genStartDate } });
+      await api.post('/rotation-schedules/generate', {
+        academicYearId: genAcademicYearId,
+        classId: genClassId,
+        level: genLevel,
+        options: { startDate: genStartDate },
+      });
+
       toast.success('Rotation generation started');
       setShowGenerateDialog(false);
       startPollForSchedule(genAcademicYearId, genClassId, genLevel);
@@ -1599,18 +1580,17 @@ export default function ClinicalRotations() {
         if (!end || new Date(a.endDate) > new Date(end)) end = a.endDate;
       }
     }
-    const normalized = normalizePostingScheduleForDisplay({ postings: [{ name: p.name, groups }] }, selectedClassStudents);
+    const normalized = normalizePostingScheduleForDisplay({ postings: [{ name: p.name, groups, postingType: p.postingType }] }, selectedClassStudents);
 
     return {
       ...normalized,
-      postingName: p.name || "Posting",
-      postingType: "OG_PEDS",
-      durationWeeks: 16,
-      startDate: start || new Date().toISOString(),
-      endDate: end || new Date().toISOString(),
-      phases: ["Phase 1", "Phase 2"],
-      departments: [],
-      rotationHistory: [],
+      postingName: p.name || normalized.postingName || "Posting",
+      durationWeeks: normalized.durationWeeks || 16,
+      startDate: start || normalized.startDate || new Date().toISOString(),
+      endDate: end || normalized.endDate || new Date().toISOString(),
+      phases: normalized.phases?.length ? normalized.phases : ["Phase 1", "Phase 2"],
+      departments: normalized.departments || [],
+      rotationHistory: normalized.rotationHistory || [],
     };
   };
 
@@ -2309,16 +2289,11 @@ export default function ClinicalRotations() {
     return null;
   };
   const currentSelectedLevel = detectLevelFromName(selectedClass?.name) ?? selectedClock?.classLevel ?? null;
-  const supportsOgPedsJuniorPosting = currentSelectedLevel === "fifth";
-  const supportsOgPedsSeniorPosting = currentSelectedLevel === "sixth";
-  const currentPostingScheduleStorageKey = (() => {
-    if (supportsOgPedsJuniorPosting) return "og-ped-junior";
-    if (supportsOgPedsSeniorPosting) return "og-ped-senior";
-    if (selectedPostingOption?.id) return selectedPostingOption.id;
-    if (selectedSixthPostingOption?.id) return selectedSixthPostingOption.id;
-    if (selectedFourthPostingOption?.id) return selectedFourthPostingOption.id;
-    return "default";
-  })();
+  const currentPostingScheduleStorageKey = getPersistedPostingScheduleKey({
+    selectedPostingOptionId: selectedPostingOption?.id,
+    selectedSixthPostingOptionId: selectedSixthPostingOption?.id,
+    selectedFourthPostingOptionId: selectedFourthPostingOption?.id,
+  });
 
   const availableLevels = {
     fifth: availableClasses.some((c) => c.name?.toLowerCase() && levelTokens.fifth.some((t) => c.name.toLowerCase().includes(t))),
@@ -2348,10 +2323,10 @@ export default function ClinicalRotations() {
   }, [postingOptions, selectedPostingId]);
 
   useEffect(() => {
-    if ((!supportsOgPedsJuniorPosting && !supportsOgPedsSeniorPosting) && !userSelectedScheduleRef.current) {
+    if (!userSelectedScheduleRef.current) {
       setSelectedPostingSchedule(null);
     }
-  }, [supportsOgPedsJuniorPosting, supportsOgPedsSeniorPosting]);
+  }, [selectedPostingId, selectedSixthPostingId, selectedFourthPostingId]);
 
   useEffect(() => {
     if (!selectedClassId) {
@@ -2830,40 +2805,30 @@ export default function ClinicalRotations() {
                       setPostingGenerateLevel(level);
                       setShowPostingGenerateDialog(true);
                     }}
-                    disabled={options.length === 0 || !selectedId || (level === "fifth" && !supportsOgPedsJuniorPosting) || (level === "sixth" && !supportsOgPedsSeniorPosting)}
+                    disabled={options.length === 0 || !selectedId}
                   >
-                    {level === "fifth" && !supportsOgPedsJuniorPosting
-                      ? "Not configured"
-                      : level === "sixth" && !supportsOgPedsSeniorPosting
-                        ? "Not configured"
-                        : "Generate posting"}
+                    Generate posting
                   </Button>
                 </div>
 
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {level === "fifth" && !supportsOgPedsJuniorPosting
-                    ? "This class is not configured for the O&G/Pediatrics junior posting generator in its class clock data."
-                    : level === "sixth" && !supportsOgPedsSeniorPosting
-                      ? "This class is not configured for the O&G/Pediatrics senior posting generator in its class clock data."
-                      : isCurrentLevel
-                        ? level === "sixth"
-                          ? "Generate and review the O&G/Pediatrics senior posting schedule for this class."
-                          : "Generate and review the O&G/Pediatrics junior posting schedule for this class."
-                        : `Preview posting flow for ${title} classes.`}
+                  {isCurrentLevel
+                    ? `Generate and review the selected posting schedule for this class.`
+                    : `Preview posting flow for ${title} classes.`}
                 </p>
               </div>
             );
           })}
         </div>
 
-        {selectedPostingSchedule && (supportsOgPedsJuniorPosting || supportsOgPedsSeniorPosting) && (
+        {selectedPostingSchedule && (
           <div className="mt-6 rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 p-4 text-white shadow-sm" ref={scheduleRef}>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-lg font-semibold">
-                  {selectedPostingSchedule?.scheduleVariant === "senior"
-                    ? "Generated O&G/Pediatrics senior posting schedule"
-                    : "Generated O&G/Pediatrics junior posting schedule"}
+                  {selectedPostingSchedule?.postingType
+                    ? `Generated ${selectedPostingSchedule.postingType} schedule`
+                    : "Generated posting schedule"}
                 </h3>
                 <p className="text-sm text-slate-300">Departments are shown side by side for each phase.</p>
               </div>
@@ -2959,9 +2924,7 @@ export default function ClinicalRotations() {
             <DialogHeader>
               <DialogTitle>Delete generated schedule?</DialogTitle>
               <DialogDescription>
-                {selectedPostingSchedule?.scheduleVariant === "senior"
-                  ? "This will remove the current O&G/Pediatrics senior posting preview from the page."
-                  : "This will remove the current O&G/Pediatrics junior posting preview from the page."}
+                This will remove the current posting preview from the page.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

@@ -134,6 +134,30 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
     }
   };
 
+  const formatPhaseLabel = (phaseKey: string) => {
+    if (/^phase1$/i.test(phaseKey)) return "Phase 1";
+    if (/^phase2$/i.test(phaseKey)) return "Phase 2";
+    return phaseKey
+      .replace(/([A-Z])/g, " $1")
+      .replace(/[-_]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (chr) => chr.toUpperCase());
+  };
+
+  const formatGroupLabel = (groupKey: string) => {
+    if (/^groupa$/i.test(groupKey)) return "Group A";
+    if (/^groupb$/i.test(groupKey)) return "Group B";
+    const match = /^group(\d+)$/i.exec(groupKey);
+    if (match) return `Group ${match[1]}`;
+    return groupKey
+      .replace(/([A-Z])/g, " $1")
+      .replace(/[-_]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (chr) => chr.toUpperCase());
+  };
+
   const nestedPhases = schedule.nestedSchedule ? Object.entries(schedule.nestedSchedule) : [];
   const phases = schedule.phases ?? [];
   const studentCategories = schedule.studentCategories ?? [];
@@ -204,7 +228,7 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
               <Card key={phaseKey} className="border border-border bg-surface">
                 <CardHeader className="py-3">
                   <CardTitle className="text-lg text-primary">
-                    {phaseKey === "phase1" ? "Phase 1" : "Phase 2"}
+                    {formatPhaseLabel(phaseKey)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -212,7 +236,7 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                     <div key={`${phaseKey}-${groupKey}`} className="rounded-lg border border-border bg-background p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <h4 className="font-semibold text-slate-900">
-                          {groupKey === "groupA" ? "Group A" : "Group B"}
+                          {formatGroupLabel(groupKey)}
                         </h4>
                         <div className="text-sm text-muted-foreground">
                           <span className="font-medium text-slate-900">Posting:</span> {groupData.posting} •
@@ -222,8 +246,8 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                       </div>
 
                       <div className="mt-4 space-y-3">
-                        {Object.entries(groupData.units).map(([unitSlot, unitMap]) => (
-                          Object.entries(unitMap).map(([unitKey, unitData]) => (
+                        {Object.entries(groupData.units ?? {}).map(([unitSlot, unitMap]) => (
+                          Object.entries(unitMap ?? {}).map(([unitKey, unitData]) => (
                             <div key={`${phaseKey}-${groupKey}-${unitSlot}-${unitKey}`} className="rounded-md border border-border bg-surface p-3">
                               <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div>
@@ -238,10 +262,10 @@ export default function PostingScheduleDisplay({ schedule, validation }: Posting
                               </div>
 
                               <div className="mt-3 rounded border border-dashed border-border bg-background p-3">
-                                <p className="mb-2 text-sm font-semibold text-slate-900">Assigned Students ({unitData.students.length})</p>
-                                {unitData.students.length > 0 ? (
+                                <p className="mb-2 text-sm font-semibold text-slate-900">Assigned Students ({unitData.students?.length ?? 0})</p>
+                                {(unitData.students?.length ?? 0) > 0 ? (
                                   <div className="flex flex-wrap gap-2">
-                                    {unitData.students.map((student) => (
+                                    {unitData.students?.map((student) => (
                                       <div key={student._id} className="rounded-full border border-border bg-surface px-2.5 py-1 text-sm text-slate-900">
                                         {student.name}
                                       </div>

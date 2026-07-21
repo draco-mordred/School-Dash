@@ -107,9 +107,26 @@ export function normalizePostingGroup(group: any, index: number, studentLookup: 
   };
 }
 
+export function getPersistedPostingScheduleKey({
+  selectedPostingOptionId,
+  selectedSixthPostingOptionId,
+  selectedFourthPostingOptionId,
+}: {
+  selectedPostingOptionId?: string | null;
+  selectedSixthPostingOptionId?: string | null;
+  selectedFourthPostingOptionId?: string | null;
+} = {}) {
+  return selectedPostingOptionId || selectedSixthPostingOptionId || selectedFourthPostingOptionId || "default";
+}
+
 export function normalizePostingScheduleForDisplay(schedule: any, studentLookup: any[] = []) {
   const posting = schedule?.postings?.[0] || schedule?.posting || schedule || {};
-  const groups = Array.isArray(posting.groups) ? posting.groups : Array.isArray(schedule?.groups) ? schedule.groups : [];
+  const groups = Array.isArray(posting.groups)
+    ? posting.groups
+    : Array.isArray(schedule?.groups)
+      ? schedule.groups
+      : [];
+
   const unitAssignments = groups.map((group: any, index: number) => {
     const normalized = normalizePostingGroup(group, index, studentLookup);
     return {
@@ -133,38 +150,61 @@ export function normalizePostingScheduleForDisplay(schedule: any, studentLookup:
     },
   ];
 
-  const nestedSchedule: Record<string, any> = {};
-  if (groups.length > 0) {
-    const phaseEntry: Record<string, any> = {};
+  const nestedSchedule = schedule?.nestedSchedule ?? {};
+  if (!Object.keys(nestedSchedule).length && groups.length > 0) {
     groups.forEach((group: any, index: number) => {
       const normalized = normalizePostingGroup(group, index, studentLookup);
-      const groupKey = index === 0 ? "groupA" : `group${index + 1}`;
-      phaseEntry[groupKey] = {
+      const phaseKey = normalized.phase ? normalized.phase.replace(/\s+/g, "").toLowerCase() : "phase1";
+      const groupKey = group?.groupId ? String(group.groupId) : `group${index + 1}`;
+      nestedSchedule[phaseKey] = nestedSchedule[phaseKey] || {};
+      nestedSchedule[phaseKey][groupKey] = {
         posting: normalized.department,
-        duration: 1,
+        duration: group?.duration || 1,
+        totalNumberofUnitsPerStudent: 1,
         units: {
           [normalized.unit]: {
             [normalized.unit]: {
               students: normalized.students,
+              postingType: normalized.department,
+              name: normalized.unit,
+              unitId: group?.groupId || `unit-${index}`,
+              duration: group?.duration || 1,
+              supervisor: { _id: null, name: normalized.supervisorName, role: "supervisor" },
             },
           },
         },
       };
     });
-    nestedSchedule.phase1 = phaseEntry;
   }
+
+  const phases = Array.isArray(schedule?.phases)
+    ? schedule.phases
+    : Array.from(new Set(unitAssignments.map((assignment) => assignment.phase))).filter(Boolean);
 
   return {
     postingName: toText(posting?.name) || toText(schedule?.name) || toText(schedule?.postingName) || "Posting",
-    postingType: toText(posting?.category) || toText(schedule?.postingType) || "OG_PEDS",
-    durationWeeks: toText(posting?.durationWeeks) ? Number(posting.durationWeeks) : 16,
-    startDate: toText(posting?.startDate) || toText(schedule?.startDate) || new Date().toISOString(),
-    endDate: toText(posting?.endDate) || toText(schedule?.endDate) || new Date().toISOString(),
-    phases: ["Phase 1", "Phase 2"],
-    departments: [],
+    postingType:
+      toText(posting?.category) ||
+      toText(schedule?.postingType) ||
+      toText(posting?.postingType) ||
+      toText(schedule?.type) ||
+      "Clinical posting",
+    durationWeeks: Number(toText(posting?.durationWeeks) ?? toText(schedule?.durationWeeks) ?? 16),
+    startDate:
+      toText(posting?.startDate) ||
+      toText(schedule?.startDate) ||
+      toText(schedule?.postingStartDate) ||
+      new Date().toISOString(),
+    endDate:
+      toText(posting?.endDate) ||
+      toText(schedule?.endDate) ||
+      toText(schedule?.postingEndDate) ||
+      new Date().toISOString(),
+    phases: phases.length > 0 ? phases : ["Phase 1", "Phase 2"],
+    departments: schedule?.departments || [],
     studentCategories,
     unitAssignments,
     nestedSchedule,
-    rotationHistory: [],
+    rotationHistory: schedule?.rotationHistory || [],
   };
 }
