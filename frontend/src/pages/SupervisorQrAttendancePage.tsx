@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff } from "lucide-react";
 import { format } from "date-fns";
+import { resolveActiveAcademicClockPhase } from "@/lib/academicClock";
 
 interface ClinicalSessionSummary {
   _id: string;
@@ -54,6 +55,26 @@ interface ClinicalUnitOption {
   name?: string;
 }
 
+interface PostingOption {
+  _id: string;
+  name?: string;
+  scheduleName?: string;
+}
+
+interface ClassOption {
+  _id: string;
+  name: string;
+  academicYearId?: string;
+}
+
+interface AcademicClockSummary {
+  _id?: string;
+  classId?: string;
+  academicYear?: string;
+  clockPhase?: string | null;
+  phaseConfig?: Record<string, { name?: string; postingType?: string | null }>;
+}
+
 const allowedRoles = ["admin", "teacher", "unitconsultant", "unitresident"];
 const APPROVAL_QUEUE_STORAGE_KEY = "clinical-attendance-queue-v1";
 const LAST_SYNC_STORAGE_KEY = "clinical-attendance-last-update";
@@ -73,7 +94,11 @@ export default function SupervisorQrAttendancePage() {
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== "undefined" ? navigator.onLine : true);
   const [submitting, setSubmitting] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
+  const [classes, setClasses] = useState<ClassOption[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedClock, setSelectedClock] = useState<AcademicClockSummary | null>(null);
   const [units, setUnits] = useState<ClinicalUnitOption[]>([]);
+  const [postings, setPostings] = useState<PostingOption[]>([]);
   const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
   const [newSessionForm, setNewSessionForm] = useState({
     activityType: "ward_round",
@@ -82,7 +107,9 @@ export default function SupervisorQrAttendancePage() {
     date: new Date().toISOString().slice(0, 10),
     startTime: "08:00",
     location: "",
+    classId: "",
     unit: "",
+    clinicalRotation: "",
   });
 
   const canAccess = allowedRoles.includes(user?.role ?? "");
@@ -172,11 +199,75 @@ export default function SupervisorQrAttendancePage() {
       }
     };
 
-    const loadUnitAndAcademicYearOptions = async () => {
+    const loadClassesAndAcademicYear = async () => {
       try {
-        const [unitsResponse, academicYearResponse] = await Promise.all([
-          api.get("/hospital-data/units"),
+        const [classesResponse, academicYearResponse] = await Promise.all([
+          api.get("/classes?limit=200"),
           api.get("/academic-years/current"),
+        ]);
+
+        const classList = Array.isArray(classesResponse.data)
+          ? classesResponse.data
+          : Array.isArray(classesResponse.data?.classes)
+            ? classesResponse.data.classes
+            : Array.isArray(classesResponse.data?.data)
+              ? classesResponse.data.data
+              : [];
+
+        const nextClasses = classList
+          .filter((cls: any) => cls?._id)
+          .map((cls: any) => ({
+            _id: cls._id,
+            name: cls.name ?? "Untitled class",
+            academicYearId: typeof cls.academicYear === "string" ? cls.academicYear : cls.academicYear?._id,
+          }));
+
+        const nextAcademicYearId = academicYearResponse.data?.year?._id
+          ?? academicYearResponse.data?._id
+          ?? academicYearResponse.data?.data?._id
+          ?? "";
+
+        setClasses(nextClasses);
+        setCurrentAcademicYearId(nextAcademicYearId);
+
+        if (!selectedClassId && nextClasses.length > 0) {
+          setSelectedClassId(nextClasses[0]._id);
+          setNewSessionForm((current) => ({ ...current, classId: nextClasses[0]._id }));
+        }
+      } catch (error) {
+        console.error("Failed to load class and academic-year support options", error);
+      }
+    };
+
+    if (user) {
+      void fetchSessions();
+      void loadClassesAndAcademicYear();
+      const queueItems = readQueue();
+      setPendingApprovals(queueItems);
+      void syncPendingQueue();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    const loadClassPostingUnits = async () => {
+      if (!selectedClassId) {
+        setUnits([]);
+        setPostings([]);
+        setSelectedClock(null);
+        return;
+      }
+
+      try {
+        const [unitsResponse, clockResponse, schedulesResponse] = await Promise.all([
+          api.get("/hospital-data/units"),
+          api.get(`/academic-clocks?academicYearId=${currentAcademicYearId}&classId=${selectedClassId}`),
+          api.get("/rotation-schedules", {
+            params: {
+              classId: selectedClassId,
+              page: 1,
+              limit: 100,
+            },
+          }),
         ]);
 
         const nextUnits = Array.isArray(unitsResponse.data?.data)
@@ -184,29 +275,93 @@ export default function SupervisorQrAttendancePage() {
           : Array.isArray(unitsResponse.data?.units)
             ? unitsResponse.data.units
             : [];
-        const nextAcademicYearId = academicYearResponse.data?.year?._id
-          ?? academicYearResponse.data?._id
-          ?? academicYearResponse.data?.data?._id
-          ?? "";
 
-        setUnits(nextUnits);
-        setCurrentAcademicYearId(nextAcademicYearId);
-        if (!newSessionForm.unit && nextUnits.length > 0) {
-          setNewSessionForm((current) => ({ ...current, unit: nextUnits[0]._id }));
+        const clockList = Array.isArray(clockResponse.data)
+          ? clockResponse.data
+          : Array.isArray(clockResponse.data?.data)
+            ? clockResponse.data.data
+            : Array.isArray(clockResponse.data?.academicClocks)
+              ? clockResponse.data.academicClocks
+              : [];
+        const nextClock = clockList[0] ?? null;
+
+        const scheduleList = Array.isArray(schedulesResponse.data?.schedules)
+          ? schedulesResponse.data.schedules
+          : Array.isArray(schedulesResponse.data)
+            ? schedulesResponse.data
+            : [];
+
+        const phaseAwareSchedules = scheduleList.filter((schedule: any) => {
+          if (!nextClock) return true;
+          const activePhase = resolveActiveAcademicClockPhase(nextClock, schedule?.name ?? "", new Date());
+          const phaseId = activePhase?.phaseId;
+          const schedulePhase = schedule?.phaseId || schedule?.phaseName || schedule?.postingPhase || schedule?.meta?.phaseId;
+          return !phaseId || !schedulePhase || phaseId === schedulePhase;
+        });
+
+        const scheduleUnitNames = new Set<string>();
+        const nextPostingOptions: PostingOption[] = [];
+        const seenPostingKeys = new Set<string>();
+
+        phaseAwareSchedules.forEach((schedule: any) => {
+          const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
+          postings.forEach((posting: any) => {
+            const postingName = posting?.name || schedule?.name || "Unnamed posting";
+            const postingKey = `${String(schedule?._id ?? "")}-${String(posting?._id ?? postingName)}`;
+            if (!seenPostingKeys.has(postingKey)) {
+              seenPostingKeys.add(postingKey);
+              nextPostingOptions.push({
+                _id: String(posting?._id ?? schedule?._id ?? postingName),
+                name: postingName,
+                scheduleName: schedule?.name ?? "",
+              });
+            }
+
+            const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+            groups.forEach((group: any) => {
+              const groupData = group?.group || group || {};
+              const unitName = groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit;
+              if (typeof unitName === "string" && unitName.trim()) {
+                scheduleUnitNames.add(unitName.trim());
+              }
+            });
+          });
+        });
+
+        const derivedUnits = nextUnits.filter((unit: ClinicalUnitOption) => {
+          const candidateName = unit.name ?? "";
+          return scheduleUnitNames.has(candidateName);
+        });
+
+        setUnits(derivedUnits);
+        setPostings(nextPostingOptions);
+        setSelectedClock(nextClock);
+        if (!newSessionForm.classId && selectedClassId) {
+          setNewSessionForm((current) => ({ ...current, classId: selectedClassId }));
+        }
+        if (derivedUnits.length > 0 && !newSessionForm.unit) {
+          setNewSessionForm((current) => ({ ...current, unit: derivedUnits[0]._id }));
+        } else if (derivedUnits.length === 0) {
+          setNewSessionForm((current) => ({ ...current, unit: "" }));
+        }
+
+        if (nextPostingOptions.length > 0 && !newSessionForm.clinicalRotation) {
+          setNewSessionForm((current) => ({ ...current, clinicalRotation: nextPostingOptions[0]._id }));
+        } else if (nextPostingOptions.length === 0) {
+          setNewSessionForm((current) => ({ ...current, clinicalRotation: "" }));
         }
       } catch (error) {
-        console.error("Failed to load support options for clinical session creation", error);
+        console.error("Failed to resolve units from the selected class posting schedule", error);
+        setUnits([]);
+        setPostings([]);
+        setSelectedClock(null);
       }
     };
 
-    if (user) {
-      void fetchSessions();
-      void loadUnitAndAcademicYearOptions();
-      const queueItems = readQueue();
-      setPendingApprovals(queueItems);
-      void syncPendingQueue();
+    if (selectedClassId && currentAcademicYearId) {
+      void loadClassPostingUnits();
     }
-  }, [user]);
+  }, [selectedClassId, currentAcademicYearId]);
 
   useEffect(() => {
     return () => {
@@ -265,8 +420,8 @@ export default function SupervisorQrAttendancePage() {
       return;
     }
 
-    if (!newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || !newSessionForm.unit || !currentAcademicYearId) {
-      toast.error("Please complete the title, date, time, unit, and academic year fields.");
+    if (!newSessionForm.classId || !newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || !newSessionForm.unit || !newSessionForm.clinicalRotation || !currentAcademicYearId) {
+      toast.error("Please select a class, a posting, complete the title, date, time, and unit fields, and ensure the active academic year is available.");
       return;
     }
 
@@ -309,21 +464,41 @@ export default function SupervisorQrAttendancePage() {
       setScannerError("");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
+        audio: false,
       });
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+      if (!videoRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        setScannerError("Camera preview is not ready yet. Please try again.");
+        return;
       }
 
-      const BarcodeDetectorCtor = (window as Window & { BarcodeDetector?: { new (options?: { formats?: string[] }): { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } } }).BarcodeDetector;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play().catch(() => {
+        // Ignore playback issues and continue with the preview stream.
+      });
+
+      const barcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
+      scannerActiveRef.current = true;
+      setScannerActive(true);
+
+      if (!barcodeDetectorSupported) {
+        setScannerError("Camera preview opened, but this browser does not support native QR scanning. Please paste the QR payload manually.");
+        return;
+      }
+
+      const BarcodeDetectorCtor = (window as Window & {
+        BarcodeDetector?: new (options?: { formats?: string[] }) => {
+          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
+        };
+      }).BarcodeDetector;
+
       if (!BarcodeDetectorCtor) {
-        throw new Error("BarcodeDetector is not supported in this browser.");
+        setScannerError("Camera preview opened, but QR scanning is not supported in this browser. Please paste the QR payload manually.");
+        return;
       }
 
       const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
-      scannerActiveRef.current = true;
-      setScannerActive(true);
 
       const scanFrame = async () => {
         if (!scannerActiveRef.current || !videoRef.current) {
@@ -346,9 +521,10 @@ export default function SupervisorQrAttendancePage() {
       };
 
       void scanFrame();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Unable to open camera scanner", error);
-      setScannerError(error.message || "Unable to open the camera for QR scanning.");
+      const message = error instanceof Error ? error.message : "Unable to open the camera for QR scanning.";
+      setScannerError(message);
     }
   };
 
@@ -498,6 +674,29 @@ export default function SupervisorQrAttendancePage() {
               <form onSubmit={handleCreateSession} className="mt-4 space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
+                    <label className="mb-1 block text-xs font-medium">Class</label>
+                    <Select value={selectedClassId} onValueChange={(value) => {
+                      setSelectedClassId(value);
+                      setNewSessionForm((current) => ({ ...current, classId: value, unit: "", clinicalRotation: "" }));
+                    }}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a class" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {classes.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">No classes available.</div>
+                        ) : (
+                          classes.map((cls) => (
+                            <SelectItem key={cls._id} value={cls._id}>
+                              {cls.name}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
                     <label className="mb-1 block text-xs font-medium">Activity type</label>
                     <Select value={newSessionForm.activityType} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, activityType: value }))}>
                       <SelectTrigger>
@@ -515,14 +714,34 @@ export default function SupervisorQrAttendancePage() {
                   </div>
 
                   <div>
+                    <label className="mb-1 block text-xs font-medium">Posting</label>
+                    <Select value={newSessionForm.clinicalRotation} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, clinicalRotation: value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={postings.length === 0 ? "No postings for selected class" : "Choose a posting"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {postings.length === 0 ? (
+                          <div className="p-2 text-sm text-muted-foreground">No postings were found for the selected class’s active academic clock.</div>
+                        ) : (
+                          postings.map((posting) => (
+                            <SelectItem key={posting._id} value={posting._id}>
+                              {posting.name ?? "Unnamed posting"}
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
                     <label className="mb-1 block text-xs font-medium">Unit</label>
                     <Select value={newSessionForm.unit} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, unit: value }))}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Choose a unit" />
+                        <SelectValue placeholder={units.length === 0 ? "No units for selected class" : "Choose a unit"} />
                       </SelectTrigger>
                       <SelectContent>
                         {units.length === 0 ? (
-                          <div className="p-2 text-sm text-muted-foreground">No units available.</div>
+                          <div className="p-2 text-sm text-muted-foreground">No posting units were found for the selected class’s active clock phase.</div>
                         ) : (
                           units.map((unit) => (
                             <SelectItem key={unit._id} value={unit._id}>

@@ -2,8 +2,13 @@ import { Request, Response } from "express";
 import crypto from "crypto";
 import ClinicalAttendance from "../models/clinicalAttendance";
 import User from "../models/user";
-import Unit from "../models/hospitalUnit";
+import HospitalUnitModel from "../models/hospitalUnit";
 import AcademicYear from "../models/academicYear";
+import ClassModel from "../models/classes";
+import RotationPlan from "../models/rotationPlan";
+import ClinicalRotationModel from "../models/clinicalRotation";
+import { deriveClinicalSessionSeedFromClass } from "../utils/clinicalSessionSeed";
+import { buildClinicalAttendanceFilter } from "../utils/clinicalAttendanceQuery";
 
 // Create a new clinical attendance session
 export const createClinicalAttendanceSession = async (
@@ -27,15 +32,76 @@ export const createClinicalAttendanceSession = async (
       requiresApproval,
       clinicalRotation,
       academicYear,
+      classId,
       learningOutcomes,
     } = req.body;
 
+    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true }).select("_id").lean();
+    const activeAcademicYearId = academicYear || currentAcademicYear?._id?.toString() || "";
+
+    let resolvedUnitId = unit || "";
+    let derivedUnitIds: string[] = [];
+
+    if (classId) {
+      const classDoc = await ClassModel.findById(classId).select("_id academicYear").lean();
+      if (!classDoc) {
+        return res.status(404).json({
+          success: false,
+          message: "Class not found",
+        });
+      }
+
+      const schedules = await RotationPlan.find({ class: classId }).select("postings").lean();
+      const postingUnitNames = new Set<string>();
+
+      for (const schedule of schedules) {
+        const postings = Array.isArray(schedule.postings) ? schedule.postings : [];
+        for (const posting of postings) {
+          const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+          for (const group of groups) {
+            const groupData = group?.group || group || {};
+            const unitName = groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit;
+            if (typeof unitName === "string" && unitName.trim()) {
+              postingUnitNames.add(unitName.trim());
+            }
+          }
+        }
+      }
+
+      const serverSeed = await deriveClinicalSessionSeedFromClass({
+        academicYearId: activeAcademicYearId,
+        unitNames: Array.from(postingUnitNames),
+      });
+
+      derivedUnitIds = serverSeed.unitIds;
+      if (derivedUnitIds.length > 0) {
+        if (!resolvedUnitId) {
+          resolvedUnitId = derivedUnitIds[0];
+        } else if (!derivedUnitIds.includes(String(resolvedUnitId))) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected unit is not part of the current class posting schedule",
+          });
+        }
+      }
+    }
+
+    if (clinicalRotation) {
+      const postingExists = await ClinicalRotationModel.findById(clinicalRotation).select("_id").lean();
+      if (!postingExists) {
+        return res.status(404).json({
+          success: false,
+          message: "Selected posting not found",
+        });
+      }
+    }
+
     // Validation
-    if (!activityType || !title || !date || !startTime || !unit || !supervisor) {
+    if (!activityType || !title || !date || !startTime || !resolvedUnitId || !supervisor || !clinicalRotation) {
       return res.status(400).json({
         success: false,
         message:
-          "Missing required fields: activityType, title, date, startTime, unit, supervisor",
+          "Missing required fields: activityType, title, date, startTime, unit, supervisor, posting",
       });
     }
 
@@ -49,7 +115,7 @@ export const createClinicalAttendanceSession = async (
     }
 
     // Verify unit exists
-    const unitExists = await Unit.findById(unit);
+    const unitExists = await HospitalUnitModel.findById(resolvedUnitId);
     if (!unitExists) {
       return res.status(404).json({
         success: false,
@@ -58,7 +124,7 @@ export const createClinicalAttendanceSession = async (
     }
 
     // Verify academic year exists
-    const academicYearExists = await AcademicYear.findById(academicYear);
+    const academicYearExists = await AcademicYear.findById(activeAcademicYearId);
     if (!academicYearExists) {
       return res.status(404).json({
         success: false,
@@ -73,7 +139,7 @@ export const createClinicalAttendanceSession = async (
       date: new Date(date),
       startTime: new Date(startTime),
       endTime: endTime ? new Date(endTime) : null,
-      unit,
+      unit: resolvedUnitId,
       location,
       room,
       supervisor,
@@ -81,7 +147,7 @@ export const createClinicalAttendanceSession = async (
       checkInMethod: checkInMethod || "manual",
       requiresApproval: requiresApproval || false,
       clinicalRotation: clinicalRotation || null,
-      academicYear,
+      academicYear: activeAcademicYearId,
       learningOutcomes: learningOutcomes || [],
       createdBy: req.userId,
       status: "planned",
@@ -257,18 +323,14 @@ export const getClinicalAttendanceSessions = async (
       limit = 10,
     } = req.query;
 
-    const filter: any = {};
-
-    if (unit) filter.unit = unit;
-    if (supervisor) filter.supervisor = supervisor;
-    if (status) filter.status = status;
-    if (academicYear) filter.academicYear = academicYear;
-
-    if (startDate || endDate) {
-      filter.date = {};
-      if (startDate) filter.date.$gte = new Date(startDate as string);
-      if (endDate) filter.date.$lte = new Date(endDate as string);
-    }
+    const filter = buildClinicalAttendanceFilter({
+      unit: typeof unit === "string" ? unit : undefined,
+      supervisor: typeof supervisor === "string" ? supervisor : undefined,
+      status: typeof status === "string" ? status : undefined,
+      startDate: typeof startDate === "string" ? startDate : undefined,
+      endDate: typeof endDate === "string" ? endDate : undefined,
+      academicYear: typeof academicYear === "string" ? academicYear : undefined,
+    });
 
     const skip = (Number(page) - 1) * Number(limit);
 
