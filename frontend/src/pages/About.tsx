@@ -46,18 +46,18 @@ const developers = [
     }
   },
   {
-    name: "Charles M. Nwaeze",
+    name: "Charles C. Nwaeze",
     role: "Product Designer",
     avatar: charlesImage,
-    github: "Charliecodenaija",
-    email: "charles@schooldash.app",
+    github: "draco-mordred",
+    email: "nwaezejuskid@gmail.com",
     phone: "+234 703 261 7644",
-    website: "https://unlockbigchange9ja.com",
-    twitter: "https://twitter.com/Charliecodenaija",
+    website: "https://about.me/CharlieChinwe",
+    twitter: "https://twitter.com/royalc_n",
     company: {
-      name: "UnlockBigChange9ja",
+      name: "UnlockBigChange9ja Initiative",
       logo: charlesImage,
-      website: "https://unlockbigchange9ja.com",
+      website: "https://about.me/CharlieChinwe",
     }
   },
     {
