@@ -73,7 +73,21 @@ function normalizeGroupStudents(value: unknown): unknown[] {
     return [];
   }
 
-  return value.filter((entry) => entry !== undefined && entry !== null);
+  return value
+    .filter((entry) => entry !== undefined && entry !== null)
+    .map((entry) => {
+      // If it's a string that looks like an ID, keep it as-is for lookup
+      if (typeof entry === 'string') return entry;
+      // If it's an object, ensure it has name and idNumber fields
+      if (entry && typeof entry === 'object') {
+        return {
+          _id: (entry as any)._id,
+          name: (entry as any).name || (entry as any).fullName || (entry as any).displayName || 'Student',
+          idNumber: (entry as any).idNumber || (entry as any).matNumber || (entry as any).studentId,
+        };
+      }
+      return entry;
+    });
 }
 
 function extractGroupStudents(schedule: any, window: any) {
@@ -112,13 +126,16 @@ export function buildTimelineWindowView(schedule: any, window: any, index: numbe
   const status = startDate && endDate ? (startDate > now ? "upcoming" : endDate < now ? "completed" : "current") : "pending";
   const groupStudents = extractGroupStudents(schedule, window);
 
+  const deptName = getDepartmentName(window?.departmentId);
+  const unitDisplayName = window?.unitName || window?.unit?.name || window?.unitLabel || window?.unitId || `Unit ${Number(window?.unitGroupIndex ?? 0) + 1}`;
+  
   return {
     id: `${schedule?._id ?? "schedule"}-${index}`,
     postingName: schedule?.postings?.[0]?.name || schedule?.name || "Posting schedule",
-    departmentName: getDepartmentName(window?.departmentId),
-    departmentGroupLabel: `Department Group ${Number(window?.departmentGroupIndex ?? 0) + 1}`,
-    unitGroupLabel: `Unit Group ${Number(window?.unitGroupIndex ?? 0) + 1}`,
-    unitName: window?.unitId || `Unit ${Number(window?.unitGroupIndex ?? 0) + 1}`,
+    departmentName: deptName,
+    departmentGroupLabel: deptName,
+    unitGroupLabel: unitDisplayName,
+    unitName: unitDisplayName,
     startDate,
     endDate,
     status,

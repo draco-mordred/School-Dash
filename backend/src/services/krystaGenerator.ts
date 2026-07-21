@@ -1,5 +1,8 @@
 import mongoose, { type Types } from 'mongoose';
 import ClassModel from '../models/classes';
+import Department from '../models/departments';
+import UnitModel from '../models/units';
+import User from '../models/user';
 
 type DeptConfig = {
   departmentId: string;
@@ -8,6 +11,8 @@ type DeptConfig = {
   departmentDurationWeeks: number;
   unitDurationWeeks: number;
   useUnits?: boolean;
+  departmentName?: string;
+  departmentCode?: string;
 };
 
 type GenerateOpts = {
@@ -36,6 +41,53 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   if (!cls) throw new Error('Class not found');
 
   const studentIds: string[] = Array.isArray(cls.students) ? cls.students.map((s: any) => String(s)) : [];
+  const uniqueStudentIds = Array.from(new Set(studentIds.filter(Boolean)));
+
+  const studentDocs = uniqueStudentIds.length > 0
+    ? await User.find({ _id: { $in: uniqueStudentIds } }).select('_id name idNumber').lean()
+    : [];
+  const studentMap = new Map(studentDocs.map((student) => [String(student._id), student]));
+
+  const resolvedDepartments = await Promise.all(departments.map(async (dept) => {
+    const queryClauses: any[] = [];
+    if (dept.departmentId && mongoose.Types.ObjectId.isValid(dept.departmentId)) {
+      queryClauses.push({ _id: new mongoose.Types.ObjectId(dept.departmentId) });
+    }
+    if (dept.departmentId) {
+      queryClauses.push({ departmentID: dept.departmentId });
+      queryClauses.push({ name: dept.departmentId });
+      queryClauses.push({ code: dept.departmentId });
+    }
+
+    const department = queryClauses.length > 0
+      ? await Department.findOne({ $or: queryClauses }).lean()
+      : null;
+
+    const activeUnits = Array.isArray(dept.activeUnitIds)
+      ? dept.activeUnitIds.filter(Boolean)
+      : [];
+    const unitQueryClauses: any[] = [];
+
+    for (const unitId of activeUnits) {
+      if (!unitId) continue;
+      if (mongoose.Types.ObjectId.isValid(unitId)) {
+        unitQueryClauses.push({ _id: new mongoose.Types.ObjectId(unitId) });
+      }
+      unitQueryClauses.push({ unitID: unitId });
+      unitQueryClauses.push({ name: unitId });
+      unitQueryClauses.push({ code: unitId });
+    }
+
+    const resolvedUnits = unitQueryClauses.length > 0
+      ? await UnitModel.find({ $or: unitQueryClauses }).lean()
+      : [];
+
+    return {
+      ...dept,
+      resolvedDepartment: department,
+      resolvedUnits,
+    };
+  }));
 
   const numDepartments = departments.length;
   const deptGroups: { groupIndex: number; studentIds: string[] }[] = [];
@@ -131,7 +183,41 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         name,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
-        groups: deptGroups.map((g) => ({ groupId: null, group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` } })),
+        groups: deptGroups.map((g) => {
+          const deptMeta = resolvedDepartments[g.groupIndex] || {} as any;
+          const departmentName = deptMeta.resolvedDepartment?.name || deptMeta.departmentName || `${deptMeta.departmentId || 'Department'} Group ${g.groupIndex + 1}`;
+          const departmentCode = deptMeta.resolvedDepartment?.code || deptMeta.departmentCode;
+          const phaseLabel = phaseName || `Phase ${g.groupIndex + 1}`;
+
+          const unitName = (deptMeta.useUnits !== false && Array.isArray(deptMeta.resolvedUnits) && deptMeta.resolvedUnits.length > 0)
+            ? deptMeta.resolvedUnits[0].name
+            : departmentName;
+          const unitId = (deptMeta.useUnits !== false && Array.isArray(deptMeta.resolvedUnits) && deptMeta.resolvedUnits.length > 0)
+            ? String(deptMeta.resolvedUnits[0]._id)
+            : null;
+
+          const students = g.studentIds.map((studentId) => {
+            const student = studentMap.get(studentId);
+            return student
+              ? { _id: student._id, name: student.name, idNumber: student.idNumber }
+              : { _id: studentId, name: `Student ${studentId}`, idNumber: undefined };
+          });
+
+          return {
+            groupId: null,
+            group: {
+              students,
+              name: unitName,
+              department: departmentName,
+              departmentCode,
+              departmentId: deptMeta.departmentId,
+              departmentName,
+              phase: phaseLabel,
+              unitId,
+              unitName,
+            },
+          };
+        }),
         meta: {
           krysta: true,
           departments,

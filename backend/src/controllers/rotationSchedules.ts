@@ -2,6 +2,95 @@ import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
+import User from '../models/user';
+
+// Helper function to resolve student data in rotation plan
+async function resolveStudentDetailsInSchedule(schedule: any) {
+  if (!schedule || !schedule.postings) return schedule;
+  
+  try {
+    // Collect all unique student identifiers from the schedule
+    const studentIds = new Set<string>();
+    
+    // Check postings and their groups
+    if (Array.isArray(schedule.postings)) {
+      for (const posting of schedule.postings) {
+        if (Array.isArray(posting.groups)) {
+          for (const group of posting.groups) {
+            const groupObj = group?.group || group;
+            const studentRefs = Array.isArray(groupObj?.students)
+              ? groupObj.students
+              : Array.isArray(groupObj?.studentIds)
+                ? groupObj.studentIds
+                : [];
+            if (studentRefs.length) {
+              for (const student of studentRefs) {
+                if (student?._id || student) {
+                  studentIds.add(String(student._id || student));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Check meta.timeline windows
+    if (schedule.meta?.timeline && Array.isArray(schedule.meta.timeline)) {
+      for (const window of schedule.meta.timeline) {
+        if (Array.isArray(window.studentIds)) {
+          for (const id of window.studentIds) {
+            studentIds.add(String(id));
+          }
+        }
+      }
+    }
+    
+    // Fetch all student details at once
+    if (studentIds.size > 0) {
+      const students = await User.find({ _id: { $in: Array.from(studentIds) } })
+        .select('_id name idNumber fullName')
+        .lean();
+      
+      const studentMap = new Map(students.map(s => [String(s._id), s]));
+      
+      // Update postings with full student details
+      if (Array.isArray(schedule.postings)) {
+        for (const posting of schedule.postings) {
+          if (Array.isArray(posting.groups)) {
+            for (const group of posting.groups) {
+              const groupObj = group?.group || group;
+              const studentRefs = Array.isArray(groupObj?.students)
+                ? groupObj.students
+                : Array.isArray(groupObj?.studentIds)
+                  ? groupObj.studentIds
+                  : [];
+              if (studentRefs.length) {
+                groupObj.students = studentRefs.map((student: any) => {
+                  const id = String(student._id || student);
+                  const fullData = studentMap.get(id);
+                  if (fullData) {
+                    return {
+                      _id: fullData._id,
+                      name: fullData.name || fullData.fullName,
+                      idNumber: fullData.idNumber,
+                    };
+                  }
+                  return typeof student === 'object' ? student : { _id: student, name: student };
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error resolving student details in schedule:', err);
+    // Continue without resolved details if there's an error
+  }
+  
+  return schedule;
+}
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -31,7 +120,9 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
 
         // merge any additional meta and persist
         const doc = await RotationPlan.create(planObj);
-        return res.status(201).json(doc);
+        const docObj = doc.toObject ? doc.toObject() : doc;
+        const resolved = await resolveStudentDetailsInSchedule(docObj);
+        return res.status(201).json(resolved);
       } catch (gErr: any) {
         console.error('Krysta generation failed', gErr);
         return res.status(500).json({ message: gErr?.message || 'Generation failed', error: String(gErr) });
@@ -39,7 +130,9 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
     }
 
     const doc = await RotationPlan.create(payload);
-    res.status(201).json(doc);
+    const docObj = doc.toObject ? doc.toObject() : doc;
+    const resolved = await resolveStudentDetailsInSchedule(docObj);
+    res.status(201).json(resolved);
   } catch (err) {
     console.error('createRotationSchedule error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
@@ -54,11 +147,14 @@ export const listRotationSchedules = async (req: Request, res: Response) => {
     if (classId) filter.class = classId;
     if (query) filter.name = { $regex: String(query), $options: 'i' };
 
-    const docs = await RotationPlan.find(filter)
+    let docs = await RotationPlan.find(filter)
       .sort({ createdAt: -1 })
       .skip((+page - 1) * +limit)
       .limit(+limit)
       .lean();
+
+    // Resolve student details in each schedule
+    docs = await Promise.all(docs.map(doc => resolveStudentDetailsInSchedule(doc)));
 
     const total = await RotationPlan.countDocuments(filter);
     res.json({ schedules: docs, total, page: +page, limit: +limit });
@@ -72,8 +168,12 @@ export const listRotationSchedules = async (req: Request, res: Response) => {
 export const getRotationScheduleById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const doc = await RotationPlan.findById(id).lean();
+    let doc = await RotationPlan.findById(id).lean();
     if (!doc) return res.status(404).json({ message: 'Schedule not found' });
+    
+    // Resolve student details
+    doc = await resolveStudentDetailsInSchedule(doc);
+    
     res.json(doc);
   } catch (err) {
     console.error('getRotationScheduleById error', err);
