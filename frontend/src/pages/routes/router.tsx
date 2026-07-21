@@ -41,6 +41,8 @@ import ClinicalActivities from "@/pages/ClinicalActivities";
 import AdminDepartments from "@/pages/admin/AdminDepartments";
 import AdminUnits from "@/pages/admin/AdminUnits";
 import StaffApprovals from "@/pages/StaffApprovals";
+import SupervisorQrAttendancePage from "@/pages/SupervisorQrAttendancePage";
+import StudentClinicalAttendancePage from "@/pages/StudentClinicalAttendancePage";
 
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
@@ -253,7 +255,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/attendance/clinical",
-            element: <StudentSection title="Clinical Attendance" description="Monitor your attendance for clinical postings." />,
+            element: <StudentClinicalAttendancePage />,
           },
           {
             path: "student/attendance/history",
@@ -270,6 +272,10 @@ export const router = createBrowserRouter([
           {
             path: "attendance",
             element: <Attendance />,
+          },
+          {
+            path: "attendance/clinical",
+            element: <SupervisorQrAttendancePage />,
           },
           {
             path: "clinical-rotations",

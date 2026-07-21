@@ -35,6 +35,7 @@ import hospitalDataRouter from "./routes/hospitalData";
 import activityEntryRouter from "./routes/activityEntry";
 import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
+import clinicalAttendanceRouter from "./routes/clinicalAttendance"; // import clinical attendance routes
 import { createBodyParsers } from "./utils/bodyParser";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
@@ -261,6 +262,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/exams`, examRouter);
   app.use(`${prefix}/dashboard`, dashBoardRouter);
   app.use(`${prefix}/attendance`, attendanceRouter);
+  app.use(`${prefix}/clinical-attendance`, clinicalAttendanceRouter);
   app.use(`${prefix}/notifications`, notificationRouter);
   app.use(`${prefix}/setup`, setupRouter);
   app.use(`${prefix}/og-ped-rotations`, routerFor500LevelPostings);
