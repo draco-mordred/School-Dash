@@ -10,6 +10,8 @@ import {
   endClinicalSession,
   generateAttendanceReport,
   deleteClinicalSession,
+  generateQrAttendancePayload,
+  approveQrAttendance,
 } from "../controllers/clinicalAttendance";
 
 const clinicalAttendanceRouter = express.Router();
@@ -20,6 +22,22 @@ clinicalAttendanceRouter.post(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   createClinicalAttendanceSession
+);
+
+// QR attendance generation for students
+clinicalAttendanceRouter.post(
+  "/qr/generate",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student"]),
+  generateQrAttendancePayload
+);
+
+// QR attendance approval by supervisors
+clinicalAttendanceRouter.post(
+  "/qr/approve",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  approveQrAttendance
 );
 
 // Check-in a student

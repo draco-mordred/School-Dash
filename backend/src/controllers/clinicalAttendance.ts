@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import crypto from "crypto";
 import ClinicalAttendance from "../models/clinicalAttendance";
 import User from "../models/user";
 import Unit from "../models/hospitalUnit";
@@ -299,6 +300,157 @@ export const getClinicalAttendanceSessions = async (
     res.status(500).json({
       success: false,
       message: "Error fetching clinical attendance sessions",
+      error: error.message,
+    });
+  }
+};
+
+export const generateQrAttendancePayload = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { studentId, studentIdNumber, sessionId } = req.body;
+
+    if (!studentId || !sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: studentId, sessionId",
+      });
+    }
+
+    const session = await ClinicalAttendance.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Clinical attendance session not found",
+      });
+    }
+
+    const student = await User.findById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    const now = new Date();
+    const validityMinutes = Math.max(30, Math.min(120, Math.round(((session.endTime ? new Date(session.endTime).getTime() : now.getTime() + 60 * 60 * 1000) - now.getTime()) / 60000 / 2)));
+    const payload = {
+      studentId: student._id.toString(),
+      studentIdNumber: studentIdNumber || student.idNumber || student.email,
+      sessionId: session._id.toString(),
+      supervisorId: session.supervisor?.toString() || null,
+      issuedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + validityMinutes * 60000).toISOString(),
+      nonce: crypto.randomUUID(),
+      type: "clinical-attendance-qr",
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "QR payload generated successfully",
+      data: {
+        qrPayload: JSON.stringify(payload),
+        sessionId: session._id,
+        expiresAt: payload.expiresAt,
+        validityMinutes,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error generating QR payload:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error generating QR payload",
+      error: error.message,
+    });
+  }
+};
+
+export const approveQrAttendance = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { qrPayload, status = "present", notes = "" } = req.body;
+
+    if (!qrPayload) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required field: qrPayload",
+      });
+    }
+
+    const parsedPayload = JSON.parse(qrPayload);
+    const now = new Date();
+    const expiresAt = parsedPayload.expiresAt ? new Date(parsedPayload.expiresAt) : null;
+    if (expiresAt && now.getTime() > expiresAt.getTime()) {
+      return res.status(410).json({
+        success: false,
+        message: "Attendance QR has expired",
+      });
+    }
+
+    const session = await ClinicalAttendance.findById(parsedPayload.sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: "Clinical attendance session not found",
+      });
+    }
+
+    const student = await User.findById(parsedPayload.studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: "Student not found",
+      });
+    }
+
+    const existingRecord = session.attendees.find(
+      (attendee) => attendee.student.toString() === parsedPayload.studentId
+    );
+
+    const checkInTime = new Date();
+    const normalizedStatus = status === "approved_absent" ? "excused" : status === "absent" ? "absent" : "present";
+
+    if (existingRecord) {
+      existingRecord.status = normalizedStatus;
+      existingRecord.checkInTime = checkInTime;
+      existingRecord.notes = notes || existingRecord.notes || "Approved via QR";
+    } else {
+      session.attendees.push({
+        student: parsedPayload.studentId,
+        status: normalizedStatus,
+        checkInTime,
+        notes: notes || "Approved via QR",
+      } as any);
+    }
+
+    session.presentCount = session.attendees.filter((a) => a.status === "present").length;
+    session.absentCount = session.attendees.filter((a) => a.status === "absent").length;
+    session.lateCount = session.attendees.filter((a) => a.status === "late").length;
+    session.excusedCount = session.attendees.filter((a) => a.status === "excused").length;
+
+    await session.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Attendance approved successfully",
+      data: {
+        studentId: student._id,
+        studentIdNumber: parsedPayload.studentIdNumber,
+        sessionId: session._id,
+        status: normalizedStatus,
+        checkedAt: checkInTime,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error approving QR attendance:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error approving QR attendance",
       error: error.message,
     });
   }
