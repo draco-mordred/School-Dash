@@ -1,6 +1,6 @@
 "use client";
 
-import { type LucideIcon } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
 import { useState, useCallback, useRef } from "react";
 
 import {
@@ -17,13 +17,21 @@ import {
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
+type SidebarIcon = ComponentType<SVGProps<SVGSVGElement>>;
+
+const DashboardFallbackIcon = ({ className }: { className?: string }) => (
+  <span className={cn("text-[1rem] leading-none", className)} aria-hidden="true">
+    ⌂
+  </span>
+);
+
 export function NavMainMiniSidebar({
   items,
 }: {
   items: {
     title: string;
     url: string;
-    icon?: LucideIcon;
+    icon?: SidebarIcon;
     isActive?: boolean;
     items?: {
       title: string;
@@ -58,6 +66,7 @@ export function NavMainMiniSidebar({
       <SidebarMenu className="space-y-0.5 px-1">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
+          const Icon = item.title === "Dashboard" ? DashboardFallbackIcon : (item.icon ?? DashboardFallbackIcon);
 
           return (
             <SidebarMenuItem key={item.title}>
@@ -75,20 +84,20 @@ export function NavMainMiniSidebar({
                     onMouseLeave={() => scheduleClose()}
                   >
                     <SidebarMenuButton
-                      tooltip={item.title}
+                      // tooltip={item.title}
                       className={cn(
-                        "h-9 w-full flex items-center justify-center rounded-md transition-colors",
+                        "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
                         "hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
-                      {item.icon && <item.icon className="h-5 w-5" />}
+                      <Icon className="h-5 w-5" />
                     </SidebarMenuButton>
                   </PopoverTrigger>
                   <PopoverContent
                     side="right"
                     align="start"
                     sideOffset={8}
-                    className="w-48 border-border bg-background p-0 shadow-lg"
+                    className="w-48 border-border bg-background p-0 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-left-2 data-[state=open]:slide-in-from-left-2 duration-200"
                     onMouseEnter={() => {
                       clearCloseTimeout();
                       setOpenItem(item.title);
@@ -128,11 +137,11 @@ export function NavMainMiniSidebar({
                   <SidebarMenuButton
                     tooltip={item.title}
                     className={cn(
-                      "h-9 w-full flex items-center justify-center rounded-md transition-colors",
+                      "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
                       "hover:bg-accent hover:text-accent-foreground"
                     )}
                   >
-                    {item.icon && <item.icon className="h-5 w-5" />}
+                    <Icon className="h-5 w-5" />
                   </SidebarMenuButton>
                 </Link>
               )}

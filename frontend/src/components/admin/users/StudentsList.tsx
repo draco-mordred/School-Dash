@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,11 +13,14 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowUpDown, Download, Eye, Pencil, Trash2 } from "lucide-react";
+import { ArrowUpDown, Download, Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import CustomAlert from "@/components/global/CustomAlert";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 export interface Student {
   id: string;
+  rowKey?: string;
   name: string;
   matricNumber: string;
   class: string;
@@ -41,6 +44,7 @@ interface StudentsListProps {
   onDeleteStudent?: (studentId: string) => void;
   onBulkDeleteStudents?: (studentIds: string[]) => Promise<void> | void;
   onBulkUpload?: () => void;
+  onCreateStudent?: () => void;
 }
 
 const sortOptions = [
@@ -109,6 +113,7 @@ export function StudentsList({
   onDeleteStudent,
   onBulkDeleteStudents,
   onBulkUpload,
+  onCreateStudent,
 }: StudentsListProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedClass, setSelectedClass] = useState<string>("all");
@@ -118,7 +123,18 @@ export function StudentsList({
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [focusedStudentId, setFocusedStudentId] = useState<string | null>(null);
-  const [hoveredStudentId, setHoveredStudentId] = useState<string | null>(null);
+  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
+  const [isCreatePanelVisible, setIsCreatePanelVisible] = useState(false);
+  const [isSubmittingStudent, setIsSubmittingStudent] = useState(false);
+  const [classOptions, setClassOptions] = useState<{ _id: string; name: string }[]>([]);
+  const [studentForm, setStudentForm] = useState({
+    name: "",
+    email: "",
+    idNumber: "",
+    password: "",
+    confirmPassword: "",
+    classId: "",
+  });
 
   const uniqueClasses = useMemo(
     () => Array.from(new Set(students.map((s) => s.class))).sort(),
@@ -127,6 +143,36 @@ export function StudentsList({
   const uniqueStatuses = useMemo(
     () => Array.from(new Set(students.map((s) => s.status))).sort(),
     [students]
+  );
+
+  useEffect(() => {
+    if (!isCreatePanelOpen) return;
+
+    const fetchClasses = async () => {
+      try {
+        const { data } = await api.get("/classes?limit=500");
+        setClassOptions((data?.classes ?? []) as { _id: string; name: string }[]);
+      } catch {
+        setClassOptions([]);
+      }
+    };
+
+    void fetchClasses();
+  }, [isCreatePanelOpen]);
+
+  useEffect(() => {
+    if (isCreatePanelOpen) {
+      setIsCreatePanelVisible(true);
+      return;
+    }
+
+    const timer = window.setTimeout(() => setIsCreatePanelVisible(false), 180);
+    return () => window.clearTimeout(timer);
+  }, [isCreatePanelOpen]);
+
+  const sortedClassOptions = useMemo(
+    () => [...classOptions].sort((a, b) => a.name.localeCompare(b.name)),
+    [classOptions]
   );
 
   const filteredStudents = useMemo(() => {
@@ -164,7 +210,7 @@ export function StudentsList({
     if (selectedRows.size === filteredStudents.length) {
       setSelectedRows(new Set());
     } else {
-      setSelectedRows(new Set(filteredStudents.map((s) => s.id)));
+      setSelectedRows(new Set(filteredStudents.map((s) => s.id || s.rowKey || `${s.name}-${s.matricNumber}-${s.email}`)));
     }
   };
 
@@ -218,6 +264,52 @@ export function StudentsList({
     URL.revokeObjectURL(url);
   };
 
+  const handleCreateStudent = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!studentForm.name.trim() || !studentForm.email.trim() || !studentForm.password.trim()) {
+      toast.error("Name, email, and password are required.");
+      return;
+    }
+
+    if (studentForm.password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (studentForm.password !== studentForm.confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    setIsSubmittingStudent(true);
+    try {
+      const payload = {
+        name: studentForm.name.trim(),
+        email: studentForm.email.trim(),
+        idNumber: studentForm.idNumber.trim() || undefined,
+        password: studentForm.password,
+        confirmPassword: studentForm.confirmPassword,
+        role: "student",
+        studentClasses: studentForm.classId || undefined,
+        parentStudents: [],
+        academicStatus: null,
+        departmentRole: null,
+        departmentId: undefined,
+      };
+
+      await api.post("/users/register", payload);
+      toast.success("Student account created successfully.");
+      setIsCreatePanelOpen(false);
+      setStudentForm({ name: "", email: "", idNumber: "", password: "", confirmPassword: "", classId: "" });
+      onCreateStudent?.();
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || "Failed to create student.");
+    } finally {
+      setIsSubmittingStudent(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -226,23 +318,30 @@ export function StudentsList({
             <div>
               <CardTitle>Students</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Organized by class, with quick actions and student detail cards.
+                Student detail cards, by Class.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="relative flex flex-wrap gap-2">
               {selectedRows.size > 0 && onBulkDeleteStudents && (
                 <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
                   Delete {selectedRows.size}
                 </Button>
               )}
-              {onBulkUpload && (
-                <Button variant="outline" size="sm" className="gap-2" onClick={onBulkUpload}>
-                  <Download className="h-4 w-4" /> Bulk Upload
+              {!(selectedRows.size > 0) && onCreateStudent && (
+                <Button size="sm" className="gap-2" onClick={() => setIsCreatePanelOpen((open) => !open)}>
+                  <Plus className="h-4 w-4" /> New
                 </Button>
               )}
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
-                <Download className="h-4 w-4" /> Export
-              </Button>
+              {!(selectedRows.size > 0) && onBulkUpload && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={onBulkUpload}>
+                  <Download className="h-4 w-4" /> Bulk upload
+                </Button>
+              )}
+              {!(selectedRows.size > 0 ) && handleExport && (
+                <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
+                  <Download className="h-4 w-4" /> Save
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -251,6 +350,113 @@ export function StudentsList({
               >
                 <ArrowUpDown className="h-4 w-4" /> {sortDirection === "asc" ? "A-Z" : "Z-A"}
               </Button>
+
+              {(isCreatePanelOpen || isCreatePanelVisible) && (
+                <div
+                  className={`absolute right-0 top-full z-30 mt-3 w-[min(26rem,calc(100vw-2rem))] origin-top-right transition-all duration-200 ease-out ${
+                    isCreatePanelOpen ? "translate-y-0 scale-100 opacity-100" : "-translate-y-2 scale-95 opacity-0"
+                  }`}
+                >
+                  <div className="absolute inset-0 -left-4 -right-4 -top-4 -bottom-4 rounded-[2rem] bg-background/25 backdrop-blur-xl" />
+                  <div style={{ background: "transparent" }} className="relative overflow-hidden rounded-[1.35rem] border border-border/70 bg-background/95 p-4 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl">
+                    <div className="absolute -top-2 right-6 h-4 w-4 rotate-45 border-l border-t border-border/70 bg-background/95" />
+                    <div className="mb-3 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold">Create student</p>
+                        <p className="text-xs text-muted-foreground">Add a new student account and assign a class if needed.</p>
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setIsCreatePanelOpen(false)}>
+                        Close
+                      </Button>
+                    </div>
+
+                    <form className="space-y-3" onSubmit={handleCreateStudent}>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Full name</label>
+                        <Input
+                          value={studentForm.name}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, name: event.target.value }))}
+                          placeholder="Jane Doe"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Email</label>
+                        <Input
+                          type="email"
+                          value={studentForm.email}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, email: event.target.value }))}
+                          placeholder="student@school.edu"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">ID number</label>
+                        <Input
+                          value={studentForm.idNumber}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, idNumber: event.target.value }))}
+                          placeholder="Optional"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Class</label>
+                        <select
+                          value={studentForm.classId}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, classId: event.target.value }))}
+                          className="w-full rounded-xl border border-input/70 bg-background/90 px-3 py-2 text-sm shadow-sm transition focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value="">Select class (optional)</option>
+                          {sortedClassOptions.length > 0 ? (
+                            sortedClassOptions.map((classItem) => (
+                              <option key={classItem._id} value={classItem._id}>
+                                {classItem.name}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="" disabled>
+                              No classes available
+                            </option>
+                          )}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Password</label>
+                        <Input
+                          type="password"
+                          value={studentForm.password}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, password: event.target.value }))}
+                          placeholder="At least 6 characters"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Confirm password</label>
+                        <Input
+                          type="password"
+                          value={studentForm.confirmPassword}
+                          onChange={(event) => setStudentForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                          placeholder="Confirm password"
+                          required
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button type="button" variant="outline" size="sm" onClick={() => setIsCreatePanelOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button type="submit" size="sm" disabled={isSubmittingStudent}>
+                          {isSubmittingStudent ? "Creating..." : "Save student"}
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -260,7 +466,7 @@ export function StudentsList({
                 checked={filteredStudents.length > 0 && selectedRows.size === filteredStudents.length}
                 onCheckedChange={() => handleSelectAll()}
               />
-              Select all visible
+              Select
             </label>
             <Input
               placeholder="Search by name, matric #, or email..."
@@ -326,15 +532,14 @@ export function StudentsList({
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {studentsInClass.map((student) => {
-                  const isFocused = focusedStudentId === student.id;
-                  const isHovered = hoveredStudentId === student.id;
-                  const theme = getProfileTheme(student.theme || student.id);
+                  const studentIdentity = student.rowKey ?? student.id ?? `${student.name}-${student.matricNumber}-${student.email}`;
+                  const isFocused = focusedStudentId === studentIdentity;
+                  const theme = getProfileTheme(student.theme || student.id || studentIdentity);
+                  const actionStudentId = student.id || studentIdentity;
                   return (
                     <div
-                      key={student.id}
-                      onClick={() => setFocusedStudentId(isFocused ? null : student.id)}
-                      onMouseEnter={() => setHoveredStudentId(student.id)}
-                      onMouseLeave={() => setHoveredStudentId(null)}
+                      key={studentIdentity}
+                      onClick={() => setFocusedStudentId(isFocused ? null : studentIdentity)}
                       onBlur={() => setFocusedStudentId(null)}
                       role="button"
                       tabIndex={0}
@@ -343,11 +548,6 @@ export function StudentsList({
                           ? `overflow-visible shadow-xl z-30 ring-1 ${theme.ring}`
                           : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
                       }`}
-                      style={{
-                        transform: isFocused
-                          ? "scale(1.04) translateY(-6px)"
-                          : "scale(1) translateY(0)",
-                      }}
                     >
                       <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`} />
                       <div className="flex items-start justify-between gap-4">
@@ -355,9 +555,8 @@ export function StudentsList({
                           <div
                             className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
                             style={{
-                              width: isFocused ? "68px" : "40px",
-                              height: isFocused ? "68px" : "40px",
-                              transform: isFocused ? "scale(1.23)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              width: "40px",
+                              height: "40px",
                               position: "relative",
                               top: "auto",
                               right: "auto",
@@ -397,8 +596,8 @@ export function StudentsList({
                         {!isFocused && (
                           <div className="flex flex-col items-end gap-2">
                             <Checkbox
-                              checked={selectedRows.has(student.id)}
-                              onCheckedChange={() => handleSelectRow(student.id)}
+                              checked={selectedRows.has(actionStudentId)}
+                              onCheckedChange={() => handleSelectRow(actionStudentId)}
                             />
                             <div className="space-y-2 text-right">
                               <Badge className={getStatusClass(student.status)}>

@@ -837,3 +837,54 @@ export const whatsappLectureAlert = inngest.createFunction(
     return { dispatched: true };
   }
 );
+
+// Rotation snapshot scheduled job - runs every 6 hours to persist active window snapshots
+export const rotationSnapshotScheduler = inngest.createFunction(
+  {
+    id: "rotation-snapshot-scheduler",
+    triggers: {
+      cron: "0 */6 * * *", // every 6 hours
+    },
+  },
+  async ({ step }) => {
+    const RotationPlan = (await import("../models/rotationPlan")).default;
+    const runRotationSnapshot = (await import("../services/rotationRunner")).default;
+
+    await step.run("process-rotation-snapshots", async () => {
+      const now = new Date();
+      const plans = await RotationPlan.find({}).lean();
+      const results: any[] = [];
+
+      for (const plan of plans) {
+        try {
+          const planDoc = await RotationPlan.findById(plan._id);
+          if (!planDoc) continue;
+
+          const timeline = (planDoc.meta && planDoc.meta.timeline) || [];
+          let anyActive = false;
+
+          for (let i = 0; i < timeline.length; i++) {
+            const t = timeline[i];
+            const start = new Date(t.startDate);
+            const end = new Date(t.endDate);
+            if (start <= now && now < end) {
+              anyActive = true;
+              break;
+            }
+          }
+
+          if (anyActive) {
+            const snap = await runRotationSnapshot(String(plan._id), { snapshotTime: now.toISOString() });
+            results.push({ planId: plan._id, snapshot: snap });
+          }
+        } catch (err) {
+          console.error("Error processing rotation snapshot for plan", plan._id, err);
+        }
+      }
+
+      return { processed: results.length, results };
+    });
+
+    return { success: true };
+  }
+);

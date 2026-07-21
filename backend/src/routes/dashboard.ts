@@ -1,13 +1,18 @@
 import express from "express";
-import { getDashboradStats } from "../controllers/dashboard";
+import { getAdminOverview, getDashboradStats } from "../controllers/dashboard";
 // import { getDashboradInsights } from "../controllers/aiController";
 import { protect } from "../middleware/auth";
 
 const dashBoardRouter = express.Router();
 
-//Get Stats (Role is determined by token)
+// Get Stats (Role is determined by token)
 dashBoardRouter.get(
   "/stats", protect, getDashboradStats
+);
+
+// Get overview counts for dashboard snapshot cards
+dashBoardRouter.get(
+  "/overview", protect, getAdminOverview
 );
 
 // Get AI insights

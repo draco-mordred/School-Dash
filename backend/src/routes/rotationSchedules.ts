@@ -1,5 +1,5 @@
 import express from 'express';
-import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, getStudentAssignments } from '../controllers/rotationSchedules';
+import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors } from '../controllers/rotationSchedules';
 import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
@@ -7,7 +7,13 @@ const router = express.Router();
 router.post('/', protect, authorize(['admin','teacher']), createRotationSchedule);
 router.get('/', protect, listRotationSchedules);
 router.get('/student-assignments', protect, getStudentAssignments);
+router.get('/student/:studentId/current', protect, getStudentCurrentSchedule);
+router.get('/student/:studentId/upcoming', protect, getStudentUpcomingSchedule);
+router.get('/student/:studentId/history', protect, getStudentScheduleHistory);
 router.get('/:id', protect, getRotationScheduleById);
+router.get('/:id/supervisors', protect, listScheduleSupervisors);
 router.delete('/:id', protect, authorize(['admin','teacher']), deleteRotationSchedule);
+router.post('/:id/assign-supervisor', protect, authorize(['admin','teacher']), assignSupervisorToWindow);
+router.post('/:id/run', protect, authorize(['admin','teacher']), runRotationRunner);
 
 export default router;

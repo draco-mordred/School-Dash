@@ -254,8 +254,8 @@ const UserTable = ({
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {groupUsers.map((user) => (
-                  <div key={user._id} className="user-card group overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                {groupUsers.map((user, index) => (
+                  <div key={`${user._id ?? "user"}-${index}`} className="user-card group overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{groupLabel}</p>

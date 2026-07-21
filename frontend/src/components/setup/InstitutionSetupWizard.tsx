@@ -308,20 +308,27 @@ export default function InstitutionSetupWizard() {
     const timeoutId = window.setTimeout(async () => {
       try {
         setIsSearchingInstitution(true);
+        // Use Wikipedia search API (action=query&list=search) to get broader matching titles.
+        // Include common institution terms to bias results toward schools/universities/colleges.
+        const srsearch = `${query} OR ${query} institution OR ${query} university OR ${query} college OR ${query} school`;
         const response = await fetch(`https://en.wikipedia.org/w/api.php?${new URLSearchParams({
-          action: "opensearch",
+          action: "query",
+          list: "search",
           format: "json",
           origin: "*",
-          search: `${query} institution`,
-          limit: "6",
+          srsearch,
+          srlimit: "10",
+          srprop: "",
         })}`);
         const data = await response.json();
-        const titles = Array.isArray(data?.[1]) ? data[1] : [];
-        const suggestions: InstitutionSearchSuggestion[] = titles
-          .filter((title: unknown): title is string => typeof title === "string" && title.trim().length > 0)
-          .map((title: string) => ({ label: title.trim() }))
-          .filter((suggestion: InstitutionSearchSuggestion) => suggestion.label.toLowerCase() !== query.toLowerCase())
-          .slice(0, 6);
+        const results = Array.isArray(data?.query?.search) ? data.query.search : [];
+        const titles = results
+          .map((r: any) => String(r.title || "").trim())
+          .filter((t: string) => t.length > 0);
+
+        // Deduplicate and filter out exact match of the query
+        const unique = Array.from(new Set(titles)).filter((t) => t.toLowerCase() !== query.toLowerCase()).slice(0, 8);
+        const suggestions: InstitutionSearchSuggestion[] = unique.map((title: string) => ({ label: title }));
 
         setInstitutionSearchSuggestions(suggestions);
         setShowInstitutionSuggestions(suggestions.length > 0);
@@ -1020,6 +1027,12 @@ export default function InstitutionSetupWizard() {
 
       {!showCompletion && (
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/", { replace: true })} className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back home
+          </Button>
+        </div>
         <div className="flex w-full flex-col gap-3 rounded-3xl border border-border/70 bg-card/70 p-6 shadow-sm backdrop-blur">
           <div className="flex items-center gap-2 text-sm font-medium text-primary">
             <Sparkles className="h-4 w-4" />

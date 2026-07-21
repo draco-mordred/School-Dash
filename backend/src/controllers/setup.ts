@@ -107,14 +107,11 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     const start = Date.now();
     console.info("Request /api/setup/status: received (cache miss)");
 
-    const institution = await Promise.race([
-      Institution.findOne()
-        .select('name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
-        .lean()
-        .exec()
-        .then((value) => value as any),
-      new Promise((resolve) => setTimeout(() => resolve(null), 2000)),
-    ]);
+    const institution = await Institution.findOne()
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .lean()
+      .exec()
+      .then((value) => value as any);
 
     let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
     if (institution?.brandingSettings) {
@@ -144,6 +141,12 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             country: institution.country,
             state: institution.state,
             city: institution.city,
+            addressLine1: institution.addressLine1 || "",
+            addressLine2: institution.addressLine2 || "",
+            contactEmail: institution.contactEmail || "",
+            phone: institution.phone || "",
+            website: institution.website || "",
+            description: institution.description || "",
             academicCalendarType: institution.academicCalendarType,
             timezone: institution.timezone,
             logoUrl: institution.logoUrl || "",
@@ -162,6 +165,145 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
   } catch (error) {
     console.error(`[CONTROLLER] getSetupStatus error for ${requestLabel}:`, (error as Error).message);
     res.status(500).json({ status: "Error", message: "Unable to determine setup status." });
+  }
+};
+
+const sanitizeSetupString = (value: unknown) => String(value ?? "").trim();
+
+export const buildInstitutionUpdateOptions = () => ({
+  returnDocument: "after" as const,
+  runValidators: true,
+});
+
+export const updateSetup = async (req: Request, res: Response) => {
+  const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
+  console.info(`[CONTROLLER] enter updateSetup for ${requestLabel}`);
+
+  try {
+    const { institutionProfile, brandingSettings } = req.body;
+
+    if (!institutionProfile && !brandingSettings) {
+      return res.status(400).json({ status: "Error", message: "No setup data provided to update." });
+    }
+
+    const existingInstitution = await Institution.findOne().exec();
+    if (!existingInstitution) {
+      return res.status(404).json({ status: "Error", message: "Institution has not been configured yet." });
+    }
+
+    const institutionUpdates: Record<string, unknown> = {};
+    if (institutionProfile && typeof institutionProfile === "object") {
+      const fields = [
+        "name",
+        "shortName",
+        "type",
+        "country",
+        "state",
+        "city",
+        "addressLine1",
+        "addressLine2",
+        "contactEmail",
+        "phone",
+        "website",
+        "description",
+        "academicCalendarType",
+        "timezone",
+        "logoUrl",
+        "backgroundImageUrl",
+      ] as const;
+
+      for (const field of fields) {
+        if (Object.prototype.hasOwnProperty.call(institutionProfile, field)) {
+          institutionUpdates[field] = sanitizeSetupString((institutionProfile as Record<string, unknown>)[field]);
+        }
+      }
+    }
+
+    let brandingData: { primaryColor?: string; accentColor?: string } | null = null;
+    if (brandingSettings && typeof brandingSettings === "object") {
+      const brandingUpdate: Record<string, string> = {};
+      if (brandingSettings.primaryColor !== undefined) {
+        brandingUpdate.primaryColor = sanitizeSetupString(brandingSettings.primaryColor);
+      }
+      if (brandingSettings.accentColor !== undefined) {
+        brandingUpdate.accentColor = sanitizeSetupString(brandingSettings.accentColor);
+      }
+
+      if (Object.keys(brandingUpdate).length > 0) {
+        if (existingInstitution.brandingSettings) {
+          brandingData = await BrandingSettings.findByIdAndUpdate(
+            existingInstitution.brandingSettings,
+            brandingUpdate,
+            buildInstitutionUpdateOptions()
+          )
+            .lean()
+            .exec();
+        } else {
+          const createdBranding = await BrandingSettings.create([brandingUpdate]);
+          if (createdBranding?.[0]?._id) {
+            institutionUpdates.brandingSettings = createdBranding[0]._id;
+            brandingData = createdBranding[0];
+          }
+        }
+      }
+    }
+
+    if (Object.keys(institutionUpdates).length > 0) {
+      await Institution.findByIdAndUpdate(existingInstitution._id, institutionUpdates, buildInstitutionUpdateOptions()).exec();
+    }
+
+    cachedInstitution = null;
+    lastCacheTime = 0;
+
+    const updatedInstitution = await Institution.findById(existingInstitution._id)
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .lean()
+      .exec();
+
+    if (!updatedInstitution) {
+      return res.status(500).json({ status: "Error", message: "Unable to load updated institution." });
+    }
+
+    if (!brandingData && updatedInstitution.brandingSettings) {
+      brandingData = await BrandingSettings.findById(updatedInstitution.brandingSettings)
+        .select('primaryColor accentColor')
+        .lean()
+        .exec();
+    }
+
+    res.status(200).json({
+      status: "Success",
+      institution: {
+        name: updatedInstitution.name,
+        shortName: updatedInstitution.shortName,
+        type: updatedInstitution.type,
+        country: updatedInstitution.country,
+        state: updatedInstitution.state,
+        city: updatedInstitution.city,
+        addressLine1: updatedInstitution.addressLine1 || "",
+        addressLine2: updatedInstitution.addressLine2 || "",
+        contactEmail: updatedInstitution.contactEmail || "",
+        phone: updatedInstitution.phone || "",
+        website: updatedInstitution.website || "",
+        description: updatedInstitution.description || "",
+        academicCalendarType: updatedInstitution.academicCalendarType,
+        timezone: updatedInstitution.timezone,
+        logoUrl: updatedInstitution.logoUrl || "",
+        backgroundImageUrl: updatedInstitution.backgroundImageUrl || "",
+        brandingSettings: brandingData
+          ? {
+              primaryColor: brandingData.primaryColor || "#2563eb",
+              accentColor: brandingData.accentColor || "#4f46e5",
+            }
+          : {
+              primaryColor: "#2563eb",
+              accentColor: "#4f46e5",
+            },
+      },
+    });
+  } catch (error) {
+    console.error(`[CONTROLLER] updateSetup error for ${requestLabel}:`, (error as Error).message);
+    res.status(500).json({ status: "Error", message: "Unable to update setup settings." });
   }
 };
 
@@ -442,8 +584,20 @@ export const createInitialSetup = async (req: Request, res: Response) => {
         country: institutionProfile.country,
         state: institutionProfile.state,
         city: institutionProfile.city,
+        addressLine1: String(institutionProfile.addressLine1 || ""),
+        addressLine2: String(institutionProfile.addressLine2 || ""),
+        contactEmail: String(institutionProfile.contactEmail || ""),
+        phone: String(institutionProfile.phone || ""),
+        website: String(institutionProfile.website || ""),
+        description: String(institutionProfile.description || ""),
         academicCalendarType: institutionProfile.academicCalendarType,
         timezone: institutionProfile.timezone,
+        addressLine1: String(institutionProfile.addressLine1 || ""),
+        addressLine2: String(institutionProfile.addressLine2 || ""),
+        contactEmail: String(institutionProfile.contactEmail || ""),
+        phone: String(institutionProfile.phone || ""),
+        website: String(institutionProfile.website || ""),
+        description: String(institutionProfile.description || ""),
         logoUrl: String(institutionProfile.logoUrl || ""),
         backgroundImageUrl: String(institutionProfile.backgroundImageUrl || ""),
         academicSession: academicSessionDoc[0]._id,

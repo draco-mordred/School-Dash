@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GraduationCap, Stethoscope, ShieldCheck, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api";
+import { useSetupStatus } from "@/lib/useSetupStatus";
+import { useInstitution } from "@/lib/useInstitution";
 import { Button } from "@/components/ui/button";
 
 type Institution = {
@@ -13,27 +15,16 @@ type Institution = {
 export default function InstitutionLandingPage() {
   const navigate = useNavigate();
   const [institution, setInstitution] = useState<Institution | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { isSetupConfigured, isSetupStatusLoading } = useSetupStatus();
+  const { institution: cachedInstitution, loading: instLoading } = useInstitution();
+
+  const loading = isSetupStatusLoading || instLoading;
 
   useEffect(() => {
-    const fetchInstitution = async () => {
-      try {
-        const response = await api.get("/setup/status", { timeout: 4000 });
-        if (response.data?.configured) {
-          // Fetch institution details
-          const instResponse = await api.get("/institution");
-          setInstitution(instResponse.data?.institution || { name: "Your Institution" });
-        }
-      } catch (error) {
-        console.error("Failed to fetch institution:", error);
-        setInstitution({ name: "Institution Portal" });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInstitution();
-  }, []);
+    if (cachedInstitution) {
+      setInstitution(cachedInstitution as Institution);
+    }
+  }, [cachedInstitution]);
 
   if (loading) {
     return (

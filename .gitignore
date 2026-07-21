@@ -51,10 +51,9 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # todo files
 todo
 todo.md
-.md
 
-#.md files
-*.md
+# markdown files
+# Keep project documentation files tracked, like README.md and DEPLOYMENT_VERIFICATION.md
 
 # Tests folder
 tests

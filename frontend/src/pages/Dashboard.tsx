@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense, memo, useMemo, useRef, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
+import { useSidebar } from "@/components/ui/sidebar-context";
 import { ChevronRight } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import {
@@ -26,15 +27,28 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { formatDistanceToNow, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAdminDashboard } from "@/hooks/useAdminDashboard";
-import { KPICards } from "@/components/admin/dashboard/KPICards";
-import { Snapshots } from "@/components/admin/dashboard/Snapshots";
-import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlerts";
-import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
-import { QuickActions } from "@/components/admin/dashboard/QuickActions";
-import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
-import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
+import { AcademicSnapshot, ClinicalSnapshot } from "@/components/admin/dashboard/Snapshots";
+import { shouldShowAdminDashboardSkeleton } from "@/lib/dashboardState";
+const KPICards = lazy(() => import("@/components/admin/dashboard/KPICards").then(mod => ({ default: mod.KPICards })));
+const OperationalAlerts = lazy(() => import("@/components/admin/dashboard/OperationalAlerts").then(mod => ({ default: mod.OperationalAlerts })));
+const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/RecentActivityFeed").then(mod => ({ default: mod.RecentActivityFeed })));
+const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
+const AnalyticsWidgets = lazy(() => import("@/components/admin/dashboard/AnalyticsWidgets").then(mod => ({ default: mod.AnalyticsWidgets })));
+const AIInsightWidget = lazy(() => import("@/components/dashboard/ai-insight-widget").then(mod => ({ default: mod.AIInsightWidget })));
 
-function NotificationsCard() {
+const DashboardChartShell = memo(function DashboardChartShell({ paused, children, className }: { paused: boolean; children: ReactNode; className?: string }) {
+  if (paused) {
+    return (
+      <div className={cn("flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/10", className)}>
+        <span className="text-[11px] font-medium text-muted-foreground/80">Updating layout…</span>
+      </div>
+    );
+  }
+
+  return <div className={cn("h-full w-full", className)}>{children}</div>;
+});
+
+const NotificationsCard = memo(function NotificationsCard() {
   const navigate = useNavigate();
   const { notifications, unreadCount, isLoading, refetch, markAsRead } = useNotifications(1, 7);
 
@@ -95,7 +109,7 @@ function NotificationsCard() {
       </div>
     </div>
   );
-}
+});
 
 // ─── Data interfaces ───────────────────────────────────────────
 interface ClassStatus {
@@ -144,9 +158,12 @@ const roleBadgeVariant = (role: string): "default" | "secondary" | "destructive"
 };
 
 // ─── Main Dashboard ─────────────────────────────────────────────
-export default function Dashboard() {
+const Dashboard = memo(function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { state: sidebarState } = useSidebar();
+  const [pauseCharts, setPauseCharts] = useState(false);
+  const previousSidebarStateRef = useRef(sidebarState);
   
   // Admin dashboard data
   const { data: adminDashboardData, loading: adminLoading } = useAdminDashboard();
@@ -165,24 +182,35 @@ export default function Dashboard() {
   ]);
 
   // Chart data — mock logbook entries for Jan–Jun
-  const logbookData = [
+  const logbookData = useMemo(() => [
     { month: "Jan", approved: 42, pending: 18 },
     { month: "Feb", approved: 55, pending: 12 },
     { month: "Mar", approved: 48, pending: 22 },
     { month: "Apr", approved: 67, pending: 9 },
     { month: "May", approved: 74, pending: 15 },
     { month: "Jun", approved: 58, pending: 25 },
-  ];
+  ], []);
 
   // Rotation progress — mock data
-  const rotationData = [
+  const rotationData = useMemo(() => [
     { name: "Completed", value: 62, color: "#AD6BEE" },
     { name: "In Progress", value: 24, color: "#A6D49F" },
     { name: "Upcoming", value: 14, color: "#C3D405" },
-  ];
+  ], []);
 
   const [rotationStats, setRotationStats] = useState<typeof rotationData | null>(null);
   const [weeklyActivity, setWeeklyActivity] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (previousSidebarStateRef.current !== sidebarState) {
+      setPauseCharts(true);
+      const timerId = window.setTimeout(() => setPauseCharts(false), 260);
+      return () => window.clearTimeout(timerId);
+    }
+
+    previousSidebarStateRef.current = sidebarState;
+    return undefined;
+  }, [sidebarState]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -275,10 +303,44 @@ export default function Dashboard() {
   }, [user]);
 
   const isAdmin = user?.role === "admin";
-  const isTeacher = user?.role === "teacher";
+  const isTeacher = user?.role === "teacher" || user?.role === "unitconsultant" || user?.role === "unitresident";
   const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
-  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent;
+  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent || isStudent;
+  const resolvedAdminDashboardData = useMemo(() => adminDashboardData ?? {
+    stats: {
+      totalStudents: 0,
+      totalParents: 0,
+      totalStaff: 0,
+      activeSession: "N/A",
+    },
+    academicData: {
+      sessions: 0,
+      semesters: 0,
+      classes: 0,
+      courses: 0,
+      assessments: 0,
+      details: {
+        activeAcademicYear: null,
+        currentSemester: null,
+        classes: [],
+      },
+    },
+    clinicalData: {
+      postings: 0,
+      departments: 0,
+      units: 0,
+      teams: 0,
+      rotations: 0,
+      details: {
+        postings: [],
+        rotationTeams: [],
+        rotations: [],
+      },
+    },
+    alerts: [],
+    activities: [],
+  }, [adminDashboardData]);
 
   // Derived UI values for class overview
   const classesWithTimetableCount = classStatuses.filter((c) => c.timetableStatus === "active").length;
@@ -291,7 +353,7 @@ export default function Dashboard() {
       : "warn";
 
   // Build quick tiles based on role
-  const quickTiles: QuickTile[] = [
+  const quickTiles = useMemo<QuickTile[]>(() => [
     ...(isAdmin ? [
       { id: "students", title: "Manage Students", icon: "graduation-cap", onClick: () => navigate("/users/students"), badge: "CRUD" },
       { id: "users", title: "Roles & Permissions", icon: "users", onClick: () => navigate("/users"), badge: "Admin" },
@@ -316,10 +378,10 @@ export default function Dashboard() {
       { id: "child-attendance", title: "Children's Attendance", icon: "bar-chart", onClick: () => navigate("/attendance") },
       { id: "child-timetable", title: "Timetables", icon: "clock", onClick: () => navigate("/timetable") },
     ] : []),
-  ];
+  ], [isAdmin, isTeacher, isStudent, isParent, navigate]);
 
   // Precompute role rows to keep JSX simpler and avoid TSX parser ambiguities
-  const roleRows = roleStats.map((stat: any) => {
+  const roleRows = useMemo(() => roleStats.map((stat: any) => {
     const roleKey = stat._id ?? stat.role;
     const total = stat.count ?? ((stat.active ?? 0) + (stat.inactive ?? 0));
     const route =
@@ -345,9 +407,11 @@ export default function Dashboard() {
         </div>
       </div>
     );
-  });
+  }), [navigate, roleStats]);
 
-  if (loading) {
+  // Keep the dashboard shell visible for admins once initial loading is done,
+  // but still show a skeleton while the admin overview is being fetched.
+  if (shouldShowAdminDashboardSkeleton(loading, isAdmin, adminLoading, adminDashboardData)) {
     return (
       <div className="flex-1 space-y-6 p-6">
         {/* Charts skeleton */}
@@ -372,7 +436,7 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════
   // ADMIN DASHBOARD — Specialized view for admin users
   // ═══════════════════════════════════════════════════════════════
-  if (isAdmin && adminDashboardData) {
+  if (isAdmin) {
     return (
       <div className="flex-1 space-y-6 p-6">
         {/* Page Header */}
@@ -388,28 +452,71 @@ export default function Dashboard() {
         </div>
 
         {/* KPI Cards */}
-        <KPICards stats={adminDashboardData.stats} loading={adminLoading} />
-
+        <Suspense fallback={<Skeleton className="h-36 w-full rounded-xl" />}>
+          <KPICards stats={resolvedAdminDashboardData.stats} loading={adminLoading} />
+        </Suspense>
+ 
         {/* Academic & Clinical Snapshots */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Snapshots.Academic loading={adminLoading} />
-          <Snapshots.Clinical loading={adminLoading} />
+          <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+            <AcademicSnapshot loading={adminLoading} data={resolvedAdminDashboardData.academicData} />
+          </Suspense>
+          <Suspense fallback={<Skeleton className="h-40 w-full rounded-xl" />}>
+            <ClinicalSnapshot loading={adminLoading} data={resolvedAdminDashboardData.clinicalData} />
+          </Suspense>
         </div>
 
         {/* Operational Alerts */}
-        <OperationalAlerts alerts={adminDashboardData?.alerts ?? []} loading={adminLoading} />
+        <Suspense fallback={<Skeleton className="h-32 w-full rounded-xl" />}>
+          <OperationalAlerts alerts={resolvedAdminDashboardData.alerts} loading={adminLoading} />
+        </Suspense>
 
         {/* Activity Feed & Quick Actions */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <RecentActivityFeed activities={adminDashboardData?.activities ?? []} loading={adminLoading} />
+            <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+              <RecentActivityFeed activities={resolvedAdminDashboardData.activities} loading={adminLoading} />
+            </Suspense>
+            {/* Insert mordred insights card here */}
+            
           </div>
-          <QuickActions />
+          
+          <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+            <QuickActions />
+          </Suspense>
         </div>
 
         {/* Analytics Widgets */}
-        <AnalyticsWidgets />
+        <Suspense fallback={<Skeleton className="h-60 w-full rounded-xl" />}>
+          <AnalyticsWidgets />
+        </Suspense>
+        {/* Below tag is for notifications imported into the admin's dashboard */}
+        <NotificationsCard /> 
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-4 border-b border-border">
+            <h3 className="text-sm font-semibold">Clinical progress chart</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Responsive container test — line chart</p>
+          </div>
+          <div className="p-5">
+            <div className="h-56">
+              <DashboardChartShell paused={pauseCharts}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={weeklyActivity.length ? weeklyActivity : [{ name: "W1", attendance: 10, rotation: 6 }, { name: "W2", attendance: 35, rotation: 12 }, { name: "W3", attendance: 50, rotation: 16 }, { name: "W4", attendance: 25, rotation: 8 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="rotation" name="Rotation" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </DashboardChartShell>
+            </div>
+          </div>
+        </div>
       </div>
+      
     );
   }
 
@@ -441,17 +548,19 @@ export default function Dashboard() {
           </div>
           <div className="p-5">
               <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={weeklyActivity.length ? weeklyActivity : [{ name: "W1", attendance: 10, rotation: 6 }, { name: "W2", attendance: 35, rotation: 12 }, { name: "W3", attendance: 50, rotation: 16 }, { name: "W4", attendance: 25, rotation: 8 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                  <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="rotation" name="Rotation" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <DashboardChartShell paused={pauseCharts}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={weeklyActivity.length ? weeklyActivity : [{ name: "W1", attendance: 10, rotation: 6 }, { name: "W2", attendance: 35, rotation: 12 }, { name: "W3", attendance: 50, rotation: 16 }, { name: "W4", attendance: 25, rotation: 8 }]} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "12px" }} />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    <Line type="monotone" dataKey="attendance" name="Attendance" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                    <Line type="monotone" dataKey="rotation" name="Rotation" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </DashboardChartShell>
             </div>
           </div>
         </div>
@@ -467,51 +576,53 @@ export default function Dashboard() {
           </div>
           <div className="p-5">
             <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={logbookData} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis
-                    dataKey="month"
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={28}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      color: "var(--foreground)",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                  <Line
-                    type="monotone"
-                    dataKey="approved"
-                    name="Approved"
-                    stroke="#AD6BEE"
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: "#AD6BEE" }}
-                    activeDot={{ r: 5 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="pending"
-                    name="Pending"
-                    stroke="#A6D49F"
-                    strokeWidth={2}
-                    dot={{ r: 3, fill: "#A6D49F" }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <DashboardChartShell paused={pauseCharts}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={logbookData} margin={{ top: 4, right: 16, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={28}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--popover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        color: "var(--foreground)",
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                    <Line
+                      type="monotone"
+                      dataKey="approved"
+                      name="Approved"
+                      stroke="#AD6BEE"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#AD6BEE" }}
+                      activeDot={{ r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="pending"
+                      name="Pending"
+                      stroke="#A6D49F"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#A6D49F" }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </DashboardChartShell>
             </div>
           </div>
         </div>
@@ -524,33 +635,35 @@ export default function Dashboard() {
           </div>
           <div className="p-5 flex items-center gap-4">
             <div className="h-44 w-44 shrink-0">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                      data={rotationStats ?? rotationData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={52}
-                    outerRadius={72}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                      {(rotationStats ?? rotationData).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--popover)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      color: "var(--foreground)",
-                    }}
-                    formatter={(value: number) => `${value}%`}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <DashboardChartShell paused={pauseCharts} className="h-44 w-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                        data={rotationStats ?? rotationData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={52}
+                      outerRadius={72}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                        {(rotationStats ?? rotationData).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: "var(--popover)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        color: "var(--foreground)",
+                      }}
+                      formatter={(value: number) => `${value}%`}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </DashboardChartShell>
             </div>
             <div className="flex flex-col gap-2.5">
               {rotationData.map((entry) => (
@@ -584,7 +697,9 @@ export default function Dashboard() {
 
       {canViewMordredInsights && (
         <div className="grid grid-cols-1 gap-6">
-          <AIInsightWidget />
+          <Suspense fallback={<Skeleton className="h-24 w-full rounded-xl" />}>
+            <AIInsightWidget />
+          </Suspense>
         </div>
       )}
 
@@ -770,33 +885,35 @@ export default function Dashboard() {
                         />
                       </div>
                       {chartData.length > 0 && (
-                        <ResponsiveContainer width="100%" height={100}>
-                          <PieChart>
-                            <Pie
-                              data={chartData}
-                              dataKey="value"
-                              nameKey="name"
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={24}
-                              outerRadius={40}
-                              paddingAngle={2}
-                            >
-                              {chartData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={entry.fill} />
-                              ))}
-                            </Pie>
-                            <Tooltip
-                              formatter={(value: number, name: string) => [`${value}`, name]}
-                              contentStyle={{
-                                background: "hsl(var(--card))",
-                                border: "1px solid hsl(var(--border))",
-                                borderRadius: "8px",
-                                fontSize: "12px",
-                              }}
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        <DashboardChartShell paused={pauseCharts} className="h-[100px]">
+                          <ResponsiveContainer width="100%" height={100}>
+                            <PieChart>
+                              <Pie
+                                data={chartData}
+                                dataKey="value"
+                                nameKey="name"
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={24}
+                                outerRadius={40}
+                                paddingAngle={2}
+                              >
+                                {chartData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                formatter={(value: number, name: string) => [`${value}`, name]}
+                                contentStyle={{
+                                  background: "hsl(var(--card))",
+                                  border: "1px solid hsl(var(--border))",
+                                  borderRadius: "8px",
+                                  fontSize: "12px",
+                                }}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </DashboardChartShell>
                       )}
                       <div className="flex gap-4 justify-center">
                         {chartData.map((d) => (
@@ -858,33 +975,35 @@ export default function Dashboard() {
                       <div key={group.label} className="shrink-0 w-44 flex flex-col items-center rounded-lg border border-border p-4 space-y-3">
                         <span className="text-sm font-semibold">{group.label}</span>
                         <div className="relative">
-                          <ResponsiveContainer width={80} height={80}>
-                            <PieChart>
-                              <Pie
-                                data={chartData}
-                                dataKey="value"
-                                nameKey="name"
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={22}
-                                outerRadius={36}
-                                paddingAngle={2}
-                              >
-                                {chartData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                formatter={(value: number, name: string) => [`${value}`, name]}
-                                contentStyle={{
-                                  background: "hsl(var(--card))",
-                                  border: "1px solid hsl(var(--border))",
-                                  borderRadius: "8px",
-                                  fontSize: "11px",
-                                }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
+                          <DashboardChartShell paused={pauseCharts} className="h-[80px] w-[80px]">
+                            <ResponsiveContainer width={80} height={80}>
+                              <PieChart>
+                                <Pie
+                                  data={chartData}
+                                  dataKey="value"
+                                  nameKey="name"
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={22}
+                                  outerRadius={36}
+                                  paddingAngle={2}
+                                >
+                                  {chartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                                  ))}
+                                </Pie>
+                                <Tooltip
+                                  formatter={(value: number, name: string) => [`${value}`, name]}
+                                  contentStyle={{
+                                    background: "hsl(var(--card))",
+                                    border: "1px solid hsl(var(--border))",
+                                    borderRadius: "8px",
+                                    fontSize: "11px",
+                                  }}
+                                />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </DashboardChartShell>
                           <div className="absolute inset-0 flex items-center justify-center">
                             <span
                               className={cn(
@@ -918,30 +1037,34 @@ export default function Dashboard() {
                   <div className="rounded-lg border border-border p-3">
                     <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Group Attendance Bar</p>
                     <div className="h-40">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={[{ name: "PED", present: 28, absent: 4 }, { name: "O&G", present: 30, absent: 2 }, { name: "INT", present: 25, absent: 6 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                          <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
-                          <Bar dataKey="present" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                          <Bar dataKey="absent" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <DashboardChartShell paused={pauseCharts}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={[{ name: "PED", present: 28, absent: 4 }, { name: "O&G", present: 30, absent: 2 }, { name: "INT", present: 25, absent: 6 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
+                            <Bar dataKey="present" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                            <Bar dataKey="absent" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </DashboardChartShell>
                     </div>
                   </div>
                   <div className="rounded-lg border border-border p-3">
                     <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Weekly Trend Line</p>
                     <div className="h-40">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={[{ day: "Mon", rate: 85 }, { day: "Tue", rate: 92 }, { day: "Wed", rate: 78 }, { day: "Thu", rate: 95 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                          <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
-                          <Line type="monotone" dataKey="rate" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                      </ResponsiveContainer>
+                      <DashboardChartShell paused={pauseCharts}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={[{ day: "Mon", rate: 85 }, { day: "Tue", rate: 92 }, { day: "Wed", rate: 78 }, { day: "Thu", rate: 95 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                            <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
+                            <Line type="monotone" dataKey="rate" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </DashboardChartShell>
                     </div>
                   </div>
                 </div>
@@ -975,7 +1098,9 @@ export default function Dashboard() {
       </div>
     </div>
   );
-}
+});
+
+export default Dashboard;
 
 // ─── Sub-components ───────────────────────────────────────────
 function TileCard({ tile }: { tile: QuickTile }) {

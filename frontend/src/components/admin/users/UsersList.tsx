@@ -125,7 +125,6 @@ export function UsersList({
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
-  const [hoveredUserId, setHoveredUserId] = useState<string | null>(null);
 
   const departments = useMemo(
     () => Array.from(new Set(users.map((user) => user.department || "General"))).sort(),
@@ -324,7 +323,6 @@ export function UsersList({
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {departmentUsers.map((user) => {
                   const isFocused = focusedUserId === (user.id || user._id);
-                  const isHovered = hoveredUserId === (user.id || user._id);
                   const userId = user.id || user._id || "";
                   const theme = getProfileTheme(user.theme || userId);
                   
@@ -332,8 +330,6 @@ export function UsersList({
                     <div
                       key={userId}
                       onClick={() => setFocusedUserId(isFocused ? null : userId)}
-                      onMouseEnter={() => setHoveredUserId(userId)}
-                      onMouseLeave={() => setHoveredUserId(null)}
                       onBlur={() => setFocusedUserId(null)}
                       role="button"
                       tabIndex={0}
@@ -342,11 +338,6 @@ export function UsersList({
                           ? `overflow-visible shadow-xl z-30 ring-1 ${theme.ring}`
                           : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
                       }`}
-                      style={{
-                        transform: isFocused
-                          ? "scale(1.04) translateY(-6px)"
-                          : "scale(1) translateY(0)",
-                      }}
                     >
                       <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`} />
                       <div className="flex items-start justify-between gap-4">
@@ -354,9 +345,8 @@ export function UsersList({
                           <div
                             className="flex-shrink-0 rounded-full object-cover transition-all duration-300 ease-out overflow-hidden"
                             style={{
-                              width: isFocused ? "68px" : "40px",
-                              height: isFocused ? "68px" : "40px",
-                              transform: isFocused ? "scale(1.23)" : isHovered ? "scale(1.05)" : "scale(1)",
+                              width: "40px",
+                              height: "40px",
                               position: "relative",
                               top: "auto",
                               right: "auto",

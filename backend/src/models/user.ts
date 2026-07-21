@@ -127,6 +127,9 @@ export interface IUser extends Document {
     email: string;
     idNumber: string; // field for ID number
     password: string;
+    passwordResetToken?: string | null;
+    passwordResetExpiresAt?: Date | null;
+    lastPasswordResetRequestedAt?: Date | null;
     role: userRoles;
     department?: string | null; // Department name or ID
     departmentId: mongoose.Types.ObjectId | null; // Department ID
@@ -189,6 +192,18 @@ const UserSchema: Schema<IUser> = new Schema({
         type: String,
         required: true,
         // minlength: 6
+    },
+    passwordResetToken: {
+        type: String,
+        default: null,
+    },
+    passwordResetExpiresAt: {
+        type: Date,
+        default: null,
+    },
+    lastPasswordResetRequestedAt: {
+        type: Date,
+        default: null,
     },
     role: {
         type: String,

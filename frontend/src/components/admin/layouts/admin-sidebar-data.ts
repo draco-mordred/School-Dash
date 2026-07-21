@@ -1,3 +1,5 @@
+import type { ComponentType } from "react";
+import type { LucideProps } from "lucide-react";
 import {
   Home,
   Users,
@@ -12,12 +14,11 @@ import {
   Shield,
   Settings,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 
 export interface AdminNavItem {
   title: string;
   url: string;
-  icon: LucideIcon;
+  icon: ComponentType<LucideProps>;
   badge?: string;
   items?: {
     title: string;
@@ -29,87 +30,87 @@ export const adminSidebarData = {
   navMain: [
     {
       title: "Dashboard",
-      url: "/admin/dashboard",
+      url: "/dashboard",
       icon: Home,
     },
     {
       title: "Users",
-      url: "/admin/users",
+      url: "/users",
       icon: Users,
       items: [
-        { title: "User Management", url: "/admin/users" },
-        { title: "Students", url: "/admin/users/students" },
-        { title: "Parents", url: "/admin/users/parents" },
-        { title: "Teachers", url: "/admin/users/teachers" },
-        { title: "Unit Consultants", url: "/admin/users/unit-consultants" },
-        { title: "Unit Residents", url: "/admin/users/unit-residents" },
-        { title: "Staff", url: "/admin/users/staff" },
-        { title: "Administrators", url: "/admin/users/admins" },
+        { title: "User Management", url: "/users" },
+        { title: "Students", url: "/users/students" },
+        { title: "Parents", url: "/users/parents" },
+        { title: "Teachers", url: "/users/teachers" },
+        { title: "Unit Consultants", url: "/users/unit-consultants" },
+        { title: "Unit Residents", url: "/users/unit-residents" },
+        { title: "Staff", url: "/users/staff" },
+        { title: "Administrators", url: "/users/admins" },
       ],
     },
     {
       title: "Academics",
-      url: "/admin/academics",
+      url: "/academics",
       icon: GraduationCap,
       items: [
-        { title: "Sessions", url: "/admin/academics/sessions" },
-        { title: "Semesters", url: "/admin/academics/semesters" },
-        { title: "Classes", url: "/admin/academics/classes" },
-        { title: "Courses", url: "/admin/academics/courses" },
-        { title: "Subjects", url: "/admin/academics/subjects" },
-        { title: "Academic Calendar", url: "/admin/academics/calendar" },
+        { title: "Sessions", url: "/academics/sessions" },
+        { title: "Semesters", url: "/academics/semesters" },
+        { title: "Classes", url: "/academics/classes" },
+        { title: "Courses", url: "/academics/courses" },
+        { title: "Subjects", url: "/academics/subjects" },
+        { title: "Academic Calendar", url: "/academics/calendar" },
       ],
     },
     {
       title: "Clinicals",
-      url: "/admin/clinicals",
+      url: "/clinicals",
       icon: Stethoscope,
       items: [
-        { title: "Postings", url: "/admin/clinicals/postings" },
-        { title: "Departments", url: "/admin/clinicals/departments" },
-        { title: "Units", url: "/admin/clinicals/units" },
-        { title: "Rotation Teams", url: "/admin/clinicals/rotation-teams" },
-        { title: "Clinical Calendar", url: "/admin/clinicals/calendar" },
+        { title: "Postings", url: "/clinicals/postings" },
+        { title: "Departments", url: "/clinicals/departments" },
+        { title: "Units", url: "/clinicals/units" },
+        { title: "Rotation Teams", url: "/clinicals/rotation-teams" },
+        { title: "Clinical Calendar", url: "/clinicals/calendar" },
       ],
     },
     {
       title: "Timetables",
-      url: "/admin/timetables",
+      url: "/timetables",
       icon: Calendar,
     },
     {
       title: "Assessments",
-      url: "/admin/assessments",
+      url: "/assessments",
       icon: ClipboardList,
     },
     {
       title: "Attendance",
-      url: "/admin/attendance",
+      url: "/attendance",
       icon: CheckSquare,
     },
     {
       title: "Logbooks",
-      url: "/admin/logbooks",
+      url: "/logbooks",
       icon: BookOpen,
     },
     {
       title: "Announcements",
-      url: "/admin/announcements",
+      url: "/announcements",
       icon: MessageSquare,
     },
     {
       title: "Reports & Analytics",
-      url: "/admin/reports",
+      url: "/reports",
       icon: BarChart3,
     },
     {
       title: "Audit Logs",
-      url: "/admin/audit-logs",
+      url: "/audit-logs",
       icon: Shield,
     },
     {
       title: "Settings",
-      url: "/admin/settings",
+      url: "/settings",
       icon: Settings,
     },
   ] as AdminNavItem[],

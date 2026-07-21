@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Pencil, Plus, Trash, Upload, ChevronDown, ChevronUp } from "lucide-react";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
@@ -32,6 +33,25 @@ type DepartmentUnitsData = {
 
 type DepartmentConstantsResponse = {
   departmentUnits: Record<string, DepartmentUnitsData>;
+};
+
+type InstitutionProfile = {
+  name: string;
+  shortName: string;
+  type: string;
+  country: string;
+  state: string;
+  city: string;
+  addressLine1: string;
+  addressLine2: string;
+  contactEmail: string;
+  phone: string;
+  website: string;
+  description: string;
+  academicCalendarType: string;
+  timezone: string;
+  logoUrl: string;
+  backgroundImageUrl: string;
 };
 
 const normalizeUnitName = (unitEntry: DepartmentUnitMeta | string) =>
@@ -127,8 +147,8 @@ const DepartmentFormCard = ({
 
 const DepartmentUnitsSection = ({ search }: { search: string }) => {
   const [departmentUnits, setDepartmentUnits] = useState<Record<string, DepartmentUnitsData>>({});
-  const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
   const [loadingUnits, setLoadingUnits] = useState(false);
+  const [isUnitsSectionOpen, setIsUnitsSectionOpen] = useState(true);
 
   const fetchConstants = useCallback(async () => {
     setLoadingUnits(true);
@@ -166,86 +186,91 @@ const DepartmentUnitsSection = ({ search }: { search: string }) => {
     );
   }, [departmentUnits, search]);
 
+  const sortedDepartments = useMemo(() => {
+    return [...visibleDepartments].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
+  }, [visibleDepartments]);
+
   return (
     <Card className="shadow-sm">
-      <CardHeader>
-        <div>
-          <CardTitle className="text-card-foreground">Units</CardTitle>
-          <CardDescription className="text-muted-foreground">Unit metadata is loaded from department constants and grouped by department.</CardDescription>
+      <CardHeader className="cursor-pointer" onClick={() => setIsUnitsSectionOpen((prev) => !prev)}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle className="text-card-foreground">Units</CardTitle>
+            <CardDescription className="text-muted-foreground">Browse units grouped under each department.</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+              {sortedDepartments.length} groups
+            </span>
+            {isUnitsSectionOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          </div>
         </div>
       </CardHeader>
+      {isUnitsSectionOpen && (
       <CardContent className="space-y-4">
         {loadingUnits ? (
           <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
             Loading units…
           </div>
-        ) : visibleDepartments.length === 0 ? (
+        ) : sortedDepartments.length === 0 ? (
           <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
             No unit metadata found.
           </div>
         ) : (
-          <div className="space-y-4">
-            {visibleDepartments.map((unitMeta) => {
-              const isOpen = expandedUnits[unitMeta.id] ?? false;
+          <div className="space-y-3">
+            {sortedDepartments.map((unitMeta) => {
               const activeUnits = unitMeta.units.active.map(normalizeUnitName).filter(Boolean);
               const reserveUnits = unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean);
 
               return (
-                <div key={unitMeta.id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedUnits((prev) => ({ ...prev, [unitMeta.id]: !prev[unitMeta.id] }))}
-                    className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-                  >
+                <div key={unitMeta.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-lg font-semibold text-card-foreground">{unitMeta.name}</p>
+                      <p className="text-base font-semibold text-card-foreground">{unitMeta.name}</p>
                       <p className="text-sm text-muted-foreground">{unitMeta.id} · {unitMeta.postingType ?? "Department"}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                        {activeUnits.length} active
-                      </span>
-                      {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                    </div>
-                  </button>
+                    <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                      Department
+                    </span>
+                  </div>
 
-                  {isOpen && (
-                    <div className="border-t border-border bg-muted px-5 py-4">
-                      <div className="mb-4 flex flex-wrap gap-3 text-sm text-muted-foreground">
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Rotation {unitMeta.rotationDurationWeeks} weeks</span>
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Active {activeUnits.length}</span>
-                        <span className="rounded-full bg-card px-3 py-1 shadow-sm">Reserve {reserveUnits.length}</span>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-border bg-muted/70 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-card-foreground">Active units</p>
+                        <span className="rounded-full bg-card px-2 py-1 text-xs text-muted-foreground">{activeUnits.length}</span>
                       </div>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-sm font-semibold text-card-foreground">Active units</p>
-                          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                            {activeUnits.map((unit) => (
-                              <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                {unit}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
-                          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                            {reserveUnits.map((unit) => (
-                              <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                {unit}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                      <div className="flex flex-wrap gap-2">
+                        {activeUnits.map((unit) => (
+                          <span key={unit} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                            {unit}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  )}
+                    <div className="rounded-xl border border-border bg-muted/70 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
+                        <span className="rounded-full bg-card px-2 py-1 text-xs text-muted-foreground">{reserveUnits.length}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {reserveUnits.map((unit) => (
+                          <span key={unit} className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                            {unit}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             })}
           </div>
         )}
       </CardContent>
+      )}
     </Card>
   );
 };
@@ -267,6 +292,138 @@ const SchoolSettings = () => {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const institutionLogoInputRef = useRef<HTMLInputElement | null>(null);
+  const institutionBackgroundInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [institutionProfile, setInstitutionProfile] = useState<InstitutionProfile>({
+    name: "",
+    shortName: "",
+    type: "",
+    country: "",
+    state: "",
+    city: "",
+    addressLine1: "",
+    addressLine2: "",
+    contactEmail: "",
+    phone: "",
+    website: "",
+    description: "",
+    academicCalendarType: "",
+    timezone: "",
+    logoUrl: "",
+    backgroundImageUrl: "",
+  });
+  const [institutionLoading, setInstitutionLoading] = useState(false);
+  const [institutionSaving, setInstitutionSaving] = useState(false);
+  const [isInstitutionSectionOpen, setIsInstitutionSectionOpen] = useState(true);
+  const [isDepartmentsSectionOpen, setIsDepartmentsSectionOpen] = useState(true);
+
+  const fetchInstitution = useCallback(async () => {
+    setInstitutionLoading(true);
+    try {
+      const response = await api.get("/setup/status");
+      const institution = response.data?.institution;
+      if (institution) {
+        setInstitutionProfile({
+          name: institution.name || "",
+          shortName: institution.shortName || "",
+          type: institution.type || "",
+          country: institution.country || "",
+          state: institution.state || "",
+          city: institution.city || "",
+          addressLine1: institution.addressLine1 || "",
+          addressLine2: institution.addressLine2 || "",
+          contactEmail: institution.contactEmail || "",
+          phone: institution.phone || "",
+          website: institution.website || "",
+          description: institution.description || "",
+          academicCalendarType: institution.academicCalendarType || "",
+          timezone: institution.timezone || "",
+          logoUrl: institution.logoUrl || "",
+          backgroundImageUrl: institution.backgroundImageUrl || "",
+        });
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load institution settings.");
+    } finally {
+      setInstitutionLoading(false);
+    }
+  }, []);
+
+  const updateInstitutionField = (field: keyof InstitutionProfile, value: string) => {
+    setInstitutionProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Unable to read file."));
+        }
+      };
+      reader.onerror = () => reject(new Error("Unable to read file."));
+      reader.readAsDataURL(file);
+    });
+
+  const handleInstitutionImageSelect = async (
+    field: "logoUrl" | "backgroundImageUrl",
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      updateInstitutionField(field, dataUrl);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to read image file.");
+    }
+  };
+
+  const saveInstitutionSettings = async () => {
+    setInstitutionSaving(true);
+    try {
+      const payload = {
+        institutionProfile: {
+          ...institutionProfile,
+        },
+      };
+      const response = await api.patch("/setup", payload);
+      const updated = response.data?.institution;
+      if (updated) {
+        setInstitutionProfile((prev) => ({
+          ...prev,
+          name: updated.name || prev.name,
+          shortName: updated.shortName || prev.shortName,
+          type: updated.type || prev.type,
+          country: updated.country || prev.country,
+          state: updated.state || prev.state,
+          city: updated.city || prev.city,
+          addressLine1: updated.addressLine1 || prev.addressLine1,
+          addressLine2: updated.addressLine2 || prev.addressLine2,
+          contactEmail: updated.contactEmail || prev.contactEmail,
+          phone: updated.phone || prev.phone,
+          website: updated.website || prev.website,
+          description: updated.description || prev.description,
+          academicCalendarType: updated.academicCalendarType || prev.academicCalendarType,
+          timezone: updated.timezone || prev.timezone,
+          logoUrl: updated.logoUrl || prev.logoUrl,
+          backgroundImageUrl: updated.backgroundImageUrl || prev.backgroundImageUrl,
+        }));
+      }
+      toast.success("Institution settings saved.");
+    } catch (error: unknown) {
+      console.error(error);
+      const maybeResponse = error as { response?: { data?: { message?: string } } };
+      toast.error(maybeResponse.response?.data?.message || "Failed to save institution settings.");
+    } finally {
+      setInstitutionSaving(false);
+    }
+  };
 
   const fetchDepartments = useCallback(async () => {
     setLoading(true);
@@ -301,6 +458,10 @@ const SchoolSettings = () => {
   }, [fetchDepartments]);
 
   useEffect(() => {
+    void fetchInstitution();
+  }, [fetchInstitution]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       setDebouncedSearch(search.trim());
     }, 300);
@@ -316,6 +477,12 @@ const SchoolSettings = () => {
       )
     );
   }, [departments, debouncedSearch]);
+
+  const sortedDepartments = useMemo(() => {
+    return [...filteredDepartments].sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" })
+    );
+  }, [filteredDepartments]);
 
   const resetForm = () => {
     setIsEditing(false);
@@ -462,109 +629,300 @@ const SchoolSettings = () => {
         </div>
       </div>
 
+      <Card className="overflow-hidden rounded-3xl shadow-sm" style={institutionProfile.backgroundImageUrl ? { backgroundImage: `url(${institutionProfile.backgroundImageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
+        <div className="relative overflow-hidden rounded-3xl bg-slate-950/90">
+          {institutionProfile.backgroundImageUrl && <div className="absolute inset-0 bg-slate-950/80" />}
+          <div className="relative p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="max-w-2xl">
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-300">Institution Setup</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Institution profile</h2>
+                <p className="mt-2 text-sm text-slate-300">Update the institution settings originally configured during setup.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsInstitutionSectionOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-sm text-slate-100"
+                >
+                  {isInstitutionSectionOpen ? <><ChevronUp className="h-4 w-4" /> Collapse</> : <><ChevronDown className="h-4 w-4" /> Expand</>}
+                </button>
+                <div className="h-16 w-16 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                  {institutionProfile.logoUrl ? (
+                    <img src={institutionProfile.logoUrl} alt="Institution logo" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/70">Logo</div>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-300/80">Institution</p>
+                  <p className="text-xl font-semibold text-white">{institutionProfile.name || "Not configured"}</p>
+                </div>
+              </div>
+            </div>
+
+            {isInstitutionSectionOpen && (
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
+                <div className="space-y-2">
+                  <Label htmlFor="institution-name" className="text-slate-200">Institution Name</Label>
+                  <Input
+                    id="institution-name"
+                    value={institutionProfile.name}
+                    onChange={(event) => updateInstitutionField("name", event.target.value)}
+                    placeholder="University of Example"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-short-name" className="text-slate-200">Short Name</Label>
+                  <Input
+                    id="institution-short-name"
+                    value={institutionProfile.shortName}
+                    onChange={(event) => updateInstitutionField("shortName", event.target.value)}
+                    placeholder="UoE"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-type" className="text-slate-200">Type</Label>
+                    <Input
+                      id="institution-type"
+                      value={institutionProfile.type}
+                      onChange={(event) => updateInstitutionField("type", event.target.value)}
+                      placeholder="University"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-timezone" className="text-slate-200">Timezone</Label>
+                    <Input
+                      id="institution-timezone"
+                      value={institutionProfile.timezone}
+                      onChange={(event) => updateInstitutionField("timezone", event.target.value)}
+                      placeholder="UTC"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-country" className="text-slate-200">Country</Label>
+                    <Input
+                      id="institution-country"
+                      value={institutionProfile.country}
+                      onChange={(event) => updateInstitutionField("country", event.target.value)}
+                      placeholder="Nigeria"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-state" className="text-slate-200">State</Label>
+                    <Input
+                      id="institution-state"
+                      value={institutionProfile.state}
+                      onChange={(event) => updateInstitutionField("state", event.target.value)}
+                      placeholder="Lagos"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-city" className="text-slate-200">City</Label>
+                  <Input
+                    id="institution-city"
+                    value={institutionProfile.city}
+                    onChange={(event) => updateInstitutionField("city", event.target.value)}
+                    placeholder="Ikeja"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-address-1" className="text-slate-200">Address Line 1</Label>
+                  <Input
+                    id="institution-address-1"
+                    value={institutionProfile.addressLine1}
+                    onChange={(event) => updateInstitutionField("addressLine1", event.target.value)}
+                    placeholder="12 Herbert Macaulay Way"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-address-2" className="text-slate-200">Address Line 2</Label>
+                  <Input
+                    id="institution-address-2"
+                    value={institutionProfile.addressLine2}
+                    onChange={(event) => updateInstitutionField("addressLine2", event.target.value)}
+                    placeholder="Suite 3"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-contact-email" className="text-slate-200">Contact Email</Label>
+                    <Input
+                      id="institution-contact-email"
+                      type="email"
+                      value={institutionProfile.contactEmail}
+                      onChange={(event) => updateInstitutionField("contactEmail", event.target.value)}
+                      placeholder="info@institution.edu"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="institution-phone" className="text-slate-200">Phone</Label>
+                    <Input
+                      id="institution-phone"
+                      value={institutionProfile.phone}
+                      onChange={(event) => updateInstitutionField("phone", event.target.value)}
+                      placeholder="09067604081"
+                      disabled={institutionLoading}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-website" className="text-slate-200">Website</Label>
+                  <Input
+                    id="institution-website"
+                    value={institutionProfile.website}
+                    onChange={(event) => updateInstitutionField("website", event.target.value)}
+                    placeholder="https://www.example.edu"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-description" className="text-slate-200">Description</Label>
+                  <Textarea
+                    id="institution-description"
+                    value={institutionProfile.description}
+                    onChange={(event) => updateInstitutionField("description", event.target.value)}
+                    placeholder="Describe the institution profile"
+                    disabled={institutionLoading}
+                    rows={4}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
+                <div className="space-y-2">
+                  <Label htmlFor="institution-academic-calendar" className="text-slate-200">Academic Calendar</Label>
+                  <Input
+                    id="institution-academic-calendar"
+                    value={institutionProfile.academicCalendarType}
+                    onChange={(event) => updateInstitutionField("academicCalendarType", event.target.value)}
+                    placeholder="Semester"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Institution Logo</Label>
+                    <label className="flex cursor-pointer items-center justify-between rounded-xl border border-white/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 transition hover:bg-slate-950/60">
+                      <span>{institutionProfile.logoUrl ? "Change logo" : "Upload logo"}</span>
+                      <Upload className="h-4 w-4" />
+                      <input
+                        ref={institutionLogoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(event) => handleInstitutionImageSelect("logoUrl", event)}
+                        disabled={institutionLoading || institutionSaving}
+                      />
+                    </label>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-slate-200">Background Image</Label>
+                    <label className="flex cursor-pointer items-center justify-between rounded-xl border border-white/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-100 transition hover:bg-slate-950/60">
+                      <span>{institutionProfile.backgroundImageUrl ? "Change background" : "Upload background"}</span>
+                      <Upload className="h-4 w-4" />
+                      <input
+                        ref={institutionBackgroundInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(event) => handleInstitutionImageSelect("backgroundImageUrl", event)}
+                        disabled={institutionLoading || institutionSaving}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={saveInstitutionSettings}
+                  disabled={institutionLoading || institutionSaving}
+                  className="w-full"
+                >
+                  {institutionSaving ? "Saving institution…" : "Save Institution Settings"}
+                </Button>
+              </div>
+            </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <Card className="order-2 lg:order-1 shadow-sm">
-          <CardHeader>
-            <div className="flex flex-col gap-2">
-              <CardTitle className="text-card-foreground">Departments</CardTitle>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Click a department card to expand its details and unit preview.</p>
+          <CardHeader className="cursor-pointer" onClick={() => setIsDepartmentsSectionOpen((prev) => !prev)}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-2">
+                <CardTitle className="text-card-foreground">Departments</CardTitle>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Review the institution departments and manage them directly from this list.</p>
+              </div>
+              {isDepartmentsSectionOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
             </div>
           </CardHeader>
+          {isDepartmentsSectionOpen && (
           <CardContent className="space-y-4">
             {loading ? (
               <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
                 Loading departments…
               </div>
-            ) : filteredDepartments.length === 0 ? (
+            ) : sortedDepartments.length === 0 ? (
               <div className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
                 No departments found.
               </div>
             ) : (
-              <div className="space-y-4">
-                {filteredDepartments.map((department) => {
+              <div className="space-y-3">
+                {sortedDepartments.map((department) => {
                   const unitMeta = departmentUnitsByCode[department.code.toUpperCase()];
                   const activeUnits = unitMeta
                     ? unitMeta.units.active.map(normalizeUnitName).filter(Boolean)
                     : [];
-                  const reserveUnits = unitMeta
-                    ? unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean)
-                    : [];
-                  const isOpen = expandedDepartments[department._id] ?? false;
 
                   return (
-                    <div key={department._id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition hover:shadow-md">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedDepartments((prev) => ({ ...prev, [department._id]: !prev[department._id] }))}
-                        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
-                      >
+                    <div key={department._id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <p className="text-lg font-semibold text-card-foreground">{department.name}</p>
+                          <p className="text-base font-semibold text-card-foreground">{department.name}</p>
                           <p className="text-sm text-slate-600 dark:text-slate-400">{department.code} · {department.departmentID}</p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            {activeUnits.length} units
-                          </span>
-                          {isOpen ? <ChevronUp className="h-4 w-4 text-slate-600" /> : <ChevronDown className="h-4 w-4 text-slate-600" />}
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditForm(department)}>
+                            <Pencil className="h-4 w-4" /> Edit
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => { setDeleteId(department._id); setIsDeleteOpen(true); }}>
+                            <Trash className="h-4 w-4" /> Delete
+                          </Button>
                         </div>
-                      </button>
+                      </div>
 
-                      {isOpen && (
-                        <div className="border-t border-border bg-muted px-5 py-4">
-                          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-card-foreground">Department details</p>
-                              <p className="text-sm text-slate-600 dark:text-slate-400">Use the buttons below to edit or delete.</p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEditForm(department)}>
-                                <Pencil className="h-4 w-4" /> Edit
-                              </Button>
-                              <Button variant="destructive" size="sm" onClick={() => { setDeleteId(department._id); setIsDeleteOpen(true); }}>
-                                <Trash className="h-4 w-4" /> Delete
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Active units</p>
-                              {activeUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {activeUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No unit metadata available.</p>
-                              )}
-                            </div>
-                            <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
-                              {reserveUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {reserveUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No reserve units defined.</p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                          {activeUnits.length} units
+                        </span>
+                        <span className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">
+                          Department
+                        </span>
+                      </div>
                     </div>
                   );
                 })}
               </div>
             )}
           </CardContent>
+          )}
         </Card>
 
         <DepartmentFormCard

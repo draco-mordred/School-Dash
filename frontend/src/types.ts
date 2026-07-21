@@ -26,10 +26,11 @@ export interface user {
   department?: string;
 }
 
-export type AcademicClockPhase = "phase1" | "phase2" | "phase3" | "phase4";
+export type AcademicClockPhase = string;
 
 export interface academicYear {
   _id: string;
+  id?: string;
   name: string; // "2024-2025"
   fromYear: Date | string; // "2024-09-01"
   toYear: Date | string; // "2025-06-30"

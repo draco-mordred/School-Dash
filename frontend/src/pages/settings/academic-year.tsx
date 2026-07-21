@@ -16,12 +16,19 @@ import {
 } from "@/components/ui/select";
 import type { academicYear, AcademicClockPhase } from "@/types";
 import { api } from "@/lib/api";
-import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
+import { buildInitialPhasePlan, getClockPhaseId, getClassLevelPhasePlan, type AcademicClockPhaseDefinition } from "@/lib/academicClock";
 import AcademicYearTable from "@/components/academic-year/academic-year-table";
 import Search from "@/components/global/Search";
 import AcademicYearForm from "@/components/academic-year/AcademicYearForm";
 import CustomAlert from "@/components/global/CustomAlert";
 import JUTHAcademicClock from "@/components/academic-clock/JUTHAcademicClock";
+import Modal from "@/components/global/Modal";
+import { useInstitution } from "@/lib/useInstitution";
+import { getInstitutionDisplayName } from "@/lib/institutionDisplay";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { ArrowUp, ArrowDown } from "lucide-react";
 
 const AcademicYear = () => {
   const [years, setYears] = useState<academicYear[]>([]);
@@ -50,8 +57,23 @@ const AcademicYear = () => {
   const [clockPausedAt, setClockPausedAt] = useState<Date | null>(null);
   const [clockPhase, setClockPhase] = useState<AcademicClockPhase>("phase1");
   const [hasClassClock, setHasClassClock] = useState<boolean>(false);
+  const [isConfiguringClassClock, setIsConfiguringClassClock] = useState<boolean>(false);
   const [selectedClockDocId, setSelectedClockDocId] = useState<string | null>(null);
+  const [classPhasePlan, setClassPhasePlan] = useState<AcademicClockPhaseDefinition[]>([]);
+  const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
+  const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null);
+  const [hoveredPhaseId, setHoveredPhaseId] = useState<string | null>(null);
+  const [isPhaseModalOpen, setIsPhaseModalOpen] = useState(false);
+  const [isConfigureClockModalOpen, setIsConfigureClockModalOpen] = useState(false);
+  const [phaseEditValues, setPhaseEditValues] = useState({
+    name: "",
+    durationMonths: "1",
+    subPostings: "",
+    color: "#3B82F6",
+  });
   const [isStartPopoverOpen, setIsStartPopoverOpen] = useState(false);
+  const { institution } = useInstitution();
+  const institutionName = useMemo(() => getInstitutionDisplayName(institution), [institution]);
 
   //   Fetch Years
   const fetchYears = useCallback(async () => {
@@ -178,6 +200,8 @@ const AcademicYear = () => {
     [selectedClass?.name],
   );
 
+  const isClassClockPreviewVisible = hasClassClock || classPhasePlan.length > 0;
+
   const getClassLevelFromName = (className?: string | null) => {
     const normalized = (className ?? "").toLowerCase();
 
@@ -190,13 +214,146 @@ const AcademicYear = () => {
     return null;
   };
 
+  const convertPhaseConfigToPlan = useCallback((phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>) => {
+    if (!phaseConfig || Object.keys(phaseConfig).length === 0) return [];
+
+    return Object.entries(phaseConfig).map(([phaseId, config], index) => ({
+      id: phaseId,
+      name: config?.name ?? `Phase ${index + 1}`,
+      durationMonths: config?.duration ?? 1,
+      color: config?.color ?? "#3B82F6",
+      subPostings: config?.subPostings ?? [],
+    }));
+  }, []);
+
+  const openPhaseEditor = (phase: AcademicClockPhaseDefinition) => {
+    setSelectedPhaseId(phase.id);
+    setEditingPhaseId(phase.id);
+    setPhaseEditValues({
+      name: phase.name,
+      durationMonths: phase.durationMonths.toString(),
+      subPostings: phase.subPostings.join(", "),
+      color: phase.color,
+    });
+    setIsPhaseModalOpen(true);
+  };
+
+  const closePhaseEditor = () => {
+    setIsPhaseModalOpen(false);
+    setEditingPhaseId(null);
+  };
+
+  const persistPhasePlan = async (phasePlan: AcademicClockPhaseDefinition[]) => {
+    if (!activeYear) return;
+    await saveClockState({}, phasePlan);
+  };
+
+  const savePhaseEdit = async () => {
+    if (!editingPhaseId) return;
+    const duration = Math.max(1, Number(phaseEditValues.durationMonths) || 1);
+
+    const updatedPlan = classPhasePlan.map((phase) =>
+      phase.id === editingPhaseId
+        ? {
+            ...phase,
+            name: phaseEditValues.name || phase.name,
+            durationMonths: duration,
+            color: phaseEditValues.color,
+            subPostings: phaseEditValues.subPostings
+              .split(",")
+              .map((posting) => posting.trim())
+              .filter(Boolean),
+          }
+        : phase,
+    );
+
+    setClassPhasePlan(updatedPlan);
+    closePhaseEditor();
+    await persistPhasePlan(updatedPlan);
+  };
+
+  const addClassPhase = () => {
+    const id = `phase-${Date.now()}`;
+    const newPhase: AcademicClockPhaseDefinition = {
+      id,
+      name: "New Phase",
+      durationMonths: 1,
+      color: "#3B82F6",
+      subPostings: [],
+    };
+
+    const nextPlan = [...classPhasePlan, newPhase];
+    setClassPhasePlan(nextPlan);
+    openPhaseEditor(newPhase);
+  };
+
+  const applyTemplatePhasePlan = () => {
+    const nextPlan = buildInitialPhasePlan({ className: selectedClass?.name, useTemplate: true });
+    setClassPhasePlan(nextPlan);
+    setSelectedPhaseId(nextPlan[0]?.id ?? null);
+    setClockPhase(nextPlan[0]?.id ?? "phase1");
+    setIsConfiguringClassClock(true);
+    setIsConfigureClockModalOpen(false);
+    toast.success("Template phases loaded.");
+  };
+
+  const startManualClockConfiguration = () => {
+    setClassPhasePlan([]);
+    setSelectedPhaseId(null);
+    setClockPhase("phase1");
+    setIsConfiguringClassClock(true);
+    setIsConfigureClockModalOpen(false);
+    toast.success("Create the class clock phases below and save when ready.");
+  };
+
+  const openConfigureClockModal = () => setIsConfigureClockModalOpen(true);
+
+  const movePhase = (phaseId: string, direction: "up" | "down") => {
+    setClassPhasePlan((prevPlan) => {
+      const index = prevPlan.findIndex((phase) => phase.id === phaseId);
+      if (index === -1) return prevPlan;
+
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prevPlan.length) return prevPlan;
+
+      const nextPlan = [...prevPlan];
+      const [phaseToMove] = nextPlan.splice(index, 1);
+      nextPlan.splice(targetIndex, 0, phaseToMove);
+      return nextPlan;
+    });
+  };
+
+  const deleteClassPhase = async (phaseId: string) => {
+    const nextPlan = classPhasePlan.filter((phase) => phase.id !== phaseId);
+
+    if (clockPhase === phaseId && nextPlan.length > 0) {
+      setClockPhase(nextPlan[0].id);
+    }
+
+    setClassPhasePlan(nextPlan);
+    if (editingPhaseId === phaseId) {
+      closePhaseEditor();
+    }
+
+    await persistPhasePlan(nextPlan);
+  };
+
+  const savePhasePlan = async () => {
+    try {
+      await persistPhasePlan(classPhasePlan);
+      toast.success("Class clock phases saved.");
+    } catch {
+      toast.error("Failed to save class clock phases.");
+    }
+  };
+
   type ClassClockPayload = {
     clockStartDate?: string | null;
     clockIsPaused?: boolean;
     clockPausedAt?: string | null;
     clockPhase?: AcademicClockPhase | null;
     classLevel?: string | null;
-    phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null }>;
+    phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>;
   };
 
   const normalizeClockUpdate = (data: {
@@ -235,18 +392,20 @@ const AcademicYear = () => {
     clockIsPaused?: boolean;
     clockPausedAt?: Date | null;
     clockPhase?: AcademicClockPhase | null;
-  }): ClassClockPayload => {
+  }, phasePlan: AcademicClockPhaseDefinition[] = classPhasePlan): ClassClockPayload => {
     const payload = normalizeClockUpdate({
       ...data,
       clockPhase: data.clockPhase ?? clockPhase,
     });
 
-    const phaseConfig = selectedClassPhasePlan.reduce<Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null }>>((acc, phase) => {
+    const phaseConfig = phasePlan.reduce<Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>>((acc, phase) => {
       acc[phase.id] = {
         name: phase.name,
         duration: phase.durationMonths,
         postingType: null,
         postingId: null,
+        color: phase.color,
+        subPostings: phase.subPostings,
       };
       return acc;
     }, {});
@@ -263,7 +422,7 @@ const AcademicYear = () => {
     clockIsPaused?: boolean;
     clockPausedAt?: Date | null;
     clockPhase?: AcademicClockPhase | null;
-  }) => {
+  }, phasePlan: AcademicClockPhaseDefinition[] = classPhasePlan) => {
     if (!activeYear) return;
 
     const activeYearId = activeYear ? (activeYear._id ?? (activeYear.id ?? undefined)) : undefined;
@@ -273,7 +432,7 @@ const AcademicYear = () => {
       const payload = buildClassClockPayload({
         ...data,
         clockPhase: data.clockPhase ?? clockPhase,
-      });
+      }, phasePlan);
 
       if (selectedClockClassId) {
         const existingMap = (activeYear as academicYear & { classClockData?: Record<string, unknown> }).classClockData || {};
@@ -323,13 +482,15 @@ const AcademicYear = () => {
         if (existingClock) {
           setSelectedClockDocId(existingClock._id);
           setHasClassClock(true);
-          setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear.fromYear));
+          setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
           setIsClockPaused(Boolean(existingClock.clockIsPaused));
           setClockPausedAt(existingClock.clockPausedAt ? new Date(existingClock.clockPausedAt) : null);
+          const existingPlan = convertPhaseConfigToPlan(existingClock.phaseConfig);
+          setClassPhasePlan(existingPlan);
           setClockPhase((existingClock.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
-            existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear.fromYear),
+            existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
             new Date(),
-            selectedClassPhasePlan,
+            existingPlan,
           ));
           return;
         }
@@ -344,26 +505,29 @@ const AcademicYear = () => {
       if (classData) {
         setSelectedClockDocId(null);
         setHasClassClock(true);
-        setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear.fromYear));
+        setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
         setIsClockPaused(Boolean(classData.clockIsPaused));
         setClockPausedAt(classData.clockPausedAt ? new Date(classData.clockPausedAt) : null);
+        setClassPhasePlan(convertPhaseConfigToPlan(classData.phaseConfig));
         setClockPhase((classData.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
-          classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear.fromYear),
+          classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
           new Date(),
-          selectedClassPhasePlan,
+          convertPhaseConfigToPlan(classData.phaseConfig),
         ));
       } else {
         setSelectedClockDocId(null);
         setHasClassClock(false);
-        setClockStartDate(new Date(currentAcademicYear.fromYear));
+        setIsConfiguringClassClock(false);
+        setClockStartDate(new Date(currentAcademicYear?.fromYear ?? new Date()));
         setIsClockPaused(false);
         setClockPausedAt(null);
+        setClassPhasePlan([]);
         setClockPhase("phase1");
       }
     };
 
     void loadSelectedClassClock();
-  }, [currentAcademicYear, selectedClockClassId, selectedClassPhasePlan]);
+  }, [currentAcademicYear, selectedClockClassId, selectedClassPhasePlan, convertPhaseConfigToPlan]);
 
   useEffect(() => {
     if (!activeYear) return;
@@ -374,7 +538,7 @@ const AcademicYear = () => {
 
     setClockStartDate(startDate);
 
-    const nextPhase = getClockPhaseId(startDate, new Date(), selectedClassPhasePlan);
+    const nextPhase = getClockPhaseId(startDate, new Date(), classPhasePlan);
     setClockPhase(nextPhase);
 
     if (activeYear.clockIsPaused && activeYear.clockPausedAt) {
@@ -387,17 +551,17 @@ const AcademicYear = () => {
       setClockPausedAt(null);
       setIsClockPaused(Boolean(activeYear.clockIsPaused));
     }
-  }, [activeYear, selectedClassPhasePlan]);
+  }, [activeYear, classPhasePlan]);
 
   useEffect(() => {
     if (isClockPaused) return undefined;
     const timer = window.setInterval(() => {
       const nextDate = new Date();
       setClockNow(nextDate);
-      setClockPhase(getClockPhaseId(clockStartDate, nextDate, selectedClassPhasePlan));
+      setClockPhase(getClockPhaseId(clockStartDate, nextDate, classPhasePlan));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [isClockPaused, clockStartDate, selectedClassPhasePlan]);
+  }, [isClockPaused, clockStartDate, classPhasePlan]);
 
   const handlePauseToggle = async () => {
     if (!activeYear) return;
@@ -410,7 +574,7 @@ const AcademicYear = () => {
         : 0;
       const newStartDate = new Date(clockStartDate.getTime() + shiftMs);
 
-      const nextPhase = getClockPhaseId(newStartDate, resumeDate, selectedClassPhasePlan);
+      const nextPhase = getClockPhaseId(newStartDate, resumeDate, classPhasePlan);
 
       setClockStartDate(newStartDate);
       setClockNow(resumeDate);
@@ -427,7 +591,7 @@ const AcademicYear = () => {
     } else {
       const pauseDate = new Date();
 
-      const nextPhase = getClockPhaseId(clockStartDate, pauseDate, selectedClassPhasePlan);
+      const nextPhase = getClockPhaseId(clockStartDate, pauseDate, classPhasePlan);
 
       setClockNow(pauseDate);
       setIsClockPaused(true);
@@ -448,8 +612,7 @@ const AcademicYear = () => {
       : new Date();
 
     const resetDateNow = new Date();
-    const nextPhase = getClockPhaseId(resetDate, resetDateNow, selectedClassPhasePlan);
-
+    const nextPhase = getClockPhaseId(resetDate, resetDateNow, classPhasePlan);
     setClockStartDate(resetDate);
     setClockNow(resetDateNow);
     setIsClockPaused(false);
@@ -522,7 +685,7 @@ const AcademicYear = () => {
       if (!ayId) throw new Error('Missing academic year id');
       await api.post(`/academic-clocks/complete/by-class`, { academicYearId: ayId, classId: selectedClockClassId });
       setIsClockPaused(true);
-      const lastPhase = selectedClassPhasePlan[selectedClassPhasePlan.length - 1];
+      const lastPhase = classPhasePlan[classPhasePlan.length - 1];
       if (lastPhase) setClockPhase(lastPhase.id);
       toast.success("Class academic clock completed and admins notified.");
     } catch (err) {
@@ -552,7 +715,7 @@ const AcademicYear = () => {
               <div className="flex flex-col gap-1">
                 <CardTitle className="text-lg font-semibold">Class Academic Clocks</CardTitle>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Track the class-level clinical rotation timeline with a live SVG clock and controls.
+                  Track the class-level clinical rotation timeline with live clocks.
                 </p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -576,20 +739,212 @@ const AcademicYear = () => {
             </div>
           </CardHeader>
           <CardContent className="p-0">
-            {hasClassClock ? (
-              <JUTHAcademicClock
-                startDate={activeStartDate}
-                currentDate={clockNow}
-                isPaused={isClockPaused}
-                currentPhaseId={clockPhase}
-                phasePlan={selectedClassPhasePlan}
-                onComplete={handleClockComplete}
-              />
-            ) : (
-              <div className="p-6 text-center text-sm text-muted-foreground">No class clock configured for the selected class.</div>
-            )}
+            <div className="space-y-6">
+              {isClassClockPreviewVisible ? (
+                <JUTHAcademicClock
+                  startDate={activeStartDate}
+                  currentDate={clockNow}
+                  isPaused={isClockPaused}
+                  currentPhaseId={clockPhase}
+                  phasePlan={classPhasePlan}
+                  onComplete={handleClockComplete}
+                  institutionName={institutionName}
+                />
+              ) : (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  <p>No class clock configured for the selected class.</p>
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Not configured for this class. Click configure to start with a template or create your own phases.
+                  </p>
+                  <div className="mt-4 flex justify-center">
+                    <Button onClick={openConfigureClockModal}>Configure class clock</Button>
+                  </div>
+                </div>
+              )}
 
-            {/* Controls moved into the clock card */}
+              {(hasClassClock || isConfiguringClassClock) && (
+                <div className="w-full rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Class clock phases</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Add, edit, or remove phases for the selected class clock.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" onClick={applyTemplatePhasePlan}>
+                        Use template
+                      </Button>
+                      <Button variant="secondary" onClick={addClassPhase}>
+                        <Plus className="mr-2 h-4 w-4" /> Add phase
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {classPhasePlan.map((phase, index) => {
+                      const isSelected = selectedPhaseId === phase.id;
+                      return (
+                        <div
+                          key={phase.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelectedPhaseId(phase.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " " ) {
+                              event.preventDefault();
+                              setSelectedPhaseId(phase.id);
+                            }
+                          }}
+                          onMouseEnter={() => setHoveredPhaseId(phase.id)}
+                          onMouseLeave={() => setHoveredPhaseId(null)}
+                          className={`w-full rounded-2xl border bg-white p-4 shadow-sm transition ${isSelected ? "border-primary bg-slate-50 dark:border-primary/80 dark:bg-slate-900" : "border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex h-3 w-3 rounded-full" style={{ backgroundColor: phase.color }} />
+                              <div>
+                                <p className="font-semibold text-slate-900 dark:text-slate-100">{phase.name}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{phase.durationMonths} month{phase.durationMonths > 1 ? "s" : ""}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                                {index + 1}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 p-0"
+                                  disabled={index === 0}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    movePhase(phase.id, "up");
+                                  }}
+                                >
+                                  <ArrowUp className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-8 w-8 p-0"
+                                  disabled={index === classPhasePlan.length - 1}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    movePhase(phase.id, "down");
+                                  }}
+                                >
+                                  <ArrowDown className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between gap-3">
+                            <p className="text-sm text-slate-600 dark:text-slate-300">
+                              {phase.subPostings.length > 0 ? phase.subPostings.join(" • ") : "No postings defined."}
+                            </p>
+                            <div className={`${isSelected || hoveredPhaseId === phase.id ? "flex" : "hidden"} items-center gap-2`}>
+                              <Button variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); openPhaseEditor(phase); }}>
+                                Edit
+                              </Button>
+                              <Button variant="destructive" size="sm" onClick={(event) => { event.stopPropagation(); void deleteClassPhase(phase.id); }}>
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <Modal
+                    title="Edit phase"
+                    description="Update the phase details, duration, and order for this class clock."
+                    open={isPhaseModalOpen}
+                    setOpen={setIsPhaseModalOpen}
+                    className="bg-background !left-1/2 !top-1/2 !w-[min(92vw,40rem)] !max-w-none !translate-x-[-50%] !translate-y-[-50%] !max-h-[85vh] !rounded-2xl !p-5 sm:!p-6"
+                  >
+                    <div className="grid gap-4 py-2">
+                      <div>
+                        <Label htmlFor="phase-name">Name</Label>
+                        <Input
+                          id="phase-name"
+                          value={phaseEditValues.name}
+                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, name: event.target.value })}
+                          className="mt-2"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="phase-duration">Duration (months)</Label>
+                        <Input
+                          id="phase-duration"
+                          type="number"
+                          min={1}
+                          value={phaseEditValues.durationMonths}
+                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, durationMonths: event.target.value })}
+                          className="mt-2"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="phase-subpostings">Sub-postings</Label>
+                        <Textarea
+                          id="phase-subpostings"
+                          value={phaseEditValues.subPostings}
+                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, subPostings: event.target.value })}
+                          rows={3}
+                          className="mt-2"
+                        />
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-[1fr_auto] items-end">
+                        <div>
+                          <Label htmlFor="phase-color">Color</Label>
+                          <input
+                            id="phase-color"
+                            type="color"
+                            value={phaseEditValues.color}
+                            onChange={(event) => setPhaseEditValues({ ...phaseEditValues, color: event.target.value })}
+                            className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-transparent px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:border-slate-800"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button onClick={savePhaseEdit}>Save</Button>
+                          <Button variant="secondary" onClick={closePhaseEditor}>Cancel</Button>
+                        </div>
+                      </div>
+                    </div>
+                  </Modal>
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      Click any phase card to reveal edit and reorder controls. Save when you’re done.
+                    </p>
+                    <Button onClick={savePhasePlan} className="w-full sm:w-auto">
+                      Save phase plan
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Modal
+              title="Configure class clock"
+              description="Choose how you want to start the class clock for this class."
+              open={isConfigureClockModalOpen}
+              setOpen={setIsConfigureClockModalOpen}
+              className="bg-background !left-1/2 !top-1/2 !w-[min(92vw,32rem)] !max-w-none !translate-x-[-50%] !translate-y-[-50%] !max-h-[75vh] !rounded-2xl !p-5 sm:!p-6"
+            >
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600 dark:text-slate-300">
+                  Start by loading a class clock template, or create a new clock from scratch with custom phases.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Button onClick={applyTemplatePhasePlan} className="w-full">
+                    Use template
+                  </Button>
+                  <Button variant="secondary" onClick={startManualClockConfiguration} className="w-full">
+                    Create manually
+                  </Button>
+                </div>
+              </div>
+            </Modal>
+
             <div className="mt-5 space-y-4 p-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Active Academic Year</p>
@@ -612,7 +967,7 @@ const AcademicYear = () => {
                       selected={clockStartDate}
                       onSelect={async (date) => {
                         if (!date) return;
-                        const nextPhase = getClockPhaseId(date, clockNow, selectedClassPhasePlan);
+                        const nextPhase = getClockPhaseId(date, clockNow, classPhasePlan);
                         setClockStartDate(date);
                         setClockPhase(nextPhase);
                         await saveClockState({ clockStartDate: date, clockPhase: nextPhase });
@@ -635,7 +990,7 @@ const AcademicYear = () => {
                       selected={clockStartDate}
                       onSelect={async (date) => {
                         if (!date) return;
-                        const nextPhase = getClockPhaseId(date, new Date(), selectedClassPhasePlan);
+                        const nextPhase = getClockPhaseId(date, new Date(), classPhasePlan);
                         setClockStartDate(date);
                         setClockNow(date);
                         setIsClockPaused(false);

@@ -10,6 +10,7 @@ import { logActivity } from "../utils/activitieslog";
 import type { AuthRequest } from "../middleware/auth";
 import { getRegistrationApprovalState, requiresAdminApproval } from "../utils/registrationApproval";
 import { sendAccountApprovalEmail } from "../utils/accountApprovalEmail";
+import { generatePasswordResetToken, hashPasswordResetToken, verifyPasswordResetToken } from "../utils/passwordReset";
 
 const normalizeRole = (role?: string): string | undefined => {
     if (!role) return undefined;
@@ -46,6 +47,45 @@ export const identifierMatches = (candidate: unknown, target: unknown): boolean 
     const normalizedCandidate = normalizeLoginIdentifier(candidate);
     const normalizedTarget = normalizeLoginIdentifier(target);
     return Boolean(normalizedCandidate && normalizedTarget && normalizedCandidate === normalizedTarget);
+};
+
+const findUserByIdentifier = async (identifier: string) => {
+    const trimmedIdentifier = identifier.trim();
+    const lookupCandidates = [
+        trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
+        trimmedIdentifier ? { email: trimmedIdentifier } : null,
+        trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
+        trimmedIdentifier ? { studentId: trimmedIdentifier } : null,
+    ].filter(Boolean) as Array<Record<string, string>>;
+
+    let user = null as any;
+    for (const criteria of lookupCandidates) {
+        user = await User.findOne(criteria);
+        if (user) {
+            return user;
+        }
+    }
+
+    if (!trimmedIdentifier) {
+        return null;
+    }
+
+    const normalizedIdentifier = normalizeLoginIdentifier(trimmedIdentifier);
+    const possibleMatches = await User.find({
+        $or: [
+            { idNumber: { $exists: true, $ne: "" } },
+            { email: { $exists: true, $ne: "" } },
+            { matricNumber: { $exists: true, $ne: "" } },
+            { studentId: { $exists: true, $ne: "" } },
+        ],
+    }).limit(200);
+
+    return possibleMatches.find((candidate: any) => (
+        identifierMatches(candidate.idNumber, trimmedIdentifier) ||
+        identifierMatches(candidate.matricNumber, trimmedIdentifier) ||
+        identifierMatches(candidate.studentId, trimmedIdentifier) ||
+        identifierMatches(candidate.email, trimmedIdentifier)
+    )) || null;
 };
 
 const findDepartment = async (departmentInput?: string) => {
@@ -600,6 +640,90 @@ export const registerPublic = async (
     }
 };
 
+export const requestPasswordReset = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { identifier } = req.body;
+        const resolvedIdentifier = resolveLoginIdentifier({ credential: identifier, idNumber: identifier, matricNumber: identifier, email: identifier });
+        const trimmedIdentifier = resolvedIdentifier.trim();
+
+        if (!trimmedIdentifier) {
+            res.status(400).json({ message: "Enter an email, matriculation number, or staff ID." });
+            return;
+        }
+
+        const user = await findUserByIdentifier(trimmedIdentifier);
+        if (!user) {
+            res.status(200).json({
+                message: "If an account exists for that identifier, a recovery code has been prepared.",
+            });
+            return;
+        }
+
+        const token = generatePasswordResetToken();
+        const hashedToken = await hashPasswordResetToken(token);
+        user.passwordResetToken = hashedToken;
+        user.passwordResetExpiresAt = new Date(Date.now() + 1000 * 60 * 30);
+        user.lastPasswordResetRequestedAt = new Date();
+        await user.save();
+
+        const responsePayload = {
+            message: "A recovery code has been prepared. Continue below to set a new password.",
+            resetToken: process.env.NODE_ENV !== "production" ? token : undefined,
+            expiresAt: user.passwordResetExpiresAt.toISOString(),
+        };
+
+        res.status(200).json(responsePayload);
+    } catch (error) {
+        console.error("requestPasswordReset error:", error);
+        res.status(500).json({ message: "Server error", error });
+    }
+};
+
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) {
+            res.status(400).json({ message: "Recovery code and a new password are required." });
+            return;
+        }
+
+        if (String(newPassword).trim().length < 6) {
+            res.status(400).json({ message: "Password must be at least 6 characters long." });
+            return;
+        }
+
+        const usersWithResetToken = await User.find({
+            passwordResetToken: { $ne: null },
+            passwordResetExpiresAt: { $gt: new Date() },
+        });
+
+        let matchedUser = null as any;
+        for (const candidate of usersWithResetToken) {
+            const isValid = await verifyPasswordResetToken(String(token), candidate.passwordResetToken);
+            if (isValid) {
+                matchedUser = candidate;
+                break;
+            }
+        }
+
+        if (!matchedUser) {
+            res.status(400).json({ message: "The recovery code is invalid or has expired." });
+            return;
+        }
+
+        matchedUser.password = String(newPassword);
+        matchedUser.passwordResetToken = null;
+        matchedUser.passwordResetExpiresAt = null;
+        matchedUser.lastPasswordResetRequestedAt = null;
+        await matchedUser.save();
+
+        res.status(200).json({ message: "Password reset successful. You can sign in with your new password." });
+    } catch (error) {
+        console.error("resetPassword error:", error);
+        res.status(500).json({ message: "Server error", error });
+    }
+};
+
 // Check if any users exist
 export const isFirstUser = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -618,43 +742,7 @@ export const login = async (
         const { password } = req.body;
         const resolvedIdentifier = resolveLoginIdentifier(req.body);
         const trimmedIdentifier = resolvedIdentifier.trim();
-        const lookupCandidates = [
-            trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
-            trimmedIdentifier ? { email: trimmedIdentifier } : null,
-            trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
-            trimmedIdentifier ? { studentId: trimmedIdentifier } : null,
-        ].filter(Boolean) as Array<Record<string, string>>;
-
-        let user = null as any;
-        for (const criteria of lookupCandidates) {
-            user = await User.findOne(criteria);
-            if (user) {
-                break;
-            }
-        }
-
-        if (!user && trimmedIdentifier) {
-            const normalizedIdentifier = normalizeLoginIdentifier(trimmedIdentifier);
-            const possibleMatches = await User.find({
-                $or: [
-                    { idNumber: { $exists: true, $ne: "" } },
-                    { email: { $exists: true, $ne: "" } },
-                    { matricNumber: { $exists: true, $ne: "" } },
-                    { studentId: { $exists: true, $ne: "" } },
-                ],
-            }).limit(200);
-
-            user = possibleMatches.find((candidate: any) => (
-                identifierMatches(candidate.idNumber, trimmedIdentifier) ||
-                identifierMatches(candidate.matricNumber, trimmedIdentifier) ||
-                identifierMatches(candidate.studentId, trimmedIdentifier) ||
-                identifierMatches(candidate.email, trimmedIdentifier)
-            )) || null;
-        }
-
-        if (!user && normalizeLoginIdentifier(trimmedIdentifier)) {
-            user = await User.findOne({ email: trimmedIdentifier });
-        }
+        const user = await findUserByIdentifier(trimmedIdentifier);
 
         // check if user exists and password matches 
         if (user && (await user.matchPassword(password))){

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2, Pencil } from "lucide-react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
@@ -124,15 +125,18 @@ export default function Courses() {
   const isAdminOrTeacher = user?.role === "admin" || user?.role === "teacher";
   const canManageCourses = ["admin", "teacher", "unitconsultant"].includes(user?.role ?? "");
   const isAdmin = user?.role === "admin";
+  // Allow create/add actions for any user except students and parents
+  const canCreateCourse = Boolean(user) && !["student", "parent"].includes(user?.role ?? "");
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loadingState, setLoadingState] = useState<LoadingState>("idle");
-  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
+  const [hoveredCourse, setHoveredCourse] = useState<{ courseId: string; x: number; y: number } | null>(null);
 
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [addCourseOpen, setAddCourseOpen] = useState(false);
   const [createCourseOpen, setCreateCourseOpen] = useState(false);
+  const [createCourseForClassId, setCreateCourseForClassId] = useState<string | null>(null);
   const [editingCourse, setEditingCourse] = useState<courses | null>(null);
   const [allCourses, setAllCourses] = useState<courses[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
@@ -203,6 +207,15 @@ export default function Courses() {
     if (Array.isArray(subjectsLegacy)) return subjectsLegacy;
     return [];
   }, [selectedClass]);
+
+  const createCourseTargetClass = useMemo(() => {
+    if (createCourseForClassId) {
+      return classes.find((cls) => cls._id === createCourseForClassId) ?? selectedClass;
+    }
+    return selectedClass;
+  }, [classes, createCourseForClassId, selectedClass]);
+
+  const shouldShowAssignCheckbox = !createCourseTargetClass;
 
   // Filter units by selected department
   const selectedCourseDepartmentId = createForm.watch("department");
@@ -341,12 +354,18 @@ export default function Courses() {
     }
   };
 
-  const handleOpenCreateCourse = (open: boolean) => {
+  const handleOpenCreateCourse = (open: boolean, classId?: string) => {
     setCreateCourseOpen(open);
     if (!open) {
+      setCreateCourseForClassId(null);
       setEditingCourse(null);
       return;
     }
+
+    const targetClassId = classId ?? selectedClassId;
+    const targetClass = classes.find((c) => c._id === targetClassId) ?? selectedClass;
+
+    setCreateCourseForClassId(targetClassId ?? null);
     createForm.reset({
       name: "",
       code: "",
@@ -354,12 +373,12 @@ export default function Courses() {
       department: "",
       unit: "",
       semester: "First",
-      academicYearId: selectedClass?.academicYear?._id ?? "",
+      academicYearId: targetClass?.academicYear?._id ?? "",
       lecturer: "",
       isActive: true,
-      assignToClass: Boolean(selectedClass),
+      assignToClass: Boolean(targetClass),
     });
-    void fetchTeachers();
+    void fetchTeachers(targetClass?.department?._id ?? undefined);
     void fetchCourseMeta();
   };
 
@@ -495,16 +514,18 @@ export default function Courses() {
         isActive: values.isActive,
       };
       const { data } = await api.post("/courses", payload);
-      if (values.assignToClass && selectedClassId) {
+      const classIdToAssign = createCourseForClassId ?? selectedClassId;
+      if (values.assignToClass && classIdToAssign) {
         try {
           const existingIds = selectedCourses.map((c) => c._id).filter(Boolean) as string[];
-          await api.patch(`/classes/update/${selectedClassId}`, { courses: [...existingIds, data._id] });
+          await api.patch(`/classes/update/${classIdToAssign}`, { courses: [...existingIds, data._id] });
         } catch {
           toast.error("Course created, but failed to assign it to the selected class.");
         }
       }
       toast.success(`Course "${values.name}" created successfully`);
       setCreateCourseOpen(false);
+      setCreateCourseForClassId(null);
       void fetchAllCourses();
       void fetchClasses();
     } catch (e: unknown) {
@@ -633,11 +654,18 @@ export default function Courses() {
                 <RefreshCw className="mr-1 h-4 w-4" />
                 {uploadingCourses ? "Uploading..." : "Bulk Upload"}
               </Button>
-              <Button variant="default" size="sm" onClick={() => handleOpenCreateCourse(true)}>
-                <PlusCircle className="mr-1 h-4 w-4" />
-                New Course
-              </Button>
             </>
+          )}
+          {canCreateCourse && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleOpenCreateCourse(true, selectedClassId ?? undefined)}
+              title={selectedClass ? "Create course for the selected class" : "Create a course"}
+            >
+              <PlusCircle className="mr-1 h-4 w-4" />
+              New Course
+            </Button>
           )}
           <div className="md:hidden">
             <SidebarTrigger />
@@ -702,26 +730,14 @@ export default function Courses() {
             <div className="flex items-center gap-2">
               <Badge variant="secondary">{selectedCourses.length}</Badge>
               {selectedClass && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleOpenAddCourse(true)}
-                  >
-                    <PlusCircle className="mr-1 h-4 w-4" />
-                    Add
-                  </Button>
-                  {canManageCourses && (
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => handleOpenCreateCourse(true)}
-                    >
-                      <PlusCircle className="mr-1 h-4 w-4" />
-                      New Course
-                    </Button>
-                  )}
-                </>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleOpenAddCourse(true)}
+                >
+                  <PlusCircle className="mr-1 h-4 w-4" />
+                  Add
+                </Button>
               )}
             </div>
           </div>
@@ -750,8 +766,12 @@ export default function Courses() {
                     </div>
                   );
                 }
+
+                const hoveredCourseDetails = uniqueCourses.find((course) => course._id === hoveredCourse?.courseId);
+
                 return (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {uniqueCourses.map((c) => {
                 const lecturerArr = Array.isArray(c.lecturer) ? c.lecturer : [];
                 const teacherNames = lecturerArr
@@ -773,28 +793,30 @@ export default function Courses() {
                 const academicYearName = typeof c.academicYear === "string"
                   ? c.academicYear
                   : c.academicYear?.name ?? "";
-                const isExpanded = c._id === expandedCourseId;
+                const isHovered = hoveredCourse?.courseId === c._id;
 
                 return (
                   <div
                     key={c._id}
                     className={
-                      "border rounded-md p-3 transition " +
-                      (isExpanded
-                        ? "border-primary bg-primary/5 shadow-sm"
+                      "relative border rounded-md p-3 transition cursor-pointer " +
+                      (isHovered
+                        ? "border-primary bg-primary/5 shadow-md"
                         : "hover:border-muted-foreground/40 hover:shadow-sm")
                     }
+                    onMouseEnter={(event) => {
+                      setHoveredCourse({ courseId: c._id, x: event.clientX, y: event.clientY });
+                    }}
+                    onMouseMove={(event) => {
+                      setHoveredCourse((prev) => prev?.courseId === c._id ? { courseId: c._id, x: event.clientX, y: event.clientY } : prev);
+                    }}
+                    onMouseLeave={() => setHoveredCourse((prev) => (prev?.courseId === c._id ? null : prev))}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedCourseId((prev) => (prev === c._id ? null : c._id))}
-                        className="text-left flex-1 text-left cursor-pointer"
-                        aria-label={`${isExpanded ? "Collapse" : "Expand"} ${c.name}`}
-                      >
+                      <div className="flex-1 text-left">
                         <div className="font-medium text-left">{c.name}</div>
                         <div className="text-sm text-muted-foreground">{c.code}</div>
-                      </button>
+                      </div>
                       <div className="flex items-center gap-1">
                         {canManageCourses && (
                           <button
@@ -867,22 +889,6 @@ export default function Courses() {
                     {displayLecturers && (
                       <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
                     )}
-                    {isExpanded && (
-                      <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                        <div>
-                          <span className="font-medium text-slate-700">Course Group:</span> {c.courseID ?? "N/A"}
-                        </div>
-                        <div>
-                          <span className="font-medium text-slate-700">Department:</span> {departmentName || "N/A"}
-                        </div>
-                        <div>
-                          <span className="font-medium text-slate-700">Semester:</span> {c.semester ?? "N/A"}
-                        </div>
-                        <div>
-                          <span className="font-medium text-slate-700">Academic Year:</span> {academicYearName || "N/A"}
-                        </div>
-                      </div>
-                    )}
                     {!c.isActive ? (
                       <div className="mt-2">
                         <Badge variant="destructive">Inactive</Badge>
@@ -896,6 +902,69 @@ export default function Courses() {
                 );
               })}
                   </div>
+                    {hoveredCourseDetails && (
+                      <div
+                        className="pointer-events-none fixed z-[70] w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-primary/20 bg-background/95 p-4 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl"
+                        style={{
+                          left: `${hoveredCourse?.x ?? 0}px`,
+                          top: `${hoveredCourse?.y ?? 0}px`,
+                          transform: "translate(-50%, -50%)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-semibold text-foreground">{hoveredCourseDetails.name}</div>
+                            <div className="text-sm text-muted-foreground">{hoveredCourseDetails.code}</div>
+                          </div>
+                          {hoveredCourseDetails.isActive ? (
+                            <Badge variant="default">Active</Badge>
+                          ) : (
+                            <Badge variant="destructive">Inactive</Badge>
+                          )}
+                        </div>
+
+                        <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                          <div>
+                            <span className="font-medium text-foreground">Course Group:</span> {hoveredCourseDetails.courseID ?? "N/A"}
+                          </div>
+                          <div>
+                            <span className="font-medium text-foreground">Department:</span> {typeof hoveredCourseDetails.department === "string"
+                              ? hoveredCourseDetails.department
+                              : hoveredCourseDetails.department?.name ?? hoveredCourseDetails.department?.code ?? hoveredCourseDetails.department?.departmentID ?? "N/A"}
+                          </div>
+                          <div>
+                            <span className="font-medium text-foreground">Semester:</span> {hoveredCourseDetails.semester ?? "N/A"}
+                          </div>
+                          <div>
+                            <span className="font-medium text-foreground">Academic Year:</span> {typeof hoveredCourseDetails.academicYear === "string"
+                              ? hoveredCourseDetails.academicYear
+                              : hoveredCourseDetails.academicYear?.name ?? "N/A"}
+                          </div>
+                          {(() => {
+                            const hoverLecturerArr = Array.isArray(hoveredCourseDetails.lecturer) ? hoveredCourseDetails.lecturer : [];
+                            const hoverTeacherNames = hoverLecturerArr
+                              .map((t) => {
+                                if (!t || typeof t !== "object") return undefined;
+                                const maybeName = (t as { name?: string }).name;
+                                return maybeName ?? undefined;
+                              })
+                              .filter((x): x is string => typeof x === "string" && x.length > 0);
+                            const hoverDisplayLecturers = hoverTeacherNames.length > 0
+                              ? hoverTeacherNames.join(", ")
+                              : hoverLecturerArr.length > 0
+                              ? `${hoverLecturerArr.length} lecturer${hoverLecturerArr.length !== 1 ? "s" : ""}`
+                              : undefined;
+
+                            return hoverDisplayLecturers ? (
+                              <div>
+                                <span className="font-medium text-foreground">Lecturers:</span> {hoverDisplayLecturers}
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 );
               })()}
             </div>
@@ -943,6 +1012,8 @@ export default function Courses() {
         title={editingCourse ? "Edit Course" : "Create New Course"}
         description={editingCourse
           ? `Update course "${editingCourse.name}".`
+          : createCourseTargetClass
+          ? `Create a new course and assign it to ${createCourseTargetClass.name}.`
           : "Add a new course subject to the system. Admin and teachers can create courses."}
       >
         <form
@@ -1052,16 +1123,31 @@ export default function Courses() {
               />
               <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="assignToClass"
-                {...createForm.register("assignToClass")}
-                className="h-4 w-4 rounded border-input"
-              />
-              <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
-            </div>
+            {shouldShowAssignCheckbox && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="assignToClass"
+                  {...createForm.register("assignToClass")}
+                  className="h-4 w-4 rounded border-input"
+                />
+                <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
+              </div>
+            )}
           </div>
+
+          {createCourseTargetClass && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-sm text-slate-700">
+              <div className="font-medium">Selected class</div>
+              <div>{createCourseTargetClass.name}</div>
+              <Link
+                to={`/classes?selected=${createCourseTargetClass._id}`}
+                className="text-primary underline"
+              >
+                View class details
+              </Link>
+            </div>
+          )}
 
           <Button
             type="submit"

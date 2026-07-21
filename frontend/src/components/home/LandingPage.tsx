@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { useSetupStatus } from "@/lib/useSetupStatus";
 import SectionReveal from "../shared/SectionReveal";
 
 const roleCards = [
@@ -127,6 +128,7 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const [isMounted] = useState(true);
   const [isNavigatingSetup, setIsNavigatingSetup] = useState(false);
+  const { isSetupConfigured } = useSetupStatus();
 
   const scrollToDashboardSection = () => {
     const target = document.getElementById("role-aware");
@@ -147,8 +149,12 @@ export default function LandingPage() {
   const handleSetupEntry = async () => {
     setIsNavigatingSetup(true);
     try {
-      const response = await api.get("/setup/status");
-      if (!response.data?.configured) {
+      const configured =
+        typeof isSetupConfigured === "boolean"
+          ? isSetupConfigured
+          : Boolean((await api.get("/setup/status")).data?.configured);
+
+      if (!configured) {
         navigate("/setup");
         return;
       }
@@ -164,7 +170,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="relative overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div className="relative overflow-hidden bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-6 lg:px-8 py-20">
         <div
           className={`grid gap-8 md:grid-cols-[1.1fr_0.9fr] items-center transition-all duration-700 ease-out ${
@@ -172,22 +178,24 @@ export default function LandingPage() {
           }`}
         >
           <div className="space-y-6">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/80 dark:bg-slate-900/70 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm ring-1 ring-slate-200 dark:text-slate-200 dark:ring-slate-700/50">
-              <Sparkles className="h-4 w-4 text-[#6e56cf]" />
+            <div className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm ring-1 ring-border">
+              <Sparkles className="h-4 w-4 text-primary" />
               Native clinical workflows for medical education teams
             </div>
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight">Everything clinical education needs to run smoothly — from rotation planning to digital logbooks and attendance intelligence.</h2>
-            <p className="max-w-2xl text-lg text-slate-600 dark:text-slate-300">MedLog brings clinical placements, assessments, supervisor communication, and accreditation tracking into one secure platform for students, supervisors, and administrators.</p>
+            <p className="max-w-2xl text-lg text-muted-foreground">MedLog brings clinical placements, assessments, supervisor communication, and accreditation tracking into one secure platform for students, supervisors, and administrators.</p>
             <div className="flex flex-wrap gap-4">
               <Button className="min-w-[160px]" size="lg">Schedule a Demo</Button>
-              <Button variant="outline" className="min-w-[160px]" size="lg" onClick={() => { void handleSetupEntry(); }} disabled={isNavigatingSetup}>Set up institution</Button>
+              <Button variant="outline" className="min-w-[160px]" size="lg" onClick={() => { void handleSetupEntry(); }} disabled={isNavigatingSetup}>
+                {isNavigatingSetup ? "Loading..." : isSetupConfigured ? "Login" : "Set up institution"}
+              </Button>
               <Button variant="outline" className="min-w-[160px]" size="lg">Learn More</Button>
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-border bg-white/80 dark:bg-slate-900/80 p-8 shadow-2xl backdrop-blur-xl">
+          <div className="rounded-[2rem] border border-border bg-card p-8 shadow-2xl backdrop-blur-xl">
             <div className="space-y-6">
-              <div className="flex items-center justify-between gap-4 rounded-3xl bg-gradient-to-r from-[#6e56cf] via-[#7e67d9] to-[#a34be5] p-5 text-white shadow-lg">
+              <div className="flex items-center justify-between gap-4 rounded-3xl bg-gradient-to-r from-primary to-primary/80 p-5 text-white shadow-lg">
                 <div>
                   <p className="text-sm uppercase tracking-[0.24em]">Live platform metrics</p>
                   <p className="mt-3 text-3xl font-semibold">98.7%</p>
@@ -198,15 +206,15 @@ export default function LandingPage() {
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-3xl border border-border bg-slate-50/90 p-5 text-slate-800 dark:bg-slate-950/80 dark:text-slate-100">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Learner engagement</p>
+                <div className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Learner engagement</p>
                   <p className="mt-4 text-3xl font-semibold">+42%</p>
-                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Faster rotation completions and fewer missed sign-offs.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Faster rotation completions and fewer missed sign-offs.</p>
                 </div>
-                <div className="rounded-3xl border border-border bg-slate-50/90 p-5 text-slate-800 dark:bg-slate-950/80 dark:text-slate-100">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Faculty efficiency</p>
+                <div className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Faculty efficiency</p>
                   <p className="mt-4 text-3xl font-semibold">+68%</p>
-                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Reduce manual approvals and schedule coordination overhead.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Reduce manual approvals and schedule coordination overhead.</p>
                 </div>
               </div>
             </div>
@@ -214,12 +222,12 @@ export default function LandingPage() {
         </div>
       </div>
 
-      <SectionReveal id="solutions" className="border-t border-slate-200/80 dark:border-slate-800/80 py-24">
+      <SectionReveal id="solutions" className="border-t border-border py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 max-w-3xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Built for every role</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Built for every role</p>
             <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Designed for every member of the clinical education ecosystem.</h3>
-            <p className="mt-4 text-base text-slate-600 dark:text-slate-300">MedLog gives students, instructors, supervisors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
+            <p className="mt-4 text-base text-muted-foreground">MedLog gives students, instructors, supervisors, and administrators a unified platform with the right data, the right access, and the right experience.</p>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-4">
@@ -227,15 +235,15 @@ export default function LandingPage() {
               const Icon = card.icon;
               return (
                 <div key={card.title} className="rounded-[2rem] border border-border bg-card p-6 shadow-sm transition-all duration-600 ease-out">
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <Icon className="h-6 w-6" />
                   </div>
                   <h4 className="mt-6 text-xl font-semibold">{card.title}</h4>
-                  {card.subtitle && <p className="text-sm text-slate-500 mt-1">{card.subtitle}</p>}
-                  <ul className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                  {card.subtitle && <p className="text-sm text-muted-foreground mt-1">{card.subtitle}</p>}
+                  <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                     {card.features.map((f) => (
                       <li key={f} className="flex items-start gap-3">
-                        <span className="mt-1 inline-flex h-3 w-3 rounded-full bg-[#6e56cf]/70" />
+                        <span className="mt-1 inline-flex h-3 w-3 rounded-full bg-primary/70" />
                         <span>{f}</span>
                       </li>
                     ))}
@@ -247,54 +255,54 @@ export default function LandingPage() {
         </div>
       </SectionReveal>
 
-      <SectionReveal id="ecosystem" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="ecosystem" className="bg-gradient-to-b from-card via-background to-card py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Everything Connected</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Everything Connected</p>
               <h3 className="text-3xl font-bold sm:text-4xl">Your academic ecosystem, visualized and synchronized.</h3>
-              <p className="max-w-xl text-slate-600 dark:text-slate-400">MedLog connects every part of clinical education so your institution can work smarter, not harder.</p>
+              <p className="max-w-xl text-muted-foreground">MedLog connects every part of clinical education so your institution can work smarter, not harder.</p>
               <ul className="grid gap-3 sm:grid-cols-2">
-                <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                <li className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <Globe2 className="h-5 w-5" />
                   </div>
                   <p className="mt-4 font-semibold">Multi-campus readiness</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Share rotation details, schedules, and approvals across hospital partners.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Share rotation details, schedules, and approvals across hospital partners.</p>
                 </li>
-                <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                <li className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <ShieldCheck className="h-5 w-5" />
                   </div>
                   <p className="mt-4 font-semibold">Audit-ready compliance</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Attendance, assessment, and supervisor sign-off records are stored securely.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Attendance, assessment, and supervisor sign-off records are stored securely.</p>
                 </li>
-                <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                <li className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <Layers className="h-5 w-5" />
                   </div>
                   <p className="mt-4 font-semibold">Shared curriculum view</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Align rotations, lectures, and practical assessments with academic goals.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Align rotations, lectures, and practical assessments with academic goals.</p>
                 </li>
-                <li className="rounded-3xl border border-border bg-card p-5 text-slate-700 dark:text-slate-200">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                <li className="rounded-3xl border border-border bg-card p-5 text-foreground">
+                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <Users className="h-5 w-5" />
                   </div>
                   <p className="mt-4 font-semibold">Supervisor collaboration</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Enable mentors and unit leads to review logbooks and approve student competencies.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Enable mentors and unit leads to review logbooks and approve student competencies.</p>
                 </li>
               </ul>
             </div>
 
             <div className="relative mx-auto max-w-xl">
-              <div className="absolute inset-0 rounded-[2rem] bg-[#6e56cf]/10 blur-3xl" />
-              <div className="relative rounded-[2rem] border border-border bg-slate-950/90 p-8 shadow-2xl">
-                <div className="flex items-center justify-between rounded-3xl bg-slate-900/80 p-5 text-white">
+              <div className="absolute inset-0 rounded-[2rem] bg-primary/10 blur-3xl" />
+              <div className="relative rounded-[2rem] border border-border bg-card/90 p-8 shadow-2xl">
+                <div className="flex items-center justify-between rounded-3xl bg-card p-5 text-foreground">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Platform hub</p>
+                    <p className="text-xs uppercase tracking-[0.28em] text-foreground">Platform hub</p>
                     <p className="mt-3 text-xl font-semibold">MedLog Core</p>
                   </div>
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-3xl bg-white/10">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-3xl bg-primary/10">
                     <Circle className="h-5 w-5" />
                   </div>
                 </div>
@@ -305,30 +313,30 @@ export default function LandingPage() {
                     "Digital logs & assessments",
                     "Supervisor feedback",
                   ].map((item) => (
-                    <div key={item} className="rounded-3xl border border-slate-800/90 bg-slate-900/75 p-4 text-slate-200">
+                    <div key={item} className="rounded-3xl border border-border/90 bg-card/90 p-4 text-muted-foreground">
                       <p className="text-sm font-medium">{item}</p>
                     </div>
                   ))}
                 </div>
-                <div className="mt-8 relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-[#2c2a5e] via-[#161432] to-[#070714] p-6 text-white">
-                  <div className="absolute -left-10 top-8 h-40 w-40 rounded-full bg-[#6e56cf]/20 blur-3xl" />
-                  <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-white/10 blur-2xl" />
+                <div className="mt-8 relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-primary/80 via-primary/90 to-primary/95 p-6 text-white">
+                  <div className="absolute -left-10 top-8 h-40 w-40 rounded-full bg-primary/20 blur-3xl" />
+                  <div className="absolute right-4 top-4 h-24 w-24 rounded-full bg-card/20 blur-2xl" />
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between text-sm text-slate-300">
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
                       <span>Active rotations</span>
                       <span className="font-semibold">124</span>
                     </div>
                     <div className="rounded-3xl bg-white/10 p-4 text-sm">
                       <p className="font-semibold">Clinical site activity</p>
-                      <p className="mt-1 text-slate-300">Ward agendas, supervisor coverage, and student progress all connected.</p>
+                      <p className="mt-1 text-muted-foreground">Ward agendas, supervisor coverage, and student progress all connected.</p>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <div className="rounded-3xl bg-white/10 p-4">
-                        <p className="text-sm uppercase text-slate-400">Hospitals</p>
+                        <p className="text-sm uppercase text-muted-foreground">Hospitals</p>
                         <p className="mt-2 text-xl font-semibold">18</p>
                       </div>
                       <div className="rounded-3xl bg-white/10 p-4">
-                        <p className="text-sm uppercase text-slate-400">Supervisors</p>
+                        <p className="text-sm uppercase text-muted-foreground">Supervisors</p>
                         <p className="mt-2 text-xl font-semibold">92</p>
                       </div>
                     </div>
@@ -344,21 +352,21 @@ export default function LandingPage() {
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 grid gap-6 lg:grid-cols-[0.9fr_1.1fr] items-center">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Core modules</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Core modules</p>
               <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Built to support every phase of clinical education delivery.</h3>
-              <p className="mt-4 max-w-xl text-slate-600 dark:text-slate-400">From onboarding cohorts to closing out competencies, MedLog gives your team a structured, configurable foundation.</p>
+              <p className="mt-4 max-w-xl text-muted-foreground">From onboarding cohorts to closing out competencies, MedLog gives your team a structured, configurable foundation.</p>
             </div>
             <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
               <div className="grid gap-4 sm:grid-cols-2">
                 {modules.map((module) => {
                   const Icon = module.icon;
                   return (
-                    <div key={module.title} className="rounded-3xl border border-border/80 bg-white/70 p-5 shadow-sm dark:bg-slate-950/90">
-                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                    <div key={module.title} className="rounded-3xl border border-border/80 bg-card p-5 shadow-sm">
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                         <Icon className="h-5 w-5" />
                       </div>
                       <h4 className="mt-4 font-semibold">{module.title}</h4>
-                      <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{module.description}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{module.description}</p>
                     </div>
                   );
                 })}
@@ -368,64 +376,64 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <SectionReveal id="assistant" className="bg-slate-950 text-white py-24">
+      <SectionReveal id="assistant" className="bg-card py-24 text-foreground">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#7b5bff]">Smart attendance</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Smart attendance</p>
               <h3 className="text-3xl font-bold sm:text-4xl">Capture attendance reliably with intelligent workflow support.</h3>
-              <p className="max-w-xl text-slate-300">Whether students are in simulation labs, wards, or community outreach rotations, MedLog makes attendance simple, verifiable, and integrated with assessments.</p>
+              <p className="max-w-xl text-muted-foreground">Whether students are in simulation labs, wards, or community outreach rotations, MedLog makes attendance simple, verifiable, and integrated with assessments.</p>
               <ul className="space-y-4">
-                <li className="flex gap-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/20 text-[#6e56cf]">
+                <li className="flex gap-4 rounded-3xl border border-border bg-card/80 p-5">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-primary">
                     <CheckCircle2 className="h-5 w-5" />
                   </span>
                   <div>
                     <h4 className="font-semibold">Audit-ready presence logs</h4>
-                    <p className="text-sm text-slate-300">Automated timestamping and supervisor verification for every clinical encounter.</p>
+                    <p className="text-sm text-muted-foreground">Automated timestamping and supervisor verification for every clinical encounter.</p>
                   </div>
                 </li>
-                <li className="flex gap-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/20 text-[#6e56cf]">
+                <li className="flex gap-4 rounded-3xl border border-border bg-card/80 p-5">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-primary">
                     <BookOpen className="h-5 w-5" />
                   </span>
                   <div>
                     <h4 className="font-semibold">Case-based progress tracking</h4>
-                    <p className="text-sm text-slate-300">Link attendance to clinical cases, learning objectives, and supervisor feedback.</p>
+                    <p className="text-sm text-muted-foreground">Link attendance to clinical cases, learning objectives, and supervisor feedback.</p>
                   </div>
                 </li>
-                <li className="flex gap-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/20 text-[#6e56cf]">
+                <li className="flex gap-4 rounded-3xl border border-border bg-card/80 p-5">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-primary">
                     <TabletSmartphone className="h-5 w-5" />
                   </span>
                   <div>
                     <h4 className="font-semibold">Mobile-ready sign-in</h4>
-                    <p className="text-sm text-slate-300">Students and supervisors can complete attendance from any device on campus.</p>
+                    <p className="text-sm text-muted-foreground">Students and supervisors can complete attendance from any device on campus.</p>
                   </div>
                 </li>
               </ul>
             </div>
-            <div className="rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-xl">
-              <div className="grid gap-4 rounded-[1.75rem] bg-slate-900/90 p-6 text-white">
-                <div className="flex items-center justify-between text-sm text-slate-400">
+            <div className="rounded-[2rem] border border-border bg-card/80 p-8 shadow-2xl backdrop-blur-xl">
+              <div className="grid gap-4 rounded-[1.75rem] bg-card/95 p-6 text-foreground">
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
                   <span>Attendance cycle</span>
-                  <span className="font-semibold text-white">In progress</span>
+                  <span className="font-semibold text-foreground">In progress</span>
                 </div>
-                <div className="rounded-3xl bg-slate-950/90 p-5">
-                  <div className="mb-4 flex items-center justify-between gap-4 text-sm text-slate-300">
+                <div className="rounded-3xl bg-card/90 p-5">
+                  <div className="mb-4 flex items-center justify-between gap-4 text-sm text-muted-foreground">
                     <span>Rotation session</span>
                     <span>Ped Surgery</span>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-800">
-                    <div className="h-2 w-[72%] rounded-full bg-gradient-to-r from-[#6e56cf] to-[#8b69ff]" />
+                  <div className="h-2 rounded-full bg-muted/20">
+                    <div className="h-2 w-[72%] rounded-full bg-gradient-to-r from-primary to-primary/70" />
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Present</p>
+                    <div className="rounded-3xl border border-border bg-card/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Present</p>
                       <p className="mt-2 text-xl font-semibold">28</p>
                     </div>
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Pending</p>
+                    <div className="rounded-3xl border border-border bg-card/80 p-4">
+                      <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Pending</p>
                       <p className="mt-2 text-xl font-semibold">4</p>
                     </div>
                   </div>
@@ -440,9 +448,9 @@ export default function LandingPage() {
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Clinical journey</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Clinical journey</p>
               <h3 className="text-3xl font-bold sm:text-4xl">From onboarding to graduation, every stage in one coherent path.</h3>
-              <p className="max-w-xl text-slate-600 dark:text-slate-400">Map rotation progress, evaluations, and milestones with a timeline that keeps departments and students aligned.</p>
+              <p className="max-w-xl text-muted-foreground">Map rotation progress, evaluations, and milestones with a timeline that keeps departments and students aligned.</p>
             </div>
             <div className="space-y-4">
               {[
@@ -452,12 +460,12 @@ export default function LandingPage() {
                 "Assessment review, remediation, and final competency sign-off",
               ].map((step, idx) => (
                 <div key={step} className="flex gap-4 rounded-3xl border border-border bg-card p-6 shadow-sm">
-                  <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/10 text-[#6e56cf]">
+                  <div className="mt-1 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <span className="font-semibold">{idx + 1}</span>
                   </div>
                   <div>
                     <p className="font-semibold">{step}</p>
-                    <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Keep every rotation milestone visible to students and administrators with automated notifications.</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Keep every rotation milestone visible to students and administrators with automated notifications.</p>
                   </div>
                 </div>
               ))}
@@ -466,62 +474,62 @@ export default function LandingPage() {
         </div>
       </SectionReveal>
 
-      <SectionReveal id="dashboard" className="bg-gradient-to-b from-slate-100 via-white to-slate-100 dark:from-slate-950 dark:via-slate-950 dark:to-slate-950 py-24">
+      <SectionReveal id="dashboard" className="bg-background py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
             <div className="space-y-6">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Platform experience</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Platform experience</p>
               <h3 className="text-3xl font-bold sm:text-4xl">A dashboard designed for busy clinical teams.</h3>
-              <p className="max-w-xl text-slate-600 dark:text-slate-400">Get fast access to rotation status, upcoming assessments, learner progress, and supervisor assignments from one elegant workspace.</p>
+              <p className="max-w-xl text-muted-foreground">Get fast access to rotation status, upcoming assessments, learner progress, and supervisor assignments from one elegant workspace.</p>
               <ul className="grid gap-4">
-                <li className="flex items-start gap-3 text-slate-700 dark:text-slate-200">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/10 text-[#6e56cf]"><BarChart3 className="h-5 w-5" /></span>
+                <li className="flex items-start gap-3 text-foreground">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary"><BarChart3 className="h-5 w-5" /></span>
                   <div>
                     <p className="font-semibold">Live performance snapshots</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">One view for capacity, attendance, and rotation readiness.</p>
+                    <p className="text-sm text-muted-foreground">One view for capacity, attendance, and rotation readiness.</p>
                   </div>
                 </li>
-                <li className="flex items-start gap-3 text-slate-700 dark:text-slate-200">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/10 text-[#6e56cf]"><CalendarDays className="h-5 w-5" /></span>
+                <li className="flex items-start gap-3 text-foreground">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary"><CalendarDays className="h-5 w-5" /></span>
                   <div>
                     <p className="font-semibold">Daily planner</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">See session schedules, facility assignments, and staff availability at a glance.</p>
+                    <p className="text-sm text-muted-foreground">See session schedules, facility assignments, and staff availability at a glance.</p>
                   </div>
                 </li>
-                <li className="flex items-start gap-3 text-slate-700 dark:text-slate-200">
-                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#6e56cf]/10 text-[#6e56cf]"><ShieldCheck className="h-5 w-5" /></span>
+                <li className="flex items-start gap-3 text-foreground">
+                  <span className="mt-1 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" /></span>
                   <div>
                     <p className="font-semibold">Compliance-ready reports</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">Generate audit logs, attendance summaries, and assessment records instantly.</p>
+                    <p className="text-sm text-muted-foreground">Generate audit logs, attendance summaries, and assessment records instantly.</p>
                   </div>
                 </li>
               </ul>
             </div>
-            <div className="relative overflow-hidden rounded-[2rem] border border-border bg-slate-950/95 p-8 shadow-2xl">
-              <div className="absolute left-8 top-8 h-44 w-44 rounded-full bg-[#6e56cf]/10 blur-3xl" />
+            <div className="relative overflow-hidden rounded-[2rem] border border-border bg-card/95 p-8 shadow-2xl">
+              <div className="absolute left-8 top-8 h-44 w-44 rounded-full bg-primary/10 blur-3xl" />
               <div className="relative grid gap-5">
-                <div className="rounded-[1.75rem] bg-slate-900/95 p-6 text-white shadow-xl">
-                  <div className="flex items-center justify-between text-sm text-slate-400">
+                <div className="rounded-[1.75rem] bg-card/95 p-6 text-foreground shadow-xl">
+                  <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <p>Rotation overview</p>
                     <p className="font-semibold">Today</p>
                   </div>
                   <div className="mt-5 grid gap-3">
-                    <div className="h-2 rounded-full bg-slate-800">
-                      <div className="h-2 w-[68%] rounded-full bg-gradient-to-r from-[#6e56cf] to-[#8b69ff]" />
+                    <div className="h-2 rounded-full bg-muted/20">
+                      <div className="h-2 w-[68%] rounded-full bg-gradient-to-r from-primary to-primary/70" />
                     </div>
-                    <div className="flex items-center justify-between text-xs text-slate-500">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>Ward visits complete</span>
                       <span>68%</span>
                     </div>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-[1.75rem] bg-slate-900/95 p-5 text-white shadow-lg">
-                    <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Pending reviews</p>
+                  <div className="rounded-[1.75rem] bg-card/95 p-5 text-foreground shadow-lg">
+                    <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Pending reviews</p>
                     <p className="mt-4 text-3xl font-semibold">14</p>
                   </div>
-                  <div className="rounded-[1.75rem] bg-slate-900/95 p-5 text-white shadow-lg">
-                    <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Active teams</p>
+                  <div className="rounded-[1.75rem] bg-card/95 p-5 text-foreground shadow-lg">
+                    <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Active teams</p>
                     <p className="mt-4 text-3xl font-semibold">9</p>
                   </div>
                 </div>
@@ -534,7 +542,7 @@ export default function LandingPage() {
       <SectionReveal id="why" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">Why MedLog</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Why MedLog</p>
             <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Enterprise-grade clinical education with a friendly, modern experience.</h3>
           </div>
           <div className="grid gap-6 lg:grid-cols-3">
@@ -558,11 +566,11 @@ export default function LandingPage() {
               const Icon = item.icon;
               return (
                 <div key={item.title} className="rounded-[2rem] border border-border bg-card p-8 shadow-sm">
-                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-[#6e56cf]/10 text-[#6e56cf]">
+                  <div className="inline-flex h-12 w-12 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                     <Icon className="h-6 w-6" />
                   </div>
                   <h4 className="mt-6 text-xl font-semibold">{item.title}</h4>
-                  <p className="mt-3 text-slate-600 dark:text-slate-400">{item.description}</p>
+                  <p className="mt-3 text-muted-foreground">{item.description}</p>
                 </div>
               );
             })}
@@ -570,20 +578,20 @@ export default function LandingPage() {
         </div>
       </SectionReveal>
 
-      <section id="roadmap" className="bg-slate-950 text-white py-24">
+      <section id="roadmap" className="bg-card py-24 text-foreground">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#8d6bf7]">Roadmap</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Roadmap</p>
             <h3 className="mt-4 text-3xl font-bold sm:text-4xl">A product roadmap built for growth and enterprise readiness.</h3>
           </div>
           <div className="grid gap-6 lg:grid-cols-3">
             {roadmapItems.map((item, index) => (
-              <div key={item.title} className="group rounded-[2rem] border border-white/10 bg-white/5 p-8 transition hover:-translate-y-1 hover:border-[#6e56cf]/40">
-                <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-[#6e56cf]/15 text-[#6e56cf]">
+              <div key={item.title} className="group rounded-[2rem] border border-border bg-card/80 p-8 transition hover:-translate-y-1 hover:border-primary/40">
+                <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-primary/15 text-primary">
                   <span className="font-semibold">Q{index + 3}</span>
                 </div>
                 <h4 className="mt-6 text-xl font-semibold">{item.title}</h4>
-                <p className="mt-3 text-slate-300">{item.detail}</p>
+                <p className="mt-3 text-muted-foreground">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -593,24 +601,24 @@ export default function LandingPage() {
       <section id="faq" className="py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="mb-12 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">FAQ</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">FAQ</p>
             <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Frequently asked questions.</h3>
           </div>
           <div className="grid gap-4">
             {faqs.map((item) => (
               <details key={item.question} className="rounded-[1.75rem] border border-border bg-card p-6 [&_summary::-webkit-details-marker]:hidden">
-                <summary className="flex cursor-pointer items-center justify-between gap-4 text-lg font-semibold text-slate-900 dark:text-white">
+                <summary className="flex cursor-pointer items-center justify-between gap-4 text-lg font-semibold text-foreground">
                   {item.question}
-                  <span className="text-xl text-[#6e56cf]">+</span>
+                  <span className="text-xl text-primary">+</span>
                 </summary>
-                <p className="mt-4 text-slate-600 dark:text-slate-300">{item.answer}</p>
+                <p className="mt-4 text-muted-foreground">{item.answer}</p>
               </details>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="bg-gradient-to-r from-[#6e56cf] via-[#7b5bff] to-[#a24cf0] py-20 text-white">
+      <section className="bg-primary py-20 text-white">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr] items-center">
             <div>
@@ -618,40 +626,40 @@ export default function LandingPage() {
               <h3 className="mt-4 text-3xl font-bold sm:text-4xl">Launch MedLog and give your medical school one premium command center.</h3>
             </div>
             <div className="flex flex-wrap gap-4">
-              <Button className="min-w-[160px] bg-white text-[#2c2b4c] hover:bg-slate-100" size="lg">Book a personalized demo</Button>
+              <Button className="min-w-[160px] bg-card text-foreground hover:bg-muted/10" size="lg">Book a personalized demo</Button>
               <Button variant="outline" className="min-w-[160px] border-white text-white hover:bg-white/10" size="lg">Get started now</Button>
             </div>
           </div>
         </div>
       </section>
-      <SectionReveal id="role-aware" className="py-16 border-t border-slate-200/60 dark:border-slate-800/60">
+      <SectionReveal id="role-aware" className="py-16 border-t border-border">
         <div className="mx-auto max-w-4xl px-6 lg:px-8 text-center">
-          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#6e56cf]">The Dashboard</p>
+<p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">The Dashboard</p>
           
 
-          <p className="mt-6 text-slate-700 dark:text-slate-300">Get started by loggin in to your dashboard:</p>
+          <p className="mt-6 text-muted-foreground">Get started by logging in to your dashboard:</p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
-            <a href="/student" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+            <a href="/student" className="group rounded-2xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
               <div className="text-3xl">🎓</div>
               <h4 className="mt-3 font-semibold">Student Portal</h4>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Sign in with your matriculation number.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Sign in with your matriculation number.</p>
             </a>
 
-            <a href="/staff" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+            <a href="/staff" className="group rounded-2xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
               <div className="text-3xl">👨‍🏫</div>
               <h4 className="mt-3 font-semibold">Staff Portal</h4>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For lecturers, consultants, and residents.</p>
+              <p className="mt-1 text-sm text-muted-foreground">For lecturers, consultants, and residents.</p>
             </a>
 
-            <a href="/admin" className="group rounded-2xl border border-border bg-white/80 dark:bg-slate-900/80 p-6 shadow-sm transition hover:shadow-md">
+            <a href="/admin" className="group rounded-2xl border border-border bg-card p-6 shadow-sm transition hover:shadow-md">
               <div className="text-3xl">🛡</div>
               <h4 className="mt-3 font-semibold">Administrator Portal</h4>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">For institution administrators.</p>
+              <p className="mt-1 text-sm text-muted-foreground">For institution administrators.</p>
             </a>
           </div>
 
-          <p className="mt-6 text-sm text-slate-600 dark:text-slate-400">Makes everything role friendly. This balances <strong>security</strong>, <strong>clarity</strong>, and <strong>maintainability</strong>.</p>
+          <p className="mt-6 text-sm text-muted-foreground">Makes everything role friendly. This balances <strong>security</strong>, <strong>clarity</strong>, and <strong>maintainability</strong>.</p>
         </div>
       </SectionReveal>
     </div>

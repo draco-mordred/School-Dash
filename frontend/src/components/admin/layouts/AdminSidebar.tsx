@@ -89,7 +89,7 @@ export function AdminSidebar({ collapsible = "icon", ...props }: AdminSidebarPro
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
-              onClick={() => navigate("/admin/dashboard")}
+              onClick={() => navigate("/dashboard")}
               className="cursor-pointer"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">

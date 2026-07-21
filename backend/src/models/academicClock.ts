@@ -2,111 +2,113 @@ import mongoose, { Schema, Document } from "mongoose";
 
 // Build the Clock Phases for each class level (3rd, 4th, 5th, 6th, Final Year)
 export const LevelPhaseData = {
-  final: {},
-  sixth: {
-    classNameID: "600 Level",
-    phase1: {
-      name: "Medicine and Surgery Final Postings",
-      duration: 4,
-      postingType: "MED&SURG3",
-      postingId: null,
-    },
-    phase2: {
-      name: "Other Specialty Postings",
-      duration: 6,
-      postingType: "SPECIALTY",
-      postingId: null,
-    },
-    phase3: {
-      name: "Community Medicine & Rural Postings",
-      duration: 4,
-      postingType: "COM&RURAL",
-      postingId: null,
-    },
-    phase4: {
-      name: "Acccident & Emergency Postings",
-      duration: 2,
-      postingType: "ACCIDENT&EMERGENCY",
-      postingId: null,
-    },
-    numberOfPhases: 4,
-  },
-  fifth: {
-    phase1: {
-      name: "O&G/Pediatrics Junior Postings",
-      duration: 4,
-      postingType: "OG_PEDS",
-      postingId: null,
-    },
-    phase2: {
-      name: "Specialty Postings",
-      duration: 6,
-      postingType: "SPECIALTY",
-      postingId: null,
-    },
-    phase3: {
-      name: "O&G/Pediatrics Senior Postings",
-      duration: 4,
-      postingType: "OG_PEDS",
-      postingId: null,
-    },
-    phase4: {
-      name: "4th MBBS Exams/Elective Posting",
-      duration: 2,
-      postingType: null,
-      postingId: null,
-    },
-    classNameID: "500 Level",
-    numberOfPhases: 4,
-  },
-  fourth: {
-    classNameID: "400 Level",
-    phase1: {
-      name: "Medicine and Surgery Initial Clinical Postings",
-      duration: 10,
-      postingType: "MED&SURG0&1&2",
-      postingId: null,
-    },
-    phase2: {
-      name: "Pathology Block Postings",
-      duration: 4,
-      postingType: "PATHOLOGY",
-      postingId: null,
-    },
-    phase3: {
-      name: "3rd MBBS Exams",
-      duration: 2,
-      postingType: null,
-      postingId: null,
-    },
-    numberOfPhases: 3,
-  },
-  third: {
-    classNameID: "300 Level",
-    phase1: {
-      name: "Preclinical Postings",
-      duration: 12,
-      postingType: "PRECLINICAL",
-      postingId: null,
-    },
-    phase2: {
-      name: "2nd MBBS Exams",
-      duration: 2,
-      postingType: null,
-      postingId: null,
-    },
-    numberOfPhases: 2,
-  },
+  // final: {},
+  // sixth: {
+  //   classNameID: "600 Level",
+  //   phase1: {
+  //     name: "Medicine and Surgery Final Postings",
+  //     duration: 4,
+  //     postingType: "MED&SURG3",
+  //     postingId: null,
+  //   },
+  //   phase2: {
+  //     name: "Other Specialty Postings",
+  //     duration: 6,
+  //     postingType: "SPECIALTY",
+  //     postingId: null,
+  //   },
+  //   phase3: {
+  //     name: "Community Medicine & Rural Postings",
+  //     duration: 4,
+  //     postingType: "COM&RURAL",
+  //     postingId: null,
+  //   },
+  //   phase4: {
+  //     name: "Acccident & Emergency Postings",
+  //     duration: 2,
+  //     postingType: "ACCIDENT&EMERGENCY",
+  //     postingId: null,
+  //   },
+  //   numberOfPhases: 4,
+  // },
+  // fifth: {
+  //   phase1: {
+  //     name: "O&G/Pediatrics Junior Postings",
+  //     duration: 4,
+  //     postingType: "OG_PEDS",
+  //     postingId: null,
+  //   },
+  //   phase2: {
+  //     name: "Specialty Postings",
+  //     duration: 6,
+  //     postingType: "SPECIALTY",
+  //     postingId: null,
+  //   },
+  //   phase3: {
+  //     name: "O&G/Pediatrics Senior Postings",
+  //     duration: 4,
+  //     postingType: "OG_PEDS",
+  //     postingId: null,
+  //   },
+  //   phase4: {
+  //     name: "4th MBBS Exams/Elective Posting",
+  //     duration: 2,
+  //     postingType: null,
+  //     postingId: null,
+  //   },
+  //   classNameID: "500 Level",
+  //   numberOfPhases: 4,
+  // },
+  // fourth: {
+  //   classNameID: "400 Level",
+  //   phase1: {
+  //     name: "Medicine and Surgery Initial Clinical Postings",
+  //     duration: 10,
+  //     postingType: "MED&SURG0&1&2",
+  //     postingId: null,
+  //   },
+  //   phase2: {
+  //     name: "Pathology Block Postings",
+  //     duration: 4,
+  //     postingType: "PATHOLOGY",
+  //     postingId: null,
+  //   },
+  //   phase3: {
+  //     name: "3rd MBBS Exams",
+  //     duration: 2,
+  //     postingType: null,
+  //     postingId: null,
+  //   },
+  //   numberOfPhases: 3,
+  // },
+  // third: {
+  //   classNameID: "300 Level",
+  //   phase1: {
+  //     name: "Preclinical Postings",
+  //     duration: 12,
+  //     postingType: "PRECLINICAL",
+  //     postingId: null,
+  //   },
+  //   phase2: {
+  //     name: "2nd MBBS Exams",
+  //     duration: 2,
+  //     postingType: null,
+  //     postingId: null,
+  //   },
+  //   numberOfPhases: 2,
+  // },
 } as const;
 
 export type classLevel = "final" | "sixth" | "fifth" | "fourth" | "third";
-export type AcademicClockPhase = "phase1" | "phase2" | "phase3" | "phase4";
+export type AcademicClockPhase = string;
 
 export type AcademicClockPhaseConfig = {
   name: string;
   duration: number;
   postingType: string | null;
   postingId?: mongoose.Types.ObjectId | null;
+  color?: string;
+  subPostings?: string[];
 };
 
 export const resolveClassLevelFromName = (className?: string | null): classLevel | null => {
@@ -163,6 +165,8 @@ export interface IAcademicClock extends Document {
       duration: number;
       postingType: string | null;
       postingId?: mongoose.Types.ObjectId | null;
+      color?: string;
+      subPostings?: string[];
     }
   >;
 }
@@ -198,7 +202,6 @@ const AcademicClockSchema: Schema<IAcademicClock> = new Schema(
     },
     clockPhase: {
       type: String,
-      enum: ["phase1", "phase2", "phase3", "phase4"],
       default: null,
     },
     phaseConfig: {

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import { useState, useRef, useEffect } from "react";
+// Using the Web Animations API directly for the notifications dropdown
 
 import { Button } from "@/components/ui/button";
 import {
@@ -221,7 +222,7 @@ export default function AppShell({ children }: PropsWithChildren) {
   const { user, setUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { unreadCount } = useNotifications();
+  const { notifications, unreadCount, isLoading } = useNotifications(1, 5);
 
   const pageTitle = getPageTitle(location.pathname);
   const isProtected = location.pathname !== "/" && location.pathname !== "/login";
@@ -229,7 +230,14 @@ export default function AppShell({ children }: PropsWithChildren) {
   // Expandable search state
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [notificationsMenuState, setNotificationsMenuState] = useState<"closed" | "opening" | "open" | "closing">("closed");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const notificationsTimerRef = useRef<number | null>(null);
+  const notificationsMenuRef = useRef<HTMLDivElement>(null);
+  const notificationsWrapperRef = useRef<HTMLDivElement | null>(null);
+  const notificationsAnimRef = useRef<Animation | null>(null);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
 
   // Focus input when search expands
   useEffect(() => {
@@ -252,6 +260,122 @@ export default function AppShell({ children }: PropsWithChildren) {
       setSearchExpanded(false);
     }
   };
+
+  const clearNotificationsTimer = () => {
+    if (notificationsTimerRef.current) {
+      window.clearTimeout(notificationsTimerRef.current);
+      notificationsTimerRef.current = null;
+    }
+  };
+
+  const openNotificationsMenu = () => {
+    clearNotificationsTimer();
+    setNotificationsMenuState("opening");
+    setIsNotificationsOpen(true);
+  };
+
+  const closeNotificationsMenu = () => {
+    clearNotificationsTimer();
+    setNotificationsMenuState("closing");
+  };
+
+  const handleNotificationItemClick = (link?: string) => {
+    if (link) navigate(link);
+    else navigate("/notifications");
+    closeNotificationsMenu();
+  };
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      // If click is outside the notifications wrapper, close menu
+      if (!notificationsWrapperRef.current) return;
+      if (!notificationsWrapperRef.current.contains(event.target as Node)) {
+        closeNotificationsMenu();
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      clearNotificationsTimer();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!notificationsMenuRef.current) return;
+    const el = notificationsMenuRef.current;
+    const backdropEl = backdropRef.current;
+
+    // cancel any in-flight animations
+    if (notificationsAnimRef.current) {
+      try { notificationsAnimRef.current.cancel(); } catch (e) {}
+      notificationsAnimRef.current = null;
+    }
+
+    if (notificationsMenuState === "opening") {
+      if (!el) return;
+      // ensure starting styles to avoid jumps
+      el.style.opacity = "0";
+      el.style.transform = "translateY(-8px) scaleY(0.96)";
+      el.style.clipPath = "inset(0 0 100% 0 round 16px)";
+      el.style.transformOrigin = "top right";
+      el.style.willChange = "transform, opacity, clip-path";
+
+      // animate backdrop (if present)
+      if (backdropEl) {
+        try { backdropEl.style.pointerEvents = "auto"; } catch (e) {}
+        const bAnim = backdropEl.animate(
+          [{ opacity: 0 }, { opacity: 1 }],
+          { duration: 200, easing: "linear", fill: "forwards" }
+        );
+        // safe store so we can cancel later
+        notificationsAnimRef.current = bAnim;
+      }
+
+      const anim = el.animate(
+        [
+          { opacity: 0, transform: "translateY(-8px) scaleY(0.96)", clipPath: "inset(0 0 100% 0 round 16px)" },
+          { opacity: 1, transform: "translateY(0) scaleY(1)", clipPath: "inset(0 0 0% 0 round 16px)" },
+        ],
+        { duration: 260, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)", fill: "forwards" }
+      );
+      notificationsAnimRef.current = anim;
+      anim.finished.then(() => {
+        notificationsAnimRef.current = null;
+        if (notificationsMenuState === "opening") setNotificationsMenuState("open");
+      }).catch(() => {});
+      return;
+    }
+
+    if (notificationsMenuState === "closing") {
+      if (!el) return;
+      // animate backdrop out
+      if (backdropEl) {
+        try { backdropEl.style.pointerEvents = "none"; } catch (e) {}
+        const bAnim = backdropEl.animate(
+          [{ opacity: 1 }, { opacity: 0 }],
+          { duration: 200, easing: "linear", fill: "forwards" }
+        );
+        notificationsAnimRef.current = bAnim;
+      }
+
+      const anim = el.animate(
+        [
+          { opacity: 1, transform: "translateY(0) scaleY(1)", clipPath: "inset(0 0 0% 0 round 16px)" },
+          { opacity: 0, transform: "translateY(-8px) scaleY(0.96)", clipPath: "inset(0 0 100% 0 round 16px)" },
+        ],
+        { duration: 220, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" }
+      );
+      notificationsAnimRef.current = anim;
+      anim.finished.then(() => {
+        notificationsAnimRef.current = null;
+        if (notificationsMenuState === "closing") {
+          setNotificationsMenuState("closed");
+          setIsNotificationsOpen(false);
+        }
+      }).catch(() => {});
+    }
+  }, [notificationsMenuState, isNotificationsOpen]);
 
   // ─── Role-based pages registry ────────────────────────────────
   const allPages = [
@@ -322,7 +446,33 @@ export default function AppShell({ children }: PropsWithChildren) {
           80% { transform: rotate(-4deg); }
           90% { transform: rotate(2deg); }
         }
-        .animate-ring { animation: ring 1.2s ease-in-out infinite; }
+        .animate-ring { 
+        animation: ring 1.2s ease-in-out infinite; 
+        }
+        .notification-dropdown-scroll {
+          transform-origin: top right;
+          will-change: transform, opacity, clip-path;
+          backface-visibility: hidden;
+          contain: layout paint;
+          background: var(--background);
+          border: solid 0.5px var(--accent);
+          box-shadow: 0px 8px 20px 4px var(--border);
+          max-height: 28rem;
+          overflow: hidden;
+        }
+        #app-main {
+          contain: layout paint;
+          transform: translateZ(0);
+          isolation: isolate;
+        }
+        #notificationScrollHeader{
+          box-shadow: black 2px -8px 20px 0px;
+        }
+        .page-transition {
+          contain: layout paint;
+          transform: translateZ(0);
+          isolation: isolate;
+        }
       `}</style>
       <div className="flex min-h-screen">
         <div className="flex min-h-screen flex-1 flex-col">
@@ -448,27 +598,93 @@ export default function AppShell({ children }: PropsWithChildren) {
                     )}
                   </div>
 
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => navigate("/notifications")}
-                    aria-label="Notifications"
-                    className="relative h-8 w-8"
-                  >
-                    <Bell
-                      className={cn(
-                        "h-4 w-4 transition-transform",
-                        unreadCount > 0 && "animate-ring"
+                  <div className="relative" ref={notificationsWrapperRef}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Notifications"
+                      className="relative h-8 w-8"
+                      onClick={() => {
+                        if (isNotificationsOpen) {
+                          closeNotificationsMenu();
+                        } else {
+                          openNotificationsMenu();
+                        }
+                      }}
+                    >
+                      <Bell
+                        className={cn(
+                          "h-4 w-4 transition-transform",
+                          unreadCount > 0 && "animate-ring"
+                        )}
+                      />
+                      {unreadCount > 0 ? (
+                        <span className="absolute -top-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : (
+                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
                       )}
-                    />
-                    {unreadCount > 0 ? (
-                      <span className="absolute -top-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                        {unreadCount > 99 ? "99+" : unreadCount}
-                      </span>
-                    ) : (
-                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-primary" />
+                    </Button>
+
+                    {isNotificationsOpen && (
+                      <>
+                        {/* <div
+                          ref={backdropRef}
+                          className={cn(
+                            "fixed inset-0 z-40 bg-background/25 transition-opacity duration-200",
+                            notificationsMenuState === "open" || notificationsMenuState === "opening"
+                              ? "opacity-100"
+                              : "opacity-0"
+                          )}
+                          aria-hidden="true"
+                          style={{ pointerEvents: notificationsMenuState === "open" || notificationsMenuState === "opening" ? "auto" : "none" }}
+                        /> */}
+                        <div></div>
+                        <div
+                          ref={notificationsMenuRef}
+                          className="notification-dropdown-scroll absolute right-0 top-full mt-2 z-[60] w-80 overflow-hidden rounded-xl border border-border/80 bg-background/85 p-0 shadow-2xl"
+                        >
+                        <div id="notificationScrollHeader" className="flex items-center justify-between border-b border-border px-3 py-2">
+                          <div>
+                            <p className="text-sm font-semibold">Notifications</p>
+                            <p className="text-xs text-muted-foreground">
+                              {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+                            </p>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => handleNotificationItemClick("/notifications")}>
+                            View all
+                          </Button>
+                        </div>
+                        {isLoading ? (
+                          <div className="space-y-2 p-3">
+                            <div className="h-8 animate-pulse rounded bg-muted" />
+                            <div className="h-8 animate-pulse rounded bg-muted" />
+                          </div>
+                        ) : notifications.length === 0 ? (
+                          <div className="px-3 py-4 text-sm text-muted-foreground">No recent notifications</div>
+                        ) : (
+                          <div className="max-h-80 overflow-y-auto">
+                            {notifications.slice(0, 5).map((notification) => (
+                              <button
+                                key={notification._id}
+                                type="button"
+                                onClick={() => handleNotificationItemClick(notification.link || "/notifications")}
+                                className="flex w-full cursor-pointer flex-col items-start gap-1 rounded-none px-3 py-2 text-left transition-colors hover:bg-accent"
+                              >
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <span className="truncate text-sm font-medium">{notification.title}</span>
+                                  {!notification.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                                </div>
+                                <span className="text-xs text-muted-foreground">{notification.message}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        </div>
+                      </>
                     )}
-                  </Button>
+                  </div>
 
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -530,11 +746,17 @@ export default function AppShell({ children }: PropsWithChildren) {
                   </DropdownMenu>
                 </div>
               </div>
-            </header>
+            </header> 
           )}
 
-          <main id="app-main" className={cn("flex-1 overflow-y-auto", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}>{children ?? <Outlet />}</main>
-          <MordredFloatingChat />
+          <main
+            id="app-main"
+            className={cn("flex-1 overflow-y-auto will-change-transform", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}
+            style={{ contain: "layout paint" }}
+          >
+            <div key={location.pathname} className="page-transition will-change-transform">{children ?? <Outlet />}</div>
+          </main>
+          {/* <MordredFloatingChat /> */}
           {isProtected && (
             <footer
               id="app-footer"
