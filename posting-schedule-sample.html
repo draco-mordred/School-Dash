@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Posting Schedule Sample</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        background: #202020;
+        color: #f1f1f1;
+      }
+      .page {
+        max-width: 1100px;
+        margin: 24px auto;
+        padding: 24px;
+      }
+      .card {
+        background: rgb(56, 56, 56);
+        border: 1px solid #858585;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        margin-bottom: 20px;
+      }
+      .card-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #e5e7eb;
+        background: rgb(56, 56, 56);
+      }
+      .card-body { padding: 20px 24px; }
+      .title { margin: 0 0 8px; font-size: 24px; }
+      .muted { color: #6b7280; margin: 4px 0; }
+      .pill {
+        display: inline-block;
+        padding: 6px 10px;
+        background: rgb(56, 56, 56);
+        color: #075985;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .panel {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 16px;
+        background: rgb(56, 56, 56);
+      }
+      .phase-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 16px;
+        margin-top: 12px;
+        background: rgb(56, 56, 56);
+      }
+      .unit-card {
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 10px;
+        background: rgb(56, 56, 56);
+      }
+      .student-chip {
+        display: inline-block;
+        margin: 6px 6px 0 0;
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        font-size: 13px;
+        background: rgb(56, 56, 56);
+      }
+      .dept-card {
+        border-left: 4px solid #3b82f6;
+        padding: 14px;
+        margin-top: 12px;
+        background: rgb(56, 56, 56);
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="card">
+        <div class="card-header">
+          <h1 class="title">Dummy Junior O&amp;G &amp; Paediatrics Posting</h1>
+          <p class="muted">Type: Combined clinical posting | Duration: 12 weeks</p>
+          <p class="muted">2026-07-06 - 2026-09-28</p>
+          <span class="pill">Phase 1 → Phase 2</span>
+        </div>
+        <div class="card-body">
+          <div class="grid">
+            <div class="panel">
+              <h3>Group A</h3>
+              <p class="muted">Students: 4</p>
+              <p><strong>Phase 1:</strong> Obstetrics &amp; Gynaecology</p>
+              <p><strong>Phase 2:</strong> Paediatrics</p>
+            </div>
+            <div class="panel">
+              <h3>Group B</h3>
+              <p class="muted">Students: 4</p>
+              <p><strong>Phase 1:</strong> Paediatrics</p>
+              <p><strong>Phase 2:</strong> Obstetrics &amp; Gynaecology</p>
+            </div>
+          </div>
+
+          <div class="phase-card">
+            <h3>Phase 1</h3>
+            <div class="unit-card">
+              <h4>Ward rotation</h4>
+              <p class="muted">Obstetrics &amp; Gynaecology • 6 weeks</p>
+              <p><strong>Supervisor:</strong> Dr. A. Njeri</p>
+              <div>
+                <span class="student-chip">Alice Wanjiku</span>
+                <span class="student-chip">Brian Oduor</span>
+              </div>
+            </div>
+            <div class="unit-card">
+              <h4>Clinic rotation</h4>
+              <p class="muted">Paediatrics • 6 weeks</p>
+              <p><strong>Supervisor:</strong> Dr. S. Mwangi</p>
+              <div>
+                <span class="student-chip">Cynthia Mugo</span>
+                <span class="student-chip">Daniel Kiptoo</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="phase-card">
+            <h3>Phase 2</h3>
+            <div class="unit-card">
+              <h4>Labour ward</h4>
+              <p class="muted">Obstetrics &amp; Gynaecology • 6 weeks</p>
+              <p><strong>Supervisor:</strong> Dr. A. Njeri</p>
+            </div>
+            <div class="unit-card">
+              <h4>Neonatal unit</h4>
+              <p class="muted">Paediatrics • 6 weeks</p>
+              <p><strong>Supervisor:</strong> Dr. S. Mwangi</p>
+            </div>
+          </div>
+
+          <div class="dept-card">
+            <h3>Obstetrics &amp; Gynaecology</h3>
+            <p class="muted">Code: OG | Duration: 6 weeks</p>
+            <p><strong>Consultant:</strong> Dr. A. Njeri</p>
+            <p><strong>Resident:</strong> Dr. M. Otieno</p>
+          </div>
+
+          <div class="dept-card">
+            <h3>Paediatrics</h3>
+            <p class="muted">Code: PED | Duration: 6 weeks</p>
+            <p><strong>Consultant:</strong> Dr. S. Mwangi</p>
+            <p><strong>Resident:</strong> Dr. T. Kimani</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
