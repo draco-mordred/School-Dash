@@ -582,13 +582,35 @@ export const triggerAttendanceGeneration = async (req: Request, res: Response) =
       res.status(400).json({ message: "courseId, classId, academicYearId, and date are required." });
       return;
     }
+
+    const localDevNoInngest = process.env.NODE_ENV !== "production" && !process.env.INNGEST_EVENT_KEY;
+    if (localDevNoInngest) {
+      console.warn("Skipping Inngest in local development because INNGEST_EVENT_KEY is not set.");
+      return await generateAttendanceForClassSession(req, res);
+    }
+
     const userId = (req as any).user._id?.toString();
     await inngest.send({
       name: "attendance/generate",
       data: { courseId, classId, academicYearId, date, userId },
     });
+
     res.status(202).json({ message: "Attendance generation started.", status: "processing" });
-  } catch (error) {
+  } catch (error: any) {
+    const errorString = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+    const shouldFallback =
+      process.env.NODE_ENV !== "production" &&
+      (!process.env.INNGEST_EVENT_KEY ||
+        error?.code === "ConnectionRefused" ||
+        String(error?.path || "").includes("8288") ||
+        /NO_EVENT_KEY_SET|ECONNREFUSED|ConnectionRefused|connect.*8288/i.test(errorString));
+
+    if (shouldFallback) {
+      console.warn("Inngest unavailable, falling back to direct attendance generation.", error);
+      return await generateAttendanceForClassSession(req, res);
+    }
+
+    console.error("Attendance generation failed:", error);
     res.status(500).json({ message: "Server error", error });
   }
 };
