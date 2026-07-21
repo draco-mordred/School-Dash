@@ -14,14 +14,14 @@ describe("rotation schedule view helpers", () => {
   it("builds a timeline window view with department and unit group labels", () => {
     const view = buildTimelineWindowView(
       { _id: "schedule-1", name: "Posting A", postings: [{ name: "Posting A" }] },
-      { startDate: "2026-07-01T00:00:00.000Z", endDate: "2026-07-07T00:00:00.000Z", departmentId: "MED", departmentGroupIndex: 1, unitGroupIndex: 2, unitId: "unit-10", studentIds: ["1", "2"], supervisorName: "Dr. Ada" },
+      { startDate: "2026-07-01T00:00:00.000Z", endDate: "2026-07-07T00:00:00.000Z", departmentId: "MED", departmentGroupIndex: 1, unitGroupIndex: 2, unitName: "Labour Ward", unitId: "unit-10", studentIds: ["1", "2"], supervisorName: "Dr. Ada" },
       0,
     );
 
     expect(view.postingName).toBe("Posting A");
     expect(view.departmentName).toBe("Medicine");
-    expect(view.departmentGroupLabel).toBe("Department Group 2");
-    expect(view.unitGroupLabel).toBe("Unit Group 3");
+    expect(view.departmentGroupLabel).toBe("Medicine");
+    expect(view.unitGroupLabel).toBe("Labour Ward");
     expect(view.supervisorName).toBe("Dr. Ada");
   });
 
