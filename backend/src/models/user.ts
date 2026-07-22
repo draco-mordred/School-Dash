@@ -126,6 +126,7 @@ export interface IUser extends Document {
     name: string;
     email: string;
     idNumber: string; // field for ID number
+    inn?: string | null; // Institution Identity Number used for cards and attendance
     password: string;
     passwordResetToken?: string | null;
     passwordResetExpiresAt?: Date | null;
@@ -187,6 +188,11 @@ const UserSchema: Schema<IUser> = new Schema({
         // unique: false,
         //enum: Object.values(UserIDs), // Ensure the idNumber can only be one of the specified values in UserIDs
         default: UserIDs.STUDENTID, // Default to STUDENTID if not provided, but can be overridden..
+    },
+    inn: {
+        type: String,
+        default: null,
+        sparse: true,
     },
     password: {
         type: String,

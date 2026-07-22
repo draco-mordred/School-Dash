@@ -24,10 +24,13 @@ import {
   X,
   Loader2,
   ChevronRight,
+  BadgeCheck,
+  Mail,
 } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import type { user } from "@/types";
 import { cn } from "@/lib/utils";
+import { useInstitution } from "@/lib/useInstitution";
 
 // ─── Types ─────────────────────────────────────────────────────
 type NavItemId = "profile" | "photo" | "academic" | "linked" | "password";
@@ -75,6 +78,7 @@ function buildNavSections(role?: string): NavSection[] {
 // ─── Main component ───────────────────────────────────────────
 const Account = () => {
   const { user, setUser } = useAuth();
+  const { institution } = useInstitution();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeSection, setActiveSection] = useState<NavItemId>("profile");
   const [openSections, setOpenSections] = useState<Record<NavItemId, boolean>>({ profile: true });
@@ -144,6 +148,10 @@ const Account = () => {
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
+
+  const institutionBackgroundUrl = institution?.backgroundImageUrl || institution?.logoUrl || null;
+  const institutionDisplayName = institution?.name || institution?.shortName || "Institution";
+  const institutionLogoUrl = institution?.logoUrl || null;
 
   const getDisplayClasses = () => {
     if (user?.role === "student") {
@@ -362,6 +370,7 @@ const Account = () => {
         <h2 className="text-xl font-semibold">Personal Info</h2>
         <p className="text-sm text-muted-foreground mt-1">Update your name and contact details</p>
       </div>
+
       <div className="rounded-xl border bg-card">
         <div className="px-6 py-5 space-y-5">
           <div className="flex items-center gap-4">
@@ -641,6 +650,90 @@ const Account = () => {
       {/* Main single-column content */}
       <main className="mt-6 p-6 space-y-6 max-w-[1100px] mx-auto">
         <AtAGlance />
+        <div className="mx-auto w-full max-w-4xl overflow-hidden rounded-[28px] border border-border/70 bg-card/95 text-card-foreground shadow-[0_24px_80px_rgba(2,6,23,0.25)]">
+          <div
+            className="relative min-h-[420px] bg-cover bg-center p-6 sm:p-8"
+            style={institutionBackgroundUrl ? {
+              backgroundImage: `url(${institutionBackgroundUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            } : undefined}
+          >
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,255,255,0.42))] dark:bg-[linear-gradient(135deg,rgba(2,6,23,0.8),rgba(15,23,42,0.72))]" />
+            <div className="relative flex h-full flex-col justify-between gap-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-background/70 backdrop-blur-sm">
+                    {institutionLogoUrl ? (
+                      <img src={institutionLogoUrl} alt={`${institutionDisplayName} logo`} className="h-full w-full object-cover" />
+                    ) : (
+                      <BadgeCheck className="h-6 w-6 text-primary" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Institution ID</p>
+                    <h3 className="mt-1 text-xl font-semibold tracking-tight">{institutionDisplayName}</h3>
+                  </div>
+                </div>
+                <Avatar className="h-20 w-20 border-2 border-border/70 shadow-lg">
+                  <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
+                  <AvatarFallback className="text-xl">{getInitials(user?.name)}</AvatarFallback>
+                </Avatar>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Cardholder</p>
+                    <h4 className="mt-2 text-3xl font-semibold tracking-tight">{user?.name || "Unnamed user"}</h4>
+                    <p className="mt-2 text-sm text-muted-foreground">{user?.email || "No email on record"}</p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">INN</p>
+                      <p className="mt-1 font-mono text-sm font-semibold">{user?.inn || user?.idNumber || "Pending"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Role</p>
+                      <p className="mt-1 text-sm font-semibold capitalize">{user?.role || "user"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">ID Number</p>
+                      <p className="mt-1 text-sm font-semibold">{user?.idNumber || "N/A"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">{user?.role === "student" ? "Class" : "Department"}</p>
+                      <p className="mt-1 text-sm font-semibold">{getDisplayClasses() === "N/A" ? "Not assigned" : getDisplayClasses()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-border/70 bg-background/70 p-5 backdrop-blur-md">
+                  <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">Official details</p>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Status</span>
+                      <span className="font-semibold text-primary">Active</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Issued</span>
+                      <span className="font-semibold">Today</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Valid</span>
+                      <span className="font-semibold">Academic year</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Access</span>
+                      <span className="font-semibold text-foreground">Clinical & learning</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div className="space-y-4">
           {flatSections.map((item) => (
             <div key={item.id} className="rounded-xl border bg-card overflow-hidden">

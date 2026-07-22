@@ -47,6 +47,7 @@ export default function StudentClinicalAttendancePage() {
   const [generating, setGenerating] = useState(false);
   const [qrPayload, setQrPayload] = useState<string | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState<string | null>(null);
   const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
 
   const loadAttendanceData = async () => {
@@ -159,6 +160,7 @@ export default function StudentClinicalAttendancePage() {
 
       setQrPayload(payload);
       setQrImageUrl(dataUrl);
+      setOtpCode(response.data?.data?.otp ?? null);
       setLastGeneratedAt(new Date().toISOString());
       toast.success("Attendance QR generated successfully.");
     } catch (error: any) {
@@ -259,6 +261,14 @@ export default function StudentClinicalAttendancePage() {
                 <div className="space-y-2 text-center">
                   <img src={qrImageUrl} alt="Attendance QR code" className="mx-auto h-44 w-44 rounded-md border bg-white p-2" />
                   <p className="text-xs text-muted-foreground">Generated {lastGeneratedAt ? format(new Date(lastGeneratedAt), "p") : "just now"}</p>
+                  {otpCode ? (
+                    <div className="mt-2 flex items-center justify-center gap-2">
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-sm font-mono tracking-wider">{otpCode}</div>
+                      <Button variant="outline" size="sm" onClick={() => { navigator.clipboard?.writeText(otpCode); toast.success("Copied OTP"); }}>
+                        Copy
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="text-center text-sm text-muted-foreground">

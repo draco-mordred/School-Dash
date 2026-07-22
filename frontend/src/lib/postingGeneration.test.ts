@@ -30,6 +30,21 @@ describe("posting generation helpers", () => {
     ]);
   });
 
+  it("falls back to class-level phase subPostings when academic clock phase config omits them", () => {
+    const options = getPostingPhaseOptions(
+      { phaseConfig: { phase1: { name: "O&G Junior" } } },
+      [{ id: "phase1", name: "O&G Junior", subPostings: ["O&G Junior", "Pediatrics Junior"] }],
+    );
+
+    expect(options).toEqual([
+      {
+        id: "phase1",
+        label: "O&G Junior",
+        subPostings: ["O&G Junior", "Pediatrics Junior"],
+      },
+    ]);
+  });
+
   it("matches phase sub-postings to institution departments", () => {
     const departments = getEligibleDepartmentsForPhase(
       {
@@ -93,6 +108,29 @@ describe("posting generation helpers", () => {
     );
 
     expect(departments.map((department) => department.canonicalName)).toEqual(["Department of Community Medicine"]);
+  });
+
+  it("matches KLAS-style posting labels like O&G Junior to the correct department", () => {
+    const departments = getEligibleDepartmentsForPhase(
+      {
+        phaseConfig: {
+          phase1: {
+            name: "O&G Junior",
+            subPostings: ["O&G Junior", "Pediatrics Junior"],
+          },
+        },
+      },
+      [
+        { _id: "dept-1", name: "Department of Obstetrics and Gynecology", code: "OBG" },
+        { _id: "dept-2", name: "Department of Pediatrics", code: "PAE" },
+      ],
+      "phase1",
+    );
+
+    expect(departments.map((department) => department.canonicalName)).toEqual([
+      "Department of Obstetrics and Gynecology",
+      "Department of Pediatrics",
+    ]);
   });
 
   it("returns one department entry per phase posting even when one posting has no department match", () => {

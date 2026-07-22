@@ -249,7 +249,7 @@ export const sidebardata = {
         { title: "Current Posting", url: "/clinical-rotations" },
         { title: "Rotations", url: "/clinical-rotations" },
         { title: "Team", url: "/student/clinicals/team" },
-        { title: "Clinical Attendance", url: "/student/clinicals/attendance" },
+        // { title: "Clinical Attendance", url: "/student/clinicals/attendance" },
         { title: "Clinical History", url: "/student/clinicals/history" },
       ],
     },
@@ -286,7 +286,7 @@ export const sidebardata = {
       items: [
         { title: "Weekly Timetable", url: "/timetable" },
         { title: "Today", url: "/student/schedule/today" },
-        { title: "Download", url: "/student/timetable/download" },
+        // { title: "Download", url: "/student/timetable/download" },
       ],
     },
     {
@@ -301,24 +301,19 @@ export const sidebardata = {
         { title: "History", url: "/student/attendance/history" },
       ],
     },
-    {
-      title: "Notices",
-      url: "/notifications",
-      icon: Bell,
-      roles: ["student"],
+        {
+      title: "Attendance",
+      url: "#",
+      icon: ClipboardList,
+      roles: ["teacher", "unitconsultant", "unitresident"],
+      items: [
+        { title: "Overview", url: "/attendance/overview" },
+        { title: "Academic", url: "/attendance" },
+        { title: "Clinical", url: "/attendance/clinical" },
+        { title: "History", url: "/attendance/history" },
+      ],
     },
-    {
-      title: "Profile",
-      url: "/settings/account",
-      icon: Users,
-      roles: ["student"],
-    },
-    {
-      title: "Institution Profile",
-      url: "/school-profile",
-      icon: Building2,
-      roles: ["student", "parent"],
-    },
+
     {
       title: "People",
       url: "#",
@@ -343,8 +338,22 @@ export const sidebardata = {
       title: "System",
       url: "#",
       icon: Settings2,
-      roles: ["teacher"],
+      roles: ["student"],
       items: [
+        { title: "Profile", url: "/settings/account" },
+        { title: "Notices", url: "/notifications" },
+        { title: "Institution Profile", url: "/school-profile" },
+        // { title: "Academic Years", url: "/settings/academic-years" },
+      ],
+    },
+
+    {
+      title: "System",
+      url: "#",
+      icon: Settings2,
+      roles: ["teacher", "unitconsultant", "unitresident"],
+      items: [
+        { title: "Profile", url: "/settings/account" },
         { title: "Notifications", url: "/notifications" },
         { title: "School Profile", url: "/school-profile" },
         { title: "Academic Years", url: "/settings/academic-years" },

@@ -20,6 +20,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff } from "lucide-react";
+import jsQR from "jsqr";
+import { BrowserQRCodeReader } from "@zxing/library";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { resolveActiveAcademicClockPhase } from "@/lib/academicClock";
 
@@ -79,6 +88,11 @@ const allowedRoles = ["admin", "teacher", "unitconsultant", "unitresident"];
 const APPROVAL_QUEUE_STORAGE_KEY = "clinical-attendance-queue-v1";
 const LAST_SYNC_STORAGE_KEY = "clinical-attendance-last-update";
 
+interface FeedbackState {
+  type: "success" | "info" | "error";
+  message: string;
+}
+
 export default function SupervisorQrAttendancePage() {
   const { user, loading } = useAuth();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -91,6 +105,9 @@ export default function SupervisorQrAttendancePage() {
   const [notes, setNotes] = useState("");
   const [scannerActive, setScannerActive] = useState(false);
   const [scannerError, setScannerError] = useState("");
+  const [showCameraModal, setShowCameraModal] = useState(false);
+  const [mirrorPreview, setMirrorPreview] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<FeedbackState | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== "undefined" ? navigator.onLine : true);
   const [submitting, setSubmitting] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
@@ -111,8 +128,17 @@ export default function SupervisorQrAttendancePage() {
     unit: "",
     clinicalRotation: "",
   });
+  const feedbackTimeoutRef = useRef<number | null>(null);
 
   const canAccess = allowedRoles.includes(user?.role ?? "");
+
+  const showFeedback = (feedback: FeedbackState) => {
+    if (feedbackTimeoutRef.current) {
+      window.clearTimeout(feedbackTimeoutRef.current);
+    }
+    setScanFeedback(feedback);
+    feedbackTimeoutRef.current = window.setTimeout(() => setScanFeedback(null), 1800);
+  };
 
   const readQueue = () => {
     if (typeof window === "undefined") {
@@ -166,6 +192,14 @@ export default function SupervisorQrAttendancePage() {
       window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, String(Date.now()));
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimeoutRef.current) {
+        window.clearTimeout(feedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const handleOnlineStatus = () => {
@@ -397,6 +431,7 @@ export default function SupervisorQrAttendancePage() {
     }
     setScannerActive(false);
     setScannerError("");
+    setShowCameraModal(false);
   };
 
   const refreshSessions = async () => {
@@ -460,73 +495,157 @@ export default function SupervisorQrAttendancePage() {
       return;
     }
 
-    try {
-      setScannerError("");
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
+    setScannerError("");
+    showFeedback({ type: "info", message: "Position the QR code in the center of the frame." });
+    setShowCameraModal(true);
+  };
 
-      if (!videoRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        setScannerError("Camera preview is not ready yet. Please try again.");
-        return;
-      }
+  useEffect(() => {
+    let detector: any | null = null;
+    let active = false;
 
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play().catch(() => {
-        // Ignore playback issues and continue with the preview stream.
-      });
-
-      const barcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
-      scannerActiveRef.current = true;
-      setScannerActive(true);
-
-      if (!barcodeDetectorSupported) {
-        setScannerError("Camera preview opened, but this browser does not support native QR scanning. Please paste the QR payload manually.");
-        return;
-      }
-
-      const BarcodeDetectorCtor = (window as Window & {
-        BarcodeDetector?: new (options?: { formats?: string[] }) => {
-          detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>>;
-        };
-      }).BarcodeDetector;
-
-      if (!BarcodeDetectorCtor) {
-        setScannerError("Camera preview opened, but QR scanning is not supported in this browser. Please paste the QR payload manually.");
-        return;
-      }
-
-      const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
-
-      const scanFrame = async () => {
-        if (!scannerActiveRef.current || !videoRef.current) {
+    const openCameraAndScan = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        // Wait for video element to mount
+        if (!videoRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          setScannerError("Camera preview is not ready yet. Please try again.");
+          setShowCameraModal(false);
           return;
         }
 
-        try {
-          const barcodes = await detector.detect(videoRef.current);
-          const detectedCode = barcodes[0]?.rawValue;
-          if (detectedCode) {
-            setQrInput(detectedCode);
-            stopScanner();
+        videoRef.current.srcObject = stream;
+        try { await videoRef.current.play(); } catch {}
+
+        const barcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
+        scannerActiveRef.current = true;
+        setScannerActive(true);
+
+        if (barcodeDetectorSupported) {
+          const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+          if (BarcodeDetectorCtor) {
+            detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
+            active = true;
+
+            const scanFrame = async () => {
+              if (!active || !scannerActiveRef.current || !videoRef.current) return;
+              try {
+                const barcodes = await detector.detect(videoRef.current);
+                const detectedCode = barcodes[0]?.rawValue;
+                if (detectedCode) {
+                  setQrInput(detectedCode);
+                  showFeedback({ type: "success", message: "QR detected successfully." });
+                  setShowCameraModal(false);
+                  stopScanner();
+                  return;
+                }
+              } catch {
+                // ignore
+              }
+              window.setTimeout(scanFrame, 400);
+            };
+
+            void scanFrame();
             return;
           }
-        } catch {
-          // Ignore scan errors and keep running.
         }
 
-        window.setTimeout(scanFrame, 400);
-      };
+        // Native BarcodeDetector not available — try ZXing, then jsQR as a last resort
+        try {
+          const codeReader = new BrowserQRCodeReader();
+          // decode continuously from the video element
+          codeReader.decodeFromVideoElementContinuously(videoRef.current as HTMLVideoElement, (result: any, error: any) => {
+            if (result) {
+              const text = typeof result === "string" ? result : (result.getText ? result.getText() : (result as any).text ?? "");
+              if (text) {
+                setQrInput(text);
+                showFeedback({ type: "success", message: "QR detected successfully." });
+                setShowCameraModal(false);
+                stopScanner();
+                try { codeReader.reset(); } catch {}
+              }
+            }
+          });
+          detector = codeReader;
+          active = true;
+          return;
+        } catch (zxErr) {
+          // continue to jsQR fallback
+        }
 
-      void scanFrame();
-    } catch (error: unknown) {
-      console.error("Unable to open camera scanner", error);
-      const message = error instanceof Error ? error.message : "Unable to open the camera for QR scanning.";
-      setScannerError(message);
+        // jsQR fallback: sample frames via canvas
+        try {
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            setScannerError("Camera preview opened, but QR decoding is not available in this browser. Please paste the QR payload manually.");
+            return;
+          }
+
+          active = true;
+
+          const scanFallback = () => {
+            if (!active || !scannerActiveRef.current || !videoRef.current) return;
+            const vw = videoRef.current.videoWidth || videoRef.current.clientWidth;
+            const vh = videoRef.current.videoHeight || videoRef.current.clientHeight;
+            if (!vw || !vh) {
+              window.setTimeout(scanFallback, 300);
+              return;
+            }
+            canvas.width = vw;
+            canvas.height = vh;
+            try {
+              ctx.drawImage(videoRef.current, 0, 0, vw, vh);
+              const imageData = ctx.getImageData(0, 0, vw, vh);
+              const code = jsQR(imageData.data, imageData.width, imageData.height);
+              if (code?.data) {
+                setQrInput(code.data);
+                showFeedback({ type: "success", message: "QR detected successfully." });
+                setShowCameraModal(false);
+                stopScanner();
+                return;
+              }
+            } catch {
+              // ignore drawing/read errors
+            }
+            window.setTimeout(scanFallback, 300);
+          };
+
+          void scanFallback();
+        } catch (jsErr) {
+          setScannerError("Camera preview opened, but QR decoding is not available in this browser. Please paste the QR payload manually.");
+          return;
+        }
+      } catch (err: any) {
+        console.error("Unable to open camera scanner", err);
+        setScannerError(err?.message || "Unable to open the camera for QR scanning.");
+        setShowCameraModal(false);
+      }
+    };
+
+    if (showCameraModal) {
+      void openCameraAndScan();
+    } else {
+      // modal closed
+      active = false;
+      scannerActiveRef.current = false;
+      const stream = videoRef.current?.srcObject as MediaStream | null;
+      stream?.getTracks().forEach((track) => track.stop());
+      if (videoRef.current) videoRef.current.srcObject = null;
+      setScannerActive(false);
     }
-  };
+
+    return () => {
+      active = false;
+      try {
+        if (detector && typeof detector.reset === "function") {
+          detector.reset();
+        }
+      } catch {}
+      detector = null;
+    };
+  }, [showCameraModal]);
 
   const submitApproval = async (payload: string, approvalStatus: string, approvalNotes: string) => {
     if (!selectedSession) {
@@ -582,6 +701,17 @@ export default function SupervisorQrAttendancePage() {
       toast.error(error.response?.data?.message || "Unable to approve this student attendance. The approval has been queued for later sync.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleQrInputChange = (value: string) => {
+    const normalized = value.replace(/\s/g, "");
+    const otpOnly = normalized.replace(/\D/g, "").slice(0, 6);
+    const nextValue = /^\d{6}$/.test(normalized) ? otpOnly : value;
+    setQrInput(nextValue);
+
+    if (/^\d{6}$/.test(nextValue.trim())) {
+      showFeedback({ type: "success", message: "6-digit OTP detected." });
     }
   };
 
@@ -844,6 +974,10 @@ export default function SupervisorQrAttendancePage() {
                   placeholder='Paste the student QR payload here or scan it into the field'
                   className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
                 />
+                  <p className="mt-2 text-xs text-muted-foreground">Or enter the student's 6-digit OTP code shown with their QR (fallback when scanning fails).</p>
+                  {/^\d{6}$/.test(qrInput.trim()) ? (
+                    <p className="mt-1 text-xs text-green-700">Detected 6-digit OTP — using OTP fallback.</p>
+                  ) : null}
               </div>
 
               <div className="rounded-lg border border-dashed p-4">
@@ -855,22 +989,53 @@ export default function SupervisorQrAttendancePage() {
                   The student generates a QR payload from their attendance page. The supervisor pastes or scans it into this field to record the student as present, absent, or approved absent for the selected clinical activity.
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={() => void startScanner()} disabled={scannerActive}>
-                    {scannerActive ? <Camera className="mr-2 h-4 w-4" /> : <Camera className="mr-2 h-4 w-4" />}
-                    {scannerActive ? "Scanning..." : "Use camera"}
+                  <Button type="button" variant="outline" onClick={() => void startScanner()} disabled={showCameraModal || scannerActive}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    {showCameraModal || scannerActive ? "Scanning..." : "Use camera"}
                   </Button>
-                  {scannerActive && (
-                    <Button type="button" variant="ghost" onClick={stopScanner}>
+                  {showCameraModal && (
+                    <Button type="button" variant="ghost" onClick={() => { setShowCameraModal(false); stopScanner(); }}>
                       <CameraOff className="mr-2 h-4 w-4" />
                       Stop camera
                     </Button>
                   )}
                 </div>
                 {scannerError ? <p className="mt-2 text-sm text-red-600">{scannerError}</p> : null}
-                {scannerActive ? (
-                  <div className="mt-3 overflow-hidden rounded-md border bg-black">
-                    <video ref={videoRef} className="h-52 w-full object-cover" playsInline muted />
-                  </div>
+                {showCameraModal ? (
+                  <Dialog open={showCameraModal} onOpenChange={(open) => { if (!open) setShowCameraModal(false); }}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Camera preview</DialogTitle>
+                        <DialogDescription>Point the device camera at the student's QR code.</DialogDescription>
+                      </DialogHeader>
+                      <div className="relative mt-3 overflow-hidden rounded-md border bg-black">
+                        <video
+                          ref={videoRef}
+                          className="h-52 w-full object-cover"
+                          playsInline
+                          muted
+                          style={{ transform: mirrorPreview ? "scaleX(-1)" : undefined }}
+                        />
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                          <div className="rounded-full border-2 border-white/90 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.24em] text-white shadow-lg backdrop-blur-sm">
+                            Center the QR code here
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex justify-between items-center gap-2">
+                        <div>
+                          <Button size="sm" variant="outline" onClick={() => setMirrorPreview((s) => !s)}>
+                            {mirrorPreview ? "Unflip preview" : "Flip preview"}
+                          </Button>
+                        </div>
+                        <div>
+                          <Button type="button" variant="ghost" onClick={() => { setShowCameraModal(false); stopScanner(); }}>
+                            Stop camera
+                          </Button>
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 ) : null}
               </div>
 

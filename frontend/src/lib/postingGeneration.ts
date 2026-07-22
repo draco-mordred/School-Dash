@@ -62,11 +62,24 @@ const getCanonicalDepartmentAliases = (value?: string | null): string[] => {
     psychiatry: ["psychiatry", "psych"],
   };
 
+  const addAliasSet = (aliasValues: string[], canonical: string) => {
+    aliases.add(canonical);
+    aliasValues.forEach((aliasValue) => aliases.add(aliasValue));
+  };
+
   Object.entries(aliasMap).forEach(([canonical, aliasValues]) => {
     const hasAliasMatch = aliasValues.some((aliasValue) => aliasValue === normalized || aliasValue === withoutDepartmentPrefix);
     if (hasAliasMatch) {
-      aliases.add(canonical);
-      aliasValues.forEach((aliasValue) => aliases.add(aliasValue));
+      addAliasSet(aliasValues, canonical);
+      return;
+    }
+
+    const isPhaseAlias = aliasValues.some((aliasValue) => {
+      return normalized === aliasValue || normalized.startsWith(`${aliasValue} `) || normalized.includes(` ${aliasValue} `);
+    });
+
+    if (isPhaseAlias) {
+      addAliasSet(aliasValues, canonical);
     }
   });
 
@@ -126,14 +139,16 @@ export const getPostingPhaseOptions = (
     return entries.map(([id, config]) => ({
       id,
       label: config?.name ?? id,
-      subPostings: Array.isArray(config?.subPostings) ? config.subPostings.filter(Boolean) : [],
+      subPostings: Array.isArray(config?.subPostings)
+        ? config.subPostings.filter(Boolean)
+        : fallbackPhases.find((phase) => phase.id === id)?.subPostings ?? [],
     }));
   }
 
   return fallbackPhases.map((phase) => ({
     id: phase.id,
     label: phase.name,
-    subPostings: [],
+    subPostings: phase.subPostings ?? [],
   }));
 };
 
@@ -141,15 +156,18 @@ export const getEligibleDepartmentsForPhase = (
   clock?: PostingGenerationClockLike | null,
   institutionDepartments: InstitutionDepartmentLike[] = [],
   phaseId?: string | null,
+  fallbackPhases: Array<{ id: string; name: string; subPostings?: string[] }> = [],
 ): PostingDepartmentOption[] => {
   const config = phaseId ? clock?.phaseConfig?.[phaseId] : null;
   const subPostings = Array.isArray(config?.subPostings) ? config.subPostings.filter(Boolean) : [];
+  const fallbackSubPostings = fallbackPhases.find((phase) => phase.id === phaseId)?.subPostings ?? [];
+  const resolvedSubPostings = subPostings.length > 0 ? subPostings : fallbackSubPostings;
 
-  if (subPostings.length === 0) {
+  if (resolvedSubPostings.length === 0) {
     return [];
   }
 
-  const normalizedSubPostings = subPostings
+  const normalizedSubPostings = resolvedSubPostings
     .map((value) => normalizeText(value))
     .filter(Boolean);
 
@@ -159,7 +177,7 @@ export const getEligibleDepartmentsForPhase = (
 
   const resolvedDepartments: PostingDepartmentOption[] = [];
 
-  subPostings.forEach((postingName, index) => {
+  resolvedSubPostings.forEach((postingName, index) => {
     const metadataMatch = getDepartmentMetadataMatch(postingName);
     const institutionMatch = institutionDepartments.find((department) => matchesDepartmentToPosting(postingName, department));
     const fallbackDepartment = institutionMatch ?? (metadataMatch ? {

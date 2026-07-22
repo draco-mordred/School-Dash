@@ -905,6 +905,9 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
             user.name = req.body.name || user.name;
             user.email = req.body.email || user.email;
             user.idNumber = req.body.idNumber || user.idNumber;
+            if (req.body.inn !== undefined) {
+                user.inn = req.body.inn ? String(req.body.inn).trim() : null;
+            }
             if (req.body.role !== undefined) {
                 const normalizedRole = normalizeRole(req.body.role);
                 if (normalizedRole) {
@@ -1080,6 +1083,7 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                 isActive: updatedUser.isActive,
                 studentClasses: updatedUser.studentClasses,
                 idNumber: updatedUser.idNumber,
+                inn: updatedUser.inn,
                 profileImage: updatedUser.profileImage,
                 parentStudents: updatedUser.parentStudents,
                 teacherSubject: updatedUser.teacherSubject,
@@ -1236,6 +1240,7 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
                     email: user.email,
                     role: user.role,
                     idNumber: user.idNumber,
+                    inn: user.inn,
                     profileImage: user.profileImage,
                     studentClasses: user.studentClasses,
                     teacherSubject: user.teacherSubject,

@@ -2190,8 +2190,8 @@ export default function ClinicalRotations() {
   );
   const selectedPostingPhaseOption = postingPhaseOptions.find((option) => option.id === postingGeneratePhaseId) ?? postingPhaseOptions[0] ?? null;
   const availablePostingDepartments = useMemo<PostingDepartmentOption[]>(
-    () => getEligibleDepartmentsForPhase(selectedClock, institutionDepartments, selectedPostingPhaseOption?.id),
-    [selectedClock, institutionDepartments, selectedPostingPhaseOption?.id],
+    () => getEligibleDepartmentsForPhase(selectedClock, institutionDepartments, selectedPostingPhaseOption?.id, selectedClassPhasePlan),
+    [selectedClock, institutionDepartments, selectedPostingPhaseOption?.id, selectedClassPhasePlan],
   );
 
   const isRecordEqual = <T,>(left: Record<string, T>, right: Record<string, T>) => {

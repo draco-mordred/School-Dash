@@ -12,6 +12,7 @@ export interface user {
   name: string;
   email: string;
   idNumber?: string;
+  inn?: string | null;
   role: UserRole;
   profileImage?: string;
   studentClass?: Class;
