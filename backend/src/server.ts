@@ -37,6 +37,7 @@ import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 import clinicalAttendanceRouter from "./routes/clinicalAttendance"; // import clinical attendance routes
 import { createBodyParsers } from "./utils/bodyParser";
+import { backfillMissingInns } from "./controllers/user";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
@@ -321,6 +322,7 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 // Start the server and listen on the specified port
 if (!isVercelRuntime) {
   connectDB().then(async () => {
+    await backfillMissingInns();
     app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
     });
@@ -358,7 +360,9 @@ if (!isVercelRuntime) {
       console.error("Failed to connect to the database:", error);
   });
 } else {
-  connectDB().catch((error) => {
+  connectDB().then(async () => {
+      await backfillMissingInns();
+  }).catch((error) => {
       console.error("Failed to connect to the database on Vercel startup:", error);
   });
 }
