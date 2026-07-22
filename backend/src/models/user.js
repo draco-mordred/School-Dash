@@ -1,5 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 import * as bcrypt from "bcryptjs";
+import { buildInnNumber } from "../utils/innGenerator.js";
 // Define the User interface that extends the Mongoose Document
 export const UserRole = {
     ADMIN: "admin",
@@ -230,10 +231,19 @@ const UserSchema = new Schema({
 });
 // Pre-save middleware to hash the password before saving the user document
 UserSchema.pre("save", async function () {
-    if (!this.isModified("password"))
-        return; // Only hash the password if it has been modified (or is new)
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
+    if (this.isModified("password")) {
+        const salt = await bcrypt.genSalt(10);
+        this.password = await bcrypt.hash(this.password, salt);
+    }
+    if (!this.inn || this.isModified("inn") || this.isNew) {
+        const institutionName = this.institutionName || process.env.INSTITUTION_NAME || "University";
+        const role = this.role || "student";
+        const idNumber = this.idNumber || "";
+        const existingUsers = await mongoose.model("User").find({ role }).select("_id inn").sort({ createdAt: 1, _id: 1 }).lean();
+        const sequence = existingUsers.length + 1;
+        const inn = buildInnNumber({ institutionName, idNumber, role, sequence });
+        this.inn = inn;
+    }
 });
 // Method to compare entered password with hashed password in the database
 UserSchema.methods.matchPassword = async function (enteredPassword) {

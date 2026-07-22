@@ -8,6 +8,7 @@ import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
 import { getRegistrationApprovalState, requiresAdminApproval } from "../utils/registrationApproval";
 import { sendAccountApprovalEmail } from "../utils/accountApprovalEmail";
+import { buildInnNumber } from "../utils/innGenerator.js";
 const normalizeRole = (role) => {
     if (!role)
         return undefined;
@@ -71,6 +72,56 @@ const findDepartment = async (departmentInput) => {
     }, { upsert: true, returnDocument: "after" });
     return doc;
 };
+const resolveInstitutionName = async (fallback) => {
+    if (fallback && String(fallback).trim()) return String(fallback).trim();
+    return process.env.INSTITUTION_NAME || "University";
+};
+
+const ensureUniqueInn = async ({ userId, role, idNumber, institutionName }) => {
+    const normalizedRole = normalizeRole(role);
+    const safeRole = normalizedRole || "student";
+    const candidateIdNumber = idNumber || "";
+    const resolvedInstitutionName = await resolveInstitutionName(institutionName);
+
+    const roleUsers = await User.find({ role: safeRole }).select("_id createdAt inn").sort({ createdAt: 1, _id: 1 }).lean();
+    const userOrder = roleUsers.findIndex((entry) => String(entry._id) === String(userId));
+    const sequence = userOrder >= 0 ? userOrder + 1 : roleUsers.length + 1;
+
+    let attempt = Math.max(1, sequence);
+    while (true) {
+        const inn = buildInnNumber({ institutionName: resolvedInstitutionName, idNumber: candidateIdNumber, role: safeRole, sequence: attempt });
+        const duplicate = await User.findOne({ inn, role: safeRole, _id: { $ne: userId || undefined } }).select("_id").lean();
+        if (!duplicate) {
+            return inn;
+        }
+        attempt += 1;
+    }
+};
+
+export const backfillMissingInns = async () => {
+    try {
+        const users = await User.find({ $or: [{ inn: { $exists: false } }, { inn: null }, { inn: "" }] }).select("_id role idNumber createdAt").sort({ createdAt: 1, _id: 1 }).lean();
+        if (!users.length) {
+            return { updated: 0 };
+        }
+
+        const results = [];
+        for (const user of users) {
+            const institutionName = await resolveInstitutionName();
+            const inn = await ensureUniqueInn({ userId: String(user._id), role: user.role, idNumber: String(user.idNumber ?? ""), institutionName });
+            const updated = await User.findByIdAndUpdate(user._id, { $set: { inn } }, { new: true });
+            if (updated) {
+                results.push(String(updated._id));
+            }
+        }
+
+        return { updated: results.length };
+    } catch (error) {
+        console.error("backfillMissingInns failed:", error);
+        return { updated: 0 };
+    }
+};
+
 // @desc    Register a new user
 // @route   POST /api/users/register
 // @access  Private (Admin and Teacher only) 
@@ -195,12 +246,16 @@ export const registerUser = async (req, res) => {
             // res.status(400).json({ status: "Error!", message: `ID number '${idNumber}' already exists. Please use a unique ID number.` });
             // return;
         }
+        const institutionName = req.body?.institutionName || req.body?.institution?.name;
+        const inn = await ensureUniqueInn({ role: normalizedRole, idNumber: newIDNumber, institutionName });
+
         // Create a new user
         const newUser = await User.create({
             name,
             email,
             password,
             idNumber: newIDNumber, // Use the newIDNumber which is now the updated sequential ID number we've updated
+            inn,
             role: normalizedRole,
             department: (departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : undefined),
             departmentId: departmentDoc ? departmentDoc._id : undefined,
@@ -707,6 +762,13 @@ export const updateUser = async (req, res) => {
             user.name = req.body.name || user.name;
             user.email = req.body.email || user.email;
             user.idNumber = req.body.idNumber || user.idNumber;
+            if (req.body.inn !== undefined) {
+                user.inn = req.body.inn ? String(req.body.inn).trim() : null;
+            }
+            else if (!user.inn) {
+                const institutionName = req.body?.institutionName || req.body?.institution?.name;
+                user.inn = await ensureUniqueInn({ userId: user._id.toString(), role: user.role, idNumber: user.idNumber, institutionName });
+            }
             if (req.body.role !== undefined) {
                 const normalizedRole = normalizeRole(req.body.role);
                 if (normalizedRole) {

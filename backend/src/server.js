@@ -35,6 +35,7 @@ import activityEntryRouter from "./routes/activityEntry";
 import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 import { createBodyParsers } from "./utils/bodyParser";
+import { backfillMissingInns } from "./controllers/user.js";
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 // The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/
@@ -149,6 +150,7 @@ app.use((err, req, res, next) => {
 // Start the server and listen on the specified port
 if (!isVercelRuntime) {
     connectDB().then(async () => {
+        await backfillMissingInns();
         app.listen(PORT, () => {
             console.log(`Server is running on http://localhost:${PORT}`);
         });
@@ -184,7 +186,9 @@ if (!isVercelRuntime) {
     });
 }
 else {
-    connectDB().catch((error) => {
+    connectDB().then(async () => {
+        await backfillMissingInns();
+    }).catch((error) => {
         console.error("Failed to connect to the database on Vercel startup:", error);
     });
 }
