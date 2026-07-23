@@ -82,29 +82,6 @@ export default function RotationSchedules() {
 
   const selectedSchedule = useMemo(() => schedules.find((schedule) => schedule._id === selectedScheduleId) || schedules[0] || null, [schedules, selectedScheduleId]);
 
-  const groupedSchedules = useMemo(() => {
-    const buckets = new Map<string, any[]>();
-
-    schedules.forEach((schedule) => {
-      const classId = String(schedule?.class ?? "");
-      const className = classNameById[classId] || "Unassigned class";
-      const bucket = buckets.get(className) ?? [];
-      bucket.push(schedule);
-      buckets.set(className, bucket);
-    });
-
-    return Array.from(buckets.entries())
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([className, classSchedules]) => ({
-        className,
-        schedules: classSchedules.sort((left, right) => {
-          const leftDate = new Date(left?.createdAt || left?.generatedAt || 0).getTime();
-          const rightDate = new Date(right?.createdAt || right?.generatedAt || 0).getTime();
-          return rightDate - leftDate;
-        }),
-      }));
-  }, [classNameById, schedules]);
-
   const handleDeleteSchedule = async (scheduleId: string) => {
     const schedule = schedules.find((item) => item._id === scheduleId);
     if (!schedule) return;
@@ -195,36 +172,29 @@ export default function RotationSchedules() {
               </CardTitle>
               <CardDescription>Select a generated posting plan to inspect its full layout.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {groupedSchedules.map((group) => (
-                <div key={group.className} className="space-y-2">
-                  <div className="px-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{group.className}</div>
-                  <div className="space-y-2">
-                    {group.schedules.map((schedule) => (
-                      <div
-                        key={schedule._id}
-                        className={`flex items-center gap-2 rounded-xl border p-1 transition ${selectedScheduleId === schedule._id ? "border-primary bg-primary/5" : "border-border/70 bg-background"}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setSelectedScheduleId(schedule._id)}
-                          className={`flex-1 rounded-lg p-3 text-left transition ${selectedScheduleId === schedule._id ? "bg-primary/10" : "bg-background"}`}
-                        >
-                          <div className="font-medium">{schedule.name || "Rotation Schedule"}</div>
-                          <div className="mt-1 text-sm text-muted-foreground">{formatDate(schedule.createdAt || schedule.generatedAt)}</div>
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-9 w-9 rounded-full"
-                          disabled={deleteLoading}
-                          onClick={() => handleDeleteSchedule(schedule._id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+            <CardContent className="space-y-2">
+              {schedules.map((schedule) => (
+                <div
+                  key={schedule._id}
+                  className={`flex items-center gap-2 rounded-xl border p-1 transition ${selectedScheduleId === schedule._id ? "border-primary bg-primary/5" : "border-border/70 bg-background"}`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSelectedScheduleId(schedule._id)}
+                    className={`flex-1 rounded-lg p-3 text-left transition ${selectedScheduleId === schedule._id ? "bg-primary/10" : "bg-background"}`}
+                  >
+                    <div className="font-medium">{schedule.name || "Rotation Schedule"}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">{formatDate(schedule.createdAt || schedule.generatedAt)}</div>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 rounded-full"
+                    disabled={deleteLoading}
+                    onClick={() => handleDeleteSchedule(schedule._id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               ))}
             </CardContent>
