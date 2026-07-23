@@ -69,6 +69,7 @@ export const createClinicalAttendanceSession = async (
       classId,
       learningOutcomes,
     } = req.body;
+    const { department } = req.body;
 
     const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true }).select("_id").lean();
     const activeAcademicYearId = academicYear || currentAcademicYear?._id?.toString() || "";
@@ -85,19 +86,58 @@ export const createClinicalAttendanceSession = async (
         });
       }
 
-      const schedules = await RotationPlan.find({ class: classId }).select("postings").lean();
+      const schedules = await RotationPlan.find({ class: classId }).select("postings meta").lean();
       const postingUnitNames = new Set<string>();
 
+      const addUnitName = (value: unknown) => {
+        if (typeof value === "string") {
+          const unitName = value.trim();
+          if (unitName) {
+            postingUnitNames.add(unitName);
+          }
+          return;
+        }
+
+        if (value && typeof value === "object") {
+          const objectValue = value as Record<string, unknown>;
+          if (typeof objectValue.name === "string" && objectValue.name.trim()) {
+            addUnitName(objectValue.name);
+            return;
+          }
+          if (typeof objectValue.unitName === "string" && objectValue.unitName.trim()) {
+            addUnitName(objectValue.unitName);
+            return;
+          }
+          if (typeof objectValue._id === "string" && objectValue._id.trim()) {
+            addUnitName(objectValue._id);
+            return;
+          }
+          if (typeof objectValue.id === "string" && objectValue.id.trim()) {
+            addUnitName(objectValue.id);
+            return;
+          }
+          if (typeof objectValue.toString === "function") {
+            const stringValue = objectValue.toString();
+            if (typeof stringValue === "string" && stringValue.trim() && stringValue !== "[object Object]") {
+              addUnitName(stringValue);
+            }
+          }
+        }
+      };
+
       for (const schedule of schedules) {
+        const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
+        for (const window of timeline) {
+          addUnitName(window?.unitName || window?.unitId);
+        }
+
         const postings = Array.isArray(schedule.postings) ? schedule.postings : [];
         for (const posting of postings) {
           const groups = Array.isArray(posting?.groups) ? posting.groups : [];
           for (const group of groups) {
             const groupData = group?.group || group || {};
             const unitName = groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit;
-            if (typeof unitName === "string" && unitName.trim()) {
-              postingUnitNames.add(unitName.trim());
-            }
+            addUnitName(unitName);
           }
         }
       }
@@ -109,9 +149,9 @@ export const createClinicalAttendanceSession = async (
 
       derivedUnitIds = serverSeed.unitIds;
       if (derivedUnitIds.length > 0) {
-        if (!resolvedUnitId) {
+        if (!resolvedUnitId && !department) {
           resolvedUnitId = derivedUnitIds[0];
-        } else if (!derivedUnitIds.includes(String(resolvedUnitId))) {
+        } else if (resolvedUnitId && !derivedUnitIds.includes(String(resolvedUnitId))) {
           return res.status(400).json({
             success: false,
             message: "The selected unit is not part of the current class posting schedule",
@@ -130,12 +170,12 @@ export const createClinicalAttendanceSession = async (
       }
     }
 
-    // Validation
-    if (!activityType || !title || !date || !startTime || !resolvedUnitId || !supervisor || !clinicalRotation) {
+    // Validation: require either a unit or a department
+    if (!activityType || !title || !date || !startTime || (!resolvedUnitId && !department) || !supervisor || !clinicalRotation) {
       return res.status(400).json({
         success: false,
         message:
-          "Missing required fields: activityType, title, date, startTime, unit, supervisor, posting",
+          "Missing required fields: activityType, title, date, startTime, supervisor, posting, and either unit or department",
       });
     }
 
@@ -148,13 +188,16 @@ export const createClinicalAttendanceSession = async (
       });
     }
 
-    // Verify unit exists
-    const unitExists = await HospitalUnitModel.findById(resolvedUnitId);
-    if (!unitExists) {
-      return res.status(404).json({
-        success: false,
-        message: "Unit not found",
-      });
+    // Verify unit exists if provided
+    let unitExists = null;
+    if (resolvedUnitId) {
+      unitExists = await HospitalUnitModel.findById(resolvedUnitId);
+      if (!unitExists) {
+        return res.status(404).json({
+          success: false,
+          message: "Unit not found",
+        });
+      }
     }
 
     // Verify academic year exists
@@ -173,7 +216,8 @@ export const createClinicalAttendanceSession = async (
       date: new Date(date),
       startTime: new Date(startTime),
       endTime: endTime ? new Date(endTime) : null,
-      unit: resolvedUnitId,
+      unit: resolvedUnitId || null,
+      department: department || "",
       location,
       room,
       supervisor,
@@ -183,7 +227,7 @@ export const createClinicalAttendanceSession = async (
       clinicalRotation: clinicalRotation || null,
       academicYear: activeAcademicYearId,
       learningOutcomes: learningOutcomes || [],
-      createdBy: req.userId,
+      createdBy: (req as any).user?._id,
       status: "planned",
     });
 

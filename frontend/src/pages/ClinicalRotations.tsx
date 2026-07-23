@@ -3044,9 +3044,23 @@ export default function ClinicalRotations() {
                                   </div>
                                 </>
                               ) : (
-                                <p className="text-xs text-muted-foreground">
-                                  Units are disabled for this department. The generator will use a single posting block without unit splits.
-                                </p>
+                                <div className="space-y-3">
+                                  <p className="text-xs text-muted-foreground">
+                                    Units are disabled for this department. The generator will use a single posting block without unit splits.
+                                  </p>
+                                  <div className="grid grid-cols-1 gap-3">
+                                    <div>
+                                      <label className="text-xs font-medium mb-1 block">Department Duration (weeks)</label>
+                                      <Input
+                                        type="number"
+                                        min="1"
+                                        value={departmentDurationValue}
+                                        onChange={(e) => setDepartmentDurationWeeks((prev) => ({ ...prev, [deptId]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                                        className="text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
                               )}
                             </div>
                           ) : null}

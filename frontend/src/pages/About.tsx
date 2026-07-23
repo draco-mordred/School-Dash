@@ -9,7 +9,6 @@ import mordredImage from "./assets/mordred.png";
 import medlogDarkLogo from "/medlog-dark.svg";
 import charlesImage from "./assets/charles.png";
 import abokImage from "./assets/abok.png";
-import aeImage from "./../../public/ae.png";
 
 const highlights = [
   {
@@ -41,7 +40,7 @@ const developers = [
     twitter: "https://twitter.com/DracoMordred",
     company: {
       name: "Avalon Ent.",
-      logo: aeImage,
+      logo: "/ae.png",
       website: "https://draco-mordred.vercel.app",
     }
   },

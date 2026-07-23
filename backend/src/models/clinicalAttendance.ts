@@ -139,7 +139,12 @@ const ClinicalAttendanceSchema = new Schema(
     unit: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Unit",
-      required: true,
+      required: false,
+      default: null,
+    },
+    department: {
+      type: String,
+      default: "",
     },
     location: {
       type: String,

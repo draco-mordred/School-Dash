@@ -301,6 +301,40 @@ export default function AppShell({ children }: PropsWithChildren) {
     };
   }, []);
 
+  // Accessibility: if any ancestor is set to aria-hidden while it contains
+  // the active element, blur the active element and set `inert` on that
+  // subtree when supported so assistive tech won't lose sync.
+  useEffect(() => {
+    if (typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === "attributes" && m.attributeName === "aria-hidden") {
+          const target = m.target as HTMLElement | null;
+          if (!target) continue;
+          const isHidden = target.getAttribute("aria-hidden") === "true";
+          try {
+            if (isHidden) {
+              const active = document.activeElement as HTMLElement | null;
+              if (active && target.contains(active)) {
+                try { active.blur(); } catch {}
+                try { (target as any).inert = true; } catch {}
+                try { (document.body as HTMLElement).focus(); } catch {}
+              }
+            } else {
+              try { (target as any).inert = false; } catch {}
+            }
+          } catch (err) {
+            // ignore errors here
+          }
+        }
+      }
+    });
+
+    observer.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ["aria-hidden"] });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!notificationsMenuRef.current) return;
     const el = notificationsMenuRef.current;

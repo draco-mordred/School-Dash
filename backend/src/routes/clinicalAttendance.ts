@@ -24,6 +24,8 @@ clinicalAttendanceRouter.post(
   createClinicalAttendanceSession
 );
 
+// (dev-only route removed)
+
 // QR attendance generation for students
 clinicalAttendanceRouter.post(
   "/qr/generate",

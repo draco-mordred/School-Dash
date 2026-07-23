@@ -87,7 +87,7 @@ export const sidebardata = {
         { title: "Postings", url: "/clinical-rotations", roles: ["admin"] },
         { title: "Departments", url: "/departments", roles: ["admin"] },
         { title: "Units", url: "/units", roles: ["admin"] },
-        { title: "Rotation Teams", url: "/clinical-rotations", roles: ["admin"] },
+        { title: "Rotation Teams", url: "/rotation-teams", roles: ["admin"] },
         { title: "Clinical Calendar", url: "/rotation-schedules", roles: ["admin"] },
       ],
     },

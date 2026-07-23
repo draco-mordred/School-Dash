@@ -115,6 +115,9 @@ export default function SupervisorQrAttendancePage() {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedClock, setSelectedClock] = useState<AcademicClockSummary | null>(null);
   const [units, setUnits] = useState<ClinicalUnitOption[]>([]);
+  const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState(false);
+  const [departmentsForPosting, setDepartmentsForPosting] = useState<string[]>([]);
+  const [selectedPostingDepartment, setSelectedPostingDepartment] = useState<string>("");
   const [postings, setPostings] = useState<PostingOption[]>([]);
   const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
   const [newSessionForm, setNewSessionForm] = useState({
@@ -126,6 +129,7 @@ export default function SupervisorQrAttendancePage() {
     location: "",
     classId: "",
     unit: "",
+    department: "",
     clinicalRotation: "",
   });
   const feedbackTimeoutRef = useRef<number | null>(null);
@@ -333,51 +337,174 @@ export default function SupervisorQrAttendancePage() {
           return !phaseId || !schedulePhase || phaseId === schedulePhase;
         });
 
-        const scheduleUnitNames = new Set<string>();
         const nextPostingOptions: PostingOption[] = [];
+        const normalizeValue = (value: unknown, set: Set<string>) => {
+          if (typeof value === "string" && value.trim()) {
+            set.add(value.trim().toLowerCase());
+          }
+        };
+
+        const normalizeDepartmentValue = (value: unknown, set: Set<string>) => {
+          if (typeof value !== "string" || !value.trim()) {
+            return;
+          }
+
+          const normalized = value.trim().toLowerCase();
+          set.add(normalized);
+
+          const stripped = normalized.replace(/^department of\s+/, "").trim();
+          if (stripped && stripped !== normalized) {
+            set.add(stripped);
+          }
+        };
+
+        const buildDepartmentCandidates = (value: unknown) => {
+          if (typeof value !== "string" || !value.trim()) {
+            return [] as string[];
+          }
+
+          const normalized = value.trim().toLowerCase();
+          const stripped = normalized.replace(/^department of\s+/, "").trim();
+          return stripped && stripped !== normalized ? [normalized, stripped] : [normalized];
+        };
+
+        const unitNames = new Set<string>();
+        const departmentNames = new Set<string>();
+        const postingDepartments = new Set<string>();
         const seenPostingKeys = new Set<string>();
 
         phaseAwareSchedules.forEach((schedule: any) => {
-          const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
+          const scheduleId = String(schedule?._id ?? "");
+          const postings = Array.isArray(schedule?.postings) && schedule.postings.length > 0 ? schedule.postings : [{ _id: scheduleId, name: schedule?.name }];
           postings.forEach((posting: any) => {
+            const postingId = String(posting?._id ?? scheduleId);
             const postingName = posting?.name || schedule?.name || "Unnamed posting";
-            const postingKey = `${String(schedule?._id ?? "")}-${String(posting?._id ?? postingName)}`;
+            const postingKey = `${scheduleId}-${postingId}`;
             if (!seenPostingKeys.has(postingKey)) {
               seenPostingKeys.add(postingKey);
               nextPostingOptions.push({
-                _id: String(posting?._id ?? schedule?._id ?? postingName),
+                _id: postingId,
                 name: postingName,
                 scheduleName: schedule?.name ?? "",
               });
             }
-
-            const groups = Array.isArray(posting?.groups) ? posting.groups : [];
-            groups.forEach((group: any) => {
-              const groupData = group?.group || group || {};
-              const unitName = groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit;
-              if (typeof unitName === "string" && unitName.trim()) {
-                scheduleUnitNames.add(unitName.trim());
-              }
-            });
           });
         });
 
+        let activeSchedule: any = null;
+        let activePosting: any = null;
+        if (newSessionForm.clinicalRotation) {
+          for (const schedule of phaseAwareSchedules) {
+            const scheduleId = String(schedule?._id ?? "");
+            const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
+            const found = postings.find((p: any) => String(p?._id) === String(newSessionForm.clinicalRotation));
+            if (found) {
+              activeSchedule = schedule;
+              activePosting = found;
+              break;
+            }
+            if (scheduleId === String(newSessionForm.clinicalRotation)) {
+              activeSchedule = schedule;
+              break;
+            }
+          }
+        }
+        activeSchedule = activeSchedule || phaseAwareSchedules[0] || null;
+
+        if (activeSchedule) {
+          const timeline = Array.isArray(activeSchedule?.meta?.timeline) ? activeSchedule.meta.timeline : [];
+          timeline.forEach((window: any) => {
+            normalizeValue(window?.unitName, unitNames);
+            normalizeDepartmentValue(window?.department, departmentNames);
+            normalizeDepartmentValue(window?.departmentName, departmentNames);
+            normalizeDepartmentValue(window?.departmentId, departmentNames);
+            normalizeDepartmentValue(window?.departmentCode, departmentNames);
+            if (typeof window?.department === 'string' && window.department.trim()) postingDepartments.add(window.department.trim());
+            if (typeof window?.departmentName === 'string' && window.departmentName.trim()) postingDepartments.add(window.departmentName.trim());
+          });
+
+          const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
+          postingsToInspect.forEach((posting: any) => {
+            const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+            groups.forEach((group: any) => {
+              const groupData = group?.group || group || {};
+              const unitName =
+                groupData.unitName ||
+                (groupData.unit && typeof groupData.unit === "object" ? groupData.unit.name : groupData.unit) ||
+                groupData.name;
+
+                normalizeValue(unitName, unitNames);
+                normalizeDepartmentValue(groupData.department, departmentNames);
+                normalizeDepartmentValue(groupData.departmentName, departmentNames);
+                normalizeDepartmentValue(groupData.departmentId, departmentNames);
+                normalizeDepartmentValue(groupData.departmentCode, departmentNames);
+                if (typeof groupData.department === 'string' && groupData.department.trim()) postingDepartments.add(groupData.department.trim());
+                if (typeof groupData.departmentName === 'string' && groupData.departmentName.trim()) postingDepartments.add(groupData.departmentName.trim());
+            });
+          });
+        }
+
         const derivedUnits = nextUnits.filter((unit: ClinicalUnitOption) => {
-          const candidateName = unit.name ?? "";
-          return scheduleUnitNames.has(candidateName);
+          if (typeof unit.name !== "string" || !unit.name.trim()) return false;
+          const unitName = unit.name.trim().toLowerCase();
+          for (const candidate of Array.from(unitNames)) {
+            if (
+              unitName === candidate ||
+              unitName.includes(candidate) ||
+              candidate.includes(unitName)
+            ) {
+              return true;
+            }
+          }
+          return false;
         });
 
-        setUnits(derivedUnits);
+        const derivedDepartmentUnits = nextUnits.filter((unit: any) => {
+          const candidates = [
+            ...buildDepartmentCandidates(unit.department),
+            ...buildDepartmentCandidates(unit.departmentName),
+            ...buildDepartmentCandidates(unit.departmentId),
+            ...buildDepartmentCandidates(unit.departmentID),
+            ...buildDepartmentCandidates(unit.departmentCode),
+          ];
+
+          return candidates.some((candidate) => {
+            if (departmentNames.has(candidate)) return true;
+            for (const d of Array.from(departmentNames)) {
+              if (d === candidate || d.includes(candidate) || candidate.includes(d)) return true;
+            }
+            return false;
+          });
+        });
+
         setPostings(nextPostingOptions);
         setSelectedClock(nextClock);
         if (!newSessionForm.classId && selectedClassId) {
           setNewSessionForm((current) => ({ ...current, classId: selectedClassId }));
         }
-        if (derivedUnits.length > 0 && !newSessionForm.unit) {
-          setNewSessionForm((current) => ({ ...current, unit: derivedUnits[0]._id }));
-        } else if (derivedUnits.length === 0) {
-          setNewSessionForm((current) => ({ ...current, unit: "" }));
+
+        if (derivedUnits.length > 0) {
+          setUnits(derivedUnits);
+          setShouldUseDepartmentFallback(false);
+          if (!newSessionForm.unit || !derivedUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+            setNewSessionForm((current) => ({ ...current, unit: derivedUnits[0]._id }));
+          }
+        } else if (derivedDepartmentUnits.length > 0) {
+          setUnits(derivedDepartmentUnits);
+          setShouldUseDepartmentFallback(true);
+          if (!newSessionForm.unit || !derivedDepartmentUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+            setNewSessionForm((current) => ({ ...current, unit: derivedDepartmentUnits[0]._id }));
+          }
+        } else {
+          setUnits(nextUnits);
+          setShouldUseDepartmentFallback(false);
+          if (!newSessionForm.unit && nextUnits.length > 0) {
+            setNewSessionForm((current) => ({ ...current, unit: nextUnits[0]._id }));
+          }
         }
+
+        // expose posting-level departments for optional department select UI
+        setDepartmentsForPosting(Array.from(postingDepartments));
 
         if (nextPostingOptions.length > 0 && !newSessionForm.clinicalRotation) {
           setNewSessionForm((current) => ({ ...current, clinicalRotation: nextPostingOptions[0]._id }));
@@ -395,7 +522,7 @@ export default function SupervisorQrAttendancePage() {
     if (selectedClassId && currentAcademicYearId) {
       void loadClassPostingUnits();
     }
-  }, [selectedClassId, currentAcademicYearId]);
+  }, [selectedClassId, currentAcademicYearId, newSessionForm.clinicalRotation]);
 
   useEffect(() => {
     return () => {
@@ -405,6 +532,12 @@ export default function SupervisorQrAttendancePage() {
       }
     };
   }, [scannerActive]);
+
+  useEffect(() => {
+    // reset selected posting department when posting or fallback state changes
+    setSelectedPostingDepartment("");
+    setNewSessionForm((current) => ({ ...current, department: "" }));
+  }, [newSessionForm.clinicalRotation, shouldUseDepartmentFallback]);
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session._id === selectedSessionId) ?? null,
@@ -455,8 +588,8 @@ export default function SupervisorQrAttendancePage() {
       return;
     }
 
-    if (!newSessionForm.classId || !newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || !newSessionForm.unit || !newSessionForm.clinicalRotation || !currentAcademicYearId) {
-      toast.error("Please select a class, a posting, complete the title, date, time, and unit fields, and ensure the active academic year is available.");
+    if (!newSessionForm.classId || !newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || (!newSessionForm.unit && !newSessionForm.department) || !newSessionForm.clinicalRotation || !currentAcademicYearId) {
+      toast.error("Please select a class, a posting, complete the title, date, time, and a unit or department, and ensure the active academic year is available.");
       return;
     }
 
@@ -846,7 +979,7 @@ export default function SupervisorQrAttendancePage() {
                   <div>
                     <label className="mb-1 block text-xs font-medium">Posting</label>
                     <Select value={newSessionForm.clinicalRotation} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, clinicalRotation: value }))}>
-                      <SelectTrigger>
+                      <SelectTrigger className="w-56">
                         <SelectValue placeholder={postings.length === 0 ? "No postings for selected class" : "Choose a posting"} />
                       </SelectTrigger>
                       <SelectContent>
@@ -855,32 +988,66 @@ export default function SupervisorQrAttendancePage() {
                         ) : (
                           postings.map((posting) => (
                             <SelectItem key={posting._id} value={posting._id}>
-                              {posting.name ?? "Unnamed posting"}
+                              <div className="flex items-center justify-between">
+                                <div className="truncate">{posting.name ?? "Unnamed posting"}</div>
+                                <div className="ml-2 text-xs text-muted-foreground">{posting.scheduleName ?? ""}</div>
+                              </div>
                             </SelectItem>
                           ))
                         )}
                       </SelectContent>
                     </Select>
+                    <p className="mt-2 text-xs text-muted-foreground">Posting SPIN prefixes are derived from the posting name; individual group SPINs are shown in Rotation Schedules.</p>
                   </div>
 
                   <div>
-                    <label className="mb-1 block text-xs font-medium">Unit</label>
-                    <Select value={newSessionForm.unit} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, unit: value }))}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={units.length === 0 ? "No units for selected class" : "Choose a unit"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {units.length === 0 ? (
-                          <div className="p-2 text-sm text-muted-foreground">No posting units were found for the selected class’s active clock phase.</div>
-                        ) : (
-                          units.map((unit) => (
-                            <SelectItem key={unit._id} value={unit._id}>
-                              {unit.name ?? "Unnamed unit"}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                      {shouldUseDepartmentFallback && departmentsForPosting.length > 0 ? (
+                        <div>
+                          <label className="mb-1 block text-xs font-medium">Department</label>
+                          <Select value={selectedPostingDepartment} onValueChange={(value) => {
+                            setSelectedPostingDepartment(value);
+                            // set department on the form and clear unit (department-only session)
+                            setNewSessionForm((current) => ({ ...current, department: value, unit: "" }));
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose a department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {departmentsForPosting.map((d) => (
+                                <SelectItem key={d} value={d}>{d}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="mt-2 text-xs text-muted-foreground">Pick a department to choose a matching department unit.</p>
+                        </div>
+                      ) : null}
+
+                      <label className="mb-1 block text-xs font-medium">
+                        {shouldUseDepartmentFallback ? "Unit / Department" : "Unit"}
+                      </label>
+                      <Select value={newSessionForm.unit} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, unit: value }))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={units.length === 0 ? "No units for selected class" : shouldUseDepartmentFallback ? "Choose a department unit" : "Choose a unit"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {units.length === 0 ? (
+                            <div className="p-2 text-sm text-muted-foreground">No posting units were found for the selected class’s active clock phase.</div>
+                          ) : (
+                            units.map((unit) => (
+                              <SelectItem key={unit._id} value={unit._id}>
+                                {unit.name ?? "Unnamed unit"}
+                              </SelectItem>
+                            ))
+                          )}
+                        </SelectContent>
+                      </Select>
+                    {shouldUseDepartmentFallback ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        The selected posting has no concrete units; you may pick a department (creates a department-level session) or choose a specific unit.
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">If no posting units appear, select a unit from the class’s scheduled departments or use a hospital unit.</p>
+                    )}
                   </div>
                 </div>
 

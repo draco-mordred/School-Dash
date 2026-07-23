@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, Layers3, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { api } from "@/lib/api";
-import { buildTimelineWindowView, getReferenceDisplayName } from "@/lib/rotationScheduleViews";
+import { buildTimelineWindowView, formatWindowDuration, getReferenceDisplayName } from "@/lib/rotationScheduleViews";
 import { toast } from "sonner";
 
 export default function RotationSchedules() {
@@ -106,28 +108,101 @@ export default function RotationSchedules() {
     }
   };
 
-  const timelineGroups = useMemo(() => {
+  type PhaseDepartment = {
+    key: string;
+    departmentGroupIndex: number;
+    departmentName: string;
+    departmentGroupLabel: string;
+    departmentStartDate: Date | null;
+    departmentEndDate: Date | null;
+    windows: any[];
+    hasUnits: boolean;
+    studentIds: string[];
+  };
+
+  type PhaseGroup = {
+    key: string;
+    phaseLabel: string;
+    phaseDurationLabel: string;
+    phaseStartDate: Date | null;
+    phaseEndDate: Date | null;
+    departments: Record<string, PhaseDepartment>;
+  };
+
+  const phaseGroups = useMemo(() => {
     if (!selectedSchedule) {
-      return [] as Array<{ key: string; departmentName: string; departmentGroupLabel: string; windows: any[] }>;
+      return [] as Array<{
+        key: string;
+        phaseLabel: string;
+        phaseDurationLabel: string;
+        phaseStartDate: Date | null;
+        phaseEndDate: Date | null;
+        departments: Array<PhaseDepartment>;
+      }>;
     }
 
     const timeline = Array.isArray(selectedSchedule?.meta?.timeline) ? selectedSchedule.meta.timeline : [];
-    const groups = timeline.reduce<Record<string, { key: string; departmentName: string; departmentGroupLabel: string; windows: any[] }>>((acc, window, index) => {
-      const view = buildTimelineWindowView(selectedSchedule, window, index);
-      const key = `${window?.departmentIndex ?? 0}-${window?.departmentGroupIndex ?? 0}`;
-      if (!acc[key]) {
-        acc[key] = {
-          key,
-          departmentName: view.departmentName,
-          departmentGroupLabel: view.departmentGroupLabel,
-          windows: [],
+    const phases = timeline.reduce((acc: Record<string, PhaseGroup>, currentWindow: any, index: number) => {
+      const view = buildTimelineWindowView(selectedSchedule, currentWindow, index);
+      const phaseKey = `${view.phaseIndex ?? 0}`;
+      if (!acc[phaseKey]) {
+        acc[phaseKey] = {
+          key: phaseKey,
+          phaseLabel: view.phaseLabel,
+          phaseDurationLabel: view.phaseDurationLabel,
+          phaseStartDate: view.startDate,
+          phaseEndDate: view.endDate,
+          departments: {},
         };
       }
-      acc[key].windows.push(view);
+
+      const phase = acc[phaseKey];
+      if (view.startDate && (!phase.phaseStartDate || view.startDate < phase.phaseStartDate)) {
+        phase.phaseStartDate = view.startDate;
+      }
+      if (view.endDate && (!phase.phaseEndDate || view.endDate > phase.phaseEndDate)) {
+        phase.phaseEndDate = view.endDate;
+      }
+
+      const deptKey = `${view.departmentGroupLabel}-${view.departmentName}`;
+      if (!phase.departments[deptKey]) {
+        phase.departments[deptKey] = {
+          key: deptKey,
+          departmentGroupIndex: typeof currentWindow?.departmentGroupIndex === 'number' ? currentWindow.departmentGroupIndex : 0,
+          departmentName: view.departmentName,
+          departmentGroupLabel: view.departmentGroupLabel,
+          departmentStartDate: view.startDate,
+          departmentEndDate: view.endDate,
+          windows: [],
+          hasUnits: false,
+          studentIds: [],
+        };
+      }
+
+      const department = phase.departments[deptKey];
+      if (view.startDate && (!department.departmentStartDate || view.startDate < department.departmentStartDate)) {
+        department.departmentStartDate = view.startDate;
+      }
+      if (view.endDate && (!department.departmentEndDate || view.endDate > department.departmentEndDate)) {
+        department.departmentEndDate = view.endDate;
+      }
+      department.windows.push(view);
+      department.hasUnits = department.hasUnits || Boolean(view.unitId);
+      view.studentIds.forEach((studentId: any) => {
+        const id = String(studentId);
+        if (!department.studentIds.includes(id)) {
+          department.studentIds.push(id);
+        }
+      });
       return acc;
     }, {});
 
-    return Object.values(groups);
+    return Object.values(phases)
+      .sort((a, b) => Number(a.key) - Number(b.key))
+      .map((phase) => ({
+        ...phase,
+        departments: Object.values(phase.departments).sort((a, b) => a.departmentGroupIndex - b.departmentGroupIndex),
+      }));
   }, [selectedSchedule]);
 
   const formatDate = (value: string | Date | null | undefined) => {
@@ -225,70 +300,121 @@ export default function RotationSchedules() {
                 </div>
 
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Whole schedule timeline</h3>
-                  <div className="space-y-3">
-                    {(selectedSchedule.meta?.timeline || []).map((window: any, index: number) => {
-                      const view = buildTimelineWindowView(selectedSchedule, window, index);
+                  <h3 className="text-lg font-semibold">Posting groups</h3>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {(selectedSchedule.postings?.[0]?.groups || []).map((g: any, gi: number) => {
+                      const groupData = g?.group || g || {};
+                      const spin = g?.spin ?? groupData.spin ?? null;
+                      const name = groupData.name || `Group ${gi + 1}`;
+                      const students = Array.isArray(groupData.students) ? groupData.students : (g?.studentIds || []);
                       return (
-                        <div key={view.id} className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-                          <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                        <div key={`group-${gi}`} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                          <div className="flex items-center justify-between gap-2">
                             <div>
-                              <p className="text-sm font-medium text-muted-foreground">{view.departmentName}</p>
-                              <p className="mt-1 font-semibold">{view.departmentGroupLabel} · {view.unitGroupLabel}</p>
-                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(window.startDate)} – {formatDate(window.endDate)} · {view.durationLabel}</p>
+                              <div className="text-sm text-muted-foreground">{name}</div>
+                              <div className="mt-1 font-medium">Students: {students.length}</div>
                             </div>
-                            <div className="text-sm text-muted-foreground">
-                              <div>Students: {view.studentCount}</div>
-                              <div>Supervisor: {view.supervisorName}</div>
-                            </div>
+                            {spin ? (
+                              <Badge className="px-2 py-0.5 rounded-full text-xs font-semibold border border-primary/20 bg-primary/5 text-primary">{spin}</Badge>
+                            ) : null}
                           </div>
                         </div>
                       );
                     })}
                   </div>
-                </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">Posting groups</h3>
-                  {timelineGroups.map((group) => (
-                    <div key={group.key} className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">{group.departmentName}</p>
-                          <h4 className="text-lg font-semibold">{group.departmentGroupLabel}</h4>
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        {group.windows.map((window) => (
-                          <div key={window.id} className="rounded-2xl border border-border/70 bg-muted/40 p-4">
-                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <p className="font-medium">{window.unitGroupLabel}</p>
-                                <p className="text-sm text-muted-foreground">Unit: {window.unitName}</p>
-                                <p className="mt-2 text-sm text-muted-foreground">{formatDate(window.startDate)} – {formatDate(window.endDate)} · {window.durationLabel}</p>
-                              </div>
-                              <div className="text-sm text-muted-foreground">
-                                <div>Supervisor: {window.supervisorName}</div>
-                                <div>Students: {window.studentCount}</div>
-                              </div>
+                  <h3 className="text-lg font-semibold">Posting phases</h3>
+                  <Accordion type="single" collapsible className="space-y-4">
+                    {phaseGroups.map((phase, phaseIndex) => (
+                      <AccordionItem key={phase.key} value={`phase-${phase.key}`}>
+                        <AccordionTrigger className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-muted-foreground">{phase.phaseLabel}</p>
+                              <p className="text-lg font-semibold">{phase.phaseDurationLabel}</p>
+                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(phase.phaseStartDate)} – {formatDate(phase.phaseEndDate)}</p>
                             </div>
-                            {window.studentIds.length ? (
-                              <div className="mt-3">
-                                <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Students in this unit group</p>
-                                <div className="mt-2 flex flex-wrap gap-2">
-                                  {window.studentIds.map((student: any, index: number) => (
-                                    <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
-                                      {getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`)}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
+                            <div className="text-sm text-muted-foreground">Departments: {phase.departments.length}</div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-4">
+                            {phase.departments.map((dept, deptIndex) => {
+                              const nextDepartment = phase.departments[deptIndex + 1]?.departmentName || "End of phase";
+                              return (
+                                <div key={dept.key} className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                    <div>
+                                      <p className="text-sm font-medium text-muted-foreground">{dept.departmentName}</p>
+                                      <p className="text-lg font-semibold">{dept.departmentGroupLabel}</p>
+                                      <p className="mt-2 text-sm text-muted-foreground">Duration: {formatWindowDuration(dept.departmentStartDate, dept.departmentEndDate)}</p>
+                                      <p className="text-sm text-muted-foreground">{formatDate(dept.departmentStartDate)} – {formatDate(dept.departmentEndDate)}</p>
+                                    </div>
+                                  </div>
+
+                                  {dept.hasUnits ? (
+                                    <div className="mt-4 grid gap-4">
+                                      {dept.windows
+                                        .slice()
+                                        .sort((a, b) => Number(a.startDate?.getTime?.() ?? 0) - Number(b.startDate?.getTime?.() ?? 0))
+                                        .map((window) => (
+                                          <div key={window.id} className="rounded-2xl border border-border/70 bg-muted/40 p-4">
+                                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                              <div>
+                                                <p className="font-medium">{window.unitGroupLabel}</p>
+                                                <p className="text-sm text-muted-foreground">Unit: {window.unitName}</p>
+                                                {window.spin ? (
+                                                  <div className="mt-2">
+                                                    <Badge className="px-2 py-0.5 rounded-full text-xs font-semibold border border-primary/20 bg-primary/5 text-primary">SPIN: {window.spin}</Badge>
+                                                  </div>
+                                                ) : null}
+                                                <p className="mt-2 text-sm text-muted-foreground">{formatDate(window.startDate)} – {formatDate(window.endDate)}</p>
+                                                <p className="text-sm text-muted-foreground">Duration: {window.durationLabel}</p>
+                                              </div>
+                                              <div className="text-sm text-muted-foreground">
+                                                <div>Supervisor: {window.supervisorName}</div>
+                                                <div>Students: {window.studentCount}</div>
+                                              </div>
+                                            </div>
+                                            {window.studentIds.length ? (
+                                              <div className="mt-3">
+                                                <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Students in this unit group</p>
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                  {window.studentIds.map((student: any, index: number) => {
+                                                    const studentName = getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`);
+                                                    const studentId = typeof student === "string" ? student : (student?._id || student?.id || "");
+                                                    return (
+                                                      <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
+                                                        {studentId ? `${studentName} (${studentId})` : studentName}
+                                                      </span>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        ))}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-4 rounded-2xl border border-border/70 bg-muted/40 p-4">
+                                      <p className="text-sm text-muted-foreground">No units enabled for this department in this phase.</p>
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        {dept.studentIds.map((student: any, index: number) => (
+                                          <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
+                                            {getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`)}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    ))}
+                  </Accordion>
                 </div>
               </CardContent>
             </Card>

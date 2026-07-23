@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -64,6 +64,7 @@ interface ClinicalSession {
 export const ClinicalAttendanceDashboard = () => {
   const [sessions, setSessions] = useState<ClinicalSession[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<ClinicalSession[]>([]);
+  const [units, setUnits] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterUnit, setFilterUnit] = useState<string>("all");
@@ -74,6 +75,7 @@ export const ClinicalAttendanceDashboard = () => {
 
   useEffect(() => {
     fetchSessions();
+    fetchUnits();
   }, []);
 
   const fetchSessions = async () => {
@@ -90,6 +92,22 @@ export const ClinicalAttendanceDashboard = () => {
     }
   };
 
+  const fetchUnits = async () => {
+    try {
+      const response = await api.get("/hospital-data/units?limit=200");
+      const unitsData = Array.isArray(response.data?.data)
+        ? response.data.data
+        : Array.isArray(response.data?.units)
+        ? response.data.units
+        : Array.isArray(response.data)
+        ? response.data
+        : [];
+      setUnits(unitsData);
+    } catch (error) {
+      console.error("Error fetching units:", error);
+    }
+  };
+
   useEffect(() => {
     let filtered = sessions;
 
@@ -98,7 +116,7 @@ export const ClinicalAttendanceDashboard = () => {
     }
 
     if (filterUnit !== "all") {
-      filtered = filtered.filter((s) => s.unit._id === filterUnit);
+      filtered = filtered.filter((s) => String(s.unit?._id || s.unit || "") === filterUnit);
     }
 
     if (searchTerm) {
@@ -169,7 +187,7 @@ export const ClinicalAttendanceDashboard = () => {
         <CardHeader>
           <CardTitle className="text-lg">Filters</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
             placeholder="Search by title or activity type..."
             value={searchTerm}
@@ -185,6 +203,19 @@ export const ClinicalAttendanceDashboard = () => {
               <SelectItem value="ongoing">Ongoing</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={filterUnit} onValueChange={setFilterUnit}>
+            <SelectTrigger>
+              <SelectValue placeholder="Filter by unit" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Units</SelectItem>
+              {units.map((unit) => (
+                <SelectItem key={unit._id} value={unit._id}>
+                  {unit.name} {unit.department ? `(${unit.department})` : ""}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button variant="outline" onClick={fetchSessions}>
@@ -309,6 +340,12 @@ const CreateSessionForm = ({
   onSuccess: () => void;
 }) => {
   const [loading, setLoading] = useState(false);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [schedulePostings, setSchedulePostings] = useState<any[]>([]);
+  const [hospitalUnits, setHospitalUnits] = useState<any[]>([]);
+  const [scheduleUnits, setScheduleUnits] = useState<any[]>([]);
+  const [scheduleDepartments, setScheduleDepartments] = useState<string[]>([]);
+  const [units, setUnits] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     activityType: "ward_round",
     title: "",
@@ -316,10 +353,246 @@ const CreateSessionForm = ({
     date: "",
     startTime: "",
     unit: "",
+    department: "",
     location: "",
     supervisor: "",
     academicYear: "",
+    classId: "",
+    clinicalRotation: "",
   });
+
+  useEffect(() => {
+    const loadMetadata = async () => {
+      try {
+        const [unitsResponse, classesResponse] = await Promise.all([
+          api.get("/hospital-data/units?limit=200"),
+          api.get("/classes?limit=200"),
+        ]);
+
+        const unitsData = Array.isArray(unitsResponse.data?.data)
+          ? unitsResponse.data.data
+          : Array.isArray(unitsResponse.data?.units)
+          ? unitsResponse.data.units
+          : Array.isArray(unitsResponse.data)
+          ? unitsResponse.data
+          : [];
+
+        const classData = Array.isArray(classesResponse.data)
+          ? classesResponse.data
+          : Array.isArray(classesResponse.data?.classes)
+          ? classesResponse.data.classes
+          : Array.isArray(classesResponse.data?.data)
+          ? classesResponse.data.data
+          : [];
+
+        setHospitalUnits(unitsData);
+        setClasses(classData);
+
+        setUnits(unitsData);
+        if (!formData.unit && unitsData.length > 0) {
+          setFormData((current) => ({ ...current, unit: unitsData[0]._id }));
+        }
+        if (!formData.classId && classData.length > 0) {
+          setFormData((current) => ({ ...current, classId: classData[0]._id }));
+        }
+      } catch (error) {
+        console.error("Error fetching units or classes for attendance form:", error);
+      }
+    };
+
+    void loadMetadata();
+  }, []);
+
+  useEffect(() => {
+    const loadScheduleMetadata = async () => {
+      if (!formData.classId) {
+        setSchedulePostings([]);
+        setScheduleUnits([]);
+        setScheduleDepartments([]);
+        return;
+      }
+
+      try {
+        const response = await api.get("/rotation-schedules", {
+          params: { classId: formData.classId, page: 1, limit: 100 },
+        });
+
+        const scheduleList = Array.isArray(response.data?.schedules)
+          ? response.data.schedules
+          : Array.isArray(response.data)
+          ? response.data
+          : Array.isArray(response.data?.data)
+          ? response.data.data
+          : [];
+
+        const nextPostings: any[] = [];
+        const normalizeDepartmentValue = (value: unknown, set: Set<string>) => {
+          if (typeof value !== "string" || !value.trim()) {
+            return;
+          }
+
+          const normalized = value.trim().toLowerCase();
+          set.add(normalized);
+
+          const stripped = normalized.replace(/^department of\s+/, "").trim();
+          if (stripped && stripped !== normalized) {
+            set.add(stripped);
+          }
+        };
+
+        const buildDepartmentCandidates = (value: unknown) => {
+          if (typeof value !== "string" || !value.trim()) {
+            return [] as string[];
+          }
+
+          const normalized = value.trim().toLowerCase();
+          const stripped = normalized.replace(/^department of\s+/, "").trim();
+          return stripped && stripped !== normalized ? [normalized, stripped] : [normalized];
+        };
+
+        scheduleList.forEach((schedule: any) => {
+          const scheduleId = String(schedule?._id ?? "");
+          const postings = Array.isArray(schedule?.postings) && schedule.postings.length > 0 ? schedule.postings : [{ _id: scheduleId, name: schedule?.name }];
+          postings.forEach((posting: any) => {
+            const postingId = String(posting?._id ?? scheduleId);
+            const postingName = posting?.name || schedule?.name || "Posting schedule";
+            if (!nextPostings.some((item) => item._id === postingId)) {
+              nextPostings.push({
+                _id: postingId,
+                name: postingName,
+                scheduleId,
+              });
+            }
+          });
+        });
+
+        // Resolve active schedule: formData.clinicalRotation may be a schedule _id or a posting _id
+        let activeSchedule: any = null;
+        let activePosting: any = null;
+        if (formData.clinicalRotation) {
+          // find schedule where posting._id matches
+          for (const schedule of scheduleList) {
+            const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
+            const found = postings.find((p: any) => String(p?._id) === String(formData.clinicalRotation));
+            if (found) {
+              activeSchedule = schedule;
+              activePosting = found;
+              break;
+            }
+          }
+          // fallback: maybe clinicalRotation is the schedule id itself
+          if (!activeSchedule) {
+            activeSchedule = scheduleList.find((s: any) => String(s?._id) === String(formData.clinicalRotation)) || null;
+          }
+        }
+        activeSchedule = activeSchedule || scheduleList[0] || null;
+
+        const unitNames = new Set<string>();
+        const departmentNames = new Set<string>();
+
+        if (activeSchedule) {
+          const timeline = Array.isArray(activeSchedule?.meta?.timeline) ? activeSchedule.meta.timeline : [];
+          timeline.forEach((window: any) => {
+            if (typeof window?.unitName === "string" && window.unitName.trim()) {
+              unitNames.add(window.unitName.trim());
+            }
+            normalizeDepartmentValue(window?.department, departmentNames);
+            normalizeDepartmentValue(window?.departmentName, departmentNames);
+            normalizeDepartmentValue(window?.departmentId, departmentNames);
+            normalizeDepartmentValue(window?.departmentCode, departmentNames);
+          });
+
+          // Inspect groups from the selected posting if available, otherwise inspect all postings on the schedule
+          const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
+          postingsToInspect.forEach((posting: any) => {
+            const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+            groups.forEach((group: any) => {
+              const groupData = group?.group || group || {};
+              const unitName =
+                groupData.unitName ||
+                (groupData.unit && typeof groupData.unit === "object"
+                  ? groupData.unit.name
+                  : groupData.unit) ||
+                groupData.name;
+
+              if (typeof unitName === "string" && unitName.trim()) {
+                unitNames.add(unitName.trim());
+              }
+
+              normalizeDepartmentValue(groupData.department, departmentNames);
+              normalizeDepartmentValue(groupData.departmentName, departmentNames);
+              normalizeDepartmentValue(groupData.departmentId, departmentNames);
+              normalizeDepartmentValue(groupData.departmentCode, departmentNames);
+            });
+          });
+        }
+
+        const derivedUnits = hospitalUnits.filter((unit: any) => {
+          if (typeof unit.name !== "string" || !unit.name.trim()) return false;
+          const name = unit.name.trim().toLowerCase();
+          for (const candidate of Array.from(unitNames)) {
+            const c = String(candidate).toLowerCase();
+            if (name === c || name.includes(c) || c.includes(name)) return true;
+          }
+          return false;
+        });
+
+        const derivedDepartmentUnits = hospitalUnits.filter((unit: any) => {
+          const candidates = [
+            ...buildDepartmentCandidates(unit.department),
+            ...buildDepartmentCandidates(unit.departmentName),
+            ...buildDepartmentCandidates(unit.departmentId),
+            ...buildDepartmentCandidates(unit.departmentID),
+            ...buildDepartmentCandidates(unit.departmentCode),
+          ];
+
+          return candidates.some((candidate) => {
+            if (departmentNames.has(candidate)) return true;
+            for (const d of Array.from(departmentNames)) {
+              const dn = String(d).toLowerCase();
+              if (dn === candidate || dn.includes(candidate) || candidate.includes(dn)) return true;
+            }
+            return false;
+          });
+        });
+
+        setSchedulePostings(nextPostings);
+        setScheduleUnits(derivedUnits);
+        setScheduleDepartments(Array.from(departmentNames));
+
+        if (derivedUnits.length > 0) {
+          setUnits(derivedUnits);
+          if (!formData.unit || !derivedUnits.some((unit) => String(unit._id) === String(formData.unit))) {
+            setFormData((current) => ({ ...current, unit: derivedUnits[0]._id }));
+          }
+        } else if (derivedDepartmentUnits.length > 0) {
+          setUnits(derivedDepartmentUnits);
+          if (!formData.unit || !derivedDepartmentUnits.some((unit) => String(unit._id) === String(formData.unit))) {
+            setFormData((current) => ({ ...current, unit: derivedDepartmentUnits[0]._id }));
+          }
+        } else {
+          setUnits(hospitalUnits);
+          if (!formData.unit && hospitalUnits.length > 0) {
+            setFormData((current) => ({ ...current, unit: hospitalUnits[0]._id }));
+          }
+        }
+
+        if (!formData.clinicalRotation && nextPostings.length > 0) {
+          setFormData((current) => ({ ...current, clinicalRotation: nextPostings[0]._id }));
+        }
+      } catch (error) {
+        console.error("Error fetching class posting schedules for attendance form:", error);
+        setSchedulePostings([]);
+        setScheduleUnits([]);
+        setScheduleDepartments([]);
+        if (hospitalUnits.length > 0) {
+          setUnits(hospitalUnits);
+        }
+      }
+    };
+
+    void loadScheduleMetadata();
+  }, [formData.classId, formData.clinicalRotation, hospitalUnits]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -335,9 +608,12 @@ const CreateSessionForm = ({
         date: "",
         startTime: "",
         unit: "",
+        department: "",
         location: "",
         supervisor: "",
         academicYear: "",
+        classId: formData.classId,
+        clinicalRotation: formData.clinicalRotation,
       });
     } catch (error) {
       console.error("Error creating session:", error);
@@ -384,41 +660,127 @@ const CreateSessionForm = ({
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-1">Description</label>
-        <Input
-          value={formData.description}
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
-          placeholder="Session description"
-        />
-      </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Class</label>
+            <Select
+              value={formData.classId}
+              onValueChange={(value) =>
+                setFormData({
+                  ...formData,
+                  classId: value,
+                  clinicalRotation: "",
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select class" />
+              </SelectTrigger>
+              <SelectContent>
+                {classes.map((cls) => (
+                  <SelectItem key={cls._id} value={cls._id}>
+                    {cls.name || cls.displayName || "Untitled class"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Posting schedule</label>
+            <Select
+              value={formData.clinicalRotation}
+              onValueChange={(value) =>
+                setFormData({ ...formData, clinicalRotation: value })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select posting schedule" />
+              </SelectTrigger>
+              <SelectContent>
+                {schedulePostings.length > 0 ? (
+                  schedulePostings.map((posting) => (
+                    <SelectItem key={posting._id} value={posting._id}>
+                      {posting.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="">
+                    No posting schedules found
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-1">Date</label>
-          <Input
-            type="date"
-            value={formData.date}
-            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-            required
-          />
+          <label className="block text-sm font-medium mb-1">
+            {scheduleUnits.length > 0
+              ? "Unit"
+              : scheduleDepartments.length > 0
+              ? "Unit / Department"
+              : "Unit"}
+          </label>
+          {units.length > 0 ? (
+            <>
+              {scheduleUnits.length === 0 && scheduleDepartments.length > 0 ? (
+                <div className="mb-2">
+                  <label className="block text-xs font-medium mb-1">Department</label>
+                  <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value, unit: "" })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {scheduleDepartments.map((d) => (
+                        <SelectItem key={d} value={d}>{d}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-2 text-xs text-muted-foreground">Selecting a department will create a department-level session.</p>
+                </div>
+              ) : null}
+              <Select
+                value={formData.unit}
+                onValueChange={(value) => setFormData({ ...formData, unit: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={scheduleUnits.length > 0 ? "Select a unit" : "Select a department unit"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {units.map((unit) => (
+                    <SelectItem key={unit._id} value={unit._id}>
+                      {unit.name} {unit.department ? `(${unit.department})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {scheduleUnits.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Showing units available from the selected class posting schedule.
+                </p>
+              )}
+              {scheduleUnits.length === 0 && scheduleDepartments.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Units are not enabled for the selected posting schedule. Showing hospital units for scheduled departments: {scheduleDepartments.join(", ")}.
+                </p>
+              )}
+              {scheduleUnits.length === 0 && scheduleDepartments.length === 0 && formData.classId && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  No matched schedule units or departments found; using all hospital units.
+                </p>
+              )}
+            </>
+          ) : (
+            <Input
+              value={formData.unit}
+              onChange={(e) =>
+                setFormData({ ...formData, unit: e.target.value })
+              }
+              placeholder="Enter unit ID"
+            />
+          )}
         </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Start Time</label>
-          <Input
-            type="time"
-            value={formData.startTime}
-            onChange={(e) =>
-              setFormData({ ...formData, startTime: e.target.value })
-            }
-            required
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-1">Location</label>
           <Input
