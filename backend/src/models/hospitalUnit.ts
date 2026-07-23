@@ -4,8 +4,8 @@ export interface IHospitalUnit extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;
   department: string;
-  category: "medicine" | "surgery" | "paediatrics" | "obstetrics" | "block" | "specialty";
-  umbrella: "MEDICINE" | "SURGERY"; // Clinical category for logbook purposes
+  category: "academic" | "clinical";
+  // umbrella: "MEDICINE" | "SURGERY"; // Clinical category for logbook purposes
   description?: string;
   supervisors: mongoose.Types.ObjectId[]; // References to HospitalStaff
   isActive: boolean;
@@ -19,14 +19,14 @@ const HospitalUnitSchema = new Schema<IHospitalUnit>(
     department: { type: String, required: true, trim: true },
     category: {
       type: String,
-      enum: ["medicine", "surgery", "paediatrics", "obstetrics", "block", "specialty"],
+      enum: ["academic", "clinical"],
       required: true,
     },
-    umbrella: {
-      type: String,
-      enum: ["MEDICINE", "SURGERY"],
-      required: true,
-    },
+    // umbrella: {
+    //   type: String,
+    //   enum: ["MEDICINE", "SURGERY"],
+    //   required: true,
+    // },
     description: { type: String },
     supervisors: [
       {
@@ -43,7 +43,7 @@ const HospitalUnitSchema = new Schema<IHospitalUnit>(
 
 // Index for faster lookups
 HospitalUnitSchema.index({ department: 1, category: 1 });
-HospitalUnitSchema.index({ umbrella: 1, isActive: 1 });
+// HospitalUnitSchema.index({ umbrella: 1, isActive: 1 });
 
 const HospitalUnitModel: Model<IHospitalUnit> = mongoose.model<IHospitalUnit>(
   "HospitalUnit",

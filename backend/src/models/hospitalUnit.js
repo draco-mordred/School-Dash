@@ -4,14 +4,14 @@ const HospitalUnitSchema = new Schema({
     department: { type: String, required: true, trim: true },
     category: {
         type: String,
-        enum: ["medicine", "surgery", "paediatrics", "obstetrics", "block", "specialty"],
+        enum: ["academic", "clinical"],
         required: true,
     },
-    umbrella: {
-        type: String,
-        enum: ["MEDICINE", "SURGERY"],
-        required: true,
-    },
+    // umbrella: {
+    //     type: String,
+    //     enum: ["MEDICINE", "SURGERY"],
+    //     required: true,
+    // },
     description: { type: String },
     supervisors: [
         {
@@ -25,6 +25,6 @@ const HospitalUnitSchema = new Schema({
 });
 // Index for faster lookups
 HospitalUnitSchema.index({ department: 1, category: 1 });
-HospitalUnitSchema.index({ umbrella: 1, isActive: 1 });
+// HospitalUnitSchema.index({ umbrella: 1, isActive: 1 });
 const HospitalUnitModel = mongoose.model("HospitalUnit", HospitalUnitSchema, "hospital_units");
 export default HospitalUnitModel;

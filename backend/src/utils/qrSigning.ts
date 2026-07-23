@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-const SECRET_ENV = process.env.QR_SIGNING_SECRET || process.env.JWT_SECRET || "school-dash-dev-secret";
+const SECRET_ENV = process.env.QR_SIGNING_SECRET || process.env.JWT_SECRET || "medlog-lms-quiet-secret";
 
 export interface SignedQrPayload {
   data: Record<string, unknown>;

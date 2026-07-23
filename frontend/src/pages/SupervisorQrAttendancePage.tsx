@@ -117,6 +117,7 @@ export default function SupervisorQrAttendancePage() {
   const [units, setUnits] = useState<ClinicalUnitOption[]>([]);
   const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState(false);
   const [departmentsForPosting, setDepartmentsForPosting] = useState<string[]>([]);
+  const [timelineMissing, setTimelineMissing] = useState(false);
   const [selectedPostingDepartment, setSelectedPostingDepartment] = useState<string>("");
   const [postings, setPostings] = useState<PostingOption[]>([]);
   const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
@@ -412,13 +413,26 @@ export default function SupervisorQrAttendancePage() {
         activeSchedule = activeSchedule || phaseAwareSchedules[0] || null;
 
         if (activeSchedule) {
-          const timeline = Array.isArray(activeSchedule?.meta?.timeline) ? activeSchedule.meta.timeline : [];
+          const timeline = Array.isArray(activeSchedule?.meta?.timeline)
+            ? activeSchedule.meta.timeline
+            : Array.isArray(activeSchedule?.postings?.[0]?.meta?.timeline)
+            ? activeSchedule.postings[0].meta.timeline
+            : Array.isArray(activeSchedule?.meta?.windows)
+            ? activeSchedule.meta.windows
+            : [];
+
+          if (timeline.length === 0) {
+            console.warn("No timeline found on active schedule:", activeSchedule._id || activeSchedule.name);
+          }
+
+          setTimelineMissing(timeline.length === 0);
+
           timeline.forEach((window: any) => {
-            normalizeValue(window?.unitName, unitNames);
-            normalizeDepartmentValue(window?.department, departmentNames);
-            normalizeDepartmentValue(window?.departmentName, departmentNames);
-            normalizeDepartmentValue(window?.departmentId, departmentNames);
-            normalizeDepartmentValue(window?.departmentCode, departmentNames);
+            normalizeValue(typeof window?.unitName === 'string' ? window.unitName.trim().toLowerCase() : window?.unitName, unitNames);
+            normalizeDepartmentValue(typeof window?.department === 'string' ? window.department.trim().toLowerCase() : window?.department, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentName === 'string' ? window.departmentName.trim().toLowerCase() : window?.departmentName, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentId === 'string' ? window.departmentId.trim().toLowerCase() : window?.departmentId, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentCode === 'string' ? window.departmentCode.trim().toLowerCase() : window?.departmentCode, departmentNames);
             if (typeof window?.department === 'string' && window.department.trim()) postingDepartments.add(window.department.trim());
             if (typeof window?.departmentName === 'string' && window.departmentName.trim()) postingDepartments.add(window.departmentName.trim());
           });
@@ -588,19 +602,27 @@ export default function SupervisorQrAttendancePage() {
       return;
     }
 
-    if (!newSessionForm.classId || !newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || (!newSessionForm.unit && !newSessionForm.department) || !newSessionForm.clinicalRotation || !currentAcademicYearId) {
+    const effectiveDepartment = newSessionForm.department || selectedPostingDepartment || "";
+
+    if (!newSessionForm.classId || !newSessionForm.title || !newSessionForm.date || !newSessionForm.startTime || (!newSessionForm.unit && !effectiveDepartment) || !newSessionForm.clinicalRotation || !currentAcademicYearId) {
       toast.error("Please select a class, a posting, complete the title, date, time, and a unit or department, and ensure the active academic year is available.");
       return;
     }
 
     try {
       setCreatingSession(true);
-      const response = await api.post("/clinical-attendance/session/create", {
+      const payload = {
         ...newSessionForm,
+        department: effectiveDepartment || newSessionForm.department,
         supervisor: user._id,
         academicYear: currentAcademicYearId,
         startTime: new Date(`${newSessionForm.date}T${newSessionForm.startTime}`).toISOString(),
-      });
+      } as any;
+
+      // If department-only session, ensure unit is not sent as empty string
+      if (!payload.unit) delete payload.unit;
+
+      const response = await api.post("/clinical-attendance/session/create", payload);
 
       const createdSessionId = response.data?.data?._id;
       toast.success("Clinical session created successfully.");
@@ -1019,6 +1041,12 @@ export default function SupervisorQrAttendancePage() {
                             </SelectContent>
                           </Select>
                           <p className="mt-2 text-xs text-muted-foreground">Pick a department to choose a matching department unit.</p>
+                        </div>
+                      ) : null}
+
+                      {timelineMissing ? (
+                        <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                          This posting has no schedule timeline; units derived from the posting may be unavailable. You can pick a Department or select a hospital Unit.
                         </div>
                       ) : null}
 

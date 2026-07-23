@@ -346,6 +346,7 @@ const CreateSessionForm = ({
   const [scheduleUnits, setScheduleUnits] = useState<any[]>([]);
   const [scheduleDepartments, setScheduleDepartments] = useState<string[]>([]);
   const [units, setUnits] = useState<any[]>([]);
+  const [timelineMissing, setTimelineMissing] = useState(false);
   const [formData, setFormData] = useState({
     activityType: "ward_round",
     title: "",
@@ -491,15 +492,28 @@ const CreateSessionForm = ({
         const departmentNames = new Set<string>();
 
         if (activeSchedule) {
-          const timeline = Array.isArray(activeSchedule?.meta?.timeline) ? activeSchedule.meta.timeline : [];
+          const timeline = Array.isArray(activeSchedule?.meta?.timeline)
+            ? activeSchedule.meta.timeline
+            : Array.isArray(activeSchedule?.postings?.[0]?.meta?.timeline)
+            ? activeSchedule.postings[0].meta.timeline
+            : Array.isArray(activeSchedule?.meta?.windows)
+            ? activeSchedule.meta.windows
+            : [];
+
+          if (timeline.length === 0) {
+            console.warn("No timeline found on rotation schedule:", activeSchedule._id || activeSchedule.name);
+          }
+
+          setTimelineMissing(timeline.length === 0);
+
           timeline.forEach((window: any) => {
             if (typeof window?.unitName === "string" && window.unitName.trim()) {
-              unitNames.add(window.unitName.trim());
+              unitNames.add(window.unitName.trim().toLowerCase());
             }
-            normalizeDepartmentValue(window?.department, departmentNames);
-            normalizeDepartmentValue(window?.departmentName, departmentNames);
-            normalizeDepartmentValue(window?.departmentId, departmentNames);
-            normalizeDepartmentValue(window?.departmentCode, departmentNames);
+            normalizeDepartmentValue(typeof window?.department === 'string' ? window.department.trim().toLowerCase() : window?.department, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentName === 'string' ? window.departmentName.trim().toLowerCase() : window?.departmentName, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentId === 'string' ? window.departmentId.trim().toLowerCase() : window?.departmentId, departmentNames);
+            normalizeDepartmentValue(typeof window?.departmentCode === 'string' ? window.departmentCode.trim().toLowerCase() : window?.departmentCode, departmentNames);
           });
 
           // Inspect groups from the selected posting if available, otherwise inspect all postings on the schedule
@@ -823,6 +837,11 @@ const SessionDetailsDialog = ({
         <div className="space-y-6">
           {/* Session Overview */}
           <div className="grid grid-cols-2 gap-4">
+            {timelineMissing ? (
+              <div className="col-span-2 mb-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                This posting has no schedule timeline; units derived from the posting may be unavailable. You can pick a Department or select a hospital Unit.
+              </div>
+            ) : null}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium">Unit</CardTitle>

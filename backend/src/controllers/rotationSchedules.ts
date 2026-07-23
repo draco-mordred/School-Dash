@@ -38,6 +38,27 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
       }
     }
 
+    // Normalize timeline from common alternative locations so persisted plans include meta.timeline
+    try {
+      const meta = payload.meta || {};
+      if (!Array.isArray(meta.timeline)) {
+        // fallbacks: postings[0].meta.timeline, meta.windows, postings[0].meta.windows
+        const postingMetaTimeline = payload.postings?.[0]?.meta?.timeline;
+        const postingMetaWindows = payload.postings?.[0]?.meta?.windows;
+        const metaWindows = meta.windows;
+        if (Array.isArray(postingMetaTimeline)) {
+          meta.timeline = postingMetaTimeline;
+        } else if (Array.isArray(postingMetaWindows)) {
+          meta.timeline = postingMetaWindows;
+        } else if (Array.isArray(metaWindows)) {
+          meta.timeline = metaWindows;
+        }
+      }
+      payload.meta = meta;
+    } catch (normErr) {
+      console.warn('rotation schedule timeline normalization failed', normErr);
+    }
+
     const doc = await RotationPlan.create(payload);
     res.status(201).json(doc);
   } catch (err) {
