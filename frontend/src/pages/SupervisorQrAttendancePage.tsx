@@ -339,34 +339,34 @@ export default function SupervisorQrAttendancePage() {
         });
 
         const nextPostingOptions: PostingOption[] = [];
-        const normalizeValue = (value: unknown, set: Set<string>) => {
-          if (typeof value === "string" && value.trim()) {
-            set.add(value.trim().toLowerCase());
-          }
+        const normalizeText = (value: unknown) => {
+          if (typeof value !== "string") return "";
+          return value.trim().toLowerCase();
         };
 
-        const normalizeDepartmentValue = (value: unknown, set: Set<string>) => {
-          if (typeof value !== "string" || !value.trim()) {
-            return;
-          }
+        const addNormalizedVariants = (value: unknown, set: Set<string>) => {
+          const text = normalizeText(value);
+          if (!text) return;
+          set.add(text);
 
-          const normalized = value.trim().toLowerCase();
-          set.add(normalized);
-
-          const stripped = normalized.replace(/^department of\s+/, "").trim();
-          if (stripped && stripped !== normalized) {
+          const stripped = text.replace(/^department of\s+/, "").trim();
+          if (stripped && stripped !== text) {
             set.add(stripped);
           }
         };
 
-        const buildDepartmentCandidates = (value: unknown) => {
-          if (typeof value !== "string" || !value.trim()) {
-            return [] as string[];
-          }
+        const buildLabelVariants = (value: unknown) => {
+          const text = normalizeText(value);
+          if (!text) return [] as string[];
+          const stripped = text.replace(/^department of\s+/, "").trim();
+          return stripped && stripped !== text ? [text, stripped] : [text];
+        };
 
-          const normalized = value.trim().toLowerCase();
-          const stripped = normalized.replace(/^department of\s+/, "").trim();
-          return stripped && stripped !== normalized ? [normalized, stripped] : [normalized];
+        const isLabelMatch = (candidate: string, target: string) => {
+          const left = normalizeText(candidate);
+          const right = normalizeText(target);
+          if (!left || !right) return false;
+          return left === right || left.includes(right) || right.includes(left);
         };
 
         const unitNames = new Set<string>();
@@ -428,11 +428,12 @@ export default function SupervisorQrAttendancePage() {
           setTimelineMissing(timeline.length === 0);
 
           timeline.forEach((window: any) => {
-            normalizeValue(typeof window?.unitName === 'string' ? window.unitName.trim().toLowerCase() : window?.unitName, unitNames);
-            normalizeDepartmentValue(typeof window?.department === 'string' ? window.department.trim().toLowerCase() : window?.department, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentName === 'string' ? window.departmentName.trim().toLowerCase() : window?.departmentName, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentId === 'string' ? window.departmentId.trim().toLowerCase() : window?.departmentId, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentCode === 'string' ? window.departmentCode.trim().toLowerCase() : window?.departmentCode, departmentNames);
+            addNormalizedVariants(window?.unitName, unitNames);
+            addNormalizedVariants(window?.unitId, unitNames);
+            addNormalizedVariants(window?.department, departmentNames);
+            addNormalizedVariants(window?.departmentName, departmentNames);
+            addNormalizedVariants(window?.departmentId, departmentNames);
+            addNormalizedVariants(window?.departmentCode, departmentNames);
             if (typeof window?.department === 'string' && window.department.trim()) postingDepartments.add(window.department.trim());
             if (typeof window?.departmentName === 'string' && window.departmentName.trim()) postingDepartments.add(window.departmentName.trim());
           });
@@ -440,6 +441,15 @@ export default function SupervisorQrAttendancePage() {
           const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
           postingsToInspect.forEach((posting: any) => {
             const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+            const scheduleDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
+            scheduleDepartments.forEach((dept: any) => {
+              addNormalizedVariants(dept?.departmentName, departmentNames);
+              addNormalizedVariants(dept?.department, departmentNames);
+              addNormalizedVariants(dept?.departmentCode, departmentNames);
+              addNormalizedVariants(dept?.departmentId, departmentNames);
+              if (typeof dept?.departmentName === 'string' && dept.departmentName.trim()) postingDepartments.add(dept.departmentName.trim());
+            });
+
             groups.forEach((group: any) => {
               const groupData = group?.group || group || {};
               const unitName =
@@ -447,49 +457,63 @@ export default function SupervisorQrAttendancePage() {
                 (groupData.unit && typeof groupData.unit === "object" ? groupData.unit.name : groupData.unit) ||
                 groupData.name;
 
-                normalizeValue(unitName, unitNames);
-                normalizeDepartmentValue(groupData.department, departmentNames);
-                normalizeDepartmentValue(groupData.departmentName, departmentNames);
-                normalizeDepartmentValue(groupData.departmentId, departmentNames);
-                normalizeDepartmentValue(groupData.departmentCode, departmentNames);
+                addNormalizedVariants(unitName, unitNames);
+                addNormalizedVariants(groupData.department, departmentNames);
+                addNormalizedVariants(groupData.departmentName, departmentNames);
+                addNormalizedVariants(groupData.departmentId, departmentNames);
+                addNormalizedVariants(groupData.departmentCode, departmentNames);
                 if (typeof groupData.department === 'string' && groupData.department.trim()) postingDepartments.add(groupData.department.trim());
                 if (typeof groupData.departmentName === 'string' && groupData.departmentName.trim()) postingDepartments.add(groupData.departmentName.trim());
             });
           });
         }
 
-        const derivedUnits = nextUnits.filter((unit: ClinicalUnitOption) => {
-          if (typeof unit.name !== "string" || !unit.name.trim()) return false;
-          const unitName = unit.name.trim().toLowerCase();
-          for (const candidate of Array.from(unitNames)) {
-            if (
-              unitName === candidate ||
-              unitName.includes(candidate) ||
-              candidate.includes(unitName)
-            ) {
-              return true;
-            }
-          }
-          return false;
+        const institutionDepartments = new Set<string>();
+        nextUnits.forEach((unit: any) => {
+          [unit.department, unit.departmentName, unit.departmentId, unit.departmentID, unit.departmentCode].forEach((value) => {
+            addNormalizedVariants(value, institutionDepartments);
+          });
         });
 
-        const derivedDepartmentUnits = nextUnits.filter((unit: any) => {
+        const matchedUnits = nextUnits.filter((unit: ClinicalUnitOption) => {
+          const unitName = typeof unit.name === "string" ? unit.name : "";
+          const normalizedUnitName = normalizeText(unitName);
+          if (normalizedUnitName && Array.from(unitNames).some((candidate) => isLabelMatch(candidate, unitName))) {
+            return true;
+          }
+
+          const unitDepartmentCandidates = [
+            ...buildLabelVariants(unit.department),
+            ...buildLabelVariants(unit.departmentName),
+            ...buildLabelVariants(unit.departmentId),
+            ...buildLabelVariants(unit.departmentID),
+            ...buildLabelVariants(unit.departmentCode),
+          ];
+
+          return unitDepartmentCandidates.some((candidate) => {
+            return Array.from(departmentNames).some((dept) => isLabelMatch(candidate, dept));
+          });
+        });
+
+        const matchedDepartmentUnits = nextUnits.filter((unit: any) => {
           const candidates = [
-            ...buildDepartmentCandidates(unit.department),
-            ...buildDepartmentCandidates(unit.departmentName),
-            ...buildDepartmentCandidates(unit.departmentId),
-            ...buildDepartmentCandidates(unit.departmentID),
-            ...buildDepartmentCandidates(unit.departmentCode),
+            ...buildLabelVariants(unit.department),
+            ...buildLabelVariants(unit.departmentName),
+            ...buildLabelVariants(unit.departmentId),
+            ...buildLabelVariants(unit.departmentID),
+            ...buildLabelVariants(unit.departmentCode),
           ];
 
           return candidates.some((candidate) => {
-            if (departmentNames.has(candidate)) return true;
-            for (const d of Array.from(departmentNames)) {
-              if (d === candidate || d.includes(candidate) || candidate.includes(d)) return true;
-            }
-            return false;
+            return Array.from(institutionDepartments).some((department) => isLabelMatch(candidate, department));
           });
         });
+
+        const departmentFallbackOptions = Array.from(institutionDepartments).filter((department) => {
+          return Array.from(departmentNames).some((candidate) => isLabelMatch(candidate, department));
+        });
+
+        const shouldUseDepartmentFallback = matchedUnits.length === 0 && departmentFallbackOptions.length > 0;
 
         setPostings(nextPostingOptions);
         setSelectedClock(nextClock);
@@ -497,17 +521,17 @@ export default function SupervisorQrAttendancePage() {
           setNewSessionForm((current) => ({ ...current, classId: selectedClassId }));
         }
 
-        if (derivedUnits.length > 0) {
-          setUnits(derivedUnits);
+        if (matchedUnits.length > 0) {
+          setUnits(matchedUnits);
           setShouldUseDepartmentFallback(false);
-          if (!newSessionForm.unit || !derivedUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
-            setNewSessionForm((current) => ({ ...current, unit: derivedUnits[0]._id }));
+          if (!newSessionForm.unit || !matchedUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+            setNewSessionForm((current) => ({ ...current, unit: matchedUnits[0]._id }));
           }
-        } else if (derivedDepartmentUnits.length > 0) {
-          setUnits(derivedDepartmentUnits);
+        } else if (shouldUseDepartmentFallback && matchedDepartmentUnits.length > 0) {
+          setUnits(matchedDepartmentUnits);
           setShouldUseDepartmentFallback(true);
-          if (!newSessionForm.unit || !derivedDepartmentUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
-            setNewSessionForm((current) => ({ ...current, unit: derivedDepartmentUnits[0]._id }));
+          if (!newSessionForm.unit || !matchedDepartmentUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+            setNewSessionForm((current) => ({ ...current, unit: matchedDepartmentUnits[0]._id }));
           }
         } else {
           setUnits(nextUnits);
@@ -518,7 +542,7 @@ export default function SupervisorQrAttendancePage() {
         }
 
         // expose posting-level departments for optional department select UI
-        setDepartmentsForPosting(Array.from(postingDepartments));
+        setDepartmentsForPosting(departmentFallbackOptions);
 
         if (nextPostingOptions.length > 0 && !newSessionForm.clinicalRotation) {
           setNewSessionForm((current) => ({ ...current, clinicalRotation: nextPostingOptions[0]._id }));
@@ -1001,7 +1025,7 @@ export default function SupervisorQrAttendancePage() {
                   <div>
                     <label className="mb-1 block text-xs font-medium">Posting</label>
                     <Select value={newSessionForm.clinicalRotation} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, clinicalRotation: value }))}>
-                      <SelectTrigger className="w-56">
+                      <SelectTrigger className="w-48">
                         <SelectValue placeholder={postings.length === 0 ? "No postings for selected class" : "Choose a posting"} />
                       </SelectTrigger>
                       <SelectContent>

@@ -31,7 +31,8 @@ export interface IClinicalAttendance extends Document {
   duration?: number; // in minutes
 
   // Location & Unit
-  unit: mongoose.Types.ObjectId; // HospitalUnit
+  unit?: mongoose.Types.ObjectId | null; // HospitalUnit
+  department?: string;
   location?: string;
   room?: string;
 

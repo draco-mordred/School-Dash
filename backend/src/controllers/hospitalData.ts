@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import HospitalUnitModel from "../models/hospitalUnit";
 import HospitalStaffModel from "../models/hospitalStaff";
 import mongoose from "mongoose";
+import { getAllDepartmentUnits } from "../constants/departments";
 
 // ============ HOSPITAL UNITS ============
 
@@ -51,14 +52,58 @@ export const listHospitalUnits = async (req: Request, res: Response) => {
     if (category) filter.category = category;
     if (umbrella) filter.umbrella = umbrella;
 
-    const total = await HospitalUnitModel.countDocuments(filter);
-    const units = await HospitalUnitModel.find(filter)
+    const seededUnits = await HospitalUnitModel.find(filter)
       .populate("supervisors", "name designation")
       .sort({ department: 1, name: 1 })
       .limit(limit)
-      .skip(skip);
+      .skip(skip)
+      .lean();
 
-    return res.status(200).json({ units, total, page: Math.floor(skip / limit) + 1, pages: Math.ceil(total / limit) });
+    const total = await HospitalUnitModel.countDocuments(filter);
+
+    const fallbackUnits = getAllDepartmentUnits().flatMap((departmentRecord: any) => {
+      const departmentName = departmentRecord?.name;
+      const unitEntries = [
+        ...(Array.isArray(departmentRecord?.units?.active) ? departmentRecord.units.active : []),
+        ...(Array.isArray(departmentRecord?.units?.reserve) ? departmentRecord.units.reserve : []),
+      ];
+
+      return unitEntries.map((entry: any) => {
+        const unitName = typeof entry === "string" ? entry : entry?.name ?? "Unnamed Unit";
+        const unitId = typeof entry === "string" ? entry : entry?.id ?? unitName;
+        return {
+          _id: String(unitId),
+          name: String(unitName),
+          department: String(departmentName ?? ""),
+          departmentName: String(departmentName ?? ""),
+          category: "clinical",
+          isActive: true,
+          supervisors: [],
+          description: `Synthetic unit from ${departmentName ?? "department"}`,
+        };
+      });
+    });
+
+    const normalizedDepartment = department?.trim().toLowerCase();
+    const normalizedCategory = category?.trim().toLowerCase();
+    const filteredFallbackUnits = fallbackUnits.filter((unit: any) => {
+      const matchesDepartment = !normalizedDepartment || String(unit.department).toLowerCase().includes(normalizedDepartment);
+      const matchesCategory = !normalizedCategory || String(unit.category).toLowerCase() === normalizedCategory;
+      return matchesDepartment && matchesCategory;
+    });
+
+    const shouldServeFallback = seededUnits.length === 0;
+    if (shouldServeFallback) {
+      const pagedFallbackUnits = filteredFallbackUnits.slice(skip, skip + limit);
+      return res.status(200).json({
+        units: pagedFallbackUnits,
+        total: filteredFallbackUnits.length,
+        page: Math.floor(skip / limit) + 1,
+        pages: Math.max(1, Math.ceil(filteredFallbackUnits.length / limit)),
+      });
+    }
+
+    return res.status(200).json({ units: seededUnits, total, page: Math.floor(skip / limit) + 1, pages: Math.max(1, Math.ceil(total / limit)) });
   } catch (error) {
     console.error("Error listing hospital units:", error);
     return res.status(500).json({ error: "Failed to list hospital units." });

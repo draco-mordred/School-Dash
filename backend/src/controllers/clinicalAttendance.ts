@@ -88,6 +88,7 @@ export const createClinicalAttendanceSession = async (
 
       const schedules = await RotationPlan.find({ class: classId }).select("postings meta").lean();
       const postingUnitNames = new Set<string>();
+      const postingDepartmentNames = new Set<string>();
 
       const addUnitName = (value: unknown) => {
         if (typeof value === "string") {
@@ -106,6 +107,14 @@ export const createClinicalAttendanceSession = async (
           }
           if (typeof objectValue.unitName === "string" && objectValue.unitName.trim()) {
             addUnitName(objectValue.unitName);
+            return;
+          }
+          if (typeof objectValue.departmentName === "string" && objectValue.departmentName.trim()) {
+            postingDepartmentNames.add(objectValue.departmentName.trim());
+            return;
+          }
+          if (typeof objectValue.department === "string" && objectValue.department.trim()) {
+            postingDepartmentNames.add(objectValue.department.trim());
             return;
           }
           if (typeof objectValue._id === "string" && objectValue._id.trim()) {
@@ -129,15 +138,23 @@ export const createClinicalAttendanceSession = async (
         const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
         for (const window of timeline) {
           addUnitName(window?.unitName || window?.unitId);
+          addUnitName(window?.departmentName || window?.department || window?.departmentCode);
         }
 
         const postings = Array.isArray(schedule.postings) ? schedule.postings : [];
         for (const posting of postings) {
           const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+          const postingDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
+
+          for (const dept of postingDepartments) {
+            addUnitName(dept?.departmentName || dept?.department || dept?.departmentCode);
+          }
+
           for (const group of groups) {
             const groupData = group?.group || group || {};
             const unitName = groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit;
             addUnitName(unitName);
+            addUnitName(groupData.departmentName || groupData.department || groupData.departmentCode);
           }
         }
       }
@@ -145,6 +162,7 @@ export const createClinicalAttendanceSession = async (
       const serverSeed = await deriveClinicalSessionSeedFromClass({
         academicYearId: activeAcademicYearId,
         unitNames: Array.from(postingUnitNames),
+        departmentNames: Array.from(postingDepartmentNames),
       });
 
       derivedUnitIds = serverSeed.unitIds;

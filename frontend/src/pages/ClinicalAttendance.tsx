@@ -427,28 +427,33 @@ const CreateSessionForm = ({
           : [];
 
         const nextPostings: any[] = [];
-        const normalizeDepartmentValue = (value: unknown, set: Set<string>) => {
-          if (typeof value !== "string" || !value.trim()) {
-            return;
-          }
+        const normalizeText = (value: unknown) => {
+          if (typeof value !== "string") return "";
+          return value.trim().toLowerCase();
+        };
 
-          const normalized = value.trim().toLowerCase();
-          set.add(normalized);
-
-          const stripped = normalized.replace(/^department of\s+/, "").trim();
-          if (stripped && stripped !== normalized) {
+        const addNormalizedVariants = (value: unknown, set: Set<string>) => {
+          const text = normalizeText(value);
+          if (!text) return;
+          set.add(text);
+          const stripped = text.replace(/^department of\s+/, "").trim();
+          if (stripped && stripped !== text) {
             set.add(stripped);
           }
         };
 
-        const buildDepartmentCandidates = (value: unknown) => {
-          if (typeof value !== "string" || !value.trim()) {
-            return [] as string[];
-          }
+        const buildLabelVariants = (value: unknown) => {
+          const text = normalizeText(value);
+          if (!text) return [] as string[];
+          const stripped = text.replace(/^department of\s+/, "").trim();
+          return stripped && stripped !== text ? [text, stripped] : [text];
+        };
 
-          const normalized = value.trim().toLowerCase();
-          const stripped = normalized.replace(/^department of\s+/, "").trim();
-          return stripped && stripped !== normalized ? [normalized, stripped] : [normalized];
+        const isLabelMatch = (candidate: string, target: string) => {
+          const left = normalizeText(candidate);
+          const right = normalizeText(target);
+          if (!left || !right) return false;
+          return left === right || left.includes(right) || right.includes(left);
         };
 
         scheduleList.forEach((schedule: any) => {
@@ -507,19 +512,25 @@ const CreateSessionForm = ({
           setTimelineMissing(timeline.length === 0);
 
           timeline.forEach((window: any) => {
-            if (typeof window?.unitName === "string" && window.unitName.trim()) {
-              unitNames.add(window.unitName.trim().toLowerCase());
-            }
-            normalizeDepartmentValue(typeof window?.department === 'string' ? window.department.trim().toLowerCase() : window?.department, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentName === 'string' ? window.departmentName.trim().toLowerCase() : window?.departmentName, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentId === 'string' ? window.departmentId.trim().toLowerCase() : window?.departmentId, departmentNames);
-            normalizeDepartmentValue(typeof window?.departmentCode === 'string' ? window.departmentCode.trim().toLowerCase() : window?.departmentCode, departmentNames);
+            addNormalizedVariants(window?.unitName, unitNames);
+            addNormalizedVariants(window?.unitId, unitNames);
+            addNormalizedVariants(window?.department, departmentNames);
+            addNormalizedVariants(window?.departmentName, departmentNames);
+            addNormalizedVariants(window?.departmentId, departmentNames);
+            addNormalizedVariants(window?.departmentCode, departmentNames);
           });
 
           // Inspect groups from the selected posting if available, otherwise inspect all postings on the schedule
           const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
           postingsToInspect.forEach((posting: any) => {
             const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+            const postingDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
+            postingDepartments.forEach((dept: any) => {
+              addNormalizedVariants(dept?.departmentName, departmentNames);
+              addNormalizedVariants(dept?.department, departmentNames);
+              addNormalizedVariants(dept?.departmentCode, departmentNames);
+              addNormalizedVariants(dept?.departmentId, departmentNames);
+            });
             groups.forEach((group: any) => {
               const groupData = group?.group || group || {};
               const unitName =
@@ -529,60 +540,71 @@ const CreateSessionForm = ({
                   : groupData.unit) ||
                 groupData.name;
 
-              if (typeof unitName === "string" && unitName.trim()) {
-                unitNames.add(unitName.trim());
-              }
-
-              normalizeDepartmentValue(groupData.department, departmentNames);
-              normalizeDepartmentValue(groupData.departmentName, departmentNames);
-              normalizeDepartmentValue(groupData.departmentId, departmentNames);
-              normalizeDepartmentValue(groupData.departmentCode, departmentNames);
+              addNormalizedVariants(unitName, unitNames);
+              addNormalizedVariants(groupData.department, departmentNames);
+              addNormalizedVariants(groupData.departmentName, departmentNames);
+              addNormalizedVariants(groupData.departmentId, departmentNames);
+              addNormalizedVariants(groupData.departmentCode, departmentNames);
             });
           });
         }
 
-        const derivedUnits = hospitalUnits.filter((unit: any) => {
-          if (typeof unit.name !== "string" || !unit.name.trim()) return false;
-          const name = unit.name.trim().toLowerCase();
-          for (const candidate of Array.from(unitNames)) {
-            const c = String(candidate).toLowerCase();
-            if (name === c || name.includes(c) || c.includes(name)) return true;
-          }
-          return false;
-        });
-
-        const derivedDepartmentUnits = hospitalUnits.filter((unit: any) => {
-          const candidates = [
-            ...buildDepartmentCandidates(unit.department),
-            ...buildDepartmentCandidates(unit.departmentName),
-            ...buildDepartmentCandidates(unit.departmentId),
-            ...buildDepartmentCandidates(unit.departmentID),
-            ...buildDepartmentCandidates(unit.departmentCode),
-          ];
-
-          return candidates.some((candidate) => {
-            if (departmentNames.has(candidate)) return true;
-            for (const d of Array.from(departmentNames)) {
-              const dn = String(d).toLowerCase();
-              if (dn === candidate || dn.includes(candidate) || candidate.includes(dn)) return true;
-            }
-            return false;
+        const institutionDepartments = new Set<string>();
+        hospitalUnits.forEach((unit: any) => {
+          [unit.department, unit.departmentName, unit.departmentId, unit.departmentID, unit.departmentCode].forEach((value) => {
+            addNormalizedVariants(value, institutionDepartments);
           });
         });
 
-        setSchedulePostings(nextPostings);
-        setScheduleUnits(derivedUnits);
-        setScheduleDepartments(Array.from(departmentNames));
+        const matchedUnits = hospitalUnits.filter((unit: any) => {
+          if (typeof unit.name !== "string" || !unit.name.trim()) return false;
+          const name = normalizeText(unit.name);
+          if (name && Array.from(unitNames).some((candidate) => isLabelMatch(candidate, name))) return true;
 
-        if (derivedUnits.length > 0) {
-          setUnits(derivedUnits);
-          if (!formData.unit || !derivedUnits.some((unit) => String(unit._id) === String(formData.unit))) {
-            setFormData((current) => ({ ...current, unit: derivedUnits[0]._id }));
+          const candidates = [
+            ...buildLabelVariants(unit.department),
+            ...buildLabelVariants(unit.departmentName),
+            ...buildLabelVariants(unit.departmentId),
+            ...buildLabelVariants(unit.departmentID),
+            ...buildLabelVariants(unit.departmentCode),
+          ];
+
+          return candidates.some((candidate) => {
+            return Array.from(departmentNames).some((dept) => isLabelMatch(candidate, dept));
+          });
+        });
+
+        const matchedDepartmentUnits = hospitalUnits.filter((unit: any) => {
+          const candidates = [
+            ...buildLabelVariants(unit.department),
+            ...buildLabelVariants(unit.departmentName),
+            ...buildLabelVariants(unit.departmentId),
+            ...buildLabelVariants(unit.departmentID),
+            ...buildLabelVariants(unit.departmentCode),
+          ];
+
+          return candidates.some((candidate) => {
+            return Array.from(institutionDepartments).some((department) => isLabelMatch(candidate, department));
+          });
+        });
+
+        const departmentFallbackOptions = Array.from(institutionDepartments).filter((department) => {
+          return Array.from(departmentNames).some((candidate) => isLabelMatch(candidate, department));
+        });
+
+        setSchedulePostings(nextPostings);
+        setScheduleUnits(matchedUnits);
+        setScheduleDepartments(departmentFallbackOptions);
+
+        if (matchedUnits.length > 0) {
+          setUnits(matchedUnits);
+          if (!formData.unit || !matchedUnits.some((unit) => String(unit._id) === String(formData.unit))) {
+            setFormData((current) => ({ ...current, unit: matchedUnits[0]._id }));
           }
-        } else if (derivedDepartmentUnits.length > 0) {
-          setUnits(derivedDepartmentUnits);
-          if (!formData.unit || !derivedDepartmentUnits.some((unit) => String(unit._id) === String(formData.unit))) {
-            setFormData((current) => ({ ...current, unit: derivedDepartmentUnits[0]._id }));
+        } else if (departmentFallbackOptions.length > 0 && matchedDepartmentUnits.length > 0) {
+          setUnits(matchedDepartmentUnits);
+          if (!formData.unit || !matchedDepartmentUnits.some((unit) => String(unit._id) === String(formData.unit))) {
+            setFormData((current) => ({ ...current, unit: matchedDepartmentUnits[0]._id }));
           }
         } else {
           setUnits(hospitalUnits);
