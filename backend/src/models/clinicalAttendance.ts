@@ -32,6 +32,7 @@ export interface IClinicalAttendance extends Document {
 
   // Location & Unit
   unit?: mongoose.Types.ObjectId | null; // HospitalUnit
+  unitLabel?: string;
   department?: string;
   location?: string;
   room?: string;
@@ -142,6 +143,10 @@ const ClinicalAttendanceSchema = new Schema(
       ref: "Unit",
       required: false,
       default: null,
+    },
+    unitLabel: {
+      type: String,
+      default: "",
     },
     department: {
       type: String,

@@ -6,12 +6,12 @@ import HospitalUnitModel from "../models/hospitalUnit";
 import AcademicYear from "../models/academicYear";
 import ClassModel from "../models/classes";
 import RotationPlan from "../models/rotationPlan";
-import ClinicalRotationModel from "../models/clinicalRotation";
 import { deriveClinicalSessionSeedFromClass } from "../utils/clinicalSessionSeed";
 import { buildClinicalAttendanceFilter } from "../utils/clinicalAttendanceQuery";
 import QrOtpModel from "../models/qrOtp";
 import { createSignedQrPayload, verifySignedQrPayload } from "../utils/qrSigning";
 import { getInstitutionIdentityReference } from "../utils/clinicalAttendanceIdentity";
+import { resolveClinicalSessionPosting } from "../utils/clinicalAttendancePosting";
 
 const OTP_RATE_LIMIT_WINDOW_MS = 60_000;
 const OTP_RATE_LIMIT_MAX_REQUESTS = 8;
@@ -76,6 +76,7 @@ export const createClinicalAttendanceSession = async (
 
     let resolvedUnitId = unit || "";
     let derivedUnitIds: string[] = [];
+    let resolvedUnitLabel = "";
 
     if (classId) {
       const classDoc = await ClassModel.findById(classId).select("_id academicYear").lean();
@@ -166,6 +167,9 @@ export const createClinicalAttendanceSession = async (
       });
 
       derivedUnitIds = serverSeed.unitIds;
+      if (!resolvedUnitId && derivedUnitIds.length > 0) {
+        resolvedUnitId = derivedUnitIds[0];
+      }
       if (derivedUnitIds.length > 0) {
         if (!resolvedUnitId && !department) {
           resolvedUnitId = derivedUnitIds[0];
@@ -179,11 +183,11 @@ export const createClinicalAttendanceSession = async (
     }
 
     if (clinicalRotation) {
-      const postingExists = await ClinicalRotationModel.findById(clinicalRotation).select("_id").lean();
+      const postingExists = await resolveClinicalSessionPosting(clinicalRotation, classId);
       if (!postingExists) {
-        return res.status(404).json({
-          success: false,
-          message: "Selected posting not found",
+        console.warn("Clinical attendance session created without a resolved posting reference", {
+          clinicalRotation,
+          classId,
         });
       }
     }
@@ -209,12 +213,26 @@ export const createClinicalAttendanceSession = async (
     // Verify unit exists if provided
     let unitExists = null;
     if (resolvedUnitId) {
-      unitExists = await HospitalUnitModel.findById(resolvedUnitId);
+      const normalizedUnitId = String(resolvedUnitId).trim();
+      const maybeObjectId = normalizedUnitId.length === 24 && /^[a-fA-F0-9]{24}$/.test(normalizedUnitId)
+        ? normalizedUnitId
+        : null;
+
+      if (maybeObjectId) {
+        unitExists = await HospitalUnitModel.findById(maybeObjectId).lean();
+      } else {
+        unitExists = await HospitalUnitModel.findOne({
+          $or: [
+            { code: normalizedUnitId },
+            { id: normalizedUnitId },
+            { name: normalizedUnitId },
+            { name: { $regex: new RegExp(normalizedUnitId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") } },
+          ],
+        }).lean();
+      }
+
       if (!unitExists) {
-        return res.status(404).json({
-          success: false,
-          message: "Unit not found",
-        });
+        resolvedUnitLabel = normalizedUnitId;
       }
     }
 
@@ -234,7 +252,8 @@ export const createClinicalAttendanceSession = async (
       date: new Date(date),
       startTime: new Date(startTime),
       endTime: endTime ? new Date(endTime) : null,
-      unit: resolvedUnitId || null,
+      unit: unitExists ? unitExists._id : null,
+      unitLabel: resolvedUnitLabel || "",
       department: department || "",
       location,
       room,

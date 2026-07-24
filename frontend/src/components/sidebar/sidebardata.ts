@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import {
-  Home,
+import { 
   School,
   GraduationCap,
   BookOpen,
@@ -17,6 +16,8 @@ import {
   CheckSquare,
   Building2,
 } from "lucide-react";
+
+import Home from "lucide-react";
 
 export interface NavItem {
   title: string;

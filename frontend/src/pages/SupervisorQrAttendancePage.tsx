@@ -640,6 +640,7 @@ export default function SupervisorQrAttendancePage() {
         department: effectiveDepartment || newSessionForm.department,
         supervisor: user._id,
         academicYear: currentAcademicYearId,
+        classId: newSessionForm.classId || selectedClassId,
         startTime: new Date(`${newSessionForm.date}T${newSessionForm.startTime}`).toISOString(),
       } as any;
 
@@ -1035,8 +1036,9 @@ export default function SupervisorQrAttendancePage() {
                           postings.map((posting) => (
                             <SelectItem key={posting._id} value={posting._id}>
                               <div className="flex items-center justify-between">
-                                <div className="truncate">{posting.name ?? "Unnamed posting"}</div>
-                                <div className="ml-2 text-xs text-muted-foreground">{posting.scheduleName ?? ""}</div>
+                                {/* <div className="truncate">{posting.name ?? "Unnamed posting"}</div> */}
+                                {/* <div className="ml-2 text-xs text-muted-foreground">{posting.scheduleName ?? ""}</div> */}
+                                <div className="ml-2 text-sm text-muted-foreground">{posting.scheduleName ?? ""}</div>
                               </div>
                             </SelectItem>
                           ))
