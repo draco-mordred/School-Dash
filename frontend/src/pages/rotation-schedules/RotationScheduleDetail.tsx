@@ -162,6 +162,7 @@ export default function RotationScheduleDetail() {
                                     <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_2fr_160px] gap-4">
                                       <div>
                                         <div className="text-lg font-semibold">{p.name} — {p.category}</div>
+                                        {p.spin && <div className="text-xs text-muted-foreground">SPIN: {p.spin}</div>}
                                         <div className="text-sm text-muted-foreground">Duration: {safeFormat(p?.startDate, 'PPP')} — {safeFormat(p?.endDate, 'PPP')}</div>
                                       </div>
                                       <div />
@@ -279,6 +280,13 @@ export default function RotationScheduleDetail() {
                                                 <div>
                                                   <div className="font-medium">{group?.name || group?._id}</div>
                                                   <div className="text-xs text-muted-foreground">Supervisor: {group?.supervisor?.name || group?.supervisor || 'TBA'}</div>
+                                                  {(group?.departmentSpin || group?.unitSpin) && (
+                                                    <div className="text-xs text-muted-foreground mt-1">
+                                                      {group?.departmentSpin ? `Dept SPIN: ${group.departmentSpin}` : ''}
+                                                      {group?.departmentSpin && group?.unitSpin ? ' • ' : ''}
+                                                      {group?.unitSpin ? `Unit SPIN: ${group.unitSpin}` : ''}
+                                                    </div>
+                                                  )}
                                                 </div>
                                                 <div className="text-right text-xs text-muted-foreground">
                                                   <div>Students: {students.length}</div>

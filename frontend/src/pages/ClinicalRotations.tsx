@@ -746,8 +746,13 @@ export default function ClinicalRotations() {
   const authStudentClassId = (() => {
     if (user?.role !== "student") return undefined;
     if (user.studentClass && typeof user.studentClass === "object") return user.studentClass._id;
+    if (Array.isArray(user.studentClasses) && user.studentClasses.length > 0) {
+      const firstClass = user.studentClasses[0];
+      if (typeof firstClass === "string") return firstClass;
+      if (firstClass && typeof firstClass === "object" && typeof (firstClass as any)._id === "string") return (firstClass as any)._id;
+    }
     if (typeof user.studentClasses === "string") return user.studentClasses;
-    if (!Array.isArray(user?.studentClasses) && user?.studentClasses && typeof user?.studentClasses === "object") return (user.studentClasses as any)._id;
+    if (user?.studentClasses && typeof user?.studentClasses === "object" && !Array.isArray(user.studentClasses)) return (user.studentClasses as any)._id;
     return undefined;
   })();
 
@@ -765,8 +770,12 @@ export default function ClinicalRotations() {
           }));
 
         setAvailableClasses(mappedClasses);
-        if (!selectedClassId && (!user?.role || user.role !== "student" || !authStudentClassId) && mappedClasses[0]?._id) {
-          setSelectedClassId(mappedClasses[0]._id);
+        if (!selectedClassId) {
+          if (user?.role === "student" && authStudentClassId) {
+            setSelectedClassId(authStudentClassId);
+          } else if (mappedClasses[0]?._id) {
+            setSelectedClassId(mappedClasses[0]._id);
+          }
         }
       } catch (error) {
         console.error("Failed to load classes", error);
@@ -778,9 +787,9 @@ export default function ClinicalRotations() {
 
   useEffect(() => {
     const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId);
-    const academicYearId = selectedClass?.academicYearId;
+    let academicYearId = selectedClass?.academicYearId;
 
-    if (!selectedClassId || !academicYearId) {
+    if (!selectedClassId) {
       setSelectedClock(null);
       return;
     }
@@ -790,8 +799,22 @@ export default function ClinicalRotations() {
     const loadClock = async () => {
       setClockLoading(true);
       try {
-        const { data } = await api.get(`/academic-clocks?academicYearId=${academicYearId}&classId=${selectedClassId}`);
-        const clocks = Array.isArray(data) ? data : (data?.data ?? data?.clocks ?? data?.academicClocks ?? []);
+        if (!academicYearId) {
+          const classResponse = await api.get(`/classes/${selectedClassId}`);
+          const classDetails = classResponse?.data;
+          academicYearId = typeof classDetails?.academicYear === "string"
+            ? classDetails.academicYear
+            : classDetails?.academicYear?._id;
+        }
+
+        const params = new URLSearchParams();
+        if (academicYearId) params.append("academicYearId", academicYearId);
+        params.append("classId", selectedClassId);
+
+        const { data } = await api.get(`/academic-clocks?${params.toString()}`);
+        const clocks = Array.isArray(data)
+          ? data
+          : (data?.data ?? data?.clocks ?? data?.academicClocks ?? []);
         const clock = Array.isArray(clocks) ? clocks[0] ?? null : null;
 
         if (isActive) {
@@ -814,7 +837,7 @@ export default function ClinicalRotations() {
     return () => {
       isActive = false;
     };
-  }, [selectedClassId, currentYear?._id]);
+  }, [selectedClassId, currentYear?._id, availableClasses]);
 
   useEffect(() => {
     let isActive = true;
@@ -868,23 +891,29 @@ export default function ClinicalRotations() {
       setStudentPostingLoading(true);
       setStudentPostingError(null);
       try {
-        // Fetch student's rotation schedules to get current posting
-        const { data } = await api.get("/rotation-schedules/student-assignments");
+        const authStudentId = user?._id ?? (user as any)?.id;
+        if (!authStudentId) {
+          throw new Error('Missing student id');
+        }
+
+        const { data } = await api.get(`/rotation-schedules/student/${authStudentId}/current`);
+        const current = Array.isArray(data?.current) ? data.current[0] : null;
         if (isActive) {
-          const assignments = Array.isArray(data) ? data : (data?.data ?? data?.assignments ?? []);
-          if (assignments.length > 0) {
-            setStudentCurrentPosting(assignments[0]);
-            
-            // Extract group info from assignment
-            if (assignments[0]?.group) {
-              setStudentCurrentGroup(assignments[0].group);
-            }
+          setStudentCurrentPosting(current);
+          if (current) {
+            setStudentCurrentGroup({
+              name: current.groupName,
+              departmentName: current.departmentName,
+              unitName: current.unitName,
+            });
           }
         }
       } catch (error: any) {
         if (isActive) {
           console.error("Failed to fetch student posting:", error);
           setStudentPostingError(error?.message || "Failed to load posting information");
+          setStudentCurrentPosting(null);
+          setStudentCurrentGroup(null);
         }
       } finally {
         if (isActive) {
@@ -1563,8 +1592,10 @@ export default function ClinicalRotations() {
 
     const unitAssignments = groups.map((g: any, i: number) => ({
       department: g.group?.department || "General",
+      departmentSpin: g.group?.departmentSpin || undefined,
       phase: g.group?.phase || "Phase 1",
       unit: g.group?.name || `Group ${i + 1}`,
+      unitSpin: g.group?.unitSpin || undefined,
       unitId: g.groupId || `${i}`,
       consultant: { _id: null, name: "TBD - Assign Later", role: "supervisor" },
       resident: { _id: null, name: "TBD - Assign Later", role: "supervisor" },
@@ -1611,9 +1642,13 @@ export default function ClinicalRotations() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h4 className="text-lg font-semibold">{posting.name || "Clinical Posting"}</h4>
+                      {posting.spin && <div className="text-xs text-muted-foreground">Posting SPIN: {posting.spin}</div>}
                       <p className="text-sm text-muted-foreground">
                         {posting.name || "Clinical Posting"}
                         {start && end ? ` · ${new Date(start).toLocaleDateString()} – ${new Date(end).toLocaleDateString()}` : ""}
+                        {groups && groups[0] && groups[0].group && (groups[0].group.departmentSpin || groups[0].group.unitSpin) ? (
+                          <span className="block text-xs text-muted-foreground mt-1">{groups[0].group.departmentSpin ? `${groups[0].group.departmentSpin}` : ''} {groups[0].group.unitSpin ? `• ${groups[0].group.unitSpin}` : ''}</span>
+                        ) : null}
                       </p>
                     </div>
                     <Badge className="text-xs">{groups.length} Department Posting{groups.length !== 1 ? "s" : ""}</Badge>
@@ -2185,6 +2220,21 @@ export default function ClinicalRotations() {
   const authStudentClass = (() => {
     if (user?.role !== "student") return null;
     if (user.studentClass && typeof user.studentClass === "object") return user.studentClass;
+    if (Array.isArray(user.studentClasses) && user.studentClasses.length > 0) {
+      const firstClass = user.studentClasses[0];
+      if (typeof firstClass === "string") {
+        const matchById = availableClasses.find((cls) => cls._id === firstClass);
+        if (matchById) return matchById;
+        const matchByName = availableClasses.find((cls) => cls.name === firstClass);
+        return matchByName ?? { _id: firstClass, name: firstClass } as any;
+      }
+      if (firstClass && typeof firstClass === "object" && typeof (firstClass as any)._id === "string") {
+        const classId = (firstClass as any)._id;
+        const matchById = availableClasses.find((cls) => cls._id === classId);
+        if (matchById) return matchById;
+        return firstClass as any;
+      }
+    }
     if (typeof user.studentClasses === "string") {
       const matchById = availableClasses.find((cls) => cls._id === user.studentClasses);
       if (matchById) return matchById;
@@ -2202,9 +2252,9 @@ export default function ClinicalRotations() {
     setSelectedClassId(authStudentClass._id);
   }, [user?.role, authStudentClass, selectedClassId]);
 
-  const selectedClassPhasePlan = selectedClock?.classLevel
-    ? getClassLevelPhasePlan(selectedClock.classLevel)
-    : [];
+  const selectedClassPhasePlan = getClassLevelPhasePlan(
+    selectedClock?.classLevel ?? selectedClass?.name ?? authStudentClass?.name ?? ""
+  );
 
   const postingPhaseOptions = useMemo(
     () => getPostingPhaseOptions(selectedClock, selectedClassPhasePlan),
@@ -2480,34 +2530,48 @@ export default function ClinicalRotations() {
 
           <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
-              <p className="text-sm font-medium text-muted-foreground">Current posting</p>
+              <p className="text-sm font-medium text-muted-foreground">Class current phase</p>
               {clockLoading ? (
-                <p className="mt-2 text-sm text-muted-foreground">Loading posting data…</p>
+                <p className="mt-2 text-sm text-muted-foreground">Loading class clock data…</p>
               ) : (
                 <>
-                  <h2 className="mt-2 text-xl font-semibold">{currentPostingTitle}</h2>
+                  <h2 className="mt-2 text-xl font-semibold">{currentPhaseLabel}</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {(selectedClass ?? authStudentClass)
-                      ? `${(selectedClass ?? authStudentClass)?.name} • ${currentPhaseLabel}`
-                      : "No class selected for this posting."}
+                      ? `${(selectedClass ?? authStudentClass)?.name}`
+                      : "No class selected for this academic clock."}
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Badge className="bg-secondary text-secondary-foreground">{currentPhaseLabel}</Badge>
-                    <Badge variant="outline">{currentPostingSubtitle}</Badge>
+                  <div className="mt-4 space-y-2 text-sm text-muted-foreground">
+                    <p><span className="font-medium">Phase title:</span> {currentPostingTitle}</p>
+                    <p><span className="font-medium">Posting type:</span> {currentPostingSubtitle}</p>
+                    <p><span className="font-medium">Duration:</span> {currentPhaseDuration} month{currentPhaseDuration === 1 ? "" : "s"}</p>
+                    {postingComponents.length > 0 && (
+                      <p><span className="font-medium">Components:</span> {postingComponents.join(", ")}</p>
+                    )}
                   </div>
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    This card shows your class’s active academic clock phase.
+                  </p>
                 </>
               )}
             </div>
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Your current posting (department)</p>
-              {studentPostingAssignment ? (
+              {studentCurrentPosting ? (
                 <>
-                  <h2 className="mt-2 text-xl font-semibold">{studentPostingAssignment.posting}</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {studentPostingAssignment.phaseLabel} • Group {studentPostingAssignment.groupKey === "groupA" ? "A" : "B"}
+                  
+                  <p className="mt-2 text-md font-bold  text-muted-foreground">
+                    {studentCurrentPosting.postingName || currentPostingTitle}
                   </p>
+                  <h2 className="mt-2 text-xl font-semibold">{studentCurrentPosting.departmentName || "Department assignment pending"}</h2>
+                  {studentCurrentPosting.groupName && (
+                    <p className="mt-2 text-sm text-muted-foreground">Group: {studentCurrentPosting.groupName}</p>
+                  )}
+                  {studentCurrentPosting.unitName && (
+                    <p className="mt-1 text-sm text-muted-foreground">Unit: {studentCurrentPosting.unitName}</p>
+                  )}
                   <p className="mt-3 text-sm text-muted-foreground">
-                    This is your assigned department for the class’s active posting schedule.
+                    This is the department from your assigned posting schedule.
                   </p>
                 </>
               ) : (

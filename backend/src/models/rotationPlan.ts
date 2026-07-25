@@ -10,6 +10,8 @@ const GroupRefSchema = new Schema({
 
 const PostingSchema = new Schema({
   name: { type: String, required: true },
+  spinBase: { type: String },
+  spin: { type: String },
   category: { type: String },
   startDate: { type: Date },
   endDate: { type: Date },

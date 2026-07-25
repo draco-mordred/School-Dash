@@ -28,6 +28,7 @@ import StudentClinicalsCurrentPosting from "@/pages/StudentClinicalsCurrentPosti
 import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
 import Attendance from "@/pages/academics/Attendance";
+import AcademicCalendar from "@/pages/academics/AcademicCalendar";
 import StudentPortal from "@/pages/StudentPortal";
 import StudentSection from "@/pages/StudentSection";
 import LogbookEntries from "@/pages/LogbookEntries";
@@ -341,7 +342,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "academic-calendar",
-            element: <StudentSection title="Academic Calendar" description="See your full academic calendar and important dates." />,
+            element: <AcademicCalendar />,
           },
           {
             path: "semesters",

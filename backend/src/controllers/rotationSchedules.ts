@@ -2,6 +2,8 @@ import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
+import generatePostingSpinsForPayload, { assignDepartmentAndUnitSpins, generateSpinBase } from '../utils/spinGenerator';
+import { createNotificationIfUnique } from '../utils/notificationUtils';
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -29,8 +31,18 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
           postingScheduleId: payload.postingScheduleId,
         });
 
+        // assign spins for postings in generated plan
+        if (Array.isArray(planObj.postings)) {
+          await generatePostingSpinsForPayload(planObj.class, planObj.postings);
+        }
         // merge any additional meta and persist
         const doc = await RotationPlan.create(planObj);
+        // notify students and staff about assigned department/unit spins
+        try {
+          await sendPostingAssignmentNotifications(doc);
+        } catch (notifyErr) {
+          console.warn('failed to send posting assignment notifications', notifyErr);
+        }
         return res.status(201).json(doc);
       } catch (gErr: any) {
         console.error('Krysta generation failed', gErr);
@@ -59,7 +71,22 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
       console.warn('rotation schedule timeline normalization failed', normErr);
     }
 
+    // If payload contains postings, assign spins (ensure uniqueness per class)
+    try {
+      if (Array.isArray(payload.postings)) {
+        await generatePostingSpinsForPayload(payload.class, payload.postings);
+      }
+    } catch (spinErr) {
+      console.warn('spin assignment failed', spinErr);
+    }
+
     const doc = await RotationPlan.create(payload);
+    // notify students and staff about assigned department/unit spins
+    try {
+      await sendPostingAssignmentNotifications(doc);
+    } catch (notifyErr) {
+      console.warn('failed to send posting assignment notifications', notifyErr);
+    }
     res.status(201).json(doc);
   } catch (err) {
     console.error('createRotationSchedule error', err);
@@ -89,6 +116,59 @@ export const listRotationSchedules = async (req: Request, res: Response) => {
   }
 };
 
+// Helper: send notifications to students and supervisors about their assigned departments/units
+async function sendPostingAssignmentNotifications(plan: any) {
+  try {
+    if (!plan || !Array.isArray(plan.postings)) return;
+    const tasks: Promise<any>[] = [];
+    for (const p of plan.postings) {
+      const postingName = p.name || 'Posting';
+      for (const g of p.groups || []) {
+        const groupObj = g.group || {};
+        const students = Array.isArray(groupObj.students) ? groupObj.students : [];
+        const deptLabel = groupObj.department || groupObj.departmentSpin || 'Department';
+        const unitLabel = groupObj.name || groupObj.unitSpin || 'Unit';
+        for (const st of students) {
+          try {
+            tasks.push(
+              createNotificationIfUnique({
+                userId: st,
+                role: 'student',
+                title: `Assigned to ${postingName}`,
+                message: `You have been assigned to ${deptLabel} (${groupObj.departmentSpin || '—'}) / ${unitLabel} (${groupObj.unitSpin || '—'}) for posting ${postingName}.`,
+                link: '/clinical-rotations',
+                metadata: { postingId: plan._id, postingName, department: deptLabel, unit: unitLabel },
+                actorRole: 'admin',
+              })
+            );
+          } catch (e) {
+            // continue
+          }
+        }
+
+        const supervisorId = g.supervisor || groupObj.supervisor || null;
+        if (supervisorId) {
+          tasks.push(
+            createNotificationIfUnique({
+              userId: supervisorId,
+              role: 'teacher',
+              title: `Supervision assigned: ${postingName}`,
+              message: `You have been assigned to supervise ${unitLabel} (${groupObj.unitSpin || '—'}) in ${postingName}.`,
+              link: '/clinical-rotations',
+              metadata: { postingId: plan._id, postingName, department: deptLabel, unit: unitLabel },
+              actorRole: 'admin',
+            })
+          );
+        }
+      }
+    }
+
+    await Promise.allSettled(tasks);
+  } catch (err) {
+    console.warn('sendPostingAssignmentNotifications error', err);
+  }
+}
+
 // GET /api/rotation-schedules/:id
 export const getRotationScheduleById = async (req: Request, res: Response) => {
   try {
@@ -111,6 +191,96 @@ export const deleteRotationSchedule = async (req: Request, res: Response) => {
     res.json({ message: 'Schedule deleted' });
   } catch (err) {
     console.error('deleteRotationSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// PATCH /api/rotation-schedules/:id
+export const updateRotationSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const payload = req.body || {};
+    const plan = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const allowedFields = ['name', 'meta', 'class', 'createdBy', 'postings'];
+    for (const field of allowedFields) {
+      if (payload[field] !== undefined) {
+        (plan as any)[field] = payload[field];
+      }
+    }
+
+    if (Array.isArray(payload.postings)) {
+      await generatePostingSpinsForPayload(plan.class, plan.postings);
+    }
+
+    await plan.save();
+    await sendPostingAssignmentNotifications(plan);
+    const updated = await RotationPlan.findById(id).lean();
+    res.json(updated);
+  } catch (err) {
+    console.error('updateRotationSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// PATCH /api/rotation-schedules/:id/postings/:postingName
+export const updatePostingInSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id, postingName } = req.params;
+    const payload = req.body || {};
+    const plan = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const decodedName = decodeURIComponent(postingName || '');
+    const postingIndex = (plan.postings || []).findIndex((p: any) => String(p.name) === String(decodedName));
+    if (postingIndex === -1) return res.status(404).json({ message: 'Posting not found' });
+
+    const posting = plan.postings[postingIndex] as any;
+    const allowedFields = ['name', 'category', 'startDate', 'endDate', 'unitRotationWeeks', 'meta', 'groups'];
+    for (const field of allowedFields) {
+      if (payload[field] !== undefined) {
+        posting[field] = payload[field];
+      }
+    }
+
+    // regenerate spins if the posting name changed or if this posting has no valid spin yet
+    const normalizedName = posting.name || '';
+    const currentBase = posting.spinBase;
+    const newBase = generateSpinBase(normalizedName);
+    const shouldRegenerate = !posting.spin || currentBase !== newBase;
+    if (shouldRegenerate) {
+      await generatePostingSpinsForPayload(plan.class, [posting]);
+    }
+
+    assignDepartmentAndUnitSpins([posting]);
+    await plan.save();
+    await sendPostingAssignmentNotifications(plan);
+    const updated = await RotationPlan.findById(id).lean();
+    res.json(updated);
+  } catch (err) {
+    console.error('updatePostingInSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// DELETE /api/rotation-schedules/:id/postings/:postingName
+export const deletePostingFromSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id, postingName } = req.params;
+    const plan = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const decodedName = decodeURIComponent(postingName || '');
+    const postingIndex = (plan.postings || []).findIndex((p: any) => String(p.name) === String(decodedName));
+    if (postingIndex === -1) return res.status(404).json({ message: 'Posting not found' });
+
+    plan.postings.splice(postingIndex, 1);
+    await plan.save();
+    const updated = await RotationPlan.findById(id).lean();
+    res.json({ message: 'Posting deleted', schedule: updated });
+  } catch (err) {
+    console.error('deletePostingFromSchedule error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
@@ -217,6 +387,24 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
 
     for (const s of schedules) {
       const timeline = (s.meta && s.meta.timeline) || [];
+      const studentGroups: any[] = [];
+
+      for (const p of s.postings || []) {
+        const groups = p.groups || [];
+        for (const g of groups) {
+          const groupObj = g.group || {};
+          const students = Array.isArray(groupObj.students) ? groupObj.students : [];
+          if (students.some((st: any) => String(st) === String(studentId) || (st && st._id && String(st._id) === String(studentId)))) {
+            studentGroups.push({
+              postingName: p.name || s.name,
+              departmentName: groupObj.department || groupObj.departmentName || groupObj.departmentSpin || 'Department',
+              unitName: groupObj.name || groupObj.unitName || groupObj.unitSpin || 'Unit',
+              groupName: groupObj.name || g.groupId || 'Group',
+            });
+          }
+        }
+      }
+
       for (let i = 0; i < timeline.length; i++) {
         const t = timeline[i];
         const start = new Date(t.startDate);
@@ -224,7 +412,16 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
         const students = Array.isArray(t.studentIds) ? t.studentIds : [];
         if (students.some((st: any) => String(st) === String(studentId))) {
           if (start <= now && now < end) {
-            current.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
+            const assignment = studentGroups[0] || {};
+            current.push({
+              scheduleId: s._id,
+              postingName: assignment.postingName || s.postings?.[0]?.name || s.name,
+              windowIndex: i,
+              window: t,
+              departmentName: assignment.departmentName,
+              unitName: assignment.unitName,
+              groupName: assignment.groupName,
+            });
           }
         }
       }

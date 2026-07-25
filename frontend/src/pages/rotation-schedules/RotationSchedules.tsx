@@ -235,7 +235,14 @@ export default function RotationSchedules() {
         </div>
       ) : !selectedSchedule ? (
         <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-10 text-center text-muted-foreground">
-          No rotation schedules have been generated yet.
+          <div className="space-y-4">
+            <div className="text-2xl font-semibold text-foreground">It&apos;s lonely here..</div>
+            <div className="text-7xl sad-face-crying">😢</div>
+            <div className="text-sm text-muted-foreground">No rotation schedules have been generated yet.</div>
+            <Button variant="outline" onClick={() => navigate('/clinical-rotations')} className="mx-auto mt-2">
+              Go create a posting schedule
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">

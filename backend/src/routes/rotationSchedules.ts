@@ -1,11 +1,14 @@
 import express from 'express';
-import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors } from '../controllers/rotationSchedules';
+import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors } from '../controllers/rotationSchedules';
 import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
 router.post('/', protect, authorize(['admin','teacher']), createRotationSchedule);
 router.get('/', protect, listRotationSchedules);
+router.patch('/:id', protect, authorize(['admin','teacher']), updateRotationSchedule);
+router.patch('/:id/postings/:postingName', protect, authorize(['admin','teacher']), updatePostingInSchedule);
+router.delete('/:id/postings/:postingName', protect, authorize(['admin','teacher']), deletePostingFromSchedule);
 // Development-only: return the first rotation schedule without auth for inspection
 if (process.env.NODE_ENV === 'development') {
 	router.get('/debug/first', async (req, res) => {

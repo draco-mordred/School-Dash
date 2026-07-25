@@ -1089,7 +1089,12 @@ export default function SupervisorQrAttendancePage() {
                           ) : (
                             units.map((unit) => (
                               <SelectItem key={unit._id} value={unit._id}>
-                                {unit.name ?? "Unnamed unit"}
+                                <div className="flex flex-col">
+                                  <div>{unit.name ?? "Unnamed unit"}</div>
+                                  {(unit.unitSpin || unit.spin || unit.departmentSpin) ? (
+                                    <div className="text-xs text-muted-foreground">{unit.unitSpin || unit.spin || unit.departmentSpin}</div>
+                                  ) : null}
+                                </div>
                               </SelectItem>
                             ))
                           )}

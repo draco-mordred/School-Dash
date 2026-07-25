@@ -1,5 +1,5 @@
 import { differenceInCalendarDays, format } from "date-fns";
-import { useEffect, useRef, type FC } from "react";
+import { useEffect, useRef, useState, type FC } from "react";
 import type { AcademicClockPhase } from "@/types";
 import {
   ACADEMIC_CLOCK_DAYS_PER_MONTH,
@@ -23,9 +23,9 @@ const RADIUS = Math.round(150 * 0.75); // reduced by 25%
 const CENTER = 200;
 const STROKE_WIDTH = Math.round(32 * 0.75);
 
-const getCoordinatesForPercent = (percent: number) => {
-  const x = CENTER + RADIUS * Math.cos(2 * Math.PI * (percent - 0.25));
-  const y = CENTER + RADIUS * Math.sin(2 * Math.PI * (percent - 0.25));
+const getCoordinatesForPercent = (percent: number, radiusOverride = RADIUS) => {
+  const x = CENTER + radiusOverride * Math.cos(2 * Math.PI * (percent - 0.25));
+  const y = CENTER + radiusOverride * Math.sin(2 * Math.PI * (percent - 0.25));
   return [x, y];
 };
 
@@ -47,6 +47,11 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   institutionName,
 }) => {
   const plan = normalizePhasePlan(phasePlan ?? ACADEMIC_CLOCK_PHASES);
+  const [hoveredSector, setHoveredSector] = useState<{
+    phaseId: AcademicClockPhase;
+    monthIndex: number;
+    component: string;
+  } | null>(null);
   const completionTriggeredRef = useRef(false);
 
   const totalMonths = Math.max(1, plan.reduce((s, p) => s + p.durationMonths, 0));
@@ -62,10 +67,41 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
   const currentMonth = clamp(progressMonths, 0, totalMonths);
   const currentMonthLabel = Math.max(1, Math.ceil(currentMonth));
 
-  const arcs = plan.reduce(
+  const {
+    arcs,
+    segments: monthlySectors,
+  } = plan.reduce(
     (acc, phase) => {
       const startMonths = acc.accumulatedMonths;
       const endMonths = startMonths + phase.durationMonths;
+      const components = Array.isArray(phase.subPostings) && phase.subPostings.length > 0
+        ? phase.subPostings
+        : [phase.name];
+      const monthsPerComponent = phase.durationMonths / components.length;
+      const shouldRepeatComponents =
+        phase.durationMonths > components.length &&
+        phase.durationMonths % components.length === 0;
+
+      for (let monthIndex = 0; monthIndex < phase.durationMonths; monthIndex += 1) {
+        const componentIndex = shouldRepeatComponents
+          ? monthIndex % components.length
+          : Math.min(
+              components.length - 1,
+              Math.floor(monthIndex / monthsPerComponent),
+            );
+        const component = components[componentIndex] ?? phase.name;
+        const segmentStartMonths = startMonths + monthIndex;
+        const segmentEndMonths = segmentStartMonths + 1;
+
+        acc.segments.push({
+          phase,
+          component,
+          startPercent: segmentStartMonths / totalMonths,
+          endPercent: segmentEndMonths / totalMonths,
+          monthIndex,
+        });
+      }
+
       acc.arcs.push({
         phase,
         startPercent: startMonths / totalMonths,
@@ -74,12 +110,38 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
       acc.accumulatedMonths = endMonths;
       return acc;
     },
-    { accumulatedMonths: 0, arcs: [] as Array<{
-      phase: (typeof plan)[number];
-      startPercent: number;
-      endPercent: number;
-    }> },
-  ).arcs;
+    {
+      accumulatedMonths: 0,
+      arcs: [] as Array<{
+        phase: (typeof plan)[number];
+        startPercent: number;
+        endPercent: number;
+      }>,
+      segments: [] as Array<{
+        phase: (typeof plan)[number];
+        component: string;
+        startPercent: number;
+        endPercent: number;
+        monthIndex: number;
+      }>,
+    },
+  );
+
+  const hoveredSectorData = hoveredSector
+    ? monthlySectors.find(
+        (sector) => sector.phase.id === hoveredSector.phaseId && sector.monthIndex === hoveredSector.monthIndex,
+      )
+    : null;
+
+  const currentDisplayPhase = hoveredSector
+    ? plan.find((phase) => phase.id === hoveredSector.phaseId) ?? null
+    : null;
+
+  const activePhase = currentDisplayPhase ?? plan.find((phase) => phase.id === (currentPhaseId ?? getClockPhaseId(startDate, currentDate, plan as any))) ?? plan[plan.length - 1] ?? null;
+  const activePosting = hoveredSector?.component ?? activePhase?.subPostings?.[0] ?? activePhase?.name ?? "No posting defined";
+
+  const thoughtBubblePhase = hoveredSectorData?.phase.name;
+  const thoughtBubbleComponent = hoveredSectorData?.component;
 
   const resolvedPhaseId = currentPhaseId ?? getClockPhaseId(startDate, currentDate, plan as any);
   let currentPhase = plan.find((phase) => phase.id === resolvedPhaseId) ?? plan[plan.length - 1] ?? null;
@@ -121,6 +183,31 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
       <div className="rounded-3xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
         <div className="flex flex-col items-center gap-3">
           <div className="relative aspect-square w-full max-w-full">
+            {hoveredSectorData ? (
+              <>
+                <style>{`@keyframes thoughtBubbleFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-3px) scale(1.03); } }`}</style>
+                <div className="absolute inset-x-0 top-6 z-10 flex justify-center pointer-events-none">
+                  <div className="relative inline-flex w-[min(92%,260px)] items-center justify-center rounded-[1.32rem] border-2 border-slate-200/70 bg-white/95 px-4 py-2.5 text-[0.61rem] text-slate-900 shadow-[0_12px_48px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:border-slate-700/80 dark:bg-slate-950/90 dark:text-slate-100"
+                    style={{ animation: 'thoughtBubbleFloat 3s ease-in-out infinite' }}>
+                    <span className="absolute -left-3.5 top-2 h-4 w-4 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <span className="absolute -right-4 top-2.5 h-4.5 w-4.5 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <span className="absolute -top-3.5 left-1/4 h-4 w-4 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <span className="absolute -top-4 right-1/4 h-3.5 w-3.5 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <div className="relative flex flex-col items-center gap-0.5 max-w-[min(84%,220px)] text-center">
+                      <span className="uppercase tracking-[0.18em] text-[0.53rem] text-slate-500 dark:text-slate-400">
+                        {thoughtBubblePhase}
+                      </span>
+                      <span className="font-semibold leading-tight text-slate-900 dark:text-slate-100 text-[0.61rem]">
+                        {thoughtBubbleComponent}
+                      </span>
+                    </div>
+                    <span className="absolute -bottom-2.5 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <span className="absolute -bottom-5 left-[55%] h-2 w-2 -translate-x-1/2 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                    <span className="absolute -bottom-7 left-[52%] h-1.75 w-1.75 -translate-x-1/2 rounded-full border-2 border-slate-200/70 bg-white/95 dark:border-slate-700/60 dark:bg-slate-950/90" />
+                  </div>
+                </div>
+              </>
+            ) : null}
             <svg viewBox="0 0 400 400" className="h-full w-full text-slate-900 dark:text-slate-100">
               <circle
                 cx={CENTER}
@@ -130,40 +217,53 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                 stroke="rgba(167, 167, 167, 0.16)"
                 strokeWidth="12"
               />
-              {arcs.map(({ phase, startPercent, endPercent }) => {
+              {monthlySectors.map(({ phase, component, startPercent, endPercent, monthIndex }) => {
                 const [startX, startY] = getCoordinatesForPercent(startPercent);
                 const [endX, endY] = getCoordinatesForPercent(endPercent);
-                const largeArcFlag = phase.durationMonths / totalMonths > 0.5 ? 1 : 0;
+                const largeArcFlag = endPercent - startPercent > 0.5 ? 1 : 0;
                 const pathData = `M ${startX} ${startY} A ${RADIUS} ${RADIUS} 0 ${largeArcFlag} 1 ${endX} ${endY}`;
+                const isHovered = hoveredSector?.phaseId === phase.id && hoveredSector.monthIndex === monthIndex;
+
                 return (
                   <path
-                    key={phase.id}
+                    key={`${phase.id}-month-${monthIndex}`}
                     d={pathData}
                     fill="none"
                     stroke={phase.color}
-                    strokeWidth={STROKE_WIDTH}
+                    strokeWidth={isHovered ? STROKE_WIDTH + 6 : STROKE_WIDTH}
                     strokeLinecap="butt"
+                    strokeOpacity={isHovered ? 1 : 0.75}
+                    style={{ cursor: "pointer" }}
+                    onMouseEnter={() => setHoveredSector({ phaseId: phase.id, monthIndex, component })}
+                    onMouseLeave={() => setHoveredSector(null)}
+                    onClick={() => {
+                      if (hoveredSector?.phaseId === phase.id && hoveredSector.monthIndex === monthIndex) {
+                        setHoveredSector(null);
+                      } else {
+                        setHoveredSector({ phaseId: phase.id, monthIndex, component });
+                      }
+                    }}
                   />
                 );
               })}
-              {[...Array(Math.max(1, totalMonths))].map((_, index) => {
-                const angle = 2 * Math.PI * (index / Math.max(1, totalMonths) - 0.25);
-                const innerRadius = RADIUS - 18;
-                const outerRadius = RADIUS + 18;
+              {arcs.slice(1).map((boundary, index) => {
+                const angle = 2 * Math.PI * (boundary.startPercent - 0.25);
+                const innerRadius = RADIUS - STROKE_WIDTH / 2 - 4;
+                const outerRadius = RADIUS + STROKE_WIDTH / 2 + 4;
                 const x1 = CENTER + innerRadius * Math.cos(angle);
                 const y1 = CENTER + innerRadius * Math.sin(angle);
                 const x2 = CENTER + outerRadius * Math.cos(angle);
                 const y2 = CENTER + outerRadius * Math.sin(angle);
                 return (
                   <line
-                    key={`tick-${index}`}
+                    key={`phase-boundary-${index}`}
                     x1={x1}
                     y1={y1}
                     x2={x2}
                     y2={y2}
-                    stroke={index % 4 === 0 ? "#FFFFFF" : "#000000"}
-                    strokeWidth={index % 4 === 0 ? 3 : 1.5}
-                    opacity="0.85"
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                    opacity="0.9"
                   />
                 );
               })}
@@ -222,19 +322,32 @@ const JUTHAcademicClock: FC<JUTHAcademicClockProps> = ({
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
                   Phase
                 </div>
-                <div className="font-semibold">{currentPhase?.name ?? "No active phase"}</div>
+                <div className="font-semibold">{activePhase?.name ?? currentPhase?.name ?? "No active phase"}</div>
               </div>
               <div>
                 <div className="text-[0.75rem] uppercase tracking-[0.2em] text-slate-500">
                   Current posting
                 </div>
-                <div className="font-semibold">{currentPosting ?? "No posting defined"}</div>
+                <div className="font-semibold">{activePosting ?? "No posting defined"}</div>
               </div>
             </div>
           </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+            <div className="font-semibold">
+              {hoveredSector ? "Hovered month sector preview" : "Hover a month sector"}
+            </div>
+            <p className="mt-2">
+              {hoveredSector
+                ? `Previewing ${activePhase?.name}: ${hoveredSector.component}`
+                : "Move your cursor over a month sector to reveal the component assigned to that month."}
+            </p>
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             {plan.map((phase) => (
-              <div key={phase.id} className="rounded-2xl border p-4">
+              <div
+                key={phase.id}
+                className={`rounded-2xl border p-4 transition ${hoveredSector?.phaseId === phase.id ? "border-primary bg-slate-50 dark:border-primary/80 dark:bg-slate-950" : "border-slate-200 dark:border-slate-800"}`}
+              >
                 <div className="flex items-center gap-2">
                   <svg className="h-3 w-3" viewBox="0 0 8 8" aria-hidden="true">
                     <circle cx="4" cy="4" r="4" fill={phase.color} />

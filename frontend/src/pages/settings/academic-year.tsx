@@ -531,10 +531,11 @@ const AcademicYear = () => {
 
   useEffect(() => {
     if (!activeYear) return;
+    if (hasClassClock || classPhasePlan.length > 0) return;
 
     const startDate = activeYear.clockStartDate
       ? new Date(activeYear.clockStartDate)
-      : new Date(activeYear.fromYear);
+      : new Date(activeYear.fromYear ?? new Date());
 
     setClockStartDate(startDate);
 
@@ -551,7 +552,7 @@ const AcademicYear = () => {
       setClockPausedAt(null);
       setIsClockPaused(Boolean(activeYear.clockIsPaused));
     }
-  }, [activeYear, classPhasePlan]);
+  }, [activeYear, classPhasePlan, hasClassClock]);
 
   useEffect(() => {
     if (isClockPaused) return undefined;
