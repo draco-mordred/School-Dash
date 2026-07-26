@@ -35,7 +35,7 @@ const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/Recen
 const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
 const AnalyticsWidgets = lazy(() => import("@/components/admin/dashboard/AnalyticsWidgets").then(mod => ({ default: mod.AnalyticsWidgets })));
 const AIInsightWidget = lazy(() => import("@/components/dashboard/ai-insight-widget").then(mod => ({ default: mod.AIInsightWidget })));
-const ActivityDashboard = lazy(() => import("@/components/activities/ActivityDashboard").then(mod => ({ default: mod.ActivityDashboard })));
+const ActivityDashboard = lazy(() => import("@/components/activities/ActivityDashboard"));
 
 const DashboardChartShell = memo(function DashboardChartShell({ paused, children, className }: { paused: boolean; children: ReactNode; className?: string }) {
   if (paused) {

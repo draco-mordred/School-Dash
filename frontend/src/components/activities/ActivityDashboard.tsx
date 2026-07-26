@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { useActivityNotifications } from "@/hooks/useActivityNotifications";
-import { ActivityCard, ActivityStatus, ActivityType } from "@/components/activities/ActivityStatusBadge";
+import { ActivityCard } from "@/components/activities/ActivityStatusBadge";
+import type { ActivityStatus, ActivityType } from "@/components/activities/ActivityStatusBadge";
 import { AlertCircle, Clock } from "lucide-react";
 
 interface ScheduledActivity {

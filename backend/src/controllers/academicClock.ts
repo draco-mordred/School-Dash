@@ -50,10 +50,11 @@ export const createAcademicClock = async (req: Request, res: Response): Promise<
     const useTemplatePhaseConfig = Boolean(req.body?.useTemplatePhaseConfig);
     const resolvedPhaseConfig = phaseConfig ?? (useTemplatePhaseConfig ? buildPhaseConfigForClassLevel(resolvedClassLevel) : {});
 
+    const fallbackStartDate = clockStartDate ?? academicYear?.fromYear ?? null;
     const academicClock = await AcademicClock.create({
       academicYear: academicYearId,
       classId,
-      clockStartDate: clockStartDate ?? null,
+      clockStartDate: fallbackStartDate,
       clockIsPaused: clockIsPaused ?? false,
       clockPausedAt: clockPausedAt ?? null,
       clockPhase: clockPhase ?? null,
@@ -142,6 +143,14 @@ export const updateAcademicClock = async (req: Request, res: Response): Promise<
       }
     });
 
+    if (Object.prototype.hasOwnProperty.call(req.body, "clockStartDate") && req.body.clockStartDate == null) {
+      updateData.clockStartDate = null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body, "clockPausedAt") && req.body.clockPausedAt == null) {
+      updateData.clockPausedAt = null;
+    }
+
     const academicClock = await AcademicClock.findById(req.params.id);
 
     if (!academicClock) {
@@ -163,6 +172,10 @@ export const updateAcademicClock = async (req: Request, res: Response): Promise<
 
     if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "classLevel")) {
       updateData.classLevel = resolvedClassLevel;
+    }
+
+    if (updateData.clockIsPaused === false && !Object.prototype.hasOwnProperty.call(req.body, "clockPausedAt")) {
+      updateData.clockPausedAt = null;
     }
 
     const updatedClock = await AcademicClock.findByIdAndUpdate(req.params.id, updateData, {

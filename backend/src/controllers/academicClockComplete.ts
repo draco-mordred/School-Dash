@@ -55,8 +55,11 @@ export const completeAcademicClockByClass = async (req: Request, res: Response) 
       return res.json({ success: true, message: "Academic clock not configured" });
     }
 
-    // mark clock as paused/completed
+    // mark clock as paused/completed while preserving the class-specific start date
     clock.clockIsPaused = true;
+    if (!clock.clockPausedAt) {
+      clock.clockPausedAt = new Date();
+    }
     await clock.save();
 
     if (adminUsers.length > 0) {

@@ -1,3 +1,4 @@
+import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Clock, AlertCircle, CheckCircle2, Zap } from "lucide-react";
 
@@ -11,36 +12,38 @@ interface ActivityStatusBadgeProps {
   compact?: boolean;
 }
 
-const STATUS_METADATA: Record<ActivityStatus, { label: string; bgClass: string; textClass: string; icon: React.ReactNode }> = {
+type IconType = React.ComponentType<{ className?: string }>;
+
+const STATUS_METADATA: Record<ActivityStatus, { label: string; bgClass: string; textClass: string; icon: IconType }> = {
   scheduled: {
     label: "Scheduled",
     bgClass: "bg-slate-100",
     textClass: "text-slate-700",
-    icon: <Clock className="h-3 w-3" />,
+    icon: Clock,
   },
   upcoming: {
     label: "Upcoming",
     bgClass: "bg-blue-100",
     textClass: "text-blue-700",
-    icon: <Zap className="h-3 w-3" />,
+    icon: Zap,
   },
   "in-progress": {
     label: "In Progress",
     bgClass: "bg-amber-100",
     textClass: "text-amber-700",
-    icon: <AlertCircle className="h-3 w-3" />,
+    icon: AlertCircle,
   },
   completed: {
     label: "Completed",
     bgClass: "bg-emerald-100",
     textClass: "text-emerald-700",
-    icon: <CheckCircle2 className="h-3 w-3" />,
+    icon: CheckCircle2,
   },
   cancelled: {
     label: "Cancelled",
     bgClass: "bg-rose-100",
     textClass: "text-rose-700",
-    icon: <AlertCircle className="h-3 w-3" />,
+    icon: AlertCircle,
   },
 };
 
@@ -82,6 +85,7 @@ export function ActivityStatusBadge({
   const resolvedStatus = getActivityStatus(status, startTime);
   const statusMeta = STATUS_METADATA[resolvedStatus];
   const typeLabel = TYPE_LABEL[type];
+  const IconComponent = statusMeta.icon;
 
   if (compact) {
     return (
@@ -93,7 +97,9 @@ export function ActivityStatusBadge({
 
   return (
     <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${statusMeta.bgClass}`}>
-      <div className={`flex-shrink-0 ${statusMeta.textClass}`}>{statusMeta.icon}</div>
+      <div className={`flex-shrink-0 ${statusMeta.textClass}`}>
+        <IconComponent className="h-3 w-3" />
+      </div>
       <div className="flex flex-col gap-0.5">
         <p className={`text-xs font-semibold ${statusMeta.textClass}`}>{statusMeta.label}</p>
         <p className={`text-[10px] ${statusMeta.textClass} opacity-75`}>{typeLabel}</p>
@@ -162,6 +168,7 @@ export function ActivityCard({
 }) {
   const resolvedStatus = getActivityStatus(status, startTime, endTime);
   const statusMeta = STATUS_METADATA[resolvedStatus];
+  const IconComponent = statusMeta.icon;
 
   return (
     <button

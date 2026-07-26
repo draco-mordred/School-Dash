@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type WheelEvent } from "react";
 import { api } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Search from "@/components/global/Search";
-import { CalendarDays, Download, Printer, ListChecks, PlusCircle } from "lucide-react";
+import { Download, Share2, PlusCircle, Calendar } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
-import type { schedule, period } from "@/types";
+import type { schedule } from "@/types";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
@@ -313,27 +313,30 @@ export default function ClinicalSchedules() {
       api.changeView('dayGridMonth');
     }
     api.gotoDate(currentDate);
-  }, [view]);
+  }, [view, currentDate]);
 
-  const calendarApi = calendarRef.current?.getApi();
   const scrollTimer = useRef<number | null>(null);
   const dayViewContainerRef = useRef<HTMLDivElement | null>(null);
 
   const goToToday = () => {
-    calendarApi?.today();
+    calendarRef.current?.getApi()?.today();
     setCurrentDate(new Date().toISOString());
   };
 
   const openPrintView = () => {
     window.print();
   };
-  const goToPrev = () => calendarApi?.prev();
-  const goToNext = () => calendarApi?.next();
+  const goToPrev = () => calendarRef.current?.getApi()?.prev();
+  const goToNext = () => calendarRef.current?.getApi()?.next();
 
-  const handleDayViewScroll = (deltaY: number, nativeEvent?: WheelEvent) => {
+  const handleDayViewScroll = useCallback((deltaY: number, nativeEvent?: WheelEvent) => {
     if (view !== 'day' || Math.abs(deltaY) < 10) return;
     // if nativeEvent provided, we can preventDefault because listener will be non-passive
-    try { nativeEvent?.preventDefault(); } catch {}
+    try { 
+      nativeEvent?.preventDefault(); 
+    } catch {
+      // Ignore any preventDefault errors
+    }
     if (scrollTimer.current) return;
 
     if (deltaY > 0) {
@@ -345,16 +348,16 @@ export default function ClinicalSchedules() {
     scrollTimer.current = window.setTimeout(() => {
       scrollTimer.current = null;
     }, 300);
-  };
+  }, [view]);
 
   useEffect(() => {
     const el = dayViewContainerRef.current;
     if (!el) return;
     const wheelHandler = (e: WheelEvent) => handleDayViewScroll(e.deltaY, e);
     // add native listener with passive: false so preventDefault is allowed
-    el.addEventListener('wheel', wheelHandler as EventListener, { passive: false });
-    return () => el.removeEventListener('wheel', wheelHandler as EventListener);
-  }, [view]);
+    el.addEventListener('wheel', wheelHandler as unknown as EventListener, { passive: false });
+    return () => el.removeEventListener('wheel', wheelHandler as unknown as EventListener);
+  }, [view, handleDayViewScroll]);
 
   return (
     <div className="p-6 space-y-6">
@@ -407,7 +410,7 @@ export default function ClinicalSchedules() {
                 <Download className="mr-2 h-4 w-4" />Export
               </Button>
               <Button size="sm" variant="outline" onClick={openPrintView}>
-                <Printer className="mr-2 h-4 w-4" />Print
+                <Share2 className="mr-2 h-4 w-4" />Print
               </Button>
               <Button size="sm" variant="outline">
                 <PlusCircle className="mr-2 h-4 w-4" />Quick action
@@ -419,7 +422,7 @@ export default function ClinicalSchedules() {
               <Search value={searchText} onChange={setSearchText} placeholder="Search postings..." />
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex items-center gap-3 rounded-2xl border border-border bg-background p-3">
-                  <CalendarDays className="h-5 w-5 text-muted-foreground" />
+                  <Calendar className="h-5 w-5 text-muted-foreground" />
                   <div className="grid gap-1">
                     <span className="text-xs uppercase text-muted-foreground">Jump to date</span>
                     <Input type="date" value={currentDate.split("T")[0]} onChange={(event) => handleDateChange(event.target.value)} className="max-w-[200px]" />

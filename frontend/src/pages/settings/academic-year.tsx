@@ -430,8 +430,11 @@ const AcademicYear = () => {
 
     try {
       const payload = buildClassClockPayload({
+        clockStartDate: Object.prototype.hasOwnProperty.call(data, "clockStartDate") ? data.clockStartDate : clockStartDate,
+        clockIsPaused: Object.prototype.hasOwnProperty.call(data, "clockIsPaused") ? data.clockIsPaused : isClockPaused,
+        clockPausedAt: Object.prototype.hasOwnProperty.call(data, "clockPausedAt") ? data.clockPausedAt : clockPausedAt,
+        clockPhase: Object.prototype.hasOwnProperty.call(data, "clockPhase") ? data.clockPhase : clockPhase,
         ...data,
-        clockPhase: data.clockPhase ?? clockPhase,
       }, phasePlan);
 
       if (selectedClockClassId) {
@@ -465,69 +468,69 @@ const AcademicYear = () => {
     }
   };
 
-  // When current academic year or selected class changes, load class-specific clock data
-  useEffect(() => {
-    const loadSelectedClassClock = async () => {
-      const ayId = currentAcademicYear ? (currentAcademicYear._id ?? currentAcademicYear.id ?? undefined) : undefined;
-      if (!ayId || !selectedClockClassId) {
-        setSelectedClockDocId(null);
-        setHasClassClock(false);
+  const loadSelectedClassClock = useCallback(async () => {
+    const ayId = currentAcademicYear ? (currentAcademicYear._id ?? currentAcademicYear.id ?? undefined) : undefined;
+    if (!ayId || !selectedClockClassId) {
+      setSelectedClockDocId(null);
+      setHasClassClock(false);
+      return;
+    }
+
+    try {
+      const { data } = await api.get(`/academic-clocks?academicYearId=${ayId}&classId=${selectedClockClassId}`);
+      const existingClock = Array.isArray(data?.clocks) ? data.clocks[0] : null;
+
+      if (existingClock) {
+        setSelectedClockDocId(existingClock._id);
+        setHasClassClock(true);
+        setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
+        setIsClockPaused(Boolean(existingClock.clockIsPaused));
+        setClockPausedAt(existingClock.clockPausedAt ? new Date(existingClock.clockPausedAt) : null);
+        const existingPlan = convertPhaseConfigToPlan(existingClock.phaseConfig);
+        setClassPhasePlan(existingPlan);
+        setClockPhase((existingClock.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
+          existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
+          new Date(),
+          existingPlan,
+        ));
         return;
       }
+    } catch {
+      // fall back to the saved academic-year class clock data below
+    }
 
-      try {
-        const { data } = await api.get(`/academic-clocks?academicYearId=${ayId}&classId=${selectedClockClassId}`);
-        const existingClock = Array.isArray(data?.clocks) ? data.clocks[0] : null;
+    const classData = (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData
+      ? (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData?.[selectedClockClassId]
+      : undefined;
 
-        if (existingClock) {
-          setSelectedClockDocId(existingClock._id);
-          setHasClassClock(true);
-          setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
-          setIsClockPaused(Boolean(existingClock.clockIsPaused));
-          setClockPausedAt(existingClock.clockPausedAt ? new Date(existingClock.clockPausedAt) : null);
-          const existingPlan = convertPhaseConfigToPlan(existingClock.phaseConfig);
-          setClassPhasePlan(existingPlan);
-          setClockPhase((existingClock.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
-            existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
-            new Date(),
-            existingPlan,
-          ));
-          return;
-        }
-      } catch {
-        // fall back to the saved academic-year class clock data below
-      }
-
-      const classData = (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData
-        ? (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData?.[selectedClockClassId]
-        : undefined;
-
-      if (classData) {
-        setSelectedClockDocId(null);
-        setHasClassClock(true);
-        setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
-        setIsClockPaused(Boolean(classData.clockIsPaused));
-        setClockPausedAt(classData.clockPausedAt ? new Date(classData.clockPausedAt) : null);
-        setClassPhasePlan(convertPhaseConfigToPlan(classData.phaseConfig));
-        setClockPhase((classData.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
-          classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
-          new Date(),
-          convertPhaseConfigToPlan(classData.phaseConfig),
-        ));
-      } else {
-        setSelectedClockDocId(null);
-        setHasClassClock(false);
-        setIsConfiguringClassClock(false);
-        setClockStartDate(new Date(currentAcademicYear?.fromYear ?? new Date()));
-        setIsClockPaused(false);
-        setClockPausedAt(null);
-        setClassPhasePlan([]);
-        setClockPhase("phase1");
-      }
-    };
-
-    void loadSelectedClassClock();
+    if (classData) {
+      setSelectedClockDocId(null);
+      setHasClassClock(true);
+      setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
+      setIsClockPaused(Boolean(classData.clockIsPaused));
+      setClockPausedAt(classData.clockPausedAt ? new Date(classData.clockPausedAt) : null);
+      setClassPhasePlan(convertPhaseConfigToPlan(classData.phaseConfig));
+      setClockPhase((classData.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
+        classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
+        new Date(),
+        convertPhaseConfigToPlan(classData.phaseConfig),
+      ));
+    } else {
+      setSelectedClockDocId(null);
+      setHasClassClock(false);
+      setIsConfiguringClassClock(false);
+      setClockStartDate(new Date(currentAcademicYear?.fromYear ?? new Date()));
+      setIsClockPaused(false);
+      setClockPausedAt(null);
+      setClassPhasePlan([]);
+      setClockPhase("phase1");
+    }
   }, [currentAcademicYear, selectedClockClassId, selectedClassPhasePlan, convertPhaseConfigToPlan]);
+
+  // When current academic year or selected class changes, load class-specific clock data
+  useEffect(() => {
+    void loadSelectedClassClock();
+  }, [loadSelectedClassClock]);
 
   useEffect(() => {
     if (!activeYear) return;
@@ -569,29 +572,23 @@ const AcademicYear = () => {
 
     if (isClockPaused) {
       const resumeDate = new Date();
-      const pauseDate = clockPausedAt ?? clockNow;
-      const shiftMs = pauseDate
-        ? resumeDate.getTime() - pauseDate.getTime()
-        : 0;
-      const newStartDate = new Date(clockStartDate.getTime() + shiftMs);
+      const nextPhase = getClockPhaseId(clockStartDate, resumeDate, classPhasePlan);
 
-      const nextPhase = getClockPhaseId(newStartDate, resumeDate, classPhasePlan);
-
-      setClockStartDate(newStartDate);
       setClockNow(resumeDate);
       setIsClockPaused(false);
       setClockPausedAt(null);
       setClockPhase(nextPhase);
 
       await saveClockState({
-        clockStartDate: newStartDate,
+        clockStartDate,
         clockIsPaused: false,
         clockPausedAt: null,
         clockPhase: nextPhase,
       });
+      await fetchYears();
+      await loadSelectedClassClock();
     } else {
       const pauseDate = new Date();
-
       const nextPhase = getClockPhaseId(clockStartDate, pauseDate, classPhasePlan);
 
       setClockNow(pauseDate);
@@ -600,17 +597,26 @@ const AcademicYear = () => {
       setClockPhase(nextPhase);
 
       await saveClockState({
+        clockStartDate,
         clockIsPaused: true,
         clockPausedAt: pauseDate,
         clockPhase: nextPhase,
       });
+      await fetchYears();
+      await loadSelectedClassClock();
     }
   };
 
   const resetClock = async () => {
-    const resetDate = activeYear
+    if (!activeYear) return;
+
+    const useAcademicYearStart = window.confirm(
+      "Reset this class clock to the academic year start date? Choose OK to use the academic year start date, or Cancel to keep the current class-specific start date and continue from it."
+    );
+
+    const resetDate = useAcademicYearStart
       ? new Date(activeYear.fromYear)
-      : new Date();
+      : clockStartDate;
 
     const resetDateNow = new Date();
     const nextPhase = getClockPhaseId(resetDate, resetDateNow, classPhasePlan);
