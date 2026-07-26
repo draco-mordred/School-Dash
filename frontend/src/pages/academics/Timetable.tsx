@@ -2,6 +2,11 @@ import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  getClassLevelPhasePlan,
+  getClockPhaseId,
+  type AcademicClockPhaseDefinition,
+} from "@/lib/academicClock";
 import type { schedule, period, courses } from "@/types";
 import GeneratorControls, {
   type GenSettings,
@@ -37,6 +42,12 @@ type NewPeriod = {
   endTime: string;
 };
 
+type SelectedClassInfo = {
+  name: string;
+  academicYear: string;
+  academicYearId?: string;
+};
+
 const Timetable = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -45,7 +56,9 @@ const Timetable = () => {
 
   const [scheduleData, setScheduleData] = useState<schedule[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
-  const [studentClassInfo, setStudentClassInfo] = useState<{ name: string; academicYear: string; classTeacher?: string } | null>(null);
+  const [selectedClassInfo, setSelectedClassInfo] = useState<SelectedClassInfo | null>(null);
+  const [currentPostingTitle, setCurrentPostingTitle] = useState<string | null>(null);
+  const [postingScheduleAvailable, setPostingScheduleAvailable] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedClass, setSelectedClass] = useState("");
 
@@ -99,6 +112,40 @@ const Timetable = () => {
     }
   };
 
+  const resolveCurrentPostingTitleFromClock = (clock: any, className?: string | null) => {
+    const classLevelPlan = getClassLevelPhasePlan(clock?.classLevel ?? className ?? "");
+    const phaseConfigPlan: AcademicClockPhaseDefinition[] = Array.isArray(clock?.phaseConfig)
+      ? clock.phaseConfig.map((phase: any, index: number) => ({
+          id: phase?.id ?? `phase${index + 1}`,
+          name: phase?.name ?? `Phase ${index + 1}`,
+          durationMonths: Number.isFinite(phase?.durationMonths) ? phase.durationMonths : 1,
+          color: phase?.color ?? "#3B82F6",
+          subPostings: Array.isArray(phase?.subPostings) ? phase.subPostings.filter(Boolean) : [],
+        }))
+      : [];
+
+    const phasePlan = phaseConfigPlan.length > 0 ? phaseConfigPlan : classLevelPlan;
+    let activePhaseId: string | null = null;
+
+    if (clock?.clockStartDate && phasePlan.length > 0) {
+      const startDate = clock.clockStartDate instanceof Date ? clock.clockStartDate : new Date(clock.clockStartDate);
+      if (!Number.isNaN(startDate.getTime())) {
+        activePhaseId = getClockPhaseId(startDate, new Date(), phasePlan);
+      }
+    }
+
+    if (!activePhaseId && typeof clock?.clockPhase === "string" && clock.clockPhase) {
+      activePhaseId = clock.clockPhase;
+    }
+
+    if (!activePhaseId) {
+      activePhaseId = phasePlan[0]?.id ?? null;
+    }
+
+    const phaseDefinition = phasePlan.find((phase) => phase.id === activePhaseId);
+    return phaseDefinition?.name ?? (activePhaseId ? `Phase ${activePhaseId.replace("phase", "")}` : null);
+  };
+
   useEffect(() => {
     if (selectedClass) {
       fetchTimetable(selectedClass);
@@ -118,18 +165,65 @@ const Timetable = () => {
 
   // Fetch student's class name + academic year
   useEffect(() => {
-    if (!isStudent || !selectedClass) return;
+    if (!selectedClass) {
+      setSelectedClassInfo(null);
+      setCurrentPostingTitle(null);
+      setPostingScheduleAvailable(false);
+      return;
+    }
+
     const fetchClassInfo = async () => {
       try {
         const { data } = await api.get(`/classes/${selectedClass}`);
-        setStudentClassInfo({
+        const academicYearId =
+          typeof data.academicYear === "string"
+            ? data.academicYear
+            : data.academicYear?._id;
+
+        setSelectedClassInfo({
           name: data.name ?? "—",
           academicYear: data.academicYear?.name ?? "—",
+          academicYearId,
         });
-      } catch { /* silent */ }
+
+        const clockParams = new URLSearchParams();
+        if (academicYearId) clockParams.append("academicYearId", academicYearId);
+        clockParams.append("classId", selectedClass);
+
+        const [clockRes, postingRes] = await Promise.all([
+          api.get(`/academic-clocks?${clockParams.toString()}`).catch(() => ({ data: null })),
+          api.get("/rotation-schedules", { params: { classId: selectedClass, limit: 1 } }).catch(() => ({ data: null })),
+        ]);
+
+        const clockData = (() => {
+          const raw = clockRes.data;
+          if (!raw) return null;
+          if (Array.isArray(raw)) return raw[0] ?? null;
+          if (raw?.data && Array.isArray(raw.data)) return raw.data[0] ?? null;
+          if (raw?.clocks && Array.isArray(raw.clocks)) return raw.clocks[0] ?? null;
+          if (raw?.academicClocks && Array.isArray(raw.academicClocks)) return raw.academicClocks[0] ?? null;
+          return raw;
+        })();
+
+        setCurrentPostingTitle(resolveCurrentPostingTitleFromClock(clockData, data.name ?? ""));
+
+        const rotations = (() => {
+          const raw = postingRes.data;
+          if (!raw) return [];
+          if (Array.isArray(raw)) return raw;
+          if (raw?.schedules && Array.isArray(raw.schedules)) return raw.schedules;
+          return [];
+        })();
+
+        setPostingScheduleAvailable(Array.isArray(rotations) && rotations.length > 0);
+      } catch {
+        setCurrentPostingTitle(null);
+        setPostingScheduleAvailable(false);
+      }
     };
+
     void fetchClassInfo();
-  }, [isStudent, selectedClass]);
+  }, [selectedClass]);
 
   // Fetch timetables for parent's linked children's classes
   useEffect(() => {
@@ -410,8 +504,8 @@ const Timetable = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Timetable Management</h1>
           <p className="text-muted-foreground">
-            {isStudent && studentClassInfo
-              ? `${studentClassInfo.name} · Academic Year ${studentClassInfo.academicYear}`
+            {isStudent && selectedClassInfo
+              ? `${selectedClassInfo.name} · Academic Year ${selectedClassInfo.academicYear}`
               : isStudent
               ? "View your weekly class schedule."
               : isParent
@@ -483,8 +577,22 @@ const Timetable = () => {
             />
           )}
 
+          <div className="mb-4 space-y-1">
+            {currentPostingTitle ? (
+              <p className="text-sm font-medium">Current posting: {currentPostingTitle}</p>
+            ) : null}
+            <p className="text-sm text-muted-foreground">
+              Clinical posting schedule: {postingScheduleAvailable ? "Available" : "Unavailable"}
+            </p>
+          </div>
+
           <div id="timetable-printable">
-            <TimetableGrid schedule={scheduleData} isLoading={loadingSchedule} />
+            <TimetableGrid
+              schedule={scheduleData}
+              isLoading={loadingSchedule}
+              currentPostingTitle={currentPostingTitle}
+              postingScheduleAvailable={postingScheduleAvailable}
+            />
           </div>
         </>
       )}

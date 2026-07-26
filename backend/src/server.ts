@@ -36,6 +36,7 @@ import activityEntryRouter from "./routes/activityEntry";
 import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 import clinicalAttendanceRouter from "./routes/clinicalAttendance"; // import clinical attendance routes
+import activityNotificationRouter from "./routes/activityNotification"; // import activity notification routes
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 
@@ -265,6 +266,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/attendance`, attendanceRouter);
   app.use(`${prefix}/clinical-attendance`, clinicalAttendanceRouter);
   app.use(`${prefix}/notifications`, notificationRouter);
+  app.use(`${prefix}/activity-notifications`, activityNotificationRouter);
   app.use(`${prefix}/setup`, setupRouter);
   app.use(`${prefix}/og-ped-rotations`, routerFor500LevelPostings);
   app.use(`${prefix}/rotation-schedules`, rotationSchedulesRouter);

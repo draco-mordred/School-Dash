@@ -97,8 +97,8 @@ export const sidebardata = {
       icon: CalendarDays,
       roles: ["admin"],
       items: [
-        { title: "Schedules", url: "/timetable", roles: ["admin"] },
-        { title: "Academic Calendar", url: "/academic-calendar", roles: ["admin"] },
+        { title: "Lecture Schedules", url: "/timetable", roles: ["admin"] },
+        { title: "Clinical Schedules", url: "/clinical-schedules", roles: ["admin"] },
         { title: "Dates and Events", url: "/timetable/events", roles: ["admin"] },
       ],
     },

@@ -1,11 +1,13 @@
 import express from 'express';
-import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors } from '../controllers/rotationSchedules';
+import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors, listScheduleEvents, updateWindowInSchedule } from '../controllers/rotationSchedules';
 import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
 router.post('/', protect, authorize(['admin','teacher']), createRotationSchedule);
 router.get('/', protect, listRotationSchedules);
+router.get('/events', protect, listScheduleEvents);
+router.patch('/:id/windows/:index', protect, authorize(['admin','teacher']), updateWindowInSchedule);
 router.patch('/:id', protect, authorize(['admin','teacher']), updateRotationSchedule);
 router.patch('/:id/postings/:postingName', protect, authorize(['admin','teacher']), updatePostingInSchedule);
 router.delete('/:id/postings/:postingName', protect, authorize(['admin','teacher']), deletePostingFromSchedule);

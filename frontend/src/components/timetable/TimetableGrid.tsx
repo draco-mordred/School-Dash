@@ -7,11 +7,18 @@ import type { schedule } from "@/types";
 interface Props {
   schedule: schedule[];
   isLoading: boolean;
+  currentPostingTitle?: string | null;
+  postingScheduleAvailable?: boolean;
 }
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
-const TimetableGrid = ({ schedule, isLoading }: Props) => {
+const TimetableGrid = ({
+  schedule,
+  isLoading,
+  currentPostingTitle,
+  postingScheduleAvailable,
+}: Props) => {
   // loading
   if (isLoading) {
     return (
@@ -60,7 +67,11 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
 
   const getPeriodTitle = (period: (typeof schedule)[number]["periods"][number]) => {
     if (period.isOptional) return period.displayLabel ?? "Optional Activity";
-    if (period.isClinical) return "Clinical Activities";
+    if (period.isClinical) {
+      return currentPostingTitle
+        ? `Clinical: ${currentPostingTitle}`
+        : "Clinical Activities";
+    }
     return period.subject?.name ?? "TBD Subject";
   };
 
@@ -100,6 +111,11 @@ const TimetableGrid = ({ schedule, isLoading }: Props) => {
 
     if (period.subject?.code) {
       items.push({ label: "Code", value: period.subject.code });
+    }
+
+    if (period.isClinical) {
+      items.push({ label: "Current posting", value: currentPostingTitle ?? "Clinical" });
+      items.push({ label: "Schedule", value: postingScheduleAvailable ? "Schedule available" : "Schedule unavailable" });
     }
 
     if (period.lecturer?.name) {

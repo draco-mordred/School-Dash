@@ -35,6 +35,7 @@ const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/Recen
 const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
 const AnalyticsWidgets = lazy(() => import("@/components/admin/dashboard/AnalyticsWidgets").then(mod => ({ default: mod.AnalyticsWidgets })));
 const AIInsightWidget = lazy(() => import("@/components/dashboard/ai-insight-widget").then(mod => ({ default: mod.AIInsightWidget })));
+const ActivityDashboard = lazy(() => import("@/components/activities/ActivityDashboard").then(mod => ({ default: mod.ActivityDashboard })));
 
 const DashboardChartShell = memo(function DashboardChartShell({ paused, children, className }: { paused: boolean; children: ReactNode; className?: string }) {
   if (paused) {
@@ -702,6 +703,11 @@ const Dashboard = memo(function Dashboard() {
           </Suspense>
         </div>
       )}
+
+      {/* ══ YOUR ACTIVITIES ════════════════════════════════════ */}
+      <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+        <ActivityDashboard />
+      </Suspense>
 
       {/* ══ MAIN CONTENT GRID ══════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

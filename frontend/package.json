@@ -12,6 +12,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fullcalendar/core": "^6.1.21",
+    "@fullcalendar/daygrid": "^6.1.21",
+    "@fullcalendar/interaction": "^6.1.21",
+    "@fullcalendar/react": "^6.1.21",
+    "@fullcalendar/resource-timeline": "^6.1.21",
+    "@fullcalendar/timegrid": "^6.1.21",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -42,6 +48,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
+    "@zxing/library": "^0.19.3",
     "animejs": "^4.5.0",
     "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
@@ -60,7 +67,6 @@
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.70.0",
-    "@zxing/library": "^0.19.3",
     "react-resizable-panels": "^4.2.2",
     "react-router": "^7.11.0",
     "react-router-dom": "^7.17.0",

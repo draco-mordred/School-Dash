@@ -2,8 +2,6 @@ import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
-import generatePostingSpinsForPayload, { assignDepartmentAndUnitSpins, generateSpinBase } from '../utils/spinGenerator';
-import { createNotificationIfUnique } from '../utils/notificationUtils';
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -31,18 +29,8 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
           postingScheduleId: payload.postingScheduleId,
         });
 
-        // assign spins for postings in generated plan
-        if (Array.isArray(planObj.postings)) {
-          await generatePostingSpinsForPayload(planObj.class, planObj.postings);
-        }
         // merge any additional meta and persist
         const doc = await RotationPlan.create(planObj);
-        // notify students and staff about assigned department/unit spins
-        try {
-          await sendPostingAssignmentNotifications(doc);
-        } catch (notifyErr) {
-          console.warn('failed to send posting assignment notifications', notifyErr);
-        }
         return res.status(201).json(doc);
       } catch (gErr: any) {
         console.error('Krysta generation failed', gErr);
@@ -50,43 +38,7 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
       }
     }
 
-    // Normalize timeline from common alternative locations so persisted plans include meta.timeline
-    try {
-      const meta = payload.meta || {};
-      if (!Array.isArray(meta.timeline)) {
-        // fallbacks: postings[0].meta.timeline, meta.windows, postings[0].meta.windows
-        const postingMetaTimeline = payload.postings?.[0]?.meta?.timeline;
-        const postingMetaWindows = payload.postings?.[0]?.meta?.windows;
-        const metaWindows = meta.windows;
-        if (Array.isArray(postingMetaTimeline)) {
-          meta.timeline = postingMetaTimeline;
-        } else if (Array.isArray(postingMetaWindows)) {
-          meta.timeline = postingMetaWindows;
-        } else if (Array.isArray(metaWindows)) {
-          meta.timeline = metaWindows;
-        }
-      }
-      payload.meta = meta;
-    } catch (normErr) {
-      console.warn('rotation schedule timeline normalization failed', normErr);
-    }
-
-    // If payload contains postings, assign spins (ensure uniqueness per class)
-    try {
-      if (Array.isArray(payload.postings)) {
-        await generatePostingSpinsForPayload(payload.class, payload.postings);
-      }
-    } catch (spinErr) {
-      console.warn('spin assignment failed', spinErr);
-    }
-
     const doc = await RotationPlan.create(payload);
-    // notify students and staff about assigned department/unit spins
-    try {
-      await sendPostingAssignmentNotifications(doc);
-    } catch (notifyErr) {
-      console.warn('failed to send posting assignment notifications', notifyErr);
-    }
     res.status(201).json(doc);
   } catch (err) {
     console.error('createRotationSchedule error', err);
@@ -116,59 +68,6 @@ export const listRotationSchedules = async (req: Request, res: Response) => {
   }
 };
 
-// Helper: send notifications to students and supervisors about their assigned departments/units
-async function sendPostingAssignmentNotifications(plan: any) {
-  try {
-    if (!plan || !Array.isArray(plan.postings)) return;
-    const tasks: Promise<any>[] = [];
-    for (const p of plan.postings) {
-      const postingName = p.name || 'Posting';
-      for (const g of p.groups || []) {
-        const groupObj = g.group || {};
-        const students = Array.isArray(groupObj.students) ? groupObj.students : [];
-        const deptLabel = groupObj.department || groupObj.departmentSpin || 'Department';
-        const unitLabel = groupObj.name || groupObj.unitSpin || 'Unit';
-        for (const st of students) {
-          try {
-            tasks.push(
-              createNotificationIfUnique({
-                userId: st,
-                role: 'student',
-                title: `Assigned to ${postingName}`,
-                message: `You have been assigned to ${deptLabel} (${groupObj.departmentSpin || '—'}) / ${unitLabel} (${groupObj.unitSpin || '—'}) for posting ${postingName}.`,
-                link: '/clinical-rotations',
-                metadata: { postingId: plan._id, postingName, department: deptLabel, unit: unitLabel },
-                actorRole: 'admin',
-              })
-            );
-          } catch (e) {
-            // continue
-          }
-        }
-
-        const supervisorId = g.supervisor || groupObj.supervisor || null;
-        if (supervisorId) {
-          tasks.push(
-            createNotificationIfUnique({
-              userId: supervisorId,
-              role: 'teacher',
-              title: `Supervision assigned: ${postingName}`,
-              message: `You have been assigned to supervise ${unitLabel} (${groupObj.unitSpin || '—'}) in ${postingName}.`,
-              link: '/clinical-rotations',
-              metadata: { postingId: plan._id, postingName, department: deptLabel, unit: unitLabel },
-              actorRole: 'admin',
-            })
-          );
-        }
-      }
-    }
-
-    await Promise.allSettled(tasks);
-  } catch (err) {
-    console.warn('sendPostingAssignmentNotifications error', err);
-  }
-}
-
 // GET /api/rotation-schedules/:id
 export const getRotationScheduleById = async (req: Request, res: Response) => {
   try {
@@ -191,96 +90,6 @@ export const deleteRotationSchedule = async (req: Request, res: Response) => {
     res.json({ message: 'Schedule deleted' });
   } catch (err) {
     console.error('deleteRotationSchedule error', err);
-    res.status(500).json({ message: 'Server error', error: String(err) });
-  }
-};
-
-// PATCH /api/rotation-schedules/:id
-export const updateRotationSchedule = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const payload = req.body || {};
-    const plan = await RotationPlan.findById(id);
-    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
-
-    const allowedFields = ['name', 'meta', 'class', 'createdBy', 'postings'];
-    for (const field of allowedFields) {
-      if (payload[field] !== undefined) {
-        (plan as any)[field] = payload[field];
-      }
-    }
-
-    if (Array.isArray(payload.postings)) {
-      await generatePostingSpinsForPayload(plan.class, plan.postings);
-    }
-
-    await plan.save();
-    await sendPostingAssignmentNotifications(plan);
-    const updated = await RotationPlan.findById(id).lean();
-    res.json(updated);
-  } catch (err) {
-    console.error('updateRotationSchedule error', err);
-    res.status(500).json({ message: 'Server error', error: String(err) });
-  }
-};
-
-// PATCH /api/rotation-schedules/:id/postings/:postingName
-export const updatePostingInSchedule = async (req: Request, res: Response) => {
-  try {
-    const { id, postingName } = req.params;
-    const payload = req.body || {};
-    const plan = await RotationPlan.findById(id);
-    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
-
-    const decodedName = decodeURIComponent(postingName || '');
-    const postingIndex = (plan.postings || []).findIndex((p: any) => String(p.name) === String(decodedName));
-    if (postingIndex === -1) return res.status(404).json({ message: 'Posting not found' });
-
-    const posting = plan.postings[postingIndex] as any;
-    const allowedFields = ['name', 'category', 'startDate', 'endDate', 'unitRotationWeeks', 'meta', 'groups'];
-    for (const field of allowedFields) {
-      if (payload[field] !== undefined) {
-        posting[field] = payload[field];
-      }
-    }
-
-    // regenerate spins if the posting name changed or if this posting has no valid spin yet
-    const normalizedName = posting.name || '';
-    const currentBase = posting.spinBase;
-    const newBase = generateSpinBase(normalizedName);
-    const shouldRegenerate = !posting.spin || currentBase !== newBase;
-    if (shouldRegenerate) {
-      await generatePostingSpinsForPayload(plan.class, [posting]);
-    }
-
-    assignDepartmentAndUnitSpins([posting]);
-    await plan.save();
-    await sendPostingAssignmentNotifications(plan);
-    const updated = await RotationPlan.findById(id).lean();
-    res.json(updated);
-  } catch (err) {
-    console.error('updatePostingInSchedule error', err);
-    res.status(500).json({ message: 'Server error', error: String(err) });
-  }
-};
-
-// DELETE /api/rotation-schedules/:id/postings/:postingName
-export const deletePostingFromSchedule = async (req: Request, res: Response) => {
-  try {
-    const { id, postingName } = req.params;
-    const plan = await RotationPlan.findById(id);
-    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
-
-    const decodedName = decodeURIComponent(postingName || '');
-    const postingIndex = (plan.postings || []).findIndex((p: any) => String(p.name) === String(decodedName));
-    if (postingIndex === -1) return res.status(404).json({ message: 'Posting not found' });
-
-    plan.postings.splice(postingIndex, 1);
-    await plan.save();
-    const updated = await RotationPlan.findById(id).lean();
-    res.json({ message: 'Posting deleted', schedule: updated });
-  } catch (err) {
-    console.error('deletePostingFromSchedule error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
@@ -387,24 +196,6 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
 
     for (const s of schedules) {
       const timeline = (s.meta && s.meta.timeline) || [];
-      const studentGroups: any[] = [];
-
-      for (const p of s.postings || []) {
-        const groups = p.groups || [];
-        for (const g of groups) {
-          const groupObj = g.group || {};
-          const students = Array.isArray(groupObj.students) ? groupObj.students : [];
-          if (students.some((st: any) => String(st) === String(studentId) || (st && st._id && String(st._id) === String(studentId)))) {
-            studentGroups.push({
-              postingName: p.name || s.name,
-              departmentName: groupObj.department || groupObj.departmentName || groupObj.departmentSpin || 'Department',
-              unitName: groupObj.name || groupObj.unitName || groupObj.unitSpin || 'Unit',
-              groupName: groupObj.name || g.groupId || 'Group',
-            });
-          }
-        }
-      }
-
       for (let i = 0; i < timeline.length; i++) {
         const t = timeline[i];
         const start = new Date(t.startDate);
@@ -412,16 +203,7 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
         const students = Array.isArray(t.studentIds) ? t.studentIds : [];
         if (students.some((st: any) => String(st) === String(studentId))) {
           if (start <= now && now < end) {
-            const assignment = studentGroups[0] || {};
-            current.push({
-              scheduleId: s._id,
-              postingName: assignment.postingName || s.postings?.[0]?.name || s.name,
-              windowIndex: i,
-              window: t,
-              departmentName: assignment.departmentName,
-              unitName: assignment.unitName,
-              groupName: assignment.groupName,
-            });
+            current.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
           }
         }
       }
@@ -540,6 +322,141 @@ export const listScheduleSupervisors = async (req: Request, res: Response) => {
     res.json({ id, supervisors: Object.values(supervisors) });
   } catch (err) {
     console.error('listScheduleSupervisors error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// GET /api/rotation-schedules/events?classId=...&start=...&end=...
+export const listScheduleEvents = async (req: Request, res: Response) => {
+  try {
+    const { classId, start, end } = req.query as any;
+    if (!classId) return res.status(400).json({ message: 'Missing classId' });
+
+    const startDate = start ? new Date(start) : null;
+    const endDate = end ? new Date(end) : null;
+
+    const plans = await RotationPlan.find({ class: classId }).lean();
+    const events: any[] = [];
+
+    for (const p of plans) {
+      const timeline = (p.meta && p.meta.timeline) || [];
+      for (let i = 0; i < timeline.length; i++) {
+        const t = timeline[i];
+        const s = t.startDate ? new Date(t.startDate) : null;
+        const e = t.endDate ? new Date(t.endDate) : null;
+        // if start/end filters provided, ensure overlap
+        if (startDate && endDate && s && e) {
+          if (!(e > startDate && s < endDate)) continue;
+        }
+
+        events.push({
+          id: `${p._id}-${i}`,
+          scheduleId: p._id,
+          postingId: p.postings?.[0]?.postingId || null,
+          postingName: p.postings?.[0]?.name || p.name,
+          startDate: t.startDate,
+          endDate: t.endDate,
+          supervisorId: t.supervisorId || null,
+          status: t.supervisorId ? 'assigned' : 'upcoming',
+        });
+      }
+    }
+
+    res.json({ events });
+  } catch (err) {
+    console.error('listScheduleEvents error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// PATCH /api/rotation-schedules/:id/windows/:index
+export const updateWindowInSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id, index } = req.params as any;
+    const payload = req.body || {};
+
+    const plan: any = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const idx = Number(index);
+    const timeline = (plan.meta && plan.meta.timeline) || [];
+    if (isNaN(idx) || idx < 0 || idx >= timeline.length) return res.status(400).json({ message: 'Invalid window index' });
+
+    const window = timeline[idx];
+    if (payload.startDate !== undefined) window.startDate = payload.startDate;
+    if (payload.endDate !== undefined) window.endDate = payload.endDate;
+    if (payload.supervisorId !== undefined) window.supervisorId = payload.supervisorId;
+    if (payload.markComplete) window.completed = true;
+    if (payload.status !== undefined) window.status = payload.status;
+
+    plan.meta = { ...(plan.meta || {}), timeline };
+    await plan.save();
+
+    return res.json({ message: 'Window updated', window });
+  } catch (err) {
+    console.error('updateWindowInSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// PATCH /api/rotation-schedules/:id
+export const updateRotationSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body || {};
+    const plan = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    Object.assign(plan, updates);
+    await plan.save();
+    res.json(plan);
+  } catch (err) {
+    console.error('updateRotationSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// PATCH /api/rotation-schedules/:id/postings/:postingName
+export const updatePostingInSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id, postingName } = req.params as any;
+    const updates = req.body || {};
+    const plan: any = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const name = decodeURIComponent(postingName);
+    const postings = plan.postings || [];
+    const idx = postings.findIndex((p: any) => String(p.name) === String(name) || String(p.postingId) === String(name));
+    if (idx === -1) return res.status(404).json({ message: 'Posting not found' });
+
+    Object.assign(postings[idx], updates);
+    plan.postings = postings;
+    await plan.save();
+    res.json({ message: 'Posting updated', posting: postings[idx] });
+  } catch (err) {
+    console.error('updatePostingInSchedule error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+// DELETE /api/rotation-schedules/:id/postings/:postingName
+export const deletePostingFromSchedule = async (req: Request, res: Response) => {
+  try {
+    const { id, postingName } = req.params as any;
+    const plan: any = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const name = decodeURIComponent(postingName);
+    const postings = plan.postings || [];
+    const idx = postings.findIndex((p: any) => String(p.name) === String(name) || String(p.postingId) === String(name));
+    if (idx === -1) return res.status(404).json({ message: 'Posting not found' });
+
+    postings.splice(idx, 1);
+    plan.postings = postings;
+    await plan.save();
+    res.json({ message: 'Posting deleted', id, postingName: name });
+  } catch (err) {
+    console.error('deletePostingFromSchedule error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };

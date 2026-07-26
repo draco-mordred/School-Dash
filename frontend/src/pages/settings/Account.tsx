@@ -300,12 +300,12 @@ const Account = () => {
       // measure and animate maxHeight for smooth transition to/from auto
       const height = el.scrollHeight;
       if (open) {
-        el.style.transition = "max-height 320ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, transform 260ms cubic-bezier(.2,.9,.2,1)";
+        el.style.transition = "max-height 1000ms cubic-bezier(.2,.9,.2,1), opacity 220ms ease, transform 450ms cubic-bezier(.2,.9,.2,1)";
         el.style.maxHeight = height + "px";
         el.style.opacity = "1";
         el.style.transform = "translateY(0)";
       } else {
-        el.style.transition = "max-height 280ms cubic-bezier(.2,.9,.2,1), opacity 180ms ease, transform 220ms cubic-bezier(.2,.9,.2,1)";
+        el.style.transition = "max-height 1000ms cubic-bezier(.2,.9,.2,1), opacity 180ms ease, transform 450ms cubic-bezier(.2,.9,.2,1)";
         el.style.maxHeight = "0px";
         el.style.opacity = "0";
         el.style.transform = "translateY(-6px)";
@@ -322,11 +322,126 @@ const Account = () => {
     );
   }
 
+  const AccountHeader = () => {
+    if (!user) return null;
+    return (
+    <div className="rounded-xl bg-card p-6 max-w-[1100px] mx-auto">
+      <div className="flex flex-col sm:flex-row items-center gap-6">
+        <Avatar className="h-28 w-28">
+          <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
+          <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <p className="text-lg font-semibold truncate">{user?.name}</p>
+          <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
+          <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-muted text-xs">
+            {user?.role === "admin" ? <Shield className="h-3.5 w-3.5" /> : user?.role === "teacher" ? <GraduationCap className="h-3.5 w-3.5" /> : user?.role === "student" ? <BookOpen className="h-3.5 w-3.5" /> : <UsersRound className="h-3.5 w-3.5" />}
+            <span className="capitalize">{user?.role}</span>
+          </div>
+        </div>
+        <div className="sm:ml-4">
+          <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} className="h-9">Change photo</Button>
+        </div>
+      </div>
+    </div>
+    );
+  };
+
+  const InstitutionID = () => {
+    if (!user) return null;
+    return (
+    <div className="mx-auto w-full max-w-4xl overflow-hidden rounded-[28px] border border-border/70 bg-card/95 text-card-foreground shadow-[0_24px_80px_rgba(2,6,23,0.25)]" style={{border: "2px solid var(--accent)"}}>
+          <div
+            className="relative min-h-[420px] bg-cover bg-center p-6 sm:p-8"
+            style={institutionBackgroundUrl ? {
+              backgroundImage: `url(${institutionBackgroundUrl})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            } : undefined}
+          >
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,255,255,0.42))] dark:bg-[linear-gradient(135deg,rgba(2,6,23,0.8),rgba(15,23,42,0.72))]" />
+            <div className="relative flex h-full flex-col justify-between gap-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-background/70 backdrop-blur-sm">
+                    {institutionLogoUrl ? (
+                      <img src={institutionLogoUrl} alt={`${institutionDisplayName} logo`} className="h-full w-full object-cover" />
+                    ) : (
+                      <BadgeCheck className="h-6 w-6 text-primary" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Institution ID</p>
+                    <h3 className="mt-1 text-xl font-semibold tracking-tight">{institutionDisplayName}</h3>
+                  </div>
+                </div>
+                <Avatar className="h-20 w-20 border-2 border-border/70 shadow-lg">
+                  <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
+                  <AvatarFallback className="text-xl">{getInitials(user?.name)}</AvatarFallback>
+                </Avatar>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Cardholder</p>
+                    <h4 className="mt-2 text-3xl font-semibold tracking-tight">{user?.name || "Unnamed user"}</h4>
+                    <p className="mt-2 text-sm text-muted-foreground">{user?.email || "No email on record"}</p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">INN</p>
+                      <p className="mt-1 font-mono text-sm font-semibold">{user?.inn || user?.idNumber || "Pending"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Role</p>
+                      <p className="mt-1 text-sm font-semibold capitalize">{user?.role || "user"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">ID Number</p>
+                      <p className="mt-1 text-sm font-semibold">{user?.idNumber || "N/A"}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">{user?.role === "student" ? "Class" : "Department"}</p>
+                      <p className="mt-1 text-sm font-semibold">{getDisplayClasses() === "N/A" ? "Not assigned" : getDisplayClasses()}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-border/70 bg-background/70 p-5 backdrop-blur-md">
+                  <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">Official details</p>
+                  <div className="mt-4 space-y-3 text-sm">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Status</span>
+                      <span className="font-semibold text-primary">Active</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Issued</span>
+                      <span className="font-semibold">Today</span>
+                    </div>
+                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                      <span className="text-muted-foreground">Valid</span>
+                      <span className="font-semibold">Academic year</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Access</span>
+                      <span className="font-semibold text-foreground">Clinical & learning</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+    );
+  }
+
   const AtAGlance = () => {
     if (!user) return null;
     return (
       <div className="rounded-xl border bg-card p-4">
-        <h3 className="text-sm font-semibold mb-2">At a glance</h3>
+        <h3 className="text-md uppercase font-semibold mb-2">At a glance</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {user.role === "parent" && (
             <div className="space-y-1">
@@ -363,11 +478,23 @@ const Account = () => {
     );
   };
 
+  const InstitutionIDCard = () => {
+    if (!user) return null;
+    return (
+      <div className="rounded-xl border bg-card p-6">
+        <h2 className="text-md font-semibold uppercase mb-2 pb-6">Institutional portal ID Card</h2>
+        {/* <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"> */}
+          <InstitutionID />
+        {/* </div> */}
+      </div>
+    );
+  };
+
   // ─── Content panels ─────────────────────────────────────────
   const ProfilePanel = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">Personal Info</h2>
+        <h2 className="text-xl uppercase font-semibold">Personal Info</h2>
         <p className="text-sm text-muted-foreground mt-1">Update your name and contact details</p>
       </div>
 
@@ -411,7 +538,10 @@ const Account = () => {
 
   const PhotoPanel = () => (
     <div className="space-y-6">
-      <div><h2 className="text-xl font-semibold">Profile Photo</h2><p className="text-sm text-muted-foreground mt-1">Upload a photo to personalize your account</p></div>
+      <div>
+        <h2 className="text-xl uppercase font-semibold">Profile Photo</h2>
+        <p className="text-sm text-muted-foreground mt-1">Upload a photo to personalize your account</p>
+      </div>
       <div className="rounded-xl border bg-card">
         <div className="px-6 py-8 flex flex-col sm:flex-row items-center gap-6">
           <div className="relative">
@@ -627,113 +757,16 @@ const Account = () => {
   return (
     <div id="page-account" className="flex-1 min-h-0">
       {/* Profile header spanning full width */}
-      <div className="rounded-xl bg-card p-6 max-w-[1100px] mx-auto ml-[2%]">
-        <div className="flex flex-col sm:flex-row items-center gap-6">
-          <Avatar className="h-28 w-28">
-            <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-            <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-lg font-semibold truncate">{user?.name}</p>
-            <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
-            <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-muted text-xs">
-              {user?.role === "admin" ? <Shield className="h-3.5 w-3.5" /> : user?.role === "teacher" ? <GraduationCap className="h-3.5 w-3.5" /> : user?.role === "student" ? <BookOpen className="h-3.5 w-3.5" /> : <UsersRound className="h-3.5 w-3.5" />}
-              <span className="capitalize">{user?.role}</span>
-            </div>
-          </div>
-          <div className="sm:ml-4">
-            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} className="h-9">Change photo</Button>
-          </div>
-        </div>
-      </div>
 
       {/* Main single-column content */}
-      <main className="mt-6 p-6 space-y-6 max-w-[1100px] mx-auto">
-        <AtAGlance />
-        <div className="mx-auto w-full max-w-4xl overflow-hidden rounded-[28px] border border-border/70 bg-card/95 text-card-foreground shadow-[0_24px_80px_rgba(2,6,23,0.25)]">
-          <div
-            className="relative min-h-[420px] bg-cover bg-center p-6 sm:p-8"
-            style={institutionBackgroundUrl ? {
-              backgroundImage: `url(${institutionBackgroundUrl})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            } : undefined}
-          >
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.78),rgba(255,255,255,0.42))] dark:bg-[linear-gradient(135deg,rgba(2,6,23,0.8),rgba(15,23,42,0.72))]" />
-            <div className="relative flex h-full flex-col justify-between gap-8">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl border border-border/70 bg-background/70 backdrop-blur-sm">
-                    {institutionLogoUrl ? (
-                      <img src={institutionLogoUrl} alt={`${institutionDisplayName} logo`} className="h-full w-full object-cover" />
-                    ) : (
-                      <BadgeCheck className="h-6 w-6 text-primary" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Institution ID</p>
-                    <h3 className="mt-1 text-xl font-semibold tracking-tight">{institutionDisplayName}</h3>
-                  </div>
-                </div>
-                <Avatar className="h-20 w-20 border-2 border-border/70 shadow-lg">
-                  <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-                  <AvatarFallback className="text-xl">{getInitials(user?.name)}</AvatarFallback>
-                </Avatar>
-              </div>
+      <main id="accountMainElm" className="mt-0 p-2 space-y-6 max-w-[1100px] mx-auto">
+        {/* CONTENT FOR THE PAGE HEADER  */}
+        <AccountHeader></AccountHeader> 
+        {/* CONTENT FOR THE AT A GLANCE SECTION  */}        
+        <AtAGlance></AtAGlance>
+        {/* CONTENT FOR THE ID CARD SECTION AND ID CARD CONTENT  */}
+        <InstitutionIDCard></InstitutionIDCard>
 
-              <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-                <div className="space-y-5">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.35em] text-muted-foreground">Cardholder</p>
-                    <h4 className="mt-2 text-3xl font-semibold tracking-tight">{user?.name || "Unnamed user"}</h4>
-                    <p className="mt-2 text-sm text-muted-foreground">{user?.email || "No email on record"}</p>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">INN</p>
-                      <p className="mt-1 font-mono text-sm font-semibold">{user?.inn || user?.idNumber || "Pending"}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Role</p>
-                      <p className="mt-1 text-sm font-semibold capitalize">{user?.role || "user"}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">ID Number</p>
-                      <p className="mt-1 text-sm font-semibold">{user?.idNumber || "N/A"}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">{user?.role === "student" ? "Class" : "Department"}</p>
-                      <p className="mt-1 text-sm font-semibold">{getDisplayClasses() === "N/A" ? "Not assigned" : getDisplayClasses()}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[24px] border border-border/70 bg-background/70 p-5 backdrop-blur-md">
-                  <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">Official details</p>
-                  <div className="mt-4 space-y-3 text-sm">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Status</span>
-                      <span className="font-semibold text-primary">Active</span>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Issued</span>
-                      <span className="font-semibold">Today</span>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Valid</span>
-                      <span className="font-semibold">Academic year</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Access</span>
-                      <span className="font-semibold text-foreground">Clinical & learning</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
         <div className="space-y-4">
           {flatSections.map((item) => (
             <div key={item.id} className="rounded-xl border bg-card overflow-hidden">
@@ -741,7 +774,7 @@ const Account = () => {
                 <div className="flex items-center gap-3 min-w-0">
                   <W11Icon glyph={item.icon} size="sm" className="shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex flex-col items-start">
-                    <p className="text-sm font-medium text-left">{item.label}</p>
+                    <p className="text-md uppercase font-medium text-left">{item.label}</p>
                     <p className="text-xs text-muted-foreground mt-0.5 text-left">{item.label === "Personal Info" ? "Update your name and contact details" : item.label === "Profile Photo" ? "Upload a photo to personalize your account" : item.label === "Linked Students" ? "Students associated with your account" : item.label === "Change Password" ? "Update your password to keep your account secure" : ""}</p>
                   </div>
                 </div>
