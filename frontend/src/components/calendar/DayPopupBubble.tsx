@@ -25,6 +25,8 @@ interface Props {
   position?: "top" | "bottom" | "auto";
   onClose?: () => void;
   anchorRect?: DOMRect | null;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 const statusMetadata: Record<string, { label: string; badgeClass: string }> = {
@@ -45,6 +47,8 @@ export default function DayPopupBubble({
   position = "auto",
   onClose,
   anchorRect = null,
+  onMouseEnter,
+  onMouseLeave,
 }: Props) {
   const bubbleRef = useRef<HTMLDivElement>(null);
 
@@ -52,22 +56,33 @@ export default function DayPopupBubble({
   const bubbleStyle = anchorRect
     ? (() => {
         const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
         const anchorCenter = anchorRect.left + anchorRect.width / 2;
         const left = Math.min(Math.max(16, anchorCenter), viewportWidth - 16);
         const top = isAbove
           ? Math.max(8, anchorRect.top - 12)
-          : Math.min(window.innerHeight - 16, anchorRect.bottom + 8);
+          : Math.min(viewportHeight - 16, anchorRect.bottom + 8);
         return {
+          position: "fixed",
           top: `${top}px`,
           left: `${left}px`,
           transform: `translateX(-50%) ${isAbove ? "translateY(-100%)" : "translateY(0)"}`,
-        };
+          zIndex: 9999,
+          pointerEvents: "auto",
+          minWidth: "18rem",
+          maxWidth: "22rem",
+        } as React.CSSProperties;
       })()
     : {
+        position: "fixed",
         top: position === "bottom" ? "auto" : "50%",
         bottom: position === "bottom" ? "20px" : "auto",
         left: "50%",
         transform: `translateX(-50%) ${position === "bottom" ? "" : "translateY(-50%)"}`,
+        zIndex: 9999,
+        pointerEvents: "auto",
+        minWidth: "18rem",
+        maxWidth: "22rem",
       };
 
   const dateLabel = new Intl.DateTimeFormat("en-US", {
@@ -96,7 +111,9 @@ export default function DayPopupBubble({
   return (
     <div
       ref={bubbleRef}
-      className={`fixed z-50 w-80 transition-all duration-300 ${
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`fixed z-[99999] w-80 transition-all duration-300 ${
         isVisible
           ? "translate-y-0 scale-100 opacity-100"
           : "-translate-y-2 scale-95 opacity-0 pointer-events-none"

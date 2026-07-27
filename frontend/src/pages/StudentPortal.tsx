@@ -47,6 +47,53 @@ interface SystemAnnouncement {
   unreadForUser?: boolean;
 }
 
+const WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+const parseTimeToMinutes = (time?: string) => {
+  if (!time) return null;
+  const [hours, minutes] = time.split(":").map((part) => Number(part));
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+const getDayIndex = (day: string) => WEEK_DAYS.findIndex((d) => d.toLowerCase() === day.toLowerCase());
+
+const normalizeStudentStatus = (rawStatus?: string | null) => {
+  const normalized = String(rawStatus ?? "").trim().toLowerCase();
+  if (normalized === "cancelled" || normalized === "canceled") return "Cancelled";
+  if (normalized === "completed") return "Completed";
+  if (normalized === "active" || normalized === "ongoing") return "Active";
+  if (normalized === "planned") return "Planned";
+  return "Scheduled";
+};
+
+const getLectureStatus = (lecture: LectureSummary, lectureDay: string) => {
+  const now = new Date();
+  const todayIndex = getDayIndex(WEEK_DAYS[(now.getDay() + 6) % 7]);
+  const lectureIndex = getDayIndex(lectureDay || WEEK_DAYS[todayIndex >= 0 ? todayIndex : 0]);
+  const rawStatus = String(lecture.status ?? "").trim().toLowerCase();
+
+  if (rawStatus === "cancelled" || rawStatus === "canceled") return "Cancelled";
+  if (rawStatus === "completed") return "Completed";
+
+  const startMinutes = parseTimeToMinutes(lecture.startTime);
+  const endMinutes = parseTimeToMinutes(lecture.endTime);
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  if (lectureIndex === todayIndex && startMinutes !== null && endMinutes !== null) {
+    if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) return "Active";
+    if (currentMinutes > endMinutes) return "Completed";
+    return rawStatus === "planned" ? "Planned" : "Scheduled";
+  }
+
+  if (lectureIndex >= 0 && todayIndex >= 0) {
+    if (lectureIndex < todayIndex) return "Completed";
+    return rawStatus === "planned" ? "Planned" : "Scheduled";
+  }
+
+  return normalizeStudentStatus(rawStatus);
+};
+
 export default function StudentPortal() {
   const { user, year } = useAuth();
   const [summary, setSummary] = useState<StudentPortalSummary | null>(null);
@@ -229,8 +276,8 @@ export default function StudentPortal() {
                             : lecture.lecturer?.name ?? "No lecturer"}
                         </p>
                       </div>
-                      <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
-                        {lecture.status ? lecture.status : "Scheduled"}
+                              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
+                        {getLectureStatus(lecture, summary?.todayDay ?? WEEK_DAYS[(new Date().getDay() + 6) % 7])}
                       </span>
                     </div>
                     <p className="mt-3 text-sm text-muted-foreground">
@@ -365,7 +412,7 @@ export default function StudentPortal() {
                             </p>
                           </div>
                           <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase text-primary">
-                            {lecture.status ?? "Pending"}
+                            {getLectureStatus(lecture, alert.day)}
                           </span>
                         </div>
                       ))}

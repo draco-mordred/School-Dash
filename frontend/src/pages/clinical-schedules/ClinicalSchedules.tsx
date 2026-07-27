@@ -68,6 +68,7 @@ type DayLineItem = {
 type DayLineItemsMap = Record<string, { timetable?: DayLineItem; clinical?: DayLineItem; optional?: DayLineItem }>;
 
 const statusMetadata: Record<string, { label: string; badgeClasses: string; dotClass: string; borderClass: string }> = {
+  active: { label: "Active", badgeClasses: "bg-emerald-100 text-emerald-700 border-emerald-200", dotClass: "bg-emerald-500", borderClass: "border-emerald-500" },
   planned: { label: "Planned", badgeClasses: "bg-sky-100 text-sky-700 border-sky-200", dotClass: "bg-sky-500", borderClass: "border-sky-500" },
   ongoing: { label: "Ongoing", badgeClasses: "bg-amber-100 text-amber-700 border-amber-200", dotClass: "bg-amber-500", borderClass: "border-amber-500" },
   completed: { label: "Completed", badgeClasses: "bg-emerald-100 text-emerald-700 border-emerald-200", dotClass: "bg-emerald-500", borderClass: "border-emerald-500" },
@@ -79,18 +80,42 @@ const statusMetadata: Record<string, { label: string; badgeClasses: string; dotC
 const statusOptions = [
   { key: "planned", label: "Planned" },
   { key: "ongoing", label: "Ongoing" },
+  { key: "active", label: "Active" },
   { key: "assigned", label: "Assigned" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
 ];
 
-type KnownStatus = "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default";
+type KnownStatus = "planned" | "ongoing" | "active" | "completed" | "assigned" | "cancelled" | "default";
 
 const normalizeStatus = (status?: string): KnownStatus => {
   if (status && statusOptions.some((option) => option.key === status)) {
     return status as KnownStatus;
   }
   return "default";
+};
+
+const computeEventStatus = (event: PostingWindow): KnownStatus => {
+  const now = new Date();
+  const start = new Date(event.startDate);
+  const end = new Date(event.endDate);
+  const rawStatus = String(event.status || "").toLowerCase();
+
+  if (rawStatus === "cancelled" || rawStatus === "canceled") return "cancelled";
+  if (rawStatus === "completed") return "completed";
+  if (rawStatus === "assigned") return "assigned";
+  if (now >= start && now <= end) return "active";
+  if (end < now) return "completed";
+  if (rawStatus === "planned") return "planned";
+  return "default";
+};
+
+const canCancelActivity = (event: PostingWindow) => {
+  if (computeEventStatus(event) === "cancelled") return false;
+  const now = new Date();
+  const start = new Date(event.startDate);
+  const diffMs = start.getTime() - now.getTime();
+  return diffMs >= 2 * 60 * 60 * 1000 && diffMs <= 48 * 60 * 60 * 1000;
 };
 
 export default function ClinicalSchedules() {
@@ -112,6 +137,8 @@ export default function ClinicalSchedules() {
   // Popup & timetable state
   const [hoveredDay, setHoveredDay] = useState<Date | null>(null);
   const [popupAnchorRect, setPopupAnchorRect] = useState<DOMRect | null>(null);
+  const [isDayHovered, setIsDayHovered] = useState(false);
+  const [isPopupHovered, setIsPopupHovered] = useState(false);
 
   const hoveredDaySchedule = useMemo(() => {
     if (!hoveredDay) return null;
@@ -158,7 +185,7 @@ export default function ClinicalSchedules() {
         id: evt.id || "",
         time: new Date(evt.startDate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
         postingName: evt.postingName || "Clinical Activity",
-        status: (evt.status || "default") as "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default",
+        status: computeEventStatus(evt),
       }));
   }, [hoveredDay, events]);
 
@@ -387,13 +414,59 @@ export default function ClinicalSchedules() {
             postingName: event.postingName || "Clinical Posting",
             time: new Date(event.startDate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
             type: "clinical",
-            status: normalizeStatus(event.status),
+            status: computeEventStatus(event),
           },
         };
       }
     }
 
     return lineItems;
+  }, [currentDate, filteredEvents, timetableSchedule]);
+
+  const weekSchedule = useMemo(() => {
+    const date = new Date(currentDate);
+    const monday = new Date(date);
+    const dayIndex = (date.getDay() + 6) % 7; // ensure Monday start
+    monday.setDate(date.getDate() - dayIndex);
+    monday.setHours(0, 0, 0, 0);
+
+    return Array.from({ length: 5 }, (_, index) => {
+      const dayDate = new Date(monday);
+      dayDate.setDate(monday.getDate() + index);
+
+      const dayLabel = dayDate.toLocaleDateString(undefined, { weekday: 'long' });
+      const dateLabel = dayDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const dayKey = dayDate.toISOString().split('T')[0];
+
+      const scheduleForDay = timetableSchedule.find((scheduleDay) => scheduleDay.day.toLowerCase() === dayLabel.toLowerCase());
+      const timetablePeriod = scheduleForDay?.periods.find((period) => !period.isClinical && !period.isOptional);
+      const optionalPeriods = scheduleForDay?.periods.filter((period) => period.isOptional) ?? [];
+      const clinicalPostings = filteredEvents
+        .filter((event) => {
+          const eventDate = new Date(event.startDate);
+          return (
+            eventDate.getFullYear() === dayDate.getFullYear() &&
+            eventDate.getMonth() === dayDate.getMonth() &&
+            eventDate.getDate() === dayDate.getDate()
+          );
+        })
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+        .map((event) => ({
+          ...event,
+          status: computeEventStatus(event),
+          canCancel: canCancelActivity(event),
+        }));
+
+      return {
+        dayDate,
+        dayLabel,
+        dateLabel,
+        dayKey,
+        timetablePeriod,
+        optionalPeriods,
+        clinicalPostings,
+      };
+    });
   }, [currentDate, filteredEvents, timetableSchedule]);
 
   const groupedByPosting = useMemo(() => {
@@ -421,10 +494,10 @@ export default function ClinicalSchedules() {
     }
     if (view === 'week') {
       const start = new Date(date);
-      const day = date.getDay();
+      const day = (date.getDay() + 6) % 7;
       start.setDate(date.getDate() - day);
       const end = new Date(start);
-      end.setDate(start.getDate() + 6);
+      end.setDate(start.getDate() + 4);
       return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
     return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
@@ -721,9 +794,10 @@ export default function ClinicalSchedules() {
                         onDayHover={(date, _lineItems, _activities, anchorRect) => {
                           setHoveredDay(date);
                           setPopupAnchorRect(anchorRect ?? null);
+                          setIsDayHovered(true);
                         }}
                         onDayLeave={() => {
-                          setHoveredDay(null);
+                          setIsDayHovered(false);
                         }}
                       />
                     </div>
@@ -732,13 +806,107 @@ export default function ClinicalSchedules() {
                       lectures={popupLectures}
                       optionalLectures={popupOptionalLectures}
                       clinicalPostings={popupClinicalPostings}
-                      isVisible={!!hoveredDay}
+                      isVisible={!!hoveredDay && (isDayHovered || isPopupHovered)}
                       anchorRect={popupAnchorRect}
                       onClose={() => {
                         setHoveredDay(null);
+                        setIsDayHovered(false);
+                        setIsPopupHovered(false);
                       }}
+                      onMouseEnter={() => setIsPopupHovered(true)}
+                      onMouseLeave={() => setIsPopupHovered(false)}
                     />
                   </>
+                ) : view === 'week' ? (
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    {weekSchedule.map((day) => (
+                      <div
+                        key={day.dayKey}
+                        className={`overflow-hidden rounded-[28px] border p-5 shadow-sm ${day.isWeekend ? 'border-emerald-300/30 bg-emerald-950/50' : 'border-border bg-card'}`}
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{day.dayLabel}</p>
+                            <p className="text-xs text-muted-foreground">{day.dateLabel}</p>
+                          </div>
+                          {day.isWeekend ? (
+                            <Badge variant="secondary">Weekend</Badge>
+                          ) : (
+                            <Badge variant="outline">Weekday</Badge>
+                          )}
+                        </div>
+
+                        {day.isWeekend && (
+                          <div className="mt-4 rounded-3xl border border-emerald-500/20 bg-emerald-950/80 p-4 text-sm text-emerald-100">
+                            Merry weekend! Rest is important for academic optimal performance.
+                          </div>
+                        )}
+
+                        <div className="mt-5 space-y-4">
+                          <div className="rounded-3xl border border-border bg-background p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Timetable</p>
+                              <span className="text-xs text-muted-foreground">{day.timetablePeriod ? 'Planned' : 'Empty'}</span>
+                            </div>
+                            {day.timetablePeriod ? (
+                              <div className="mt-3 space-y-2">
+                                <p className="text-sm font-medium text-foreground">{day.timetablePeriod.subject?.name || day.timetablePeriod.displayLabel || day.timetablePeriod.subject?.code || 'Class session'}</p>
+                                <p className="text-sm text-muted-foreground">{day.timetablePeriod.startTime} – {day.timetablePeriod.endTime}</p>
+                                <p className="text-sm text-muted-foreground">{day.timetablePeriod.lecturer?.name ?? 'Lecturer TBD'}</p>
+                              </div>
+                            ) : (
+                              <p className="mt-3 text-sm text-muted-foreground">No scheduled class for this day.</p>
+                            )}
+                          </div>
+
+                          <div className="rounded-3xl border border-border bg-background p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Clinical postings</p>
+                              <span className="text-xs text-muted-foreground">{day.clinicalPostings.length} item{day.clinicalPostings.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {day.clinicalPostings.length > 0 ? (
+                              <div className="mt-3 space-y-3">
+                                {day.clinicalPostings.map((event) => {
+                                  const status = normalizeStatus(event.status);
+                                  const meta = statusMetadata[status] ?? statusMetadata.default;
+                                  return (
+                                    <div key={event.id || `${day.dayKey}-clinical-${event.startDate}`} className="rounded-3xl border border-border bg-card p-3">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <p className="text-sm font-semibold text-foreground">{event.postingName || 'Clinical activity'}</p>
+                                        <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${meta.badgeClasses}`}>{meta.label}</span>
+                                      </div>
+                                      <p className="mt-2 text-sm text-muted-foreground">{new Date(event.startDate).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="mt-3 text-sm text-muted-foreground">No clinical postings are scheduled.</p>
+                            )}
+                          </div>
+
+                          <div className="rounded-3xl border border-border bg-background p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Other activities</p>
+                              <span className="text-xs text-muted-foreground">{day.optionalPeriods.length} item{day.optionalPeriods.length === 1 ? '' : 's'}</span>
+                            </div>
+                            {day.optionalPeriods.length > 0 ? (
+                              <div className="mt-3 space-y-3">
+                                {day.optionalPeriods.map((period) => (
+                                  <div key={`${day.dayKey}-optional-${period.startTime}-${period.endTime}`} className="rounded-3xl border border-border bg-card p-3">
+                                    <p className="text-sm font-semibold text-foreground">{period.displayLabel || period.subject?.name || 'Optional activity'}</p>
+                                    <p className="mt-1 text-sm text-muted-foreground">{period.startTime} – {period.endTime}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-3 text-sm text-muted-foreground">No other activities planned for this day.</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <FullCalendar
                     ref={calendarRef}
