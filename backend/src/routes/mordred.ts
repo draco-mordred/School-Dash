@@ -1,4 +1,4 @@
-import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights } from "../controllers/mordred";
+import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights, getCourseSummary } from "../controllers/mordred";
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
 
@@ -33,6 +33,13 @@ mordredAIRouter.get(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident", "parent"]),
   dynamicAIInsights
+);
+
+mordredAIRouter.post(
+  "/course-summary",
+  protect,
+  authorize(["student", "admin", "teacher", "unitconsultant", "unitresident", "parent"]),
+  getCourseSummary
 );
 
 export default mordredAIRouter;

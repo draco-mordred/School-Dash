@@ -1,8 +1,9 @@
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import MordredMessage from "../models/mordredMessenger";
+import Course from "../models/courses";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateObject, streamText } from "ai"; // Vercel AI SDK helper for structured schemas
+import { generateObject, generateText, streamText } from "ai"; // Vercel AI SDK helper for structured schemas
 import { z } from "zod";
 import { routeTaskToStaff } from "../services/mordredEngine";
 import { inngest } from "../inngest/client";
@@ -77,6 +78,101 @@ export const saveChatMessage = async (
     return res.status(200).json({ success: true, message: "Secured by MORDRED." });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getCourseSummary = async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.body;
+    if (!courseId) {
+      return res.status(400).json({ message: "courseId is required" });
+    }
+
+    const course = await Course.findById(courseId)
+      .populate("department", "name")
+      .populate("unit", "name");
+
+    if (!course) {
+      return res.status(404).json({ message: "Course not found" });
+    }
+
+    const user = (req as any).user;
+    const studentClassName = Array.isArray(user?.studentClasses)
+      ? (typeof user.studentClasses[0] === "object"
+          ? String((user.studentClasses[0] as any)?.name ?? "your class")
+          : String(user.studentClasses[0] ?? "your class"))
+      : typeof user?.studentClasses === "object"
+      ? String((user.studentClasses as any)?.name ?? "your class")
+      : String(user?.studentClasses ?? "your class");
+
+    const departmentName = String((course.department as any)?.name ?? "");
+    const semesterLabel = course.semester ? ` It is offered in semester ${course.semester}.` : "";
+    const courseTitle = `${course.name} (${course.code})`;
+
+    const buildFallbackText = () => {
+      const sentencePool = [
+        `MORDRED says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
+        `It helps students in ${studentClassName} build strong foundations and make sense of how the subject connects to their current learning goals.`,
+        `This course is designed to support your class with real classroom relevance and future study readiness.`,
+        `You will gain knowledge that ties directly into your timetable, assessments, and the broader program for ${studentClassName}.`,
+        `The syllabus focuses on practical understanding, giving you a clear reason why this course is important to your academic progress.`,
+        `Even when the AI service is unavailable, this summary helps you see how ${course.name} fits into your journey.`,
+      ];
+      return sentencePool
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 5)
+        .join("\n");
+    };
+
+    const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+    if (!apiKey) {
+      console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using course-summary fallback.");
+      return res.status(200).json({
+        _id: `mordred-course-summary-fallback-${Date.now()}`,
+        sender: "mordred_ai",
+        text: buildFallbackText(),
+        fallbackUsed: true,
+      });
+    }
+
+    const models = {
+      geminiAI: "google/gemini-3.5-pro",
+      openAI: "openai/gpt-5.5",
+    };
+
+    try {
+      const googleAI = createGoogleGenerativeAI({ apiKey });
+      const vercelModel = process.env.MORDRED_MODEL || models.geminiAI;
+      const { text } = await generateText({
+        model: vercelModel,
+        prompt: `You are MORDRED, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with \"MORDRED says:\" and do not exceed six lines.`,
+        temperature: 0.4,
+        max_tokens: 220,
+      });
+
+      const summaryText = String(text ?? "").trim() || buildFallbackText();
+      const normalizedText = summaryText.startsWith("MORDRED says:")
+        ? summaryText
+        : `MORDRED says: ${summaryText}`;
+
+      return res.status(200).json({
+        _id: new mongoose.Types.ObjectId(),
+        sender: "mordred_ai",
+        text: normalizedText,
+        fallbackUsed: false,
+      });
+    } catch (error: any) {
+      console.error("⚠️ Course summary AI request failed, returning fallback text.", error);
+      return res.status(200).json({
+        _id: `mordred-course-summary-fallback-${Date.now()}`,
+        sender: "mordred_ai",
+        text: buildFallbackText(),
+        fallbackUsed: true,
+      });
+    }
+  } catch (error: any) {
+    console.error("Course summary route failed:", error);
+    return res.status(500).json({ message: error.message || "Server error" });
   }
 };
 

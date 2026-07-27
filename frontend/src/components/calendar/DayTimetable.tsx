@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-type PostingWindow = { id?: string; postingId?: string; postingName?: string; startDate: string; endDate: string; status?: string; supervisorName?: string };
+type PostingWindow = { id?: string; scheduleId?: string; postingId?: string; postingName?: string; startDate: string; endDate: string; status?: string; supervisorName?: string };
 
 type TimelineEvent = PostingWindow & { __start: string; __end: string };
 

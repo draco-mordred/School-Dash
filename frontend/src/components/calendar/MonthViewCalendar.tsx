@@ -6,9 +6,16 @@ import { Badge } from "@/components/ui/badge";
 interface Activity {
   id: string;
   title: string;
-  status: "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default";
+  status?: "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default";
   time?: string;
   postingName?: string;
+  type?: "timetable" | "clinical" | "optional" | "other";
+}
+
+interface DayLineItems {
+  timetable?: Activity;
+  clinical?: Activity;
+  optional?: Activity;
 }
 
 interface DayData {
@@ -25,24 +32,32 @@ interface Props {
     extendedProps?: { status?: string };
   }>;
   currentDate: Date;
+  dayLineItems?: Record<string, DayLineItems>;
   onDateSelect: (date: Date) => void;
-  onDayHover?: (date: Date, activities: Activity[]) => void;
+  onDayHover?: (date: Date, lineItems: DayLineItems | undefined, activities: Activity[], anchorRect?: DOMRect | null) => void;
   onDayLeave?: () => void;
   isLoading?: boolean;
 }
 
 const statusMetadata: Record<string, { label: string; bgClass: string; badgeClass: string; dotClass: string }> = {
-  planned: { label: "Planned", bgClass: "bg-sky-50/70", badgeClass: "bg-sky-100 text-sky-700 border-sky-300", dotClass: "bg-sky-500" },
-  ongoing: { label: "Ongoing", bgClass: "bg-amber-50/70", badgeClass: "bg-amber-100 text-amber-700 border-amber-300", dotClass: "bg-amber-500" },
-  completed: { label: "Completed", bgClass: "bg-emerald-50/70", badgeClass: "bg-emerald-100 text-emerald-700 border-emerald-300", dotClass: "bg-emerald-500" },
-  assigned: { label: "Assigned", bgClass: "bg-violet-50/70", badgeClass: "bg-violet-100 text-violet-700 border-violet-300", dotClass: "bg-violet-500" },
-  cancelled: { label: "Cancelled", bgClass: "bg-rose-50/70", badgeClass: "bg-rose-100 text-rose-700 border-rose-300", dotClass: "bg-rose-500" },
-  default: { label: "Scheduled", bgClass: "bg-slate-50/70", badgeClass: "bg-slate-100 text-slate-700 border-slate-300", dotClass: "bg-slate-500" },
+  planned: { label: "Planned", bgClass: "bg-sky-50/70 dark:bg-sky-900/30", badgeClass: "bg-sky-100 text-sky-700 border-sky-300", dotClass: "bg-sky-500" },
+  ongoing: { label: "Ongoing", bgClass: "bg-amber-50/70 dark:bg-amber-900/30", badgeClass: "bg-amber-100 text-amber-700 border-amber-300", dotClass: "bg-amber-500" },
+  completed: { label: "Completed", bgClass: "bg-emerald-50/70 dark:bg-emerald-900/30", badgeClass: "bg-emerald-100 text-emerald-700 border-emerald-300", dotClass: "bg-emerald-500" },
+  assigned: { label: "Assigned", bgClass: "bg-violet-50/70 dark:bg-violet-900/30", badgeClass: "bg-violet-100 text-violet-700 border-violet-300", dotClass: "bg-violet-500" },
+  cancelled: { label: "Cancelled", bgClass: "bg-rose-50/70 dark:bg-rose-900/30", badgeClass: "bg-rose-100 text-rose-700 border-rose-300", dotClass: "bg-rose-500" },
+  default: { label: "Scheduled", bgClass: "bg-slate-50/70 dark:bg-slate-800/30", badgeClass: "bg-slate-100 text-slate-700 border-slate-300", dotClass: "bg-slate-500" },
+};
+
+const lineTypeClasses: Record<NonNullable<Activity["type"]>, string> = {
+  timetable: "border border-primary/30 bg-primary/10 text-primary dark:border-primary/30 dark:bg-primary/20",
+  clinical: "border border-emerald-200 bg-emerald-100/80 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20",
+  optional: "border border-amber-200 bg-amber-100/80 text-amber-900 dark:border-amber-700 dark:bg-amber-900/20",
+  other: "border border-slate-200 bg-slate-100/80 text-slate-900 dark:border-slate-700 dark:bg-slate-800/20",
 };
 
 const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export default function MonthViewCalendar({ events, currentDate, onDateSelect, onDayHover, onDayLeave, isLoading }: Props) {
+export default function MonthViewCalendar({ events, currentDate, dayLineItems, onDateSelect, onDayHover, onDayLeave, isLoading }: Props) {
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
 
   const { monthDays, monthLabel } = useMemo(() => {
@@ -100,6 +115,7 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
           status: (evt.extendedProps?.status ?? "default") as keyof typeof statusMetadata,
           time: new Date(evt.start).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
           postingName: evt.title,
+          type: evt.extendedProps?.status === "clinical" ? "clinical" : "other",
         }));
 
       return {
@@ -109,27 +125,16 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
     });
   }, [monthDays, events]);
 
-  const handlePrevMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() - 1);
-    onDateSelect(newDate);
-  };
-
-  const handleNextMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + 1);
-    onDateSelect(newDate);
-  };
-
   const handleDayClick = (day: DayData) => {
     onDateSelect(day.date);
   };
 
-  const handleDayHover = (day: DayData | null) => {
+  const handleDayHover = (day: DayData | null, anchorEl?: HTMLElement | null) => {
     if (!day) return;
     const dateKey = day.date.toISOString().split("T")[0];
     setHoveredDate(dateKey);
-    onDayHover?.(day.date, day.activities);
+    const rect = anchorEl ? anchorEl.getBoundingClientRect() : null;
+    onDayHover?.(day.date, dayLineItems?.[dateKey], day.activities, rect ?? null);
   };
 
   const handleDayLeave = () => {
@@ -155,6 +160,21 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
     return result;
   }, [calendarDays]);
 
+  // Navigate months: call parent with new month's first day
+  const handlePrevMonth = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const prev = new Date(year, month - 1, 1);
+    onDateSelect(prev);
+  };
+
+  const handleNextMonth = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const next = new Date(year, month + 1, 1);
+    onDateSelect(next);
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -171,7 +191,7 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
       </div>
 
       {/* Calendar Grid */}
-      <div className="space-y-2 rounded-lg border border-border bg-background/50 p-4 backdrop-blur-sm">
+      <div className="space-y-2 rounded-lg border border-border bg-background/50 p-4 backdrop-blur-sm dark:bg-slate-950/40">
         {/* Day headers */}
         <div className="mb-4 grid grid-cols-7 gap-2">
           {DAYS_OF_WEEK.map((day) => (
@@ -183,7 +203,7 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
 
         {/* Week rows */}
         <div className="space-y-2">
-          {weeks.map((week, weekIdx) => (
+                {weeks.map((week, weekIdx) => (
             <div key={`week-${weekIdx}`} className="grid grid-cols-7 gap-2">
               {week.map((day, dayIdx) => {
                 if (!day) {
@@ -203,7 +223,7 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
                 return (
                   <div
                     key={`day-${dateKey}`}
-                    onMouseEnter={() => handleDayHover(day)}
+                    onMouseEnter={(e) => handleDayHover(day, e.currentTarget as HTMLElement)}
                     onMouseLeave={handleDayLeave}
                     onClick={() => handleDayClick(day)}
                     className={`group relative aspect-square cursor-pointer transition-all duration-200`}
@@ -212,11 +232,10 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
                     <div
                       className={`absolute inset-0 rounded-[1rem] border backdrop-blur-xl transition-all duration-200 ${
                         isHovered
-                          ? "border-primary/50 bg-primary/10 shadow-[0_8px_32px_rgba(110,86,207,0.2)] scale-105 -translate-y-1"
-                          : `border-border/70 ${statusMeta.bgClass} shadow-sm`
-                      } ${!isMonthDate ? "opacity-40" : ""} ${isTodayDate ? "ring-2 ring-primary ring-offset-1" : ""}`}
+                            ? "border-primary/50 bg-primary/10 dark:bg-primary/20 shadow-[0_8px_32px_rgba(110,86,207,0.2)] scale-105 -translate-y-1"
+                            : `border-border/70 ${statusMeta.bgClass} shadow-sm dark:border-border/60`
+                      }`}
                     />
-
                     {/* Content */}
                     <div className="relative flex h-full flex-col gap-1 p-2 overflow-hidden">
                       {/* Date */}
@@ -226,34 +245,38 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
                         {day.date.getDate()}
                       </div>
 
-                      {/* Activity dots */}
-                      {hasActivities && (
-                        <div className="flex flex-wrap gap-1">
-                          {day.activities.slice(0, 2).map((activity, idx) => {
-                            const meta = statusMetadata[activity.status] || statusMetadata.default;
-                            return (
-                              <Badge
-                                key={`${activity.id}-${idx}`}
-                                className={`text-[9px] px-1.5 py-0 h-4 truncate ${meta.badgeClass} border`}
+                            <div className="space-y-1">
+                        {dayLineItems ? (
+                          [dayLineItems[dateKey]?.timetable, dayLineItems[dateKey]?.clinical, dayLineItems[dateKey]?.optional]
+                            .filter(Boolean)
+                            .map((item, idx) => (
+                              <div
+                                key={`day-line-${dateKey}-${idx}`}
+                                className={`truncate rounded-full px-2 py-1 text-[10px] font-medium ${lineTypeClasses[item?.type || "other"]}`}
                               >
-                                {activity.status === "default" ? "Scheduled" : meta.label}
-                              </Badge>
-                            );
-                          })}
-                          {day.activities.length > 2 && (
-                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 text-muted-foreground">
-                              +{day.activities.length - 2}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Activity preview on hover */}
-                      {isHovered && hasActivities && (
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          {day.activities[0].title}
-                        </div>
-                      )}
+                                {item?.time ? `${item.time} · ` : ""}{item?.postingName || item?.title}
+                              </div>
+                            ))
+                        ) : (
+                          <>
+                            {hasActivities && (
+                              <div className="flex flex-wrap gap-1">
+                                {day.activities.slice(0, 3).map((activity, idx) => {
+                                  const meta = statusMetadata[activity.status] || statusMetadata.default;
+                                  return (
+                                    <Badge
+                                      key={`${activity.id}-${idx}`}
+                                      className={`text-[9px] px-1.5 py-0 h-4 truncate ${meta.badgeClass} border`}
+                                    >
+                                      {activity.status === "default" ? "Scheduled" : meta.label}
+                                    </Badge>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

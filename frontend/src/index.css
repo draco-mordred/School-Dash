@@ -562,18 +562,18 @@ header.fixed{
 }
 
 /* Custom animations for StudentCourses hover and expand */
-@keyframes card-pop {
+@keyframes card-hover-pop {
   0% {
-    transform: scale(0.98);
-    opacity: 0.95;
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(15, 23, 42, 0);
   }
   50% {
-    transform: scale(1.02);
-    opacity: 1;
+    transform: scale(1.02) translateY(-3px);
+    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
   }
   100% {
-    transform: scale(1);
-    opacity: 1;
+    transform: scale(1.01) translateY(-1px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
   }
 }
 
@@ -593,9 +593,8 @@ header.fixed{
   }
 }
 
-.animate-card-pop {
-  animation: card-pop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  animation-iteration-count: 2;
+.animate-card-hover-pop {
+  animation: card-hover-pop 240ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* @keyframes card-expand {

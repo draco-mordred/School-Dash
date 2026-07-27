@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChevronRight, BookOpen, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -72,54 +73,14 @@ export default function StudentCourses() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "subjects-high" | "subjects-low">("name-asc");
   
-  // Hover and expand animations
-  const [hoveredCourseId, setHoveredCourseId] = useState<string | null>(null);
-  const [pulsingCourseId, setPulsingCourseId] = useState<string | null>(null);
-  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
-  const [showExpandedActions, setShowExpandedActions] = useState(false);
   const [subjectsPanelCourseId, setSubjectsPanelCourseId] = useState<string | null>(null);
   const [subjectsPanelVisible, setSubjectsPanelVisible] = useState(false);
-  const [subjectsPanelPosition, setSubjectsPanelPosition] = useState<{ left: number; top: number; height: number } | null>(null);
-  const hoverTimeoutRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const cardTransforms = useRef<Record<string, { dx: number; dy: number; scale: number; anchorX: number; anchorY: number }>>({});
-  const pointerRef = useRef<Record<string, { x: number; y: number }>>({});
+  const [courseSummaryDialogOpen, setCourseSummaryDialogOpen] = useState(false);
+  const [summaryCourse, setSummaryCourse] = useState<Course | null>(null);
+  const [courseSummaryText, setCourseSummaryText] = useState<string>("");
+  const [courseSummaryLoading, setCourseSummaryLoading] = useState(false);
+  const [courseSummaryError, setCourseSummaryError] = useState<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      Object.values(hoverTimeoutRef.current).forEach((timeout) => clearTimeout(timeout));
-      hoverTimeoutRef.current = {};
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!subjectsPanelCourseId || !expandedCourseId) {
-      setSubjectsPanelPosition(null);
-      return;
-    }
-
-    const updatePanelPosition = () => {
-      const el = cardRefs.current[subjectsPanelCourseId];
-      if (!el) {
-        return;
-      }
-
-      const rect = el.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const panelWidth = Math.min(viewportWidth * 0.3, 320);
-      const left = Math.min(rect.right + 24, viewportWidth - panelWidth - 24);
-      setSubjectsPanelPosition({ left, top: rect.top, height: rect.height });
-    };
-
-    updatePanelPosition();
-    window.addEventListener("resize", updatePanelPosition);
-    window.addEventListener("scroll", updatePanelPosition, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePanelPosition);
-      window.removeEventListener("scroll", updatePanelPosition, true);
-    };
-  }, [subjectsPanelCourseId, expandedCourseId, subjectsPanelVisible]);
   
   // Fetch student's assigned class
   useEffect(() => {
@@ -249,206 +210,6 @@ export default function StudentCourses() {
       }
     });
 
-  // Handle course card hover with a deliberate delay and one-card-at-a-time behavior
-  const clearCourseHoverTimers = () => {
-    Object.values(hoverTimeoutRef.current).forEach((timeout) => clearTimeout(timeout));
-    hoverTimeoutRef.current = {};
-  };
-
-  const updateCardPointer = (courseId: string, pageX: number, pageY: number) => {
-    pointerRef.current[courseId] = { x: pageX, y: pageY };
-  };
-
-  const handleCourseHover = (courseId: string, pageX?: number, pageY?: number) => {
-    clearCourseHoverTimers();
-    setHoveredCourseId(courseId);
-    setExpandedCourseId(null);
-    setPulsingCourseId(null);
-    setShowExpandedActions(false);
-    setSubjectsPanelVisible(false);
-    setSubjectsPanelCourseId(null);
-
-    if (typeof pageX === "number" && typeof pageY === "number") {
-      pointerRef.current[courseId] = { x: pageX, y: pageY };
-    }
-
-    const pulseTimer = window.setTimeout(() => {
-      setPulsingCourseId(courseId);
-    }, 900);
-    hoverTimeoutRef.current[`${courseId}-pulse`] = pulseTimer;
-
-    // Expand after two pulses (pulse animation is 1.5s, started at 900ms)
-    const expandTimer = window.setTimeout(() => {
-      setPulsingCourseId(null);
-      startExpand(courseId);
-    }, 3900);
-    hoverTimeoutRef.current[`${courseId}-expand`] = expandTimer;
-  };
-
-  const handleCourseHoverEnd = () => {
-    clearCourseHoverTimers();
-    setHoveredCourseId(null);
-    setPulsingCourseId(null);
-
-    if (subjectsPanelCourseId) {
-      setSubjectsPanelVisible(false);
-      window.setTimeout(() => {
-        setSubjectsPanelCourseId(null);
-        setShowExpandedActions(false);
-        startCollapse();
-      }, 260);
-      return;
-    }
-
-    setShowExpandedActions(false);
-    startCollapse();
-  };
-
-  // Start expand animation by measuring the card and animating it to right-side center
-  const startExpand = (courseId: string) => {
-    const el = cardRefs.current[courseId];
-    if (!el) {
-      setExpandedCourseId(courseId);
-      return;
-    }
-
-    const rect = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const baseTargetWidth = vw < 768 ? Math.min(vw * 0.92, 560) : Math.min(vw * 0.42, 640);
-    const targetWidth = Math.max(rect.width * 1.16, baseTargetWidth);
-    const pointer = pointerRef.current[courseId];
-    // Use page coordinates if available, otherwise fall back to viewport center of card
-    const pointerX = pointer ? pointer.x : window.scrollX + rect.left + rect.width / 2;
-    const pointerY = pointer ? pointer.y : window.scrollY + rect.top + rect.height / 2;
-    const scale = targetWidth / rect.width;
-    const expandedHeight = rect.height * scale;
-    const minLeft = vw - targetWidth - 32;
-    
-    // Position card so pointer ends up in center of expanded card, but keep on right side
-    // Convert to viewport coordinates since we're using getBoundingClientRect
-    let targetLeft = pointerX - window.scrollX - targetWidth / 2;
-    let targetTop = pointerY - window.scrollY - expandedHeight / 2;
-    
-    // Clamp to keep card on the right side and within viewport
-    targetLeft = Math.max(minLeft, Math.min(targetLeft, vw - 32));
-    targetTop = Math.max(32, Math.min(targetTop, vh - expandedHeight - 32));
-    
-    const dx = targetLeft - rect.left;
-    const dy = targetTop - rect.top;
-
-    // Fix the element in place at its current position so it doesn't jump
-    el.style.position = "fixed";
-    el.style.left = `${rect.left}px`;
-    el.style.top = `${rect.top}px`;
-    el.style.width = `${rect.width}px`;
-    el.style.height = `${rect.height}px`;
-    el.style.margin = "0";
-    el.style.zIndex = "50";
-    el.style.transformOrigin = "center center";
-    // store measured transform for collapse
-    cardTransforms.current[courseId] = { dx, dy, scale, anchorX: targetWidth / 2, anchorY: expandedHeight / 2 };
-
-    // Use Web Animations API to create an overshooting, smooth animation (Windows Store-like)
-    el.style.transform = `translate(0px, 0px) scale(1)`;
-    el.style.boxShadow = "0 24px 60px rgba(2,6,23,0.28)";
-
-    const anim = el.animate(
-      [
-        { transform: `translate(0px, 0px) scale(1)` },
-        { transform: `translate(${dx * 0.85}px, ${dy * 0.85}px) scale(${scale * 1.03})` },
-        { transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
-      ],
-      {
-        duration: 600,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-        fill: "forwards",
-      }
-    );
-
-    anim.onfinish = () => {
-      // keep final state and mark expanded
-      el.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
-      setExpandedCourseId(courseId);
-      setShowExpandedActions(true);
-    };
-  };
-
-  // Animate collapse back to original position and clean up
-  const startCollapse = (courseId?: string) => {
-    const id = courseId ?? expandedCourseId;
-    if (!id) {
-      setExpandedCourseId(null);
-      return;
-    }
-    const el = cardRefs.current[id];
-    if (!el) {
-      setExpandedCourseId(null);
-      return;
-    }
-
-    // Smoothly animate back to original position using Web Animations API
-    const transform = cardTransforms.current[id];
-    if (!transform) {
-      // fallback: just clear
-      el.style.transition = "transform 300ms ease";
-      el.style.transform = `translate(0px, 0px) scale(1)`;
-      el.style.boxShadow = "";
-      setTimeout(() => setExpandedCourseId(null), 320);
-      return;
-    }
-
-    const { dx, dy, scale, anchorX, anchorY } = transform;
-    // animate from current (dx,dy,scale) to identity with a gentle ease
-    const anim = el.animate(
-      [
-        { transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
-        { transform: `translate(${dx * 0.3}px, ${dy * 0.3}px) scale(${1.02})` },
-        { transform: `translate(0px, 0px) scale(1)` },
-      ],
-      {
-        duration: 500,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-        fill: "forwards",
-      }
-    );
-
-    el.style.boxShadow = "";
-
-    anim.onfinish = () => {
-      // cleanup
-      el.style.transition = "";
-      el.style.position = "";
-      el.style.left = "";
-      el.style.top = "";
-      el.style.width = "";
-      el.style.height = "";
-      el.style.margin = "";
-      el.style.zIndex = "";
-      el.style.transformOrigin = "";
-      setExpandedCourseId(null);
-      setShowExpandedActions(false);
-      setSubjectsPanelVisible(false);
-      setSubjectsPanelCourseId(null);
-    };
-  };
-
-  const applyExpandedCardTransform = (courseId: string, offsetX: number) => {
-    const el = cardRefs.current[courseId];
-    if (!el) {
-      return;
-    }
-
-    const transform = cardTransforms.current[courseId];
-    if (!transform) {
-      return;
-    }
-
-    const { dx, dy, scale } = transform;
-    el.style.transition = "transform 360ms cubic-bezier(0.22, 1, 0.36, 1)";
-    el.style.transform = `translate(${dx + offsetX}px, ${dy}px) scale(${scale})`;
-  };
-
   const handleViewSubjects = async (course: Course) => {
     setSelectedCourse(course);
     setLoadingSubjects(true);
@@ -462,14 +223,8 @@ export default function StudentCourses() {
         setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
       }
 
-      setSubjectsPanelVisible(false);
       setSubjectsPanelCourseId(course._id);
-      requestAnimationFrame(() => {
-        setSubjectsPanelVisible(true);
-        if (expandedCourseId === course._id) {
-          applyExpandedCardTransform(course._id, -96);
-        }
-      });
+      setSubjectsPanelVisible(true);
     } catch (err: any) {
       console.error("Failed to fetch subjects:", err);
       toast.error("Failed to load subjects for this course");
@@ -481,12 +236,45 @@ export default function StudentCourses() {
 
   const closeSubjectsPanel = () => {
     setSubjectsPanelVisible(false);
-    if (expandedCourseId) {
-      applyExpandedCardTransform(expandedCourseId, 0);
+    setSubjectsPanelCourseId(null);
+  };
+
+  const openCourseSummary = async (course: Course) => {
+    setSummaryCourse(course);
+    setCourseSummaryText("");
+    setCourseSummaryError(null);
+    setCourseSummaryLoading(true);
+    setCourseSummaryDialogOpen(true);
+
+    try {
+      const { data } = await api.post("/mordred/course-summary", { courseId: course._id });
+      const text = typeof data?.text === "string" ? data.text.trim() : "";
+      if (text) {
+        setCourseSummaryText(text);
+      } else {
+        setCourseSummaryText(getCourseSummaryLines(course).join("\n"));
+      }
+    } catch (error) {
+      console.error("Failed to fetch course summary:", error);
+      setCourseSummaryError("Unable to fetch MORDRED summary right now. Showing a template summary instead.");
+      setCourseSummaryText(getCourseSummaryLines(course).join("\n"));
+    } finally {
+      setCourseSummaryLoading(false);
     }
-    window.setTimeout(() => {
-      setSubjectsPanelCourseId(null);
-    }, 260);
+  };
+
+  const getCourseSummaryLines = (course: Course) => {
+    const className = studentClass?.name ?? "your class";
+    const departmentName = course.department?.name ? ` from the ${course.department.name} department` : "";
+    const responsibleHead = course.department?.head?.name ? ` under ${course.department.head.name}` : "";
+    return [
+      `${course.name} (${course.code}) is a key course for ${className}${departmentName}.${course.semester ? ` It is taught in semester ${course.semester}.` : ""}`,
+      `This course is designed to give you strong foundations in the subject area and support your academic progress in ${className}.`,
+      `You will learn important concepts that connect your class timetable, assessments, and future study pathways.`,
+      `For students in ${className}, this course helps build confidence, clarity, and readiness for related modules.`,
+      `It is especially useful for understanding how your unit content applies to real class goals${responsibleHead ? `, ${responsibleHead}.` : "."}`,
+      `Use this summary to see why the course matters and what makes it important for your current studies.`,
+    ];
   };
 
   if (!user || user.role !== "student") {
@@ -579,26 +367,18 @@ export default function StudentCourses() {
           </Card>
         ) : (
           <>
-            {/* Backdrop for expanded card */}
-            {expandedCourseId && (
-              <div
-                className="fixed inset-0 z-40 bg-black/30 transition-opacity duration-300"
-                onClick={() => {
-                  handleCourseHoverEnd();
-                }}
-              />
-            )}
-            {subjectsPanelCourseId && expandedCourseId === subjectsPanelCourseId && subjectsPanelPosition && (
-              <div
-                className={`fixed z-[60] w-[min(320px,30vw)] rounded-2xl border border-primary/40 bg-background/95 p-4 shadow-2xl backdrop-blur transition-all duration-400 ${subjectsPanelVisible ? "translate-x-0 opacity-100" : "translate-x-6 opacity-0"}`}
-                style={{ left: `${subjectsPanelPosition.left}px`, top: `${subjectsPanelPosition.top}px`, maxHeight: `min(70vh, ${subjectsPanelPosition.height}px)` }}
-              >
+            {subjectsPanelCourseId && subjectsPanelVisible && (
+              <div className="fixed inset-0 z-40 bg-black/30" onClick={closeSubjectsPanel}>
+                <div
+                  className="absolute left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-48px))] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-primary/40 bg-background p-6 shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">{selectedCourse?.name ?? "Course subjects"}</p>
                     <p className="text-xs text-muted-foreground">{selectedCourse?.code}</p>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); closeSubjectsPanel(); }}>
+                  <Button variant="ghost" size="sm" onClick={closeSubjectsPanel}>
                     Close
                   </Button>
                 </div>
@@ -620,30 +400,15 @@ export default function StudentCourses() {
                   )}
                 </div>
               </div>
+            </div>
             )}
             <div className="contents">
               {filteredAndSortedCourses.map((course) => {
-                const isHovered = hoveredCourseId === course._id;
-                const isPulsing = pulsingCourseId === course._id;
-                const isExpanded = expandedCourseId === course._id;
-
                 return (
             <Card
               key={course._id}
-              className={`cursor-pointer transition-all duration-700 ease-out will-change-transform ${
-                isExpanded
-                  ? "z-50 w-[40vw] max-w-[640px] overflow-y-auto border-primary/50 bg-background shadow-2xl"
-                  : `hover:shadow-xl ${isHovered && !isExpanded && isPulsing ? "animate-card-pop" : ""} ${
-                      selectedCourse?._id === course._id ? "ring-2 ring-primary" : ""
-                    }`
-              }`}
+              className={`cursor-pointer ${selectedCourse?._id === course._id ? "ring-2 ring-primary" : ""}`}
               data-course-id={course._id}
-              ref={(el) => {
-                cardRefs.current[course._id] = el;
-              }}
-              onMouseEnter={(event) => handleCourseHover(course._id, event.pageX, event.pageY)}
-              onMouseMove={(event) => updateCardPointer(course._id, event.pageX, event.pageY)}
-              onMouseLeave={() => handleCourseHoverEnd()}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -705,17 +470,29 @@ export default function StudentCourses() {
                     })()
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  className={`mt-2 w-full transition-all duration-300 ${isExpanded && showExpandedActions ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-2 opacity-0"}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleViewSubjects(course);
-                  }}
-                >
-                  View Subjects
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
+                <div className="mt-2 flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleViewSubjects(course);
+                    }}
+                  >
+                    View Subjects
+                    <ChevronRight className="ml-2 h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openCourseSummary(course);
+                    }}
+                  >
+                    Course Summary
+                  </Button>
+                </div>
               </CardContent>
             </Card>
                 );
@@ -724,6 +501,40 @@ export default function StudentCourses() {
           </>
         )}
       </div>
+
+      <Dialog open={courseSummaryDialogOpen} onOpenChange={setCourseSummaryDialogOpen}>
+        <DialogContent className="glass-card border-border/70 bg-white/10 p-6 shadow-2xl backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle>Course Summary</DialogTitle>
+            <DialogDescription>
+              MORDRED has prepared a quick summary of why this course matters to your class.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            {courseSummaryLoading ? (
+              <p>Loading course summary…</p>
+            ) : courseSummaryText ? (
+              courseSummaryText.split("\n").map((line, index) => (
+                <p key={index}>{line}</p>
+              ))
+            ) : summaryCourse ? (
+              getCourseSummaryLines(summaryCourse).map((line, index) => (
+                <p key={index}>{line}</p>
+              ))
+            ) : (
+              <p>Loading course summary…</p>
+            )}
+            {courseSummaryError && (
+              <p className="text-xs text-destructive">{courseSummaryError}</p>
+            )}
+          </div>
+          <div className="mt-6 flex justify-end">
+            <Button variant="outline" onClick={() => setCourseSummaryDialogOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
