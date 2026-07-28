@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { api } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Search from "@/components/global/Search";
+import { CalendarDays, Download, Printer, ListChecks, PlusCircle } from "lucide-react";
 import FullCalendar from "@fullcalendar/react";
-import type { schedule } from "@/types";
+import type { schedule, period } from "@/types";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
@@ -17,58 +18,11 @@ import DayPopupBubble from "@/components/calendar/DayPopupBubble";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from "@/components/ui/dialog";
 
 type ClassItem = { _id: string; name: string };
-type ApiClassItem = { _id: string; name: string };
-type ApiRotationEvent = {
-  id?: string;
-  scheduleId?: string;
-  postingId?: string;
-  postingName?: string;
-  startDate?: string;
-  endDate?: string;
-  status?: KnownStatus;
-  supervisorName?: string;
-};
-type PostingWindow = {
-  id: string;
-  scheduleId?: string;
-  postingId?: string;
-  postingName?: string;
-  startDate: string;
-  endDate: string;
-  status?: KnownStatus;
-  supervisorName?: string;
-  supervisorId?: string;
-  completed?: boolean;
-};
-
-type SelectedEvent = {
-  id: string;
-  title: string;
-  start?: Date | null;
-  end?: Date | null;
-  startDate?: string;
-  endDate?: string;
-  scheduleId?: string;
-  extendedProps?: { status?: KnownStatus; scheduleId?: string };
-  status?: KnownStatus;
-  postingId?: string;
-  postingName?: string;
-  supervisorName?: string;
-};
-
-type DayLineItem = {
-  id: string;
-  title: string;
-  postingName: string;
-  time: string;
-  type: "timetable" | "clinical" | "optional" | "other";
-  status?: "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default";
-};
-
-type DayLineItemsMap = Record<string, { timetable?: DayLineItem; clinical?: DayLineItem; optional?: DayLineItem }>;
+type PostingWindow = { id?: string; postingId?: string; postingName?: string; startDate: string; endDate: string; status?: string; supervisorName?: string };
+type TimetableLecture = { time: string; subject?: string; code?: string; lecturer?: string };
+type ClinicalPosting = { time: string; postingName: string; status: "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default"; id: string };
 
 const statusMetadata: Record<string, { label: string; badgeClasses: string; dotClass: string; borderClass: string }> = {
-  active: { label: "Active", badgeClasses: "bg-emerald-100 text-emerald-700 border-emerald-200", dotClass: "bg-emerald-500", borderClass: "border-emerald-500" },
   planned: { label: "Planned", badgeClasses: "bg-sky-100 text-sky-700 border-sky-200", dotClass: "bg-sky-500", borderClass: "border-sky-500" },
   ongoing: { label: "Ongoing", badgeClasses: "bg-amber-100 text-amber-700 border-amber-200", dotClass: "bg-amber-500", borderClass: "border-amber-500" },
   completed: { label: "Completed", badgeClasses: "bg-emerald-100 text-emerald-700 border-emerald-200", dotClass: "bg-emerald-500", borderClass: "border-emerald-500" },
@@ -80,43 +34,10 @@ const statusMetadata: Record<string, { label: string; badgeClasses: string; dotC
 const statusOptions = [
   { key: "planned", label: "Planned" },
   { key: "ongoing", label: "Ongoing" },
-  { key: "active", label: "Active" },
   { key: "assigned", label: "Assigned" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
 ];
-
-type KnownStatus = "planned" | "ongoing" | "active" | "completed" | "assigned" | "cancelled" | "default";
-
-const normalizeStatus = (status?: string): KnownStatus => {
-  if (status && statusOptions.some((option) => option.key === status)) {
-    return status as KnownStatus;
-  }
-  return "default";
-};
-
-const computeEventStatus = (event: PostingWindow): KnownStatus => {
-  const now = new Date();
-  const start = new Date(event.startDate);
-  const end = new Date(event.endDate);
-  const rawStatus = String(event.status || "").toLowerCase();
-
-  if (rawStatus === "cancelled" || rawStatus === "canceled") return "cancelled";
-  if (rawStatus === "completed") return "completed";
-  if (rawStatus === "assigned") return "assigned";
-  if (now >= start && now <= end) return "active";
-  if (end < now) return "completed";
-  if (rawStatus === "planned") return "planned";
-  return "default";
-};
-
-const canCancelActivity = (event: PostingWindow) => {
-  if (computeEventStatus(event) === "cancelled") return false;
-  const now = new Date();
-  const start = new Date(event.startDate);
-  const diffMs = start.getTime() - now.getTime();
-  return diffMs >= 2 * 60 * 60 * 1000 && diffMs <= 48 * 60 * 60 * 1000;
-};
 
 export default function ClinicalSchedules() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
@@ -124,11 +45,10 @@ export default function ClinicalSchedules() {
   const [loadingClasses, setLoadingClasses] = useState(false);
   const [events, setEvents] = useState<PostingWindow[]>([]);
   const [timetableClinicalPeriodTime, setTimetableClinicalPeriodTime] = useState<{ startTime: string; endTime: string } | null>(null);
-  const [timetableSchedule, setTimetableSchedule] = useState<schedule[]>([]);
   const [view, setView] = useState<"day" | "week" | "month">("week");
   const [currentDate, setCurrentDate] = useState<string>(new Date().toISOString());
-  const calendarRef = useRef<InstanceType<typeof FullCalendar> | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<SelectedEvent | null>(null);
+  const calendarRef = useRef<any>(null);
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
   const [openDetails, setOpenDetails] = useState(false);
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -136,58 +56,9 @@ export default function ClinicalSchedules() {
   
   // Popup & timetable state
   const [hoveredDay, setHoveredDay] = useState<Date | null>(null);
-  const [popupAnchorRect, setPopupAnchorRect] = useState<DOMRect | null>(null);
-  const [isDayHovered, setIsDayHovered] = useState(false);
-  const [isPopupHovered, setIsPopupHovered] = useState(false);
-
-  const hoveredDaySchedule = useMemo(() => {
-    if (!hoveredDay) return null;
-    const dayOfWeek = hoveredDay.toLocaleDateString("en-US", { weekday: "long" });
-    return timetableSchedule.find((day) => day.day.toLowerCase() === dayOfWeek.toLowerCase()) ?? null;
-  }, [hoveredDay, timetableSchedule]);
-
-  const popupLectures = useMemo(() => {
-    if (!hoveredDaySchedule) return [];
-    return hoveredDaySchedule.periods
-      .filter((p) => !p.isClinical && !p.isOptional)
-      .map((p) => ({
-        time: `${p.startTime} - ${p.endTime}`,
-        subject: p.subject?.name,
-        code: p.subject?.code,
-        lecturer: p.lecturer?.name,
-      }));
-  }, [hoveredDaySchedule]);
-
-  const popupOptionalLectures = useMemo(() => {
-    if (!hoveredDaySchedule) return [];
-    return hoveredDaySchedule.periods
-      .filter((p) => p.isOptional)
-      .map((p) => ({
-        time: `${p.startTime} - ${p.endTime}`,
-        subject: p.displayLabel || p.subject?.name || "Optional Activity",
-        code: p.subject?.code,
-        lecturer: p.lecturer?.name,
-      }));
-  }, [hoveredDaySchedule]);
-
-  const popupClinicalPostings = useMemo(() => {
-    if (!hoveredDay) return [];
-    return events
-      .filter((evt) => {
-        const eventStart = new Date(evt.startDate);
-        return (
-          eventStart.getFullYear() === hoveredDay.getFullYear() &&
-          eventStart.getMonth() === hoveredDay.getMonth() &&
-          eventStart.getDate() === hoveredDay.getDate()
-        );
-      })
-      .map((evt) => ({
-        id: evt.id || "",
-        time: new Date(evt.startDate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
-        postingName: evt.postingName || "Clinical Activity",
-        status: computeEventStatus(evt),
-      }));
-  }, [hoveredDay, events]);
+  const [timetableCache, setTimetableCache] = useState<Map<string, TimetableLecture[]>>(new Map());
+  const [popupLectures, setPopupLectures] = useState<TimetableLecture[]>([]);
+  const [popupClinicalPostings, setPopupClinicalPostings] = useState<ClinicalPosting[]>([]);
 
   const handleExport = () => {
     const rows = ["Posting Window,Status,Start,End"];
@@ -220,15 +91,7 @@ export default function ClinicalSchedules() {
       try {
         setLoadingClasses(true);
         const { data } = await api.get("/classes?page=1&limit=500");
-        const isClass = (item: unknown): item is ApiClassItem =>
-          typeof item === "object" &&
-          item !== null &&
-          typeof (item as Record<string, unknown>)._id === "string" &&
-          typeof (item as Record<string, unknown>).name === "string";
-
-        const list = Array.isArray(data?.classes)
-          ? data.classes.filter(isClass).map((c: ApiClassItem) => ({ _id: c._id, name: c.name }))
-          : [];
+        const list = Array.isArray(data?.classes) ? data.classes.map((c: any) => ({ _id: c._id, name: c.name })) : [];
         list.sort((a: ClassItem, b: ClassItem) => a.name.localeCompare(b.name));
         setClasses(list);
         if (list.length > 0) setSelectedClass(list[0]._id);
@@ -249,7 +112,6 @@ export default function ClinicalSchedules() {
         const timetableSchedule: schedule[] = Array.isArray(timetableRes.data?.schedule)
           ? timetableRes.data.schedule
           : [];
-        setTimetableSchedule(timetableSchedule);
         const firstClinical = timetableSchedule
           .flatMap((day) => day.periods)
           .find((period) => period.isClinical || period.displayLabel?.toLowerCase().includes("clinical"));
@@ -276,26 +138,16 @@ export default function ClinicalSchedules() {
 
         const qs = `?classId=${selectedClass}&start=${start.toISOString()}&end=${end.toISOString()}`;
         const { data } = await api.get(`/rotation-schedules/events${qs}`);
-        const isRotationEvent = (item: unknown): item is ApiRotationEvent =>
-          typeof item === "object" &&
-          item !== null &&
-          typeof (item as Record<string, unknown>).id === "string" &&
-          typeof (item as Record<string, unknown>).startDate === "string" &&
-          typeof (item as Record<string, unknown>).endDate === "string";
-
-        const evt = Array.isArray(data?.events) ? data.events.filter(isRotationEvent) : [];
-        setEvents(
-          evt.map((e: ApiRotationEvent) => ({
-            id: e.id,
-            scheduleId: e.scheduleId,
-            postingId: e.postingId || e.postingName,
-            postingName: e.postingName,
-            startDate: e.startDate,
-            endDate: e.endDate,
-            status: e.status,
-            supervisorName: e.supervisorName,
-          }))
-        );
+        const evt = Array.isArray(data?.events) ? data.events : [];
+        setEvents(evt.map((e: any) => ({
+          id: e.id,
+          scheduleId: e.scheduleId,
+          postingId: e.postingId || e.postingName,
+          postingName: e.postingName,
+          startDate: e.startDate,
+          endDate: e.endDate,
+          status: e.status,
+        })));
 
       } catch (err) {
         console.error('Failed to load rotation schedule events', err);
@@ -306,6 +158,70 @@ export default function ClinicalSchedules() {
     loadRange();
   }, [selectedClass, view, currentDate]);
 
+  // Load timetable lectures for hovered day
+  useEffect(() => {
+    if (!hoveredDay || !selectedClass) {
+      return;
+    }
+
+    const fetchTimetableLectures = async () => {
+      try {
+        const dayKey = hoveredDay.toISOString().split("T")[0];
+        
+        // Check cache first
+        if (timetableCache.has(dayKey)) {
+          setPopupLectures(timetableCache.get(dayKey) || []);
+        } else {
+          // Fetch and parse timetable
+          const res = await api.get(`/timetables/${selectedClass}`);
+          const timetableSchedule: schedule[] = Array.isArray(res.data?.schedule) ? res.data.schedule : [];
+          
+          // Find the day of week (0 = Sunday, 1 = Monday, etc.)
+          const dayOfWeek = hoveredDay.toLocaleDateString("en-US", { weekday: "long" });
+          const daySchedule = timetableSchedule.find((d) => d.day === dayOfWeek);
+          
+          if (daySchedule) {
+            const lectures: TimetableLecture[] = daySchedule.periods
+              .filter((p) => !p.isClinical && !p.isOptional)
+              .map((p) => ({
+                time: `${p.startTime} - ${p.endTime}`,
+                subject: p.subject?.name,
+                code: p.subject?.code,
+                lecturer: p.lecturer?.name,
+              }));
+            
+            setTimetableCache((prev) => new Map(prev).set(dayKey, lectures));
+            setPopupLectures(lectures);
+          } else {
+            setPopupLectures([]);
+          }
+        }
+
+        // Get clinical postings for this day from events
+        const dayPostings: ClinicalPosting[] = events
+          .filter((evt) => {
+            const eventStart = new Date(evt.startDate);
+            return (
+              eventStart.getFullYear() === hoveredDay.getFullYear() &&
+              eventStart.getMonth() === hoveredDay.getMonth() &&
+              eventStart.getDate() === hoveredDay.getDate()
+            );
+          })
+          .map((evt) => ({
+            id: evt.id || "",
+            time: new Date(evt.startDate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
+            postingName: evt.postingName || "Clinical Activity",
+            status: (evt.status || "default") as "planned" | "ongoing" | "completed" | "assigned" | "cancelled" | "default",
+          }));
+
+        setPopupClinicalPostings(dayPostings);
+      } catch (err) {
+        console.error("Failed to fetch timetable for hovered day:", err);
+      }
+    };
+
+    fetchTimetableLectures();
+  }, [hoveredDay, selectedClass, events, timetableCache]);
 
   const eventsWithTimetableTime = useMemo(() => {
     if (!timetableClinicalPeriodTime) return events;
@@ -342,132 +258,14 @@ export default function ClinicalSchedules() {
     });
   }, [events, timetableClinicalPeriodTime]);
 
-  const filteredEvents = eventsWithTimetableTime.filter((event) => {
-    const searchMatches = !searchText || event.postingName?.toLowerCase().includes(searchText.toLowerCase());
-    const statusMatches = statusFilter === "all" || (event.status || "default") === statusFilter;
-    const postingMatches = !selectedPostingId || event.postingId === selectedPostingId;
-    return searchMatches && statusMatches && postingMatches;
-  });
-
-  const monthDayLineItems = useMemo<DayLineItemsMap>(() => {
-    const lineItems: DayLineItemsMap = {};
-    const current = new Date(currentDate);
-    const year = current.getFullYear();
-    const month = current.getMonth();
-    const lastDay = new Date(year, month + 1, 0);
-
-    const getKey = (date: Date) => date.toISOString().split("T")[0];
-    const getDayOfWeek = (date: Date) => date.toLocaleDateString("en-US", { weekday: "long" });
-
-    for (let day = 1; day <= lastDay.getDate(); day++) {
-      const date = new Date(year, month, day);
-      const dayKey = getKey(date);
-      const dayOfWeek = getDayOfWeek(date);
-      const scheduleForDay = timetableSchedule.find((scheduleDay) => scheduleDay.day === dayOfWeek);
-      if (scheduleForDay) {
-        const timetablePeriod = scheduleForDay.periods.find((period) => !period.isClinical && !period.isOptional);
-        const optionalPeriod = scheduleForDay.periods.find((period) => period.isOptional);
-
-        if (timetablePeriod) {
-          lineItems[dayKey] = {
-            ...lineItems[dayKey],
-            timetable: {
-              id: `${dayKey}-timetable`,
-              title: timetablePeriod.subject?.name || timetablePeriod.displayLabel || timetablePeriod.subject?.code || "Class",
-              postingName: timetablePeriod.subject?.name || timetablePeriod.displayLabel || timetablePeriod.subject?.code || "Class",
-              time: `${timetablePeriod.startTime} - ${timetablePeriod.endTime}`,
-              type: "timetable",
-            },
-          };
-        }
-
-        if (optionalPeriod) {
-          lineItems[dayKey] = {
-            ...lineItems[dayKey],
-            optional: {
-              id: `${dayKey}-optional`,
-              title: optionalPeriod.displayLabel || optionalPeriod.subject?.name || "Optional Activity",
-              postingName: optionalPeriod.displayLabel || optionalPeriod.subject?.name || "Optional Activity",
-              time: `${optionalPeriod.startTime} - ${optionalPeriod.endTime}`,
-              type: "optional",
-            },
-          };
-        }
-      }
-
-      const dayEvents = filteredEvents.filter((event) => {
-        const eventDate = new Date(event.startDate);
-        return (
-          eventDate.getFullYear() === date.getFullYear() &&
-          eventDate.getMonth() === date.getMonth() &&
-          eventDate.getDate() === date.getDate()
-        );
-      });
-
-      if (dayEvents.length > 0) {
-        const event = dayEvents[0];
-        lineItems[dayKey] = {
-          ...lineItems[dayKey],
-          clinical: {
-            id: event.id || `${dayKey}-clinical`,
-            title: event.postingName || "Clinical Posting",
-            postingName: event.postingName || "Clinical Posting",
-            time: new Date(event.startDate).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }),
-            type: "clinical",
-            status: computeEventStatus(event),
-          },
-        };
-      }
-    }
-
-    return lineItems;
-  }, [currentDate, filteredEvents, timetableSchedule]);
-
-  const weekSchedule = useMemo(() => {
-    const date = new Date(currentDate);
-    const monday = new Date(date);
-    const dayIndex = (date.getDay() + 6) % 7; // ensure Monday start
-    monday.setDate(date.getDate() - dayIndex);
-    monday.setHours(0, 0, 0, 0);
-
-    return Array.from({ length: 5 }, (_, index) => {
-      const dayDate = new Date(monday);
-      dayDate.setDate(monday.getDate() + index);
-
-      const dayLabel = dayDate.toLocaleDateString(undefined, { weekday: 'long' });
-      const dateLabel = dayDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      const dayKey = dayDate.toISOString().split('T')[0];
-
-      const scheduleForDay = timetableSchedule.find((scheduleDay) => scheduleDay.day.toLowerCase() === dayLabel.toLowerCase());
-      const timetablePeriod = scheduleForDay?.periods.find((period) => !period.isClinical && !period.isOptional);
-      const optionalPeriods = scheduleForDay?.periods.filter((period) => period.isOptional) ?? [];
-      const clinicalPostings = filteredEvents
-        .filter((event) => {
-          const eventDate = new Date(event.startDate);
-          return (
-            eventDate.getFullYear() === dayDate.getFullYear() &&
-            eventDate.getMonth() === dayDate.getMonth() &&
-            eventDate.getDate() === dayDate.getDate()
-          );
-        })
-        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-        .map((event) => ({
-          ...event,
-          status: computeEventStatus(event),
-          canCancel: canCancelActivity(event),
-        }));
-
-      return {
-        dayDate,
-        dayLabel,
-        dateLabel,
-        dayKey,
-        timetablePeriod,
-        optionalPeriods,
-        clinicalPostings,
-      };
+  const filteredEvents = useMemo(() => {
+    return eventsWithTimetableTime.filter((event) => {
+      const searchMatches = !searchText || event.postingName?.toLowerCase().includes(searchText.toLowerCase());
+      const statusMatches = statusFilter === "all" || (event.status || "default") === statusFilter;
+      const postingMatches = !selectedPostingId || event.postingId === selectedPostingId;
+      return searchMatches && statusMatches && postingMatches;
     });
-  }, [currentDate, filteredEvents, timetableSchedule]);
+  }, [eventsWithTimetableTime, searchText, statusFilter, selectedPostingId]);
 
   const groupedByPosting = useMemo(() => {
     const map = new Map<string, PostingWindow[]>();
@@ -494,10 +292,10 @@ export default function ClinicalSchedules() {
     }
     if (view === 'week') {
       const start = new Date(date);
-      const day = (date.getDay() + 6) % 7;
+      const day = date.getDay();
       start.setDate(date.getDate() - day);
       const end = new Date(start);
-      end.setDate(start.getDate() + 4);
+      end.setDate(start.getDate() + 6);
       return `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
     }
     return date.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
@@ -515,30 +313,27 @@ export default function ClinicalSchedules() {
       api.changeView('dayGridMonth');
     }
     api.gotoDate(currentDate);
-  }, [view, currentDate]);
+  }, [view]);
 
+  const calendarApi = calendarRef.current?.getApi();
   const scrollTimer = useRef<number | null>(null);
   const dayViewContainerRef = useRef<HTMLDivElement | null>(null);
 
   const goToToday = () => {
-    calendarRef.current?.getApi()?.today();
+    calendarApi?.today();
     setCurrentDate(new Date().toISOString());
   };
 
   const openPrintView = () => {
     window.print();
   };
-  const goToPrev = () => calendarRef.current?.getApi()?.prev();
-  const goToNext = () => calendarRef.current?.getApi()?.next();
+  const goToPrev = () => calendarApi?.prev();
+  const goToNext = () => calendarApi?.next();
 
-  const handleDayViewScroll = useCallback((deltaY: number, nativeEvent?: WheelEvent) => {
+  const handleDayViewScroll = (deltaY: number, nativeEvent?: WheelEvent) => {
     if (view !== 'day' || Math.abs(deltaY) < 10) return;
     // if nativeEvent provided, we can preventDefault because listener will be non-passive
-    try { 
-      nativeEvent?.preventDefault(); 
-    } catch {
-      // Ignore any preventDefault errors
-    }
+    try { nativeEvent?.preventDefault(); } catch {}
     if (scrollTimer.current) return;
 
     if (deltaY > 0) {
@@ -550,16 +345,16 @@ export default function ClinicalSchedules() {
     scrollTimer.current = window.setTimeout(() => {
       scrollTimer.current = null;
     }, 300);
-  }, [view]);
+  };
 
   useEffect(() => {
     const el = dayViewContainerRef.current;
     if (!el) return;
     const wheelHandler = (e: WheelEvent) => handleDayViewScroll(e.deltaY, e);
     // add native listener with passive: false so preventDefault is allowed
-    el.addEventListener('wheel', wheelHandler as unknown as EventListener, { passive: false });
-    return () => el.removeEventListener('wheel', wheelHandler as unknown as EventListener);
-  }, [view, handleDayViewScroll]);
+    el.addEventListener('wheel', wheelHandler as EventListener, { passive: false });
+    return () => el.removeEventListener('wheel', wheelHandler as EventListener);
+  }, [view]);
 
   return (
     <div className="p-6 space-y-6">
@@ -609,13 +404,13 @@ export default function ClinicalSchedules() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onClick={handleExport}>
-                Export
+                <Download className="mr-2 h-4 w-4" />Export
               </Button>
               <Button size="sm" variant="outline" onClick={openPrintView}>
-                Print
+                <Printer className="mr-2 h-4 w-4" />Print
               </Button>
               <Button size="sm" variant="outline">
-                Quick action
+                <PlusCircle className="mr-2 h-4 w-4" />Quick action
               </Button>
             </div>
           </CardHeader>
@@ -624,7 +419,7 @@ export default function ClinicalSchedules() {
               <Search value={searchText} onChange={setSearchText} placeholder="Search postings..." />
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex items-center gap-3 rounded-2xl border border-border bg-background p-3">
-                  <div className="h-5 w-5 rounded-md bg-muted/30" />
+                  <CalendarDays className="h-5 w-5 text-muted-foreground" />
                   <div className="grid gap-1">
                     <span className="text-xs uppercase text-muted-foreground">Jump to date</span>
                     <Input type="date" value={currentDate.split("T")[0]} onChange={(event) => handleDateChange(event.target.value)} className="max-w-[200px]" />
@@ -741,24 +536,19 @@ export default function ClinicalSchedules() {
             <div className="min-h-[520px] overflow-hidden bg-background md:min-h-[700px] lg:min-h-[760px]">
               <div ref={dayViewContainerRef} className="h-full relative">
                 {view === 'day' ? (
-                          <DayTimetable
-                            events={filteredEvents}
-                            date={currentDate}
-                            onEventClick={(ev) => {
-                              setSelectedEvent({
-                                id: ev.id || "",
-                                title: ev.postingName || "Clinical activity",
-                                start: new Date(ev.startDate),
-                                end: new Date(ev.endDate),
-                                scheduleId: ev.scheduleId,
-                                postingId: ev.postingId,
-                                postingName: ev.postingName,
-                                status: normalizeStatus(ev.status),
-                                supervisorName: ev.supervisorName,
-                                extendedProps: { status: normalizeStatus(ev.status), scheduleId: ev.scheduleId },
-                              });
-                              setOpenDetails(true);
-                            }}
+                  <DayTimetable
+                    events={filteredEvents}
+                    date={currentDate}
+                    onEventClick={(ev) => {
+                      setSelectedEvent({
+                        ...ev,
+                        title: ev.postingName,
+                        start: new Date(ev.startDate),
+                        end: new Date(ev.endDate),
+                        extendedProps: { status: ev.status, scheduleId: (ev as any).scheduleId },
+                      });
+                      setOpenDetails(true);
+                    }}
                     onEventDrop={async (ev, newStartISO, newEndISO) => {
                       try {
                         const eid = ev.id as string;
@@ -768,7 +558,7 @@ export default function ClinicalSchedules() {
                         if (!scheduleId || isNaN(idx)) throw new Error('Invalid event id');
                         const payload = { startDate: newStartISO, endDate: newEndISO };
                         await api.patch(`/rotation-schedules/${scheduleId}/windows/${idx}`, payload);
-                        setEvents((prev) => prev.map((e) => (e.id === eid ? { ...e, startDate: payload.startDate, endDate: payload.endDate } : e)));
+                        setEvents((prev) => prev.map((e) => e.id === eid ? { ...e, startDate: payload.startDate!, endDate: payload.endDate! } : e));
                       } catch (err) {
                         console.error('Reschedule failed', err);
                       }
@@ -787,126 +577,27 @@ export default function ClinicalSchedules() {
                           extendedProps: { status: e.status },
                         }))}
                         currentDate={new Date(currentDate)}
-                        dayLineItems={monthDayLineItems}
                         onDateSelect={(date) => {
                           setCurrentDate(date.toISOString());
                         }}
-                        onDayHover={(date, _lineItems, _activities, anchorRect) => {
+                        onDayHover={(date) => {
                           setHoveredDay(date);
-                          setPopupAnchorRect(anchorRect ?? null);
-                          setIsDayHovered(true);
                         }}
                         onDayLeave={() => {
-                          setIsDayHovered(false);
+                          setHoveredDay(null);
                         }}
                       />
                     </div>
                     <DayPopupBubble
                       date={hoveredDay || new Date()}
                       lectures={popupLectures}
-                      optionalLectures={popupOptionalLectures}
                       clinicalPostings={popupClinicalPostings}
-                      isVisible={!!hoveredDay && (isDayHovered || isPopupHovered)}
-                      anchorRect={popupAnchorRect}
+                      isVisible={!!hoveredDay}
                       onClose={() => {
                         setHoveredDay(null);
-                        setIsDayHovered(false);
-                        setIsPopupHovered(false);
                       }}
-                      onMouseEnter={() => setIsPopupHovered(true)}
-                      onMouseLeave={() => setIsPopupHovered(false)}
                     />
                   </>
-                ) : view === 'week' ? (
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    {weekSchedule.map((day) => (
-                      <div
-                        key={day.dayKey}
-                        className={`overflow-hidden rounded-[28px] border p-5 shadow-sm ${day.isWeekend ? 'border-emerald-300/30 bg-emerald-950/50' : 'border-border bg-card'}`}
-                      >
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">{day.dayLabel}</p>
-                            <p className="text-xs text-muted-foreground">{day.dateLabel}</p>
-                          </div>
-                          {day.isWeekend ? (
-                            <Badge variant="secondary">Weekend</Badge>
-                          ) : (
-                            <Badge variant="outline">Weekday</Badge>
-                          )}
-                        </div>
-
-                        {day.isWeekend && (
-                          <div className="mt-4 rounded-3xl border border-emerald-500/20 bg-emerald-950/80 p-4 text-sm text-emerald-100">
-                            Merry weekend! Rest is important for academic optimal performance.
-                          </div>
-                        )}
-
-                        <div className="mt-5 space-y-4">
-                          <div className="rounded-3xl border border-border bg-background p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Timetable</p>
-                              <span className="text-xs text-muted-foreground">{day.timetablePeriod ? 'Planned' : 'Empty'}</span>
-                            </div>
-                            {day.timetablePeriod ? (
-                              <div className="mt-3 space-y-2">
-                                <p className="text-sm font-medium text-foreground">{day.timetablePeriod.subject?.name || day.timetablePeriod.displayLabel || day.timetablePeriod.subject?.code || 'Class session'}</p>
-                                <p className="text-sm text-muted-foreground">{day.timetablePeriod.startTime} – {day.timetablePeriod.endTime}</p>
-                                <p className="text-sm text-muted-foreground">{day.timetablePeriod.lecturer?.name ?? 'Lecturer TBD'}</p>
-                              </div>
-                            ) : (
-                              <p className="mt-3 text-sm text-muted-foreground">No scheduled class for this day.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded-3xl border border-border bg-background p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Clinical postings</p>
-                              <span className="text-xs text-muted-foreground">{day.clinicalPostings.length} item{day.clinicalPostings.length === 1 ? '' : 's'}</span>
-                            </div>
-                            {day.clinicalPostings.length > 0 ? (
-                              <div className="mt-3 space-y-3">
-                                {day.clinicalPostings.map((event) => {
-                                  const status = normalizeStatus(event.status);
-                                  const meta = statusMetadata[status] ?? statusMetadata.default;
-                                  return (
-                                    <div key={event.id || `${day.dayKey}-clinical-${event.startDate}`} className="rounded-3xl border border-border bg-card p-3">
-                                      <div className="flex items-center justify-between gap-3">
-                                        <p className="text-sm font-semibold text-foreground">{event.postingName || 'Clinical activity'}</p>
-                                        <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${meta.badgeClasses}`}>{meta.label}</span>
-                                      </div>
-                                      <p className="mt-2 text-sm text-muted-foreground">{new Date(event.startDate).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <p className="mt-3 text-sm text-muted-foreground">No clinical postings are scheduled.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded-3xl border border-border bg-background p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Other activities</p>
-                              <span className="text-xs text-muted-foreground">{day.optionalPeriods.length} item{day.optionalPeriods.length === 1 ? '' : 's'}</span>
-                            </div>
-                            {day.optionalPeriods.length > 0 ? (
-                              <div className="mt-3 space-y-3">
-                                {day.optionalPeriods.map((period) => (
-                                  <div key={`${day.dayKey}-optional-${period.startTime}-${period.endTime}`} className="rounded-3xl border border-border bg-card p-3">
-                                    <p className="text-sm font-semibold text-foreground">{period.displayLabel || period.subject?.name || 'Optional activity'}</p>
-                                    <p className="mt-1 text-sm text-muted-foreground">{period.startTime} – {period.endTime}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="mt-3 text-sm text-muted-foreground">No other activities planned for this day.</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 ) : (
                   <FullCalendar
                     ref={calendarRef}
@@ -942,7 +633,7 @@ export default function ClinicalSchedules() {
                         allDaySlot: true,
                       },
                     }}
-                    events={filteredEvents.map((e) => ({ id: e.id, title: e.postingName || "Clinical posting", start: e.startDate, end: e.endDate, extendedProps: { status: e.status, scheduleId: e.scheduleId } }))}
+                    events={filteredEvents.map((e) => ({ id: e.id, title: e.postingName, start: e.startDate, end: e.endDate, extendedProps: { status: e.status, scheduleId: (e as any).scheduleId } }))}
                     eventContent={(info) => {
                       const status = info.event.extendedProps.status || "default";
                       const meta = statusMetadata[status] ?? statusMetadata.default;
@@ -984,17 +675,12 @@ export default function ClinicalSchedules() {
                         const idx = Number(parts.pop());
                         const scheduleId = parts.join('-');
                         if (!scheduleId || isNaN(idx)) throw new Error('Invalid event id');
-                        const startDate = info.event.start?.toISOString();
-                        const endDate = info.event.end?.toISOString();
-                        if (!startDate || !endDate) throw new Error('Invalid event dates');
-                        const payload = { startDate, endDate };
+                        const payload = { startDate: info.event.start?.toISOString(), endDate: info.event.end?.toISOString() };
                         await api.patch(`/rotation-schedules/${scheduleId}/windows/${idx}`, payload);
-                        setEvents((prev) => prev.map((ev) => (ev.id === eid ? { ...ev, startDate, endDate } : ev)));
+                        setEvents((prev) => prev.map((ev) => ev.id === eid ? { ...ev, startDate: payload.startDate!, endDate: payload.endDate! } : ev));
                       } catch (err) {
                         console.error('Reschedule failed', err);
-                        if ("revert" in info && typeof info.revert === "function") {
-                          info.revert();
-                        }
+                        (info as any).revert?.();
                       }
                     }}
                   />
@@ -1028,13 +714,13 @@ export default function ClinicalSchedules() {
             <Button onClick={async () => {
               if (!selectedEvent) return;
               try {
-                const eid = selectedEvent.id;
+                const eid = selectedEvent.id as string;
                 const parts = eid.split('-');
                 const idx = Number(parts.pop());
                 const scheduleId = parts.join('-');
                 if (!scheduleId || isNaN(idx)) throw new Error('Invalid event id');
                 await api.patch(`/rotation-schedules/${scheduleId}/windows/${idx}`, { markComplete: true });
-                setEvents((prev) => prev.map((ev) => (ev.id === eid ? { ...ev, status: 'completed', completed: true } : ev)));
+                setEvents((prev) => prev.map((ev) => ev.id === eid ? { ...ev, status: 'completed', completed: true } as any : ev));
                 setOpenDetails(false);
               } catch (err) {
                 console.error(err);
@@ -1045,13 +731,13 @@ export default function ClinicalSchedules() {
               const sup = window.prompt('Enter supervisorId to assign:');
               if (!sup) return;
               try {
-                const eid = selectedEvent.id;
+                const eid = selectedEvent.id as string;
                 const parts = eid.split('-');
                 const idx = Number(parts.pop());
                 const scheduleId = parts.join('-');
                 if (!scheduleId || isNaN(idx)) throw new Error('Invalid event id');
                 await api.patch(`/rotation-schedules/${scheduleId}/windows/${idx}`, { supervisorId: sup });
-                setEvents((prev) => prev.map((ev) => (ev.id === eid ? { ...ev, supervisorId: sup, status: 'assigned' } : ev)));
+                setEvents((prev) => prev.map((ev) => ev.id === eid ? { ...ev, supervisorId: sup, status: 'assigned' } as any : ev));
                 setOpenDetails(false);
               } catch (err) {
                 console.error(err);

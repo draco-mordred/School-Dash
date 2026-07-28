@@ -5,6 +5,7 @@ import { BookOpen, GraduationCap, Plus, Sparkles, ArrowDownAZ, ArrowUpZA, Loader
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import SubjectBulkUploadDialog from "@/components/subjects/SubjectBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,6 +45,7 @@ export const Subjects = () => {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<SubjectItem | null>(null);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -190,9 +192,14 @@ export const Subjects = () => {
         <div className="flex flex-wrap gap-3">
           <Search search={search} setSearch={setSearch} title="Subject" />
           {!isStudent && (
-            <Button onClick={handleCreate}>
-              <Plus className="mr-2 h-4 w-4" /> Create Subject
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => setIsBulkOpen(true)}>
+                Import Subjects
+              </Button>
+              <Button onClick={handleCreate}>
+                <Plus className="mr-2 h-4 w-4" /> Create Subject
+              </Button>
+            </>
           )}
           <div className="md:hidden">
             <SidebarTrigger />
@@ -337,6 +344,11 @@ export const Subjects = () => {
         open={isFormOpen}
         onOpenChange={setIsFormOpen}
         initialData={editingSubject}
+        onSuccess={fetchSubjects}
+      />
+      <SubjectBulkUploadDialog
+        open={isBulkOpen}
+        setOpen={setIsBulkOpen}
         onSuccess={fetchSubjects}
       />
       <CustomAlert

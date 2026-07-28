@@ -15,6 +15,7 @@ import {
   deleteDepartment,
   bulkUploadCourses,
   bulkUploadDepartments,
+  bulkUploadCourseSubjects,
   getCourseMeta,
   seedDepartments,
   getAvailableDepartments,
@@ -58,6 +59,14 @@ courseRouter
     protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     addCourseSubject
+  );
+
+courseRouter
+  .route("/:courseId/subjects/bulk-upload")
+  .post(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    bulkUploadCourseSubjects
   );
 
 // Delete a single embedded subject by its subdocument _id or subjectID

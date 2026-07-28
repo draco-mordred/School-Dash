@@ -2488,6 +2488,21 @@ export default function ClinicalRotations() {
       departmentStudents,
     };
   })();
+
+  const formatStudentPostingGroup = (groupKey: string | null | undefined) => {
+    if (!groupKey) return "";
+    if (/^groupa$/i.test(groupKey)) return "Group A";
+    if (/^groupb$/i.test(groupKey)) return "Group B";
+    const match = /^group(\d+)$/i.exec(groupKey);
+    if (match) return `Group ${match[1]}`;
+    return groupKey.replace(/([A-Z])/g, " $1").replace(/[-_]/g, " ").trim().replace(/\s+/g, " ").replace(/\b\w/g, (chr) => chr.toUpperCase());
+  };
+
+  const currentPostingGroupName = studentPostingAssignment?.groupKey
+    ? formatStudentPostingGroup(studentPostingAssignment.groupKey)
+    : studentCurrentPosting?.groupName;
+  const currentPostingDepartmentName = studentPostingAssignment?.posting || studentCurrentPosting?.departmentName;
+
   const activePostingSchedule = {
     ...samplePostingSchedule,
     postingName: currentPostingTitle,
@@ -2557,28 +2572,31 @@ export default function ClinicalRotations() {
             </div>
             <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Your current posting (department)</p>
-              {studentCurrentPosting ? (
+              {studentCurrentPosting || studentPostingAssignment ? (
                 <>
-                  
-                  <p className="mt-2 text-md font-bold  text-muted-foreground">
-                    {studentCurrentPosting.postingName || currentPostingTitle}
+                  <p className="mt-2 text-md font-bold text-muted-foreground">
+                    {studentCurrentPosting?.postingName || studentPostingAssignment?.posting || currentPostingTitle}
                   </p>
-                  <h2 className="mt-2 text-xl font-semibold">{studentCurrentPosting.departmentName || "Department assignment pending"}</h2>
-                  {studentCurrentPosting.groupName && (
-                    <p className="mt-2 text-sm text-muted-foreground">Group: {studentCurrentPosting.groupName}</p>
+                  <h2 className="mt-2 text-xl font-semibold">
+                    {currentPostingDepartmentName || "Department assignment pending"}
+                  </h2>
+                  {currentPostingGroupName && (
+                    <p className="mt-2 text-sm text-muted-foreground">Department group: {currentPostingGroupName}</p>
                   )}
-                  {studentCurrentPosting.unitName && (
+                  {studentCurrentPosting?.unitName && (
                     <p className="mt-1 text-sm text-muted-foreground">Unit: {studentCurrentPosting.unitName}</p>
                   )}
                   <p className="mt-3 text-sm text-muted-foreground">
-                    This is the department from your assigned posting schedule.
+                    This is the department group from your active class posting schedule.
                   </p>
                 </>
               ) : (
                 <>
                   <h2 className="mt-2 text-xl font-semibold">Posting assignment pending</h2>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {currentStudent ? `No department assignment has been linked to ${currentStudent.name} yet.` : "Select a class and confirm your roster entry to view your posting group."}
+                    {currentStudent
+                      ? `Your department group will appear here once the active posting schedule for ${currentStudent.name}'s class is available.`
+                      : "Select a class and confirm your roster entry to view your department group assignment."}
                   </p>
                 </>
               )}

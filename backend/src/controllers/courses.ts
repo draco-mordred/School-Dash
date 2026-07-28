@@ -168,6 +168,76 @@ const validateDepartmentLecturers = async (lecturerIds: string[], departmentDoc:
   return null;
 };
 
+const normalizeName = (input: unknown) => {
+  if (!input) return "";
+  const text = String(input).trim().toLowerCase();
+  return text.replace(/[^a-z0-9]+/g, ".").replace(/(^\.|\.$)/g, "");
+};
+
+const findExistingTeacherByName = async (name: string, departmentDoc: any) => {
+  if (!name) return null;
+  const normalized = String(name).trim();
+  return await User.findOne({
+    role: "teacher",
+    name: { $regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`, $options: "i" },
+    department: departmentDoc?.name ? { $regex: `^${String(departmentDoc.name).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`, $options: "i" } : { $exists: true },
+  });
+};
+
+const generateTeacherEmail = async (name: string) => {
+  const base = normalizeName(name) || `teacher${Date.now()}`;
+  const domain = process.env.EMAIL_DOMAIN || "school.edu";
+  let candidate = `${base}@${domain}`;
+  let suffix = 1;
+  while (await User.exists({ email: candidate })) {
+    candidate = `${base}${suffix}@${domain}`;
+    suffix += 1;
+  }
+  return candidate;
+};
+
+const findOrCreateTeacherAccount = async (
+  lecturerName: string,
+  departmentDoc: any,
+  courseId: mongoose.Types.ObjectId
+): Promise<string | null> => {
+  if (!lecturerName || !departmentDoc) return null;
+  const sanitizedName = String(lecturerName).trim();
+  if (!sanitizedName) return null;
+
+  const existingTeacher = await findExistingTeacherByName(sanitizedName, departmentDoc);
+  if (existingTeacher) {
+    await User.findByIdAndUpdate(
+      existingTeacher._id,
+      {
+        $addToSet: {
+          teacherCourses: courseId,
+          teacherSubject: courseId,
+        },
+      },
+      { new: true }
+    );
+    return String(existingTeacher._id);
+  }
+
+  const email = await generateTeacherEmail(sanitizedName);
+  const password = `Teach${Math.random().toString(36).slice(2, 8)}`;
+
+  const newTeacher = await User.create({
+    name: sanitizedName,
+    email,
+    password,
+    role: "teacher",
+    department: departmentDoc.name,
+    departmentId: departmentDoc._id,
+    teacherCourses: [courseId],
+    teacherSubject: [courseId],
+    isActive: true,
+  });
+
+  return String(newTeacher._id);
+};
+
 const findOrCreateUnit = async (departmentDoc: any, unitIdentifier: string) => {
   if (!unitIdentifier) return null;
 
@@ -443,6 +513,144 @@ export const addCourseSubject = async (req: Request, res: Response) => {
   }
 };
 
+export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.params as { courseId: string };
+    const { subjects } = req.body as any;
+
+    if (!Array.isArray(subjects) || subjects.length === 0) {
+      return res.status(400).json({ message: "Subject rows are required for bulk upload." });
+    }
+
+    const topLevelCourse = await Course.findById(courseId);
+    if (!topLevelCourse) {
+      return res.status(404).json({ message: `Course ${courseId} not found` });
+    }
+
+    const departmentDoc = await Department.findById(topLevelCourse.department);
+    if (!departmentDoc) {
+      return res.status(404).json({ message: `Parent course department not found.` });
+    }
+
+    const teacherLookup = async (lecturerIds: any[]) => {
+      const ids = Array.isArray(lecturerIds) ? lecturerIds : [];
+      const normalized = ids.map((id) => String(id).trim()).filter(Boolean);
+      const validUsers = await User.find({ _id: { $in: normalized } }).select("_id");
+      return validUsers.map((userDoc) => String(userDoc._id));
+    };
+
+    const resolveSubjectLecturers = async (row: any) => {
+      const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
+      const hasLecturerIds = lecturerIds.some((value: unknown) => String(value ?? "").trim() !== "");
+
+      if (hasLecturerIds) {
+        return await teacherLookup(lecturerIds);
+      }
+
+      if (row.createTeacher) {
+        const lecturerName = String(row.lecturerName ?? "").trim();
+        if (!lecturerName) {
+          return null;
+        }
+
+        const createdTeacherId = await findOrCreateTeacherAccount(lecturerName, departmentDoc, topLevelCourse._id);
+        return createdTeacherId ? [createdTeacherId] : [];
+      }
+
+      return [];
+    };
+
+    const results = {
+      created: 0,
+      skipped: 0,
+      errors: [] as Array<{ row: number; message: string }>,
+    };
+
+    for (let index = 0; index < subjects.length; index += 1) {
+      const row = subjects[index];
+      const rowNumber = index + 1;
+
+      if (!row || typeof row !== "object") {
+        results.errors.push({ row: rowNumber, message: "Invalid row payload." });
+        results.skipped += 1;
+        continue;
+      }
+
+      const name = String(row.name ?? "").trim();
+      const code = row.code ? String(row.code).trim() : null;
+      const subjectID = String(row.subjectID ?? departmentDoc.departmentID ?? "").trim();
+      const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
+      const isActive = row.isActive === false ? false : true;
+
+      if (!name || !subjectID) {
+        results.errors.push({ row: rowNumber, message: "Missing required subject name or subject ID." });
+        results.skipped += 1;
+        continue;
+      }
+
+      if (String(subjectID).trim() !== String(departmentDoc.departmentID).trim()) {
+        results.errors.push({ row: rowNumber, message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).` });
+        results.skipped += 1;
+        continue;
+      }
+
+      const subjectLecturerIds = await resolveSubjectLecturers(row);
+      if (subjectLecturerIds === null) {
+        results.errors.push({ row: rowNumber, message: "Lecturer name is required to create a new teacher account." });
+        results.skipped += 1;
+        continue;
+      }
+
+      const subjectLecturerError = await validateDepartmentLecturers(subjectLecturerIds, departmentDoc);
+      if (subjectLecturerError) {
+        results.errors.push({ row: rowNumber, message: subjectLecturerError });
+        results.skipped += 1;
+        continue;
+      }
+
+      const subjectUID = generateSubjectUID({ subjectID, name, code });
+      const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
+        String(s.subjectUID) === String(subjectUID) ||
+        (String(s.name).trim().toLowerCase() === String(name).trim().toLowerCase() &&
+          String(s.code ?? "").trim().toLowerCase() === String(code ?? "").trim().toLowerCase())
+      );
+
+      if (existingSubject) {
+        results.skipped += 1;
+        continue;
+      }
+
+      topLevelCourse.subjects.push({
+        subjectUID,
+        name,
+        code: code || null,
+        subjectID,
+        unit: row.unit ?? null,
+        lecturer: subjectLecturerIds,
+        isActive,
+        semester: row.semester ?? null,
+        students: Array.isArray(row.students) ? row.students : [],
+      } as any);
+      results.created += 1;
+    }
+
+    await topLevelCourse.save();
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Bulk uploaded ${results.created} subjects into course ${topLevelCourse.name} (${topLevelCourse.courseID}).`,
+      });
+    }
+
+    return res.json({ message: "Bulk subject upload processed", results });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
 // -----------------------------
 // Delete embedded subject
 // -----------------------------
@@ -592,6 +800,7 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       return res.status(400).json({ message: subjectLecturerValidationError });
     }
 
+    const subjectUID = generateSubjectUID(subject);
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
     // Create course + subject if missing
     if (!topLevelCourse) {
@@ -632,8 +841,6 @@ export const createCourseSubject = async (req: Request, res: Response) => {
 
       return res.status(201).json(created);
     }
-
-    const subjectUID = generateSubjectUID(subject);
 
     const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
       String(s.subjectUID) === String(subjectUID) ||

@@ -368,7 +368,7 @@ export default function StudentCourses() {
         ) : (
           <>
             {subjectsPanelCourseId && subjectsPanelVisible && (
-              <div className="fixed inset-0 z-40 bg-black/30" onClick={closeSubjectsPanel}>
+              <div className="fixed inset-0 z-40 bg-black/30" onClick={closeSubjectsPanel} style={{ backdropFilter: "blur(20px)" }}>
                 <div
                   className="absolute left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-48px))] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-primary/40 bg-background p-6 shadow-2xl"
                   onClick={(e) => e.stopPropagation()}
@@ -507,7 +507,7 @@ export default function StudentCourses() {
           <DialogHeader>
             <DialogTitle>Course Summary</DialogTitle>
             <DialogDescription>
-              MORDRED has prepared a quick summary of why this course matters to your class.
+             
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm text-muted-foreground">

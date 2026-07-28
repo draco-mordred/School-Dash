@@ -28,16 +28,6 @@ import { Pencil, Trash2, Plus, X } from "lucide-react";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-const parseTimeToMinutes = (time: string) => {
-  const [hours, minutes] = time.split(":").map((part) => Number(part));
-  return Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 60 + minutes : 0;
-};
-
-const todayDayLabel = () => {
-  const now = new Date();
-  return DAYS[(now.getDay() + 6) % 7];
-};
-
 type EditingPeriod = {
   dayIndex: number;
   periodIndex: number;
@@ -338,33 +328,6 @@ const Timetable = () => {
     );
   }, [scheduleData, selectedDayIndex]);
 
-  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-  const todayLabel = todayDayLabel();
-
-  const todaySchedule = useMemo(() => {
-    return scheduleData.find((s) => s.day === todayLabel) ?? null;
-  }, [scheduleData, todayLabel]);
-
-  const todayPeriods = useMemo(() => {
-    return todaySchedule?.periods
-      .slice()
-      .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)) ?? [];
-  }, [todaySchedule]);
-
-  const activePeriod = useMemo(
-    () => todayPeriods.find((period) => {
-      const start = parseTimeToMinutes(period.startTime);
-      const end = parseTimeToMinutes(period.endTime);
-      return currentMinutes >= start && currentMinutes <= end;
-    }),
-    [todayPeriods, currentMinutes]
-  );
-
-  const nextPeriod = useMemo(
-    () => todayPeriods.find((period) => parseTimeToMinutes(period.startTime) > currentMinutes),
-    [todayPeriods, currentMinutes]
-  );
-
   const handleAddPeriod = async () => {
     if (!newPeriod.subject || !newPeriod.lecturer || !newPeriod.startTime || !newPeriod.endTime) {
       toast.error("Please fill in all fields");
@@ -622,49 +585,6 @@ const Timetable = () => {
               Clinical posting schedule: {postingScheduleAvailable ? "Available" : "Unavailable"}
             </p>
           </div>
-
-          {isStudent && (
-            <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-              <div className="rounded-3xl border border-emerald-300/40 bg-emerald-950/20 p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.24em] text-emerald-300">Active now</p>
-                    <h2 className="mt-2 text-lg font-semibold text-white">{activePeriod ? "Current activity" : "No active activity"}</h2>
-                  </div>
-                  {activePeriod && (
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase text-emerald-700">
-                      Active
-                    </span>
-                  )}
-                </div>
-                <div className="mt-4">
-                  {activePeriod ? (
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-white">{activePeriod.isClinical ? `Clinical activity` : activePeriod.subject?.name ?? "No title"}</p>
-                      <p className="text-sm text-emerald-200">{activePeriod.startTime} – {activePeriod.endTime}</p>
-                      <p className="text-sm text-muted-foreground">{activePeriod.lecturer?.name ?? "Lecturer not assigned"}</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">There is no current class in progress right now.</p>
-                  )}
-                </div>
-              </div>
-              <div className="rounded-3xl border border-border bg-card p-5 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Up next</p>
-                <div className="mt-4">
-                  {nextPeriod ? (
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-foreground">{nextPeriod.isClinical ? `Clinical activity` : nextPeriod.subject?.name ?? "No title"}</p>
-                      <p className="text-sm text-muted-foreground">{nextPeriod.startTime} – {nextPeriod.endTime}</p>
-                      <p className="text-sm text-muted-foreground">{nextPeriod.lecturer?.name ?? "Lecturer not assigned"}</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">No more activities are scheduled for today.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
 
           <div id="timetable-printable">
             <TimetableGrid

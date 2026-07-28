@@ -111,12 +111,12 @@ export const getCourseSummary = async (req: Request, res: Response) => {
 
     const buildFallbackText = () => {
       const sentencePool = [
-        `MORDRED says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
+        `MORDRED AI says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
         `It helps students in ${studentClassName} build strong foundations and make sense of how the subject connects to their current learning goals.`,
         `This course is designed to support your class with real classroom relevance and future study readiness.`,
         `You will gain knowledge that ties directly into your timetable, assessments, and the broader program for ${studentClassName}.`,
         `The syllabus focuses on practical understanding, giving you a clear reason why this course is important to your academic progress.`,
-        `Even when the AI service is unavailable, this summary helps you see how ${course.name} fits into your journey.`,
+        // `Even when the AI service is unavailable, this summary helps you see how ${course.name} fits into your journey.`,
       ];
       return sentencePool
         .sort(() => Math.random() - 0.5)
@@ -145,15 +145,15 @@ export const getCourseSummary = async (req: Request, res: Response) => {
       const vercelModel = process.env.MORDRED_MODEL || models.geminiAI;
       const { text } = await generateText({
         model: vercelModel,
-        prompt: `You are MORDRED, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with \"MORDRED says:\" and do not exceed six lines.`,
+        prompt: `You are MORDRED, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with \"MORDRED AI says:\" and do not exceed six lines.`,
         temperature: 0.4,
         max_tokens: 220,
       });
 
       const summaryText = String(text ?? "").trim() || buildFallbackText();
-      const normalizedText = summaryText.startsWith("MORDRED says:")
+      const normalizedText = summaryText.startsWith("MORDRED AI says:")
         ? summaryText
-        : `MORDRED says: ${summaryText}`;
+        : `MORDRED AI says: ${summaryText}`;
 
       return res.status(200).json({
         _id: new mongoose.Types.ObjectId(),

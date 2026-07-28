@@ -82,22 +82,22 @@ export const roleDisplayName: Record<userRoles, string> = {
 
 export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
 // Let's map type userDepartments to UserDeparments so that Users can be assigned to OandG or Pediatrics or other Deparments, for all user roles except students and parents.
-export const UserDepartmentName = {
-    OBG: "Obstetrics & Gynaecology",
-    Pediatrics: "Pediatrics",
-    Medicine: "Medicine",
-    Surgery: "Surgery",
-    Psychiatry: "Psychiatry",
-    earNoseAndThroat: "ENT",
-    Anaesthesiology: "Anaesthesiology",
-    Radiology: "Radiology",
-    Ophthalmology: "Ophthalmology",
-    Dermatology: "Dermatology",
-    Hematology: "Hematology",
-    anatomicPathology: "Anatomic Pathology",
-    chemicalPathology: "Chemical Pathology",
-    Microbiology: "Microbiology",
-} as const;
+// export const UserDepartmentName = {
+//     OBG: "Obstetrics & Gynaecology",
+//     Pediatrics: "Pediatrics",
+//     Medicine: "Medicine",
+//     Surgery: "Surgery",
+//     Psychiatry: "Psychiatry",
+//     earNoseAndThroat: "ENT",
+//     Anaesthesiology: "Anaesthesiology",
+//     Radiology: "Radiology",
+//     Ophthalmology: "Ophthalmology",
+//     Dermatology: "Dermatology",
+//     Hematology: "Hematology",
+//     anatomicPathology: "Anatomic Pathology",
+//     chemicalPathology: "Chemical Pathology",
+//     Microbiology: "Microbiology",
+// } as const;
 
 export type userDepartmentName = string; // Department name or identifier string
 
@@ -143,6 +143,8 @@ export interface IUser extends Document {
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
     teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of class IDs for teachers
     parentStudents?: mongoose.Types.ObjectId[] | null; // Array of student IDs for parents
+    //Course to which the teacher is assigned, for teachers/lecturers
+    teacherCourses?: mongoose.Types.ObjectId[] | null; // Array of course IDs for teachers
     // Academic status tags for teachers/lecturers
     academicStatus?: userAcademicStatus | null; // e.g., "professor", "associate professor", etc.
     // Department role tags for teachers/lecturers
@@ -255,7 +257,7 @@ const UserSchema: Schema<IUser> = new Schema({
         // default: null
     },
     teacherSubject: [{
-        type: mongoose.Schema.Types.ObjectId,// This field points to Course (your “subjets” implementation lives under courses.ts)
+        type: mongoose.Schema.Types.ObjectId, // This field points to Course (your “subjets” implementation lives under courses.ts)
         ref: "Course",
         default: null
     }],
@@ -265,6 +267,7 @@ const UserSchema: Schema<IUser> = new Schema({
         ref: "User",
         default: null
     }],
+
     academicStatus: {
         type: String,
         enum: Object.values(UserAcademicStatus),
