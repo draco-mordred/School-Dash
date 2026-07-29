@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { logActivity } from "../utils/activitieslog";
 
 import Course from "../models/courses";
-import User from "../models/user";
+import User, { UserIDs, UserRole } from "../models/user";
 import ClassModel from "../models/classes";
 import AcademicYear from "../models/academicYear";
 import Department from "../models/departments";
@@ -58,7 +58,10 @@ const findOrCreateDepartment = async (identifier: string) => {
 
   if (!departmentDoc) {
     const constantsDept = getAllDepartments().find(
-      (d) => d.code === identifier || d.departmentID === identifier || d.name === identifier
+      (d) =>
+        d.code === identifier ||
+        d.departmentID === identifier ||
+        d.name === identifier,
     );
 
     if (constantsDept) {
@@ -69,7 +72,7 @@ const findOrCreateDepartment = async (identifier: string) => {
           code: constantsDept.code,
           departmentID: constantsDept.departmentID,
         },
-        { upsert: true, returnDocument: "after" }
+        { upsert: true, returnDocument: "after" },
       );
     }
   }
@@ -78,7 +81,10 @@ const findOrCreateDepartment = async (identifier: string) => {
 };
 
 const normalizeCourseCode = (departmentCode: string, code: string) => {
-  const raw = String(code ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const raw = String(code ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
   const numberPart = raw.replace(/^[A-Z]{3}\s*/i, "").trim();
   if (!numberPart) return `${departmentCode} 000`;
   if (new RegExp(`^${departmentCode}\\s\\d{3}$`).test(raw)) return raw;
@@ -86,7 +92,9 @@ const normalizeCourseCode = (departmentCode: string, code: string) => {
 };
 
 const isValidCourseCode = (departmentCode: string, code: string) => {
-  const raw = String(code ?? "").trim().toUpperCase();
+  const raw = String(code ?? "")
+    .trim()
+    .toUpperCase();
   return new RegExp(`^${departmentCode}\\s\\d{3}$`).test(raw);
 };
 
@@ -103,8 +111,15 @@ const getNormalizedDepartmentValue = (value: unknown) => {
   if (!value) return "";
   if (typeof value === "string") return value.trim().toLowerCase();
   if (typeof value === "object") {
-    const obj = value as { _id?: string; name?: string; code?: string; departmentID?: string };
-    return String(obj._id ?? obj.code ?? obj.departmentID ?? obj.name ?? "").trim().toLowerCase();
+    const obj = value as {
+      _id?: string;
+      name?: string;
+      code?: string;
+      departmentID?: string;
+    };
+    return String(obj._id ?? obj.code ?? obj.departmentID ?? obj.name ?? "")
+      .trim()
+      .toLowerCase();
   }
   return "";
 };
@@ -122,7 +137,11 @@ const isUserInDepartment = (user: any, departmentDoc: any) => {
 };
 
 const generateSubjectUID = (subject: any) => {
-  if (subject && typeof subject.subjectUID === "string" && subject.subjectUID.trim() !== "") {
+  if (
+    subject &&
+    typeof subject.subjectUID === "string" &&
+    subject.subjectUID.trim() !== ""
+  ) {
     return String(subject.subjectUID).trim();
   }
   return new mongoose.Types.ObjectId().toHexString();
@@ -152,15 +171,23 @@ const getClassCourseDocuments = async (classId: string) => {
   });
 };
 
-const validateDepartmentLecturers = async (lecturerIds: string[], departmentDoc: any) => {
+const validateDepartmentLecturers = async (
+  lecturerIds: string[],
+  departmentDoc: any,
+) => {
   if (!Array.isArray(lecturerIds) || lecturerIds.length === 0) return null;
 
-  const users = await User.find({ _id: { $in: lecturerIds }, role: { $in: ["teacher", "admin"] } });
+  const users = await User.find({
+    _id: { $in: lecturerIds },
+    role: { $in: ["teacher", "admin"] },
+  });
   if (users.length !== lecturerIds.length) {
     return "Some selected lecturers were not found or do not have teacher/admin roles.";
   }
 
-  const invalid = users.find((user) => !isUserInDepartment(user, departmentDoc));
+  const invalid = users.find(
+    (user) => !isUserInDepartment(user, departmentDoc),
+  );
   if (invalid) {
     return `Lecturer ${invalid.name ?? invalid.email ?? invalid._id} is not assigned to department ${departmentDoc.name}.`;
   }
@@ -174,13 +201,54 @@ const normalizeName = (input: unknown) => {
   return text.replace(/[^a-z0-9]+/g, ".").replace(/(^\.|\.$)/g, "");
 };
 
+const getRoleIdPrefix = (role: string) => {
+  if (role === UserRole.ADMIN) return UserIDs.ADMINID.slice(0, -4);
+  if (role === UserRole.TEACHER) return UserIDs.TEACHERID.slice(0, -4);
+  if (role === UserRole.STUDENT) return UserIDs.STUDENTID.slice(0, -4);
+  if (role === UserRole.PARENT) return UserIDs.PARENTID.slice(0, -4);
+  if (role === UserRole.UNITCONSULTANT)
+    return UserIDs.UNITCONSULTANTID.slice(0, -4);
+  if (role === UserRole.UNITRESIDENT)
+    return UserIDs.UNITRESIDENTID.slice(0, -4);
+  return UserIDs.STUDENTID.slice(0, -4);
+};
+
+const generateUniqueUserIdNumber = async (role: string) => {
+  const prefix = getRoleIdPrefix(role);
+  const lastUser = await User.findOne({ idNumber: { $regex: `^${prefix}` } })
+    .sort({ idNumber: -1 })
+    .select("idNumber")
+    .lean();
+
+  let nextNumber = 1;
+  if (lastUser?.idNumber) {
+    const suffix = lastUser.idNumber.slice(-4);
+    const parsed = Number.parseInt(suffix, 10);
+    if (!Number.isNaN(parsed)) {
+      nextNumber = parsed + 1;
+    }
+  }
+
+  return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+};
+
 const findExistingTeacherByName = async (name: string, departmentDoc: any) => {
   if (!name) return null;
   const normalized = String(name).trim();
   return await User.findOne({
     role: "teacher",
-    name: { $regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`, $options: "i" },
-    department: departmentDoc?.name ? { $regex: `^${String(departmentDoc.name).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`, $options: "i" } : { $exists: true },
+    name: {
+      $regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`,
+      $options: "i",
+    },
+    department: departmentDoc?.name
+      ? {
+          $regex: `^${String(departmentDoc.name)
+            .trim()
+            .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`,
+          $options: "i",
+        }
+      : { $exists: true },
   });
 };
 
@@ -199,13 +267,16 @@ const generateTeacherEmail = async (name: string) => {
 const findOrCreateTeacherAccount = async (
   lecturerName: string,
   departmentDoc: any,
-  courseId: mongoose.Types.ObjectId
+  courseId: mongoose.Types.ObjectId,
 ): Promise<string | null> => {
   if (!lecturerName || !departmentDoc) return null;
   const sanitizedName = String(lecturerName).trim();
   if (!sanitizedName) return null;
 
-  const existingTeacher = await findExistingTeacherByName(sanitizedName, departmentDoc);
+  const existingTeacher = await findExistingTeacherByName(
+    sanitizedName,
+    departmentDoc,
+  );
   if (existingTeacher) {
     await User.findByIdAndUpdate(
       existingTeacher._id,
@@ -215,13 +286,14 @@ const findOrCreateTeacherAccount = async (
           teacherSubject: courseId,
         },
       },
-      { new: true }
+      { new: true },
     );
     return String(existingTeacher._id);
   }
 
   const email = await generateTeacherEmail(sanitizedName);
   const password = `Teach${Math.random().toString(36).slice(2, 8)}`;
+  const idNumber = await generateUniqueUserIdNumber(UserRole.TEACHER);
 
   const newTeacher = await User.create({
     name: sanitizedName,
@@ -233,6 +305,7 @@ const findOrCreateTeacherAccount = async (
     teacherCourses: [courseId],
     teacherSubject: [courseId],
     isActive: true,
+    idNumber,
   });
 
   return String(newTeacher._id);
@@ -250,7 +323,10 @@ const findOrCreateUnit = async (departmentDoc: any, unitIdentifier: string) => {
   }
 
   if (!unitDoc) {
-    unitDoc = await Unit.findOne({ name: unitName, department: departmentDoc._id });
+    unitDoc = await Unit.findOne({
+      name: unitName,
+      department: departmentDoc._id,
+    });
   }
 
   if (!unitDoc) {
@@ -287,8 +363,8 @@ const syncUnitsFromConstants = async () => {
         typeof unitEntry === "string"
           ? String(unitEntry).trim()
           : unitEntry && typeof unitEntry.name === "string"
-          ? unitEntry.name.trim()
-          : "";
+            ? unitEntry.name.trim()
+            : "";
 
       const unitNames = [
         ...unitData.units.active.map(normalizeUnitName),
@@ -308,11 +384,11 @@ const syncUnitsFromConstants = async () => {
               unitID: `${constDept.code}-${deriveUnitCode(cleanName)}-${index + 1}`,
               department: departmentDoc._id,
             },
-            { upsert: true }
+            { upsert: true },
           );
-        })
+        }),
       );
-    })
+    }),
   );
 };
 
@@ -333,9 +409,17 @@ export const createCourse = async (req: Request, res: Response) => {
 
     const { academicYearId } = req.body as any;
 
-    if (!name || !code || !courseID || !department || !semester || !academicYearId) {
+    if (
+      !name ||
+      !code ||
+      !courseID ||
+      !department ||
+      !semester ||
+      !academicYearId
+    ) {
       return res.status(400).json({
-        message: "Missing required fields (name, code, courseID, department, semester, academicYearId).",
+        message:
+          "Missing required fields (name, code, courseID, department, semester, academicYearId).",
       });
     }
 
@@ -346,7 +430,10 @@ export const createCourse = async (req: Request, res: Response) => {
       });
     }
 
-    if (String(courseID).trim().toUpperCase() !== String(departmentDoc.code).trim().toUpperCase()) {
+    if (
+      String(courseID).trim().toUpperCase() !==
+      String(departmentDoc.code).trim().toUpperCase()
+    ) {
       return res.status(400).json({
         message: `Course Group ID must match the selected department code (${departmentDoc.code}).`,
       });
@@ -383,7 +470,10 @@ export const createCourse = async (req: Request, res: Response) => {
     }
 
     const courseLecturerIds = Array.isArray(lecturer) ? lecturer : [];
-    const lecturerValidationError = await validateDepartmentLecturers(courseLecturerIds, departmentDoc);
+    const lecturerValidationError = await validateDepartmentLecturers(
+      courseLecturerIds,
+      departmentDoc,
+    );
     if (lecturerValidationError) {
       return res.status(400).json({ message: lecturerValidationError });
     }
@@ -454,17 +544,27 @@ export const addCourseSubject = async (req: Request, res: Response) => {
 
     const departmentDoc = await Department.findById(topLevelCourse.department);
     if (!departmentDoc) {
-      return res.status(404).json({ message: `Parent course department not found.` });
+      return res
+        .status(404)
+        .json({ message: `Parent course department not found.` });
     }
 
-    if (String(subject.subjectID).trim() !== String(departmentDoc.departmentID).trim()) {
+    if (
+      String(subject.subjectID).trim() !==
+      String(departmentDoc.departmentID).trim()
+    ) {
       return res.status(400).json({
         message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).`,
       });
     }
 
-    const lecturerIds = Array.isArray(subject?.lecturer) ? subject.lecturer : [];
-    const subjectLecturerError = await validateDepartmentLecturers(lecturerIds, departmentDoc);
+    const lecturerIds = Array.isArray(subject?.lecturer)
+      ? subject.lecturer
+      : [];
+    const subjectLecturerError = await validateDepartmentLecturers(
+      lecturerIds,
+      departmentDoc,
+    );
     if (subjectLecturerError) {
       return res.status(400).json({ message: subjectLecturerError });
     }
@@ -472,10 +572,17 @@ export const addCourseSubject = async (req: Request, res: Response) => {
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
     const subjectUID = generateSubjectUID(subject);
 
-    const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
-      String(s.subjectUID) === String(subjectUID) ||
-      (String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() &&
-        String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())
+    const existingSubject = (topLevelCourse.subjects ?? []).some(
+      (s: any) =>
+        String(s.subjectUID) === String(subjectUID) ||
+        (String(s.name).trim().toLowerCase() ===
+          String(subject.name).trim().toLowerCase() &&
+          String(s.code ?? "")
+            .trim()
+            .toLowerCase() ===
+            String(subject.code ?? "")
+              .trim()
+              .toLowerCase()),
     );
 
     if (existingSubject) {
@@ -519,7 +626,9 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
     const { subjects } = req.body as any;
 
     if (!Array.isArray(subjects) || subjects.length === 0) {
-      return res.status(400).json({ message: "Subject rows are required for bulk upload." });
+      return res
+        .status(400)
+        .json({ message: "Subject rows are required for bulk upload." });
     }
 
     const topLevelCourse = await Course.findById(courseId);
@@ -529,19 +638,25 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
 
     const departmentDoc = await Department.findById(topLevelCourse.department);
     if (!departmentDoc) {
-      return res.status(404).json({ message: `Parent course department not found.` });
+      return res
+        .status(404)
+        .json({ message: `Parent course department not found.` });
     }
 
     const teacherLookup = async (lecturerIds: any[]) => {
       const ids = Array.isArray(lecturerIds) ? lecturerIds : [];
       const normalized = ids.map((id) => String(id).trim()).filter(Boolean);
-      const validUsers = await User.find({ _id: { $in: normalized } }).select("_id");
+      const validUsers = await User.find({ _id: { $in: normalized } }).select(
+        "_id",
+      );
       return validUsers.map((userDoc) => String(userDoc._id));
     };
 
     const resolveSubjectLecturers = async (row: any) => {
       const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
-      const hasLecturerIds = lecturerIds.some((value: unknown) => String(value ?? "").trim() !== "");
+      const hasLecturerIds = lecturerIds.some(
+        (value: unknown) => String(value ?? "").trim() !== "",
+      );
 
       if (hasLecturerIds) {
         return await teacherLookup(lecturerIds);
@@ -553,7 +668,11 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
           return null;
         }
 
-        const createdTeacherId = await findOrCreateTeacherAccount(lecturerName, departmentDoc, topLevelCourse._id);
+        const createdTeacherId = await findOrCreateTeacherAccount(
+          lecturerName,
+          departmentDoc,
+          topLevelCourse._id,
+        );
         return createdTeacherId ? [createdTeacherId] : [];
       }
 
@@ -571,37 +690,56 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
       const rowNumber = index + 1;
 
       if (!row || typeof row !== "object") {
-        results.errors.push({ row: rowNumber, message: "Invalid row payload." });
+        results.errors.push({
+          row: rowNumber,
+          message: "Invalid row payload.",
+        });
         results.skipped += 1;
         continue;
       }
 
       const name = String(row.name ?? "").trim();
       const code = row.code ? String(row.code).trim() : null;
-      const subjectID = String(row.subjectID ?? departmentDoc.departmentID ?? "").trim();
+      const subjectID = String(
+        row.subjectID ?? departmentDoc.departmentID ?? "",
+      ).trim();
       const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
       const isActive = row.isActive === false ? false : true;
 
       if (!name || !subjectID) {
-        results.errors.push({ row: rowNumber, message: "Missing required subject name or subject ID." });
+        results.errors.push({
+          row: rowNumber,
+          message: "Missing required subject name or subject ID.",
+        });
         results.skipped += 1;
         continue;
       }
 
-      if (String(subjectID).trim() !== String(departmentDoc.departmentID).trim()) {
-        results.errors.push({ row: rowNumber, message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).` });
+      if (
+        String(subjectID).trim() !== String(departmentDoc.departmentID).trim()
+      ) {
+        results.errors.push({
+          row: rowNumber,
+          message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).`,
+        });
         results.skipped += 1;
         continue;
       }
 
       const subjectLecturerIds = await resolveSubjectLecturers(row);
       if (subjectLecturerIds === null) {
-        results.errors.push({ row: rowNumber, message: "Lecturer name is required to create a new teacher account." });
+        results.errors.push({
+          row: rowNumber,
+          message: "Lecturer name is required to create a new teacher account.",
+        });
         results.skipped += 1;
         continue;
       }
 
-      const subjectLecturerError = await validateDepartmentLecturers(subjectLecturerIds, departmentDoc);
+      const subjectLecturerError = await validateDepartmentLecturers(
+        subjectLecturerIds,
+        departmentDoc,
+      );
       if (subjectLecturerError) {
         results.errors.push({ row: rowNumber, message: subjectLecturerError });
         results.skipped += 1;
@@ -609,10 +747,17 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
       }
 
       const subjectUID = generateSubjectUID({ subjectID, name, code });
-      const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
-        String(s.subjectUID) === String(subjectUID) ||
-        (String(s.name).trim().toLowerCase() === String(name).trim().toLowerCase() &&
-          String(s.code ?? "").trim().toLowerCase() === String(code ?? "").trim().toLowerCase())
+      const existingSubject = (topLevelCourse.subjects ?? []).some(
+        (s: any) =>
+          String(s.subjectUID) === String(subjectUID) ||
+          (String(s.name).trim().toLowerCase() ===
+            String(name).trim().toLowerCase() &&
+            String(s.code ?? "")
+              .trim()
+              .toLowerCase() ===
+              String(code ?? "")
+                .trim()
+                .toLowerCase()),
       );
 
       if (existingSubject) {
@@ -659,7 +804,10 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
 //  @access  Private (Admin/Teacher/Unit)
 export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
   try {
-    const { courseId, subjectId } = req.params as { courseId: string; subjectId: string };
+    const { courseId, subjectId } = req.params as {
+      courseId: string;
+      subjectId: string;
+    };
     const topLevelCourse = await Course.findById(courseId);
     if (!topLevelCourse) {
       return res.status(404).json({ message: `Course ${courseId} not found` });
@@ -673,17 +821,22 @@ export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
 
     if (!subdoc) {
       // Try match by embedded subject UID, subjectID, name or code
-      subdoc = (topLevelCourse.subjects ?? []).find((s: any) =>
-        String(s._id) === String(subjectId) ||
-        String(s.subjectUID) === String(subjectId) ||
-        String(s.subjectID) === String(subjectId) ||
-        String(s.name) === String(subjectId) ||
-        String(s.code ?? "") === String(subjectId)
+      subdoc = (topLevelCourse.subjects ?? []).find(
+        (s: any) =>
+          String(s._id) === String(subjectId) ||
+          String(s.subjectUID) === String(subjectId) ||
+          String(s.subjectID) === String(subjectId) ||
+          String(s.name) === String(subjectId) ||
+          String(s.code ?? "") === String(subjectId),
       );
     }
 
     if (!subdoc) {
-      return res.status(404).json({ message: `Subject ${subjectId} not found in course ${courseId}` });
+      return res
+        .status(404)
+        .json({
+          message: `Subject ${subjectId} not found in course ${courseId}`,
+        });
     }
 
     const removed = {
@@ -694,7 +847,9 @@ export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
     };
 
     // Remove the subdocument
-    topLevelCourse.subjects = (topLevelCourse.subjects ?? []).filter((s: any) => String(s._id) !== String(removed._id));
+    topLevelCourse.subjects = (topLevelCourse.subjects ?? []).filter(
+      (s: any) => String(s._id) !== String(removed._id),
+    );
     await topLevelCourse.save();
 
     // Cascade clean-up: remove matching top-level Subjects documents
@@ -715,7 +870,11 @@ export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ message: "Subject removed", subject: removed, course: topLevelCourse });
+    return res.json({
+      message: "Subject removed",
+      subject: removed,
+      course: topLevelCourse,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error", error });
@@ -780,22 +939,38 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       }
     }
 
-    const topLevelCourse = await Course.findOne({ courseID, department: departmentDoc._id, unit: unitValue, academicYear: academicYearId ?? null });
+    const topLevelCourse = await Course.findOne({
+      courseID,
+      department: departmentDoc._id,
+      unit: unitValue,
+      academicYear: academicYearId ?? null,
+    });
 
     const courseLecturerIds = Array.isArray(lecturer) ? lecturer : [];
-    const courseLecturerValidationError = await validateDepartmentLecturers(courseLecturerIds, departmentDoc);
+    const courseLecturerValidationError = await validateDepartmentLecturers(
+      courseLecturerIds,
+      departmentDoc,
+    );
     if (courseLecturerValidationError) {
       return res.status(400).json({ message: courseLecturerValidationError });
     }
 
-    if (String(subject.subjectID).trim() !== String(departmentDoc.departmentID).trim()) {
+    if (
+      String(subject.subjectID).trim() !==
+      String(departmentDoc.departmentID).trim()
+    ) {
       return res.status(400).json({
         message: `Subject ID must match the selected department identifier (${departmentDoc.departmentID}).`,
       });
     }
 
-    const subjectLecturerIds = Array.isArray(subject?.lecturer) ? subject.lecturer : [];
-    const subjectLecturerValidationError = await validateDepartmentLecturers(subjectLecturerIds, departmentDoc);
+    const subjectLecturerIds = Array.isArray(subject?.lecturer)
+      ? subject.lecturer
+      : [];
+    const subjectLecturerValidationError = await validateDepartmentLecturers(
+      subjectLecturerIds,
+      departmentDoc,
+    );
     if (subjectLecturerValidationError) {
       return res.status(400).json({ message: subjectLecturerValidationError });
     }
@@ -842,10 +1017,17 @@ export const createCourseSubject = async (req: Request, res: Response) => {
       return res.status(201).json(created);
     }
 
-    const existingSubject = (topLevelCourse.subjects ?? []).some((s: any) =>
-      String(s.subjectUID) === String(subjectUID) ||
-      (String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() &&
-        String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())
+    const existingSubject = (topLevelCourse.subjects ?? []).some(
+      (s: any) =>
+        String(s.subjectUID) === String(subjectUID) ||
+        (String(s.name).trim().toLowerCase() ===
+          String(subject.name).trim().toLowerCase() &&
+          String(s.code ?? "")
+            .trim()
+            .toLowerCase() ===
+            String(subject.code ?? "")
+              .trim()
+              .toLowerCase()),
     );
 
     if (existingSubject) {
@@ -860,7 +1042,8 @@ export const createCourseSubject = async (req: Request, res: Response) => {
     topLevelCourse.isActive = Boolean(isActive ?? topLevelCourse.isActive);
     if (academicYearId) topLevelCourse.academicYear = academicYearId;
 
-    if (Array.isArray(studentClasses)) topLevelCourse.studentClasses = studentClasses;
+    if (Array.isArray(studentClasses))
+      topLevelCourse.studentClasses = studentClasses;
     if (Array.isArray(lecturer)) topLevelCourse.lecturer = lecturer;
 
     topLevelCourse.subjects.push({
@@ -901,7 +1084,9 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
     const userId = (req as any).user?._id;
     const userRole = (req as any).user?.role;
     const search = req.query.search as string | undefined;
-    const classIdQuery = (req.query.class as string | undefined) ?? (req.query.classId as string | undefined);
+    const classIdQuery =
+      (req.query.class as string | undefined) ??
+      (req.query.classId as string | undefined);
 
     const query: any = {};
     if (search) {
@@ -923,14 +1108,16 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
       if (classIdQuery || userRole === "student") {
         let effectiveClassId = classIdQuery;
         if (userRole === "student") {
-          const studentClassId = normalizeClassIdValue((req as any).user?.studentClasses);
+          const studentClassId = normalizeClassIdValue(
+            (req as any).user?.studentClasses,
+          );
           effectiveClassId = studentClassId || effectiveClassId;
         }
 
         if (effectiveClassId) {
           const classDoc = await getClassCourseDocuments(effectiveClassId);
           let classCourses = (classDoc?.courses ?? []) as any[];
-          
+
           // Deduplicate courses by name, code, and department
           const seen = new Set<string>();
           classCourses = classCourses.filter((course) => {
@@ -939,7 +1126,7 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
             seen.add(key);
             return true;
           });
-          
+
           const total = classCourses.length;
           return res.json({
             courses: classCourses,
@@ -978,7 +1165,9 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
     if (classIdQuery || userRole === "student") {
       let effectiveClassId = classIdQuery;
       if (userRole === "student") {
-        const studentClassId = normalizeClassIdValue((req as any).user?.studentClasses);
+        const studentClassId = normalizeClassIdValue(
+          (req as any).user?.studentClasses,
+        );
         effectiveClassId = studentClassId || effectiveClassId;
       }
 
@@ -1012,17 +1201,29 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
       for (const s of subjects) {
         if (search) {
           const matches =
-            String(s?.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            String(s?.code ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            String(s?.subjectID ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            String(c?.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
-            String(c?.code ?? "").toLowerCase().includes(search.toLowerCase());
+            String(s?.name ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase()) ||
+            String(s?.code ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase()) ||
+            String(s?.subjectID ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase()) ||
+            String(c?.name ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase()) ||
+            String(c?.code ?? "")
+              .toLowerCase()
+              .includes(search.toLowerCase());
           if (!matches) continue;
         }
 
         if (userRole === "teacher") {
           const lecturerIds = Array.isArray(s?.lecturer) ? s.lecturer : [];
-          const includesTeacher = lecturerIds.some((lid: any) => String(lid) === String(userId));
+          const includesTeacher = lecturerIds.some(
+            (lid: any) => String(lid) === String(userId),
+          );
           if (!includesTeacher) continue;
         }
 
@@ -1035,7 +1236,7 @@ export const getAllCourseSubjects = async (req: Request, res: Response) => {
           teacher: lecturerData.map((lect: any) =>
             typeof lect === "object" && lect !== null
               ? { _id: String(lect._id ?? ""), name: lect.name ?? "" }
-              : { _id: String(lect), name: "" }
+              : { _id: String(lect), name: "" },
           ),
           course: {
             _id: String(c?._id ?? ""),
@@ -1096,9 +1297,15 @@ export const getCourseMeta = async (req: Request, res: Response) => {
   try {
     await syncDepartmentsFromConstants();
 
-    const departments = await Department.find({}).select("name departmentID code").sort({ name: 1 });
-    const units = await Unit.find({}).select("name unitID code department").sort({ name: 1 });
-    const academicYears = await AcademicYear.find({}).select("name").sort({ name: 1 });
+    const departments = await Department.find({})
+      .select("name departmentID code")
+      .sort({ name: 1 });
+    const units = await Unit.find({})
+      .select("name unitID code department")
+      .sort({ name: 1 });
+    const academicYears = await AcademicYear.find({})
+      .select("name")
+      .sort({ name: 1 });
 
     return res.json({ departments, units, academicYears });
   } catch (error) {
@@ -1112,7 +1319,19 @@ export const getCourseMeta = async (req: Request, res: Response) => {
 // -----------------------------
 export const updateCourseSubjects = async (req: Request, res: Response) => {
   try {
-    const { name, isActive, code, courseID, department, semester, year, unit, academicYearId, subjects, lecturer } = req.body as any;
+    const {
+      name,
+      isActive,
+      code,
+      courseID,
+      department,
+      semester,
+      year,
+      unit,
+      academicYearId,
+      subjects,
+      lecturer,
+    } = req.body as any;
 
     const updateData: any = {
       name,
@@ -1131,22 +1350,23 @@ export const updateCourseSubjects = async (req: Request, res: Response) => {
       updateData.lecturer = Array.isArray(lecturer) ? lecturer : [];
     }
     if (subjects !== undefined) {
-      updateData.subjects = (Array.isArray(subjects) ? subjects : []).map((subject: any) => ({
-        name: subject.name,
-        code: subject.code ?? null,
-        subjectID: subject.subjectID ?? subject.code ?? "",
-        lecturer: Array.isArray(subject.lecturer) ? subject.lecturer : [],
-        students: Array.isArray(subject.students) ? subject.students : [],
-        isActive: Boolean(subject.isActive ?? true),
-        semester: subject.semester ?? null,
-      }));
+      updateData.subjects = (Array.isArray(subjects) ? subjects : []).map(
+        (subject: any) => ({
+          name: subject.name,
+          code: subject.code ?? null,
+          subjectID: subject.subjectID ?? subject.code ?? "",
+          lecturer: Array.isArray(subject.lecturer) ? subject.lecturer : [],
+          students: Array.isArray(subject.students) ? subject.students : [],
+          isActive: Boolean(subject.isActive ?? true),
+          semester: subject.semester ?? null,
+        }),
+      );
     }
 
-    const updated = await Course.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { returnDocument: "after", runValidators: true }
-    );
+    const updated = await Course.findByIdAndUpdate(req.params.id, updateData, {
+      returnDocument: "after",
+      runValidators: true,
+    });
 
     const userId = (req as any).user?._id;
     if (userId) {
@@ -1157,7 +1377,9 @@ export const updateCourseSubjects = async (req: Request, res: Response) => {
     }
 
     if (!updated) {
-      return res.status(404).json({ message: `Course with ID ${req.params.id} not found!` });
+      return res
+        .status(404)
+        .json({ message: `Course with ID ${req.params.id} not found!` });
     }
 
     return res.json(updated);
@@ -1175,7 +1397,9 @@ export const deleteCourseSubjects = async (req: Request, res: Response) => {
     const deleted = await Course.findByIdAndDelete(req.params.id);
 
     if (!deleted) {
-      return res.status(404).json({ message: `Course with ID ${req.params.id} not found!` });
+      return res
+        .status(404)
+        .json({ message: `Course with ID ${req.params.id} not found!` });
     }
 
     await Subjects.deleteMany({ courseID: deleted.courseID });
@@ -1255,7 +1479,9 @@ export const bulkUploadCourses = async (req: Request, res: Response) => {
     };
 
     if (!Array.isArray(payload?.courses) || payload.courses.length === 0) {
-      return res.status(400).json({ message: "courses array is required for bulk upload." });
+      return res
+        .status(400)
+        .json({ message: "courses array is required for bulk upload." });
     }
 
     const results = {
@@ -1273,41 +1499,78 @@ export const bulkUploadCourses = async (req: Request, res: Response) => {
         continue;
       }
 
-      if (!row.name || !row.code || !row.courseID || !row.department || !row.unit || !row.semester || !row.academicYearId) {
-        results.errors.push({ row: rowNumber, message: "Missing required course fields." });
+      if (
+        !row.name ||
+        !row.code ||
+        !row.courseID ||
+        !row.department ||
+        !row.unit ||
+        !row.semester ||
+        !row.academicYearId
+      ) {
+        results.errors.push({
+          row: rowNumber,
+          message: "Missing required course fields.",
+        });
         continue;
       }
 
       const departmentDoc = await findOrCreateDepartment(row.department);
       if (!departmentDoc) {
-        results.errors.push({ row: rowNumber, message: `Department not found: ${row.department}` });
+        results.errors.push({
+          row: rowNumber,
+          message: `Department not found: ${row.department}`,
+        });
         continue;
       }
 
-      if (String(row.courseID).trim().toUpperCase() !== String(departmentDoc.code).trim().toUpperCase()) {
-        results.errors.push({ row: rowNumber, message: `Course Group ID must match department code ${departmentDoc.code}.` });
+      if (
+        String(row.courseID).trim().toUpperCase() !==
+        String(departmentDoc.code).trim().toUpperCase()
+      ) {
+        results.errors.push({
+          row: rowNumber,
+          message: `Course Group ID must match department code ${departmentDoc.code}.`,
+        });
         continue;
       }
 
       const normalizedCode = normalizeCourseCode(departmentDoc.code, row.code);
-      if (!normalizedCode || !isValidCourseCode(departmentDoc.code, normalizedCode)) {
-        results.errors.push({ row: rowNumber, message: `Course code must be formatted as ${departmentDoc.code} 501.` });
+      if (
+        !normalizedCode ||
+        !isValidCourseCode(departmentDoc.code, normalizedCode)
+      ) {
+        results.errors.push({
+          row: rowNumber,
+          message: `Course code must be formatted as ${departmentDoc.code} 501.`,
+        });
         continue;
       }
 
       const unitDoc = await findOrCreateUnit(departmentDoc, row.unit);
       if (!unitDoc) {
-        results.errors.push({ row: rowNumber, message: `Unit not found or invalid for department ${departmentDoc.name}: ${row.unit}` });
+        results.errors.push({
+          row: rowNumber,
+          message: `Unit not found or invalid for department ${departmentDoc.name}: ${row.unit}`,
+        });
         continue;
       }
 
       const academicYear = await AcademicYear.findById(row.academicYearId);
       if (!academicYear) {
-        results.errors.push({ row: rowNumber, message: `Academic year not found for id ${row.academicYearId}` });
+        results.errors.push({
+          row: rowNumber,
+          message: `Academic year not found for id ${row.academicYearId}`,
+        });
         continue;
       }
 
-      const existing = await Course.findOne({ courseID: departmentDoc.code, department: departmentDoc._id, unit: unitDoc._id, academicYear: row.academicYearId });
+      const existing = await Course.findOne({
+        courseID: departmentDoc.code,
+        department: departmentDoc._id,
+        unit: unitDoc._id,
+        academicYear: row.academicYearId,
+      });
       if (existing) {
         results.skipped += 1;
         continue;
@@ -1328,8 +1591,8 @@ export const bulkUploadCourses = async (req: Request, res: Response) => {
         lecturer: Array.isArray(row.lecturer)
           ? row.lecturer
           : row.lecturer
-          ? [String(row.lecturer)]
-          : [],
+            ? [String(row.lecturer)]
+            : [],
         subjects: [],
       });
       results.created += 1;
@@ -1354,7 +1617,9 @@ export const seedDepartments = async (req: Request, res: Response) => {
   try {
     const userRole = (req as any).user?.role;
     if (userRole !== "admin") {
-      return res.status(403).json({ message: "Only admins can seed departments" });
+      return res
+        .status(403)
+        .json({ message: "Only admins can seed departments" });
     }
 
     const departmentsData = getAllDepartments();
@@ -1365,9 +1630,9 @@ export const seedDepartments = async (req: Request, res: Response) => {
         Department.findOneAndUpdate(
           { code: dept.code },
           { name: dept.name, code: dept.code, departmentID: dept.departmentID },
-          { upsert: true, returnDocument: "after" }
-        )
-      )
+          { upsert: true, returnDocument: "after" },
+        ),
+      ),
     );
 
     const userId = (req as any).user?._id;
@@ -1406,9 +1671,9 @@ const syncDepartmentsFromConstants = async () => {
           code: constDept.code,
           departmentID: constDept.departmentID,
         },
-        { upsert: true }
+        { upsert: true },
       );
-    })
+    }),
   );
 
   await syncUnitsFromConstants();
@@ -1435,10 +1700,20 @@ export const getAvailableDepartments = async (req: Request, res: Response) => {
 };
 
 const normalizeDepartmentPayload = (raw: any) => {
-  const name = String(raw?.name || raw?.departmentName || raw?.["Department Name"] || "").trim();
-  const code = String(raw?.code || raw?.departmentCode || raw?.["Department Code"] || "").trim().toUpperCase();
+  const name = String(
+    raw?.name || raw?.departmentName || raw?.["Department Name"] || "",
+  ).trim();
+  const code = String(
+    raw?.code || raw?.departmentCode || raw?.["Department Code"] || "",
+  )
+    .trim()
+    .toUpperCase();
   const departmentID = String(
-    raw?.departmentID || raw?.departmentId || raw?.["Department ID"] || raw?.["department id"] || ""
+    raw?.departmentID ||
+      raw?.departmentId ||
+      raw?.["Department ID"] ||
+      raw?.["department id"] ||
+      "",
   ).trim();
   const head = String(raw?.head || raw?.departmentHead || "").trim();
   return { name, code, departmentID, head: head || undefined };
@@ -1454,7 +1729,11 @@ export const createDepartment = async (req: Request, res: Response) => {
     };
 
     if (!name || !code || !departmentID) {
-      return res.status(400).json({ message: "Department name, code, and departmentID are required." });
+      return res
+        .status(400)
+        .json({
+          message: "Department name, code, and departmentID are required.",
+        });
     }
 
     const normalizedName = String(name).trim();
@@ -1470,7 +1749,11 @@ export const createDepartment = async (req: Request, res: Response) => {
     });
 
     if (existing) {
-      return res.status(409).json({ message: "A department with that code, ID, or name already exists." });
+      return res
+        .status(409)
+        .json({
+          message: "A department with that code, ID, or name already exists.",
+        });
     }
 
     const department = await Department.create({
@@ -1512,21 +1795,30 @@ export const updateDepartment = async (req: Request, res: Response) => {
     const updateData: any = {};
     if (name !== undefined) updateData.name = String(name).trim();
     if (code !== undefined) updateData.code = String(code).trim().toUpperCase();
-    if (departmentID !== undefined) updateData.departmentID = String(departmentID).trim();
-    if (head !== undefined) updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
+    if (departmentID !== undefined)
+      updateData.departmentID = String(departmentID).trim();
+    if (head !== undefined)
+      updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
 
     if (updateData.name || updateData.code || updateData.departmentID) {
       const duplicate = await Department.findOne({
         _id: { $ne: department._id },
         $or: [
           ...(updateData.code ? [{ code: updateData.code }] : []),
-          ...(updateData.departmentID ? [{ departmentID: updateData.departmentID }] : []),
+          ...(updateData.departmentID
+            ? [{ departmentID: updateData.departmentID }]
+            : []),
           ...(updateData.name ? [{ name: updateData.name }] : []),
         ],
       });
 
       if (duplicate) {
-        return res.status(409).json({ message: "Another department with the same name, code, or departmentID already exists." });
+        return res
+          .status(409)
+          .json({
+            message:
+              "Another department with the same name, code, or departmentID already exists.",
+          });
       }
     }
 
@@ -1563,7 +1855,9 @@ export const deleteDepartment = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ message: `Department ${deleted.name} deleted successfully.` });
+    return res.json({
+      message: `Department ${deleted.name} deleted successfully.`,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error", error });
@@ -1573,11 +1867,21 @@ export const deleteDepartment = async (req: Request, res: Response) => {
 export const bulkUploadDepartments = async (req: Request, res: Response) => {
   try {
     const payload = req.body as {
-      departments: Array<{ name?: string; code?: string; departmentID?: string; head?: string }>;
+      departments: Array<{
+        name?: string;
+        code?: string;
+        departmentID?: string;
+        head?: string;
+      }>;
     };
 
-    if (!Array.isArray(payload?.departments) || payload.departments.length === 0) {
-      return res.status(400).json({ message: "departments array is required for bulk upload." });
+    if (
+      !Array.isArray(payload?.departments) ||
+      payload.departments.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({ message: "departments array is required for bulk upload." });
     }
 
     const results = {
@@ -1592,7 +1896,10 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
       const rowNumber = index + 1;
 
       if (!row.name || !row.code || !row.departmentID) {
-        results.errors.push({ row: rowNumber, message: "Missing required department fields." });
+        results.errors.push({
+          row: rowNumber,
+          message: "Missing required department fields.",
+        });
         results.skipped += 1;
         continue;
       }
@@ -1607,7 +1914,10 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
           name: row.name,
           code: row.code,
           departmentID: row.departmentID,
-          head: row.head && mongoose.isValidObjectId(row.head) ? row.head : existing.head,
+          head:
+            row.head && mongoose.isValidObjectId(row.head)
+              ? row.head
+              : existing.head,
         });
         results.updated += 1;
         continue;
@@ -1617,7 +1927,8 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
         name: row.name,
         code: row.code,
         departmentID: row.departmentID,
-        head: row.head && mongoose.isValidObjectId(row.head) ? row.head : undefined,
+        head:
+          row.head && mongoose.isValidObjectId(row.head) ? row.head : undefined,
       } as any);
       results.created += 1;
     }
@@ -1649,4 +1960,3 @@ export const getDepartmentConstants = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "Server error", error });
   }
 };
-

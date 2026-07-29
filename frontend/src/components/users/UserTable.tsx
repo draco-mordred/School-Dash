@@ -1,4 +1,12 @@
-import { useMemo, useState } from "react";
+import {
+  useMemo,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  type ReactNode,
+  type CSSProperties,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +22,59 @@ import { Checkbox } from "@/components/ui/checkbox";
 import type { user } from "@/types";
 import CustomPagination from "@/components/global/CustomPagination";
 import CustomAlert from "@/components/global/CustomAlert";
+
+const TextMarquee = ({ children }: { children: ReactNode }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLSpanElement>(null);
+  const [scrollDistance, setScrollDistance] = useState(0);
+  const [shouldAnimate, setShouldAnimate] = useState(false);
+
+  useEffect(() => {
+    const update = () => {
+      const container = containerRef.current;
+      const content = contentRef.current;
+      if (!container || !content) return;
+
+      const overflow = content.scrollWidth > container.clientWidth;
+      setShouldAnimate(overflow);
+      setScrollDistance(
+        Math.max(0, content.scrollWidth - container.clientWidth),
+      );
+    };
+
+    update();
+
+    const resizeObserver = new ResizeObserver(update);
+    if (containerRef.current) resizeObserver.observe(containerRef.current);
+    if (contentRef.current) resizeObserver.observe(contentRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, []);
+
+  const duration = Math.max(6, Math.min(20, scrollDistance / 40 + 6));
+
+  return (
+    <div
+      className="marquee-clip w-full overflow-hidden text-left"
+      ref={containerRef}
+    >
+      <span
+        ref={contentRef}
+        className={`marquee-track inline-flex whitespace-nowrap items-center gap-10 ${shouldAnimate ? "marquee-animate" : ""}`}
+        style={
+          shouldAnimate
+            ? ({
+                "--marquee-distance": `${scrollDistance}px`,
+                "--marquee-duration": `${duration}s`,
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        <span className="marquee-item inline-flex">{children}</span>
+      </span>
+    </div>
+  );
+};
 
 interface Props {
   role: string;
@@ -62,29 +123,34 @@ const UserTable = ({
 
   const groupLabel = role === "student" ? "Class" : "Department";
 
-  const getGroupValue = (user: user) => {
-    if (role === "student") {
-      const cls = user.studentClasses as { name?: string } | undefined;
-      return cls?.name || "Unassigned";
-    }
-    return (user.department as string) || "General";
-  };
+  const getGroupValue = useCallback(
+    (user: user) => {
+      if (role === "student") {
+        const cls = user.studentClasses as { name?: string } | undefined;
+        return cls?.name || "Unassigned";
+      }
+      return (user.department as string) || "General";
+    },
+    [role],
+  );
 
   const statusOptions = useMemo(
     () => Array.from(new Set(users.map((user) => user.status || "unknown"))),
-    [users]
+    [users],
   );
 
   const groupOptions = useMemo(
     () => Array.from(new Set(users.map(getGroupValue))).sort(),
-    [users]
+    [users, getGroupValue],
   );
 
   const filteredUsers = useMemo(() => {
     return users
       .filter((user) => {
-        const matchesGroup = groupFilter === "all" || getGroupValue(user) === groupFilter;
-        const matchesStatus = statusFilter === "all" || user.status === statusFilter;
+        const matchesGroup =
+          groupFilter === "all" || getGroupValue(user) === groupFilter;
+        const matchesStatus =
+          statusFilter === "all" || user.status === statusFilter;
         return matchesGroup && matchesStatus;
       })
       .sort((a, b) => {
@@ -94,7 +160,7 @@ const UserTable = ({
         if (primary > secondary) return sortDirection === "asc" ? 1 : -1;
         return 0;
       });
-  }, [users, groupFilter, statusFilter, sortBy, sortDirection]);
+  }, [users, groupFilter, statusFilter, sortBy, sortDirection, getGroupValue]);
 
   const groupedUsers = useMemo(() => {
     return filteredUsers.reduce<Record<string, user[]>>((acc, user) => {
@@ -103,12 +169,7 @@ const UserTable = ({
       acc[groupValue].push(user);
       return acc;
     }, {});
-  }, [filteredUsers]);
-
-  const toggleSelectAll = (checked: boolean) => {
-    if (checked) setSelected(filteredUsers.map((u) => u._id));
-    else setSelected([]);
-  };
+  }, [filteredUsers, getGroupValue]);
 
   const toggleSelectOne = (id: string, checked: boolean) => {
     if (checked) setSelected((prev) => [...prev, id]);
@@ -124,7 +185,10 @@ const UserTable = ({
       Group: getGroupValue(user),
       Role: user.role || "",
     }));
-    const csv = [Object.keys(rows[0]).join(","), ...rows.map((row) => Object.values(row).join(","))].join("\n");
+    const csv = [
+      Object.keys(rows[0]).join(","),
+      ...rows.map((row) => Object.values(row).join(",")),
+    ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -166,17 +230,29 @@ const UserTable = ({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle className="text-lg">{role.charAt(0).toUpperCase() + role.slice(1)} Directory</CardTitle>
+              <CardTitle className="text-lg">
+                {role.charAt(0).toUpperCase() + role.slice(1)} Directory
+              </CardTitle>
               <p className="text-sm text-muted-foreground">
-                Browse users by {groupLabel.toLowerCase()}, filter by status, and manage profiles.
+                Browse users by {groupLabel.toLowerCase()}, filter by status,
+                and manage profiles.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={handleExport} className="gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                className="gap-2"
+              >
                 <Download className="h-4 w-4" /> Export
               </Button>
               {selected.length > 0 && (
-                <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                >
                   Delete {selected.length}
                 </Button>
               )}
@@ -229,9 +305,12 @@ const UserTable = ({
               variant="outline"
               size="sm"
               className="gap-2"
-              onClick={() => setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"))}
+              onClick={() =>
+                setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"))
+              }
             >
-              <ArrowUpDown className="h-4 w-4" /> {sortDirection === "asc" ? "A-Z" : "Z-A"}
+              <ArrowUpDown className="h-4 w-4" />{" "}
+              {sortDirection === "asc" ? "A-Z" : "Z-A"}
             </Button>
           </div>
         </div>
@@ -247,48 +326,70 @@ const UserTable = ({
             <div key={groupName} className="space-y-4">
               <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface p-4">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">{groupName}</p>
-                  <p className="text-xs text-muted-foreground">{groupUsers.length} user(s)</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {groupName}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {groupUsers.length} user(s)
+                  </p>
                 </div>
-                <span className="text-xs text-muted-foreground">{role === "student" ? "Class" : "Department"}</span>
+                <span className="text-xs text-muted-foreground">
+                  {role === "student" ? "Class" : "Department"}
+                </span>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {groupUsers.map((user, index) => (
-                  <div key={`${user._id ?? "user"}-${index}`} className="user-card group overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{groupLabel}</p>
-                        <p className="text-lg font-semibold text-foreground">{user.name}</p>
-                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                  <div
+                    key={`${user._id ?? "user"}-${index}`}
+                    className="user-card group overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="min-w-0 flex-1 space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                          Name
+                        </p>
+                        <div className="text-lg font-semibold text-foreground">
+                          <TextMarquee>{user.name}</TextMarquee>
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <Checkbox
-                          checked={selected.includes(user._id)}
-                          onCheckedChange={(checked) => toggleSelectOne(user._id, checked === true)}
-                        />
-                        <div className="space-y-2 text-right">
-                          <Badge className={getStatusClass(user.status)}>
-                            {user.status?.charAt(0).toUpperCase() + user.status?.slice(1)}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">{getGroupValue(user)}</p>
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                          Email
+                        </p>
+                        <div className="text-sm text-muted-foreground">
+                          <TextMarquee>{user.email}</TextMarquee>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                          Department
+                        </p>
+                        <div className="text-sm text-muted-foreground">
+                          <TextMarquee>
+                            {user.department || "General"}
+                          </TextMarquee>
                         </div>
                       </div>
                     </div>
-
-                    <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                      {role === "student" && (
-                        <div>
-                          <p className="font-medium text-foreground">Matric No.</p>
-                          <p>{user.idNumber || "N/A"}</p>
-                        </div>
-                      )}
-                      {role !== "student" && (user.department || user.role) && (
-                        <div>
-                          <p className="font-medium text-foreground">Details</p>
-                          <p>{user.department || user.role}</p>
-                        </div>
-                      )}
+                    <div className="flex flex-col items-end gap-2">
+                      <Checkbox
+                        checked={selected.includes(user._id)}
+                        onCheckedChange={(checked) =>
+                          toggleSelectOne(user._id, checked === true)
+                        }
+                      />
+                      <div className="space-y-2 text-right">
+                        <Badge className={getStatusClass(user.status)}>
+                          {user.status
+                            ? user.status.charAt(0).toUpperCase() +
+                              user.status.slice(1)
+                            : "Unknown"}
+                        </Badge>
+                        <p className="text-xs text-muted-foreground">
+                          {getGroupValue(user)}
+                        </p>
+                      </div>
                     </div>
 
                     <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
@@ -338,7 +439,12 @@ const UserTable = ({
             <p className="text-sm text-muted-foreground">
               Showing {filteredUsers.length} of {users.length} users
             </p>
-            <CustomPagination loading={loading} page={pageNum} setPage={setPageNum} totalPages={totalPages} />
+            <CustomPagination
+              loading={loading}
+              page={pageNum}
+              setPage={setPageNum}
+              totalPages={totalPages}
+            />
           </div>
         )}
       </CardContent>

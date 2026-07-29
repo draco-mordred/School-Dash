@@ -1,4 +1,10 @@
-export type UserRole = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
+export type UserRole =
+  | "admin"
+  | "teacher"
+  | "student"
+  | "parent"
+  | "unitconsultant"
+  | "unitresident";
 
 export interface pagination {
   total: number;
@@ -21,10 +27,22 @@ export interface user {
   teacherSubject?: courses[] | string[];
   parentStudents?: user[] | string[];
   // Academic status tags for teachers/lecturers
-  academicStatus?: "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | null;
+  academicStatus?:
+    | "professor"
+    | "associate professor"
+    | "lecturer i"
+    | "lecturer ii"
+    | "assistant lecturer"
+    | "resident"
+    | null;
   // Department role tags for teachers/lecturers
-  departmentRole?: "head of department" | "dean of faculty" | "exam officer" | null;
+  departmentRole?:
+    | "head of department"
+    | "dean of faculty"
+    | "exam officer"
+    | null;
   department?: string;
+  status?: string;
 }
 
 export type AcademicClockPhase = string;
@@ -113,7 +131,14 @@ export interface schedule {
   periods: period[];
 }
 
-export type NotificationType = "info" | "warning" | "success" | "error" | "attendance" | "timetable" | "system";
+export type NotificationType =
+  | "info"
+  | "warning"
+  | "success"
+  | "error"
+  | "attendance"
+  | "timetable"
+  | "system";
 
 export interface Notification {
   _id: string;

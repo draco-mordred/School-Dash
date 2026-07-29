@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { useActivityNotifications } from "@/hooks/useActivityNotifications";
-import { ActivityCard, ActivityStatus, ActivityType } from "@/components/activities/ActivityStatusBadge";
+import { ActivityCard, type ActivityStatus, type ActivityType } from "@/components/activities/ActivityStatusBadge";
 import { AlertCircle, Clock } from "lucide-react";
 
 interface ScheduledActivity {
@@ -22,7 +22,7 @@ interface ScheduledActivity {
 
 export default function ActivityDashboard() {
   const { user } = useAuth();
-  const { notifications, pendingCount } = useActivityNotifications({
+  const { pendingCount } = useActivityNotifications({
     enabled: true,
     checkInterval: 30000, // Check every 30 seconds
   });
@@ -54,7 +54,9 @@ export default function ActivityDashboard() {
         }
 
         // Fetch lectures from timetable
-        const timetableRes = await api.get(`/timetables?userId=${user.id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`);
+        const timetableRes = await api.get(
+          `/timetables?userId=${user._id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`,
+        );
         const lectures: ScheduledActivity[] = [];
 
         if (Array.isArray(timetableRes.data?.schedule)) {
@@ -86,7 +88,7 @@ export default function ActivityDashboard() {
 
         // Fetch clinical postings
         const rotationRes = await api.get(
-          `/rotation-schedules/events?userId=${user.id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`
+          `/rotation-schedules/events?userId=${user._id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`,
         );
         const clinicalActivities: ScheduledActivity[] = [];
 
@@ -106,7 +108,7 @@ export default function ActivityDashboard() {
 
         // Combine and sort by start time
         const allActivities = [...lectures, ...clinicalActivities].sort(
-          (a, b) => a.startTime.getTime() - b.startTime.getTime()
+          (a, b) => a.startTime.getTime() - b.startTime.getTime(),
         );
 
         setActivities(allActivities);
@@ -131,7 +133,10 @@ export default function ActivityDashboard() {
     activities.forEach((activity) => {
       if (activity.status === "completed" || activity.endTime < now) {
         completed.push(activity);
-      } else if (activity.status === "in-progress" || (activity.startTime <= now && activity.endTime > now)) {
+      } else if (
+        activity.status === "in-progress" ||
+        (activity.startTime <= now && activity.endTime > now)
+      ) {
         inProgress.push(activity);
       } else {
         upcoming.push(activity);
@@ -154,13 +159,17 @@ export default function ActivityDashboard() {
               Your Activity Schedule
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              {timeRange === "today" ? "Today's activities" : "This week's activities"}
+              {timeRange === "today"
+                ? "Today's activities"
+                : "This week's activities"}
             </p>
           </div>
           {hasReminders && (
             <div className="flex items-center gap-2 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-700">
               <AlertCircle className="h-4 w-4" />
-              <span>{pendingCount} upcoming reminder{pendingCount !== 1 ? "s" : ""}</span>
+              <span>
+                {pendingCount} upcoming reminder{pendingCount !== 1 ? "s" : ""}
+              </span>
             </div>
           )}
         </CardHeader>
@@ -168,7 +177,10 @@ export default function ActivityDashboard() {
 
       {/* Time range selector */}
       <div className="flex justify-center">
-        <Tabs value={timeRange} onValueChange={(v) => setTimeRange(v as "today" | "week")}>
+        <Tabs
+          value={timeRange}
+          onValueChange={(v) => setTimeRange(v as "today" | "week")}
+        >
           <TabsList className="grid w-fit grid-cols-2">
             <TabsTrigger value="today">Today</TabsTrigger>
             <TabsTrigger value="week">This Week</TabsTrigger>
@@ -259,7 +271,10 @@ export default function ActivityDashboard() {
         <Card className="overflow-hidden rounded-3xl border border-border shadow-sm">
           <CardContent className="flex flex-col items-center justify-center py-8 text-center">
             <Clock className="h-12 w-12 text-muted-foreground mb-3 opacity-50" />
-            <p className="text-sm text-muted-foreground">No activities scheduled for {timeRange === "today" ? "today" : "this week"}</p>
+            <p className="text-sm text-muted-foreground">
+              No activities scheduled for{" "}
+              {timeRange === "today" ? "today" : "this week"}
+            </p>
           </CardContent>
         </Card>
       )}

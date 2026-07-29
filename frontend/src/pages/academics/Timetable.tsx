@@ -26,7 +26,15 @@ import {
 } from "@/components/ui/select";
 import { Pencil, Trash2, Plus, X } from "lucide-react";
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 
 type EditingPeriod = {
   dayIndex: number;
@@ -56,20 +64,26 @@ const Timetable = () => {
 
   const [scheduleData, setScheduleData] = useState<schedule[]>([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
-  const [selectedClassInfo, setSelectedClassInfo] = useState<SelectedClassInfo | null>(null);
-  const [currentPostingTitle, setCurrentPostingTitle] = useState<string | null>(null);
-  const [postingScheduleAvailable, setPostingScheduleAvailable] = useState<boolean>(false);
+  const [selectedClassInfo, setSelectedClassInfo] =
+    useState<SelectedClassInfo | null>(null);
+  const [currentPostingTitle, setCurrentPostingTitle] = useState<string | null>(
+    null,
+  );
+  const [postingScheduleAvailable, setPostingScheduleAvailable] =
+    useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedClass, setSelectedClass] = useState("");
 
   // Parent: classes of linked children (multiple)
-  const [parentChildrenClasses, setParentChildrenClasses] = useState<{
-    classId: string;
-    className: string;
-    academicYear: string;
-    classTeacher: string;
-    schedule: schedule[];
-  }[]>([]);
+  const [parentChildrenClasses, setParentChildrenClasses] = useState<
+    {
+      classId: string;
+      className: string;
+      academicYear: string;
+      classTeacher: string;
+      schedule: schedule[];
+    }[]
+  >([]);
   const [loadingParentTimetables, setLoadingParentTimetables] = useState(false);
 
   // Period management state
@@ -88,7 +102,9 @@ const Timetable = () => {
 
   // Data for selectors
   const [coursesList, setCoursesList] = useState<courses[]>([]);
-  const [lecturers, setLecturers] = useState<{ _id: string; name: string }[]>([]);
+  const [lecturers, setLecturers] = useState<{ _id: string; name: string }[]>(
+    [],
+  );
   const [loadingData, setLoadingData] = useState(false);
 
   const fetchTimetable = async (classId: string) => {
@@ -112,29 +128,67 @@ const Timetable = () => {
     }
   };
 
-  const resolveCurrentPostingTitleFromClock = (clock: any, className?: string | null) => {
-    const classLevelPlan = getClassLevelPhasePlan(clock?.classLevel ?? className ?? "");
-    const phaseConfigPlan: AcademicClockPhaseDefinition[] = Array.isArray(clock?.phaseConfig)
-      ? clock.phaseConfig.map((phase: any, index: number) => ({
+  const resolveCurrentPostingTitleFromClock = (
+    clock: any,
+    className?: string | null,
+  ) => {
+    const classLevelPlan = getClassLevelPhasePlan(
+      clock?.classLevel ?? className ?? "",
+    );
+
+    const phaseConfigPlan: AcademicClockPhaseDefinition[] = (() => {
+      if (Array.isArray(clock?.phaseConfig)) {
+        return clock.phaseConfig.map((phase: any, index: number) => ({
           id: phase?.id ?? `phase${index + 1}`,
           name: phase?.name ?? `Phase ${index + 1}`,
-          durationMonths: Number.isFinite(phase?.durationMonths) ? phase.durationMonths : 1,
+          durationMonths: Number.isFinite(phase?.durationMonths)
+            ? phase.durationMonths
+            : 1,
           color: phase?.color ?? "#3B82F6",
-          subPostings: Array.isArray(phase?.subPostings) ? phase.subPostings.filter(Boolean) : [],
-        }))
-      : [];
+          subPostings: Array.isArray(phase?.subPostings)
+            ? phase.subPostings.filter(Boolean)
+            : [],
+        }));
+      }
 
-    const phasePlan = phaseConfigPlan.length > 0 ? phaseConfigPlan : classLevelPlan;
+      if (clock?.phaseConfig && typeof clock.phaseConfig === "object") {
+        return Object.entries(clock.phaseConfig)
+          .filter(([key]) => typeof key === "string")
+          .map(([key, phase], index) => ({
+            id: String(key),
+            name: phase?.name ?? `Phase ${index + 1}`,
+            durationMonths: Number.isFinite(phase?.duration)
+              ? phase.duration
+              : 1,
+            color: phase?.color ?? "#3B82F6",
+            subPostings: Array.isArray(phase?.subPostings)
+              ? phase.subPostings.filter(Boolean)
+              : [],
+          }));
+      }
+
+      return [];
+    })();
+
+    const phasePlan =
+      phaseConfigPlan.length > 0 ? phaseConfigPlan : classLevelPlan;
     let activePhaseId: string | null = null;
 
     if (clock?.clockStartDate && phasePlan.length > 0) {
-      const startDate = clock.clockStartDate instanceof Date ? clock.clockStartDate : new Date(clock.clockStartDate);
+      const startDate =
+        clock.clockStartDate instanceof Date
+          ? clock.clockStartDate
+          : new Date(clock.clockStartDate);
       if (!Number.isNaN(startDate.getTime())) {
         activePhaseId = getClockPhaseId(startDate, new Date(), phasePlan);
       }
     }
 
-    if (!activePhaseId && typeof clock?.clockPhase === "string" && clock.clockPhase) {
+    if (
+      !activePhaseId &&
+      typeof clock?.clockPhase === "string" &&
+      clock.clockPhase
+    ) {
       activePhaseId = clock.clockPhase;
     }
 
@@ -142,8 +196,13 @@ const Timetable = () => {
       activePhaseId = phasePlan[0]?.id ?? null;
     }
 
-    const phaseDefinition = phasePlan.find((phase) => phase.id === activePhaseId);
-    return phaseDefinition?.name ?? (activePhaseId ? `Phase ${activePhaseId.replace("phase", "")}` : null);
+    const phaseDefinition = phasePlan.find(
+      (phase) => phase.id === activePhaseId,
+    );
+    return (
+      phaseDefinition?.name ??
+      (activePhaseId ? `Phase ${activePhaseId.replace("phase", "")}` : null)
+    );
   };
 
   useEffect(() => {
@@ -187,12 +246,19 @@ const Timetable = () => {
         });
 
         const clockParams = new URLSearchParams();
-        if (academicYearId) clockParams.append("academicYearId", academicYearId);
+        if (academicYearId)
+          clockParams.append("academicYearId", academicYearId);
         clockParams.append("classId", selectedClass);
 
         const [clockRes, postingRes] = await Promise.all([
-          api.get(`/academic-clocks?${clockParams.toString()}`).catch(() => ({ data: null })),
-          api.get("/rotation-schedules", { params: { classId: selectedClass, limit: 1 } }).catch(() => ({ data: null })),
+          api
+            .get(`/academic-clocks?${clockParams.toString()}`)
+            .catch(() => ({ data: null })),
+          api
+            .get("/rotation-schedules", {
+              params: { classId: selectedClass, limit: 1 },
+            })
+            .catch(() => ({ data: null })),
         ]);
 
         const clockData = (() => {
@@ -200,22 +266,29 @@ const Timetable = () => {
           if (!raw) return null;
           if (Array.isArray(raw)) return raw[0] ?? null;
           if (raw?.data && Array.isArray(raw.data)) return raw.data[0] ?? null;
-          if (raw?.clocks && Array.isArray(raw.clocks)) return raw.clocks[0] ?? null;
-          if (raw?.academicClocks && Array.isArray(raw.academicClocks)) return raw.academicClocks[0] ?? null;
+          if (raw?.clocks && Array.isArray(raw.clocks))
+            return raw.clocks[0] ?? null;
+          if (raw?.academicClocks && Array.isArray(raw.academicClocks))
+            return raw.academicClocks[0] ?? null;
           return raw;
         })();
 
-        setCurrentPostingTitle(resolveCurrentPostingTitleFromClock(clockData, data.name ?? ""));
+        setCurrentPostingTitle(
+          resolveCurrentPostingTitleFromClock(clockData, data.name ?? ""),
+        );
 
         const rotations = (() => {
           const raw = postingRes.data;
           if (!raw) return [];
           if (Array.isArray(raw)) return raw;
-          if (raw?.schedules && Array.isArray(raw.schedules)) return raw.schedules;
+          if (raw?.schedules && Array.isArray(raw.schedules))
+            return raw.schedules;
           return [];
         })();
 
-        setPostingScheduleAvailable(Array.isArray(rotations) && rotations.length > 0);
+        setPostingScheduleAvailable(
+          Array.isArray(rotations) && rotations.length > 0,
+        );
       } catch {
         setCurrentPostingTitle(null);
         setPostingScheduleAvailable(false);
@@ -229,14 +302,17 @@ const Timetable = () => {
   useEffect(() => {
     if (!isParent || !user) return;
     const parentStudentIds = (user.parentStudents ?? [])
-      .map((s) => (typeof s === "object" ? (s as user)._id : s))
+      .map((s) => (typeof s === "object" ? (s as { _id?: string })._id : s))
       .filter(Boolean);
     if (parentStudentIds.length === 0) return;
 
     const fetchParentTimetables = async () => {
       setLoadingParentTimetables(true);
       try {
-        const classMap = new Map<string, { className: string; academicYear: string; classTeacher: string }>();
+        const classMap = new Map<
+          string,
+          { className: string; academicYear: string; classTeacher: string }
+        >();
         const scheduleMap = new Map<string, schedule[]>();
 
         // Fetch each student's class details and timetable sequentially to avoid overwhelming the server
@@ -247,9 +323,12 @@ const Timetable = () => {
             if (!student) continue;
 
             const rawClass = student.studentClasses;
-            const classId = typeof rawClass === "object" && rawClass !== null
-              ? rawClass._id
-              : (typeof rawClass === "string" ? rawClass : null);
+            const classId =
+              typeof rawClass === "object" && rawClass !== null
+                ? (rawClass as { _id?: string })._id
+                : typeof rawClass === "string"
+                  ? rawClass
+                  : null;
             if (!classId) continue;
 
             if (!classMap.has(classId)) {
@@ -261,26 +340,36 @@ const Timetable = () => {
                   academicYear: cls?.academicYear?.name ?? "—",
                   classTeacher: cls?.classTeacher?.name ?? "—",
                 });
-              } catch { /* silent */ }
+              } catch {
+                /* silent */
+              }
             }
 
             try {
               const ttRes = await api.get(`/timetables/${classId}`);
               scheduleMap.set(classId, ttRes.data?.schedule ?? []);
-            } catch { /* silent */ }
-          } catch { /* silent */ }
+            } catch {
+              /* silent */
+            }
+          } catch {
+            /* silent */
+          }
         }
 
-        const result = Array.from(classMap.entries()).map(([classId, info]) => ({
-          classId,
-          className: info.className,
-          academicYear: info.academicYear,
-          classTeacher: info.classTeacher,
-          schedule: scheduleMap.get(classId) ?? [],
-        })).sort((a, b) => a.className.localeCompare(b.className));
+        const result = Array.from(classMap.entries())
+          .map(([classId, info]) => ({
+            classId,
+            className: info.className,
+            academicYear: info.academicYear,
+            classTeacher: info.classTeacher,
+            schedule: scheduleMap.get(classId) ?? [],
+          }))
+          .sort((a, b) => a.className.localeCompare(b.className));
 
         setParentChildrenClasses(result);
-      } catch { /* silent */ } finally {
+      } catch {
+        /* silent */
+      } finally {
         setLoadingParentTimetables(false);
       }
     };
@@ -300,7 +389,7 @@ const Timetable = () => {
       setLecturers(
         allUsers
           .filter((u) => u.role === "teacher" || u.role === "admin")
-          .map((u) => ({ _id: u._id, name: u.name }))
+          .map((u) => ({ _id: u._id, name: u.name })),
       );
     } catch {
       toast.error("Failed to load courses and teachers");
@@ -318,18 +407,23 @@ const Timetable = () => {
 
   const selectedDayIndex = useMemo(
     () => DAYS.findIndex((d) => d.toLowerCase() === selectedDay.toLowerCase()),
-    [selectedDay]
+    [selectedDay],
   );
 
   const selectedDaySchedule = useMemo(() => {
     if (selectedDayIndex < 0) return null;
     return scheduleData.find(
-      (s) => s.day.toLowerCase() === DAYS[selectedDayIndex].toLowerCase()
+      (s) => s.day.toLowerCase() === DAYS[selectedDayIndex].toLowerCase(),
     );
   }, [scheduleData, selectedDayIndex]);
 
   const handleAddPeriod = async () => {
-    if (!newPeriod.subject || !newPeriod.lecturer || !newPeriod.startTime || !newPeriod.endTime) {
+    if (
+      !newPeriod.subject ||
+      !newPeriod.lecturer ||
+      !newPeriod.startTime ||
+      !newPeriod.endTime
+    ) {
       toast.error("Please fill in all fields");
       return;
     }
@@ -346,7 +440,13 @@ const Timetable = () => {
       });
       toast.success("Period added");
       setAddingNew(false);
-      setNewPeriod({ day: DAYS[0], subject: "", lecturer: "", startTime: "08:00", endTime: "08:45" });
+      setNewPeriod({
+        day: DAYS[0],
+        subject: "",
+        lecturer: "",
+        startTime: "08:00",
+        endTime: "08:45",
+      });
       await fetchTimetable(selectedClass);
     } catch (e: any) {
       toast.error(e.response?.data?.message || "Failed to add period");
@@ -397,10 +497,12 @@ const Timetable = () => {
   const cloneStylesForPrint = () => {
     const styles: string[] = [];
     // copy link[rel=stylesheet] and style tags
-    document.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => {
-      styles.push((node as HTMLElement).outerHTML);
-    });
-    return styles.join('\n');
+    document
+      .querySelectorAll('link[rel="stylesheet"], style')
+      .forEach((node) => {
+        styles.push((node as HTMLElement).outerHTML);
+      });
+    return styles.join("\n");
   };
 
   const openPrintWindowWithContent = (htmlContent: string) => {
@@ -410,7 +512,9 @@ const Timetable = () => {
       return;
     }
     const styles = cloneStylesForPrint();
-    printWindow.document.write(`<!doctype html><html><head><meta charset=\"utf-8\">${styles}</head><body>${htmlContent}</body></html>`);
+    printWindow.document.write(
+      `<!doctype html><html><head><meta charset=\"utf-8\">${styles}</head><body>${htmlContent}</body></html>`,
+    );
     printWindow.document.close();
     setTimeout(() => {
       printWindow.focus();
@@ -430,7 +534,9 @@ const Timetable = () => {
   };
 
   const handleDownloadTimetableForId = (id: string) => {
-    const el = document.getElementById(`timetable-printable-${id}`) || document.getElementById(`timetable-${id}`);
+    const el =
+      document.getElementById(`timetable-printable-${id}`) ||
+      document.getElementById(`timetable-${id}`);
     if (!el) {
       toast.error("Timetable not found");
       return;
@@ -441,7 +547,7 @@ const Timetable = () => {
   const handleGenerate = async (
     selectedClass: string,
     yearId: string,
-    settings: GenSettings
+    settings: GenSettings,
   ) => {
     try {
       setIsGenerating(true);
@@ -467,10 +573,12 @@ const Timetable = () => {
       const poll = async () => {
         attempts += 1;
         try {
-          const { data: refreshed } = await api.get(`/timetables/${selectedClass}`);
+          const { data: refreshed } = await api.get(
+            `/timetables/${selectedClass}`,
+          );
           const sched = refreshed?.schedule ?? [];
           const hasPeriod = sched.some(
-            (d: any) => Array.isArray(d.periods) && d.periods.length > 0
+            (d: any) => Array.isArray(d.periods) && d.periods.length > 0,
           );
           if (hasPeriod) {
             setScheduleData(sched);
@@ -487,7 +595,9 @@ const Timetable = () => {
         } else {
           fetchTimetable(selectedClass);
           setIsGenerating(false);
-          toast.error("Timed out waiting for generated schedule. Check back later.");
+          toast.error(
+            "Timed out waiting for generated schedule. Check back later.",
+          );
         }
       };
 
@@ -502,26 +612,36 @@ const Timetable = () => {
     <div id="page-timetable" className="p-4 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Timetable Management</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Timetable Management
+          </h1>
           <p className="text-muted-foreground">
             {isStudent && selectedClassInfo
               ? `${selectedClassInfo.name} · Academic Year ${selectedClassInfo.academicYear}`
               : isStudent
-              ? "View your weekly class schedule."
-              : isParent
-              ? "View your children's class schedules."
-              : "View or manage weekly schedules."}
+                ? "View your weekly class schedule."
+                : isParent
+                  ? "View your children's class schedules."
+                  : "View or manage weekly schedules."}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && (
-            <Button variant="outline" size="sm" onClick={() => handleOpenManage(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleOpenManage(true)}
+            >
               Manage Periods
             </Button>
           )}
-            <Button variant="outline" size="sm" onClick={() => handleDownloadTimetable()}>
-              Save timetable
-            </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleDownloadTimetable()}
+          >
+            Save timetable
+          </Button>
           <div className="md:hidden">
             <SidebarTrigger />
           </div>
@@ -534,26 +654,39 @@ const Timetable = () => {
           <div className="h-64 w-full flex items-center justify-center border rounded-lg bg-card">
             <div className="flex flex-col items-center gap-2">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-              <p className="text-muted-foreground text-sm">Loading timetables...</p>
+              <p className="text-muted-foreground text-sm">
+                Loading timetables...
+              </p>
             </div>
           </div>
         ) : parentChildrenClasses.length === 0 ? (
           <div className="h-40 w-full flex flex-col items-center justify-center border rounded-lg border-dashed bg-card">
-            <p className="text-muted-foreground text-sm">No linked class timetables found.</p>
+            <p className="text-muted-foreground text-sm">
+              No linked class timetables found.
+            </p>
           </div>
-          ) : (
+        ) : (
           <div className="space-y-6">
             {parentChildrenClasses.map((cls) => (
-              <div key={cls.classId} id={`timetable-${cls.classId}`} className="border rounded-lg overflow-hidden">
+              <div
+                key={cls.classId}
+                id={`timetable-${cls.classId}`}
+                className="border rounded-lg overflow-hidden"
+              >
                 <div className="bg-muted/50 px-4 py-3 border-b flex items-center justify-between">
                   <div>
                     <h3 className="font-semibold text-base">{cls.className}</h3>
                     <p className="text-xs text-muted-foreground">
-                      Academic Year {cls.academicYear} · Class Teacher: {cls.classTeacher}
+                      Academic Year {cls.academicYear} · Class Teacher:{" "}
+                      {cls.classTeacher}
                     </p>
                   </div>
                   <div>
-                    <Button size="sm" variant="ghost" onClick={() => handleDownloadTimetableForId(cls.classId)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDownloadTimetableForId(cls.classId)}
+                    >
                       Save timetable
                     </Button>
                   </div>
@@ -579,10 +712,13 @@ const Timetable = () => {
 
           <div className="mb-4 space-y-1">
             {currentPostingTitle ? (
-              <p className="text-sm font-medium">Current posting: {currentPostingTitle}</p>
+              <p className="text-sm font-medium">
+                Current posting: {currentPostingTitle}
+              </p>
             ) : null}
             <p className="text-sm text-muted-foreground">
-              Clinical posting schedule: {postingScheduleAvailable ? "Available" : "Unavailable"}
+              Clinical posting schedule:{" "}
+              {postingScheduleAvailable ? "Available" : "Unavailable"}
             </p>
           </div>
 
@@ -610,7 +746,11 @@ const Timetable = () => {
             <Label>Day</Label>
             <Select
               value={selectedDay}
-              onValueChange={(v) => { setSelectedDay(v); setAddingNew(false); setEditingPeriod(null); }}
+              onValueChange={(v) => {
+                setSelectedDay(v);
+                setAddingNew(false);
+                setEditingPeriod(null);
+              }}
             >
               <SelectTrigger>
                 <SelectValue />
@@ -635,11 +775,14 @@ const Timetable = () => {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-sm truncate">
-                      {typeof p.subject === "string" ? p.subject : p.subject?.name}
+                      {typeof p.subject === "string"
+                        ? p.subject
+                        : p.subject?.name}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {p.startTime} – {p.endTime}
-                      {(p as any).lecturer?.name && ` · ${(p as any).lecturer.name}`}
+                      {(p as any).lecturer?.name &&
+                        ` · ${(p as any).lecturer.name}`}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -702,7 +845,7 @@ const Timetable = () => {
                               subject: { _id: v, name: "", code: "" },
                             },
                           }
-                        : null
+                        : null,
                     )
                   }
                 >
@@ -732,7 +875,7 @@ const Timetable = () => {
                               lecturer: { _id: v, name: "", email: "" },
                             },
                           }
-                        : null
+                        : null,
                     )
                   }
                 >
@@ -757,8 +900,14 @@ const Timetable = () => {
                     onChange={(e) =>
                       setEditingPeriod((prev) =>
                         prev
-                          ? { ...prev, period: { ...prev.period, startTime: e.target.value } }
-                          : null
+                          ? {
+                              ...prev,
+                              period: {
+                                ...prev.period,
+                                startTime: e.target.value,
+                              },
+                            }
+                          : null,
                       )
                     }
                   />
@@ -771,8 +920,14 @@ const Timetable = () => {
                     onChange={(e) =>
                       setEditingPeriod((prev) =>
                         prev
-                          ? { ...prev, period: { ...prev.period, endTime: e.target.value } }
-                          : null
+                          ? {
+                              ...prev,
+                              period: {
+                                ...prev.period,
+                                endTime: e.target.value,
+                              },
+                            }
+                          : null,
                       )
                     }
                   />
@@ -823,7 +978,9 @@ const Timetable = () => {
                 <Label>Subject</Label>
                 <Select
                   value={newPeriod.subject}
-                  onValueChange={(v) => setNewPeriod((p) => ({ ...p, subject: v }))}
+                  onValueChange={(v) =>
+                    setNewPeriod((p) => ({ ...p, subject: v }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select subject" />
@@ -841,7 +998,9 @@ const Timetable = () => {
                 <Label>Lecturer</Label>
                 <Select
                   value={newPeriod.lecturer}
-                  onValueChange={(v) => setNewPeriod((p) => ({ ...p, lecturer: v }))}
+                  onValueChange={(v) =>
+                    setNewPeriod((p) => ({ ...p, lecturer: v }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select lecturer" />

@@ -15,7 +15,8 @@ export interface AcademicClockPhasePlanEntry {
 
 export const TOTAL_ACADEMIC_CLOCK_MONTHS = 16;
 export const ACADEMIC_CLOCK_DAYS_PER_MONTH = 30;
-export const TOTAL_ACADEMIC_CLOCK_DAYS = TOTAL_ACADEMIC_CLOCK_MONTHS * ACADEMIC_CLOCK_DAYS_PER_MONTH;
+export const TOTAL_ACADEMIC_CLOCK_DAYS =
+  TOTAL_ACADEMIC_CLOCK_MONTHS * ACADEMIC_CLOCK_DAYS_PER_MONTH;
 
 export const ACADEMIC_CLOCK_PHASES: AcademicClockPhaseDefinition[] = [
   {
@@ -58,7 +59,10 @@ export const ACADEMIC_CLOCK_PHASES: AcademicClockPhaseDefinition[] = [
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
-export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinition[]> = {
+export const CLASS_LEVEL_PHASE_PLANS: Record<
+  string,
+  AcademicClockPhaseDefinition[]
+> = {
   fifth: [
     {
       id: "phase1",
@@ -72,7 +76,14 @@ export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinitio
       name: "Specialty Posting",
       durationMonths: 6,
       color: "#10B981",
-      subPostings: ["Psychiatry", "ENT", "Anesthesiology", "Radiology", "Ophthalmology", "Dermatology"],
+      subPostings: [
+        "Psychiatry",
+        "ENT",
+        "Anesthesiology",
+        "Radiology",
+        "Ophthalmology",
+        "Dermatology",
+      ],
     },
     {
       id: "phase3",
@@ -102,7 +113,14 @@ export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinitio
       name: "Specialty Senior Posting",
       durationMonths: 6,
       color: "#10B981",
-      subPostings: ["Psychiatry", "ENT", "Anesthesiology", "Radiology", "Ophthalmology", "Dermatology"],
+      subPostings: [
+        "Psychiatry",
+        "ENT",
+        "Anesthesiology",
+        "Radiology",
+        "Ophthalmology",
+        "Dermatology",
+      ],
     },
     {
       id: "phase3",
@@ -160,7 +178,9 @@ export const CLASS_LEVEL_PHASE_PLANS: Record<string, AcademicClockPhaseDefinitio
   ],
 };
 
-export const normalizePhasePlan = (plan?: AcademicClockPhaseDefinition[] | null): AcademicClockPhaseDefinition[] => {
+export const normalizePhasePlan = (
+  plan?: AcademicClockPhaseDefinition[] | null,
+): AcademicClockPhaseDefinition[] => {
   if (!Array.isArray(plan) || plan.length === 0) {
     return [];
   }
@@ -168,13 +188,19 @@ export const normalizePhasePlan = (plan?: AcademicClockPhaseDefinition[] | null)
   return plan.map((phase, index) => ({
     id: phase?.id ?? `phase-${index + 1}`,
     name: phase?.name ?? `Phase ${index + 1}`,
-    durationMonths: Number.isFinite(phase?.durationMonths) ? phase.durationMonths : 1,
+    durationMonths: Number.isFinite(phase?.durationMonths)
+      ? phase.durationMonths
+      : 1,
     color: phase?.color ?? "#3B82F6",
-    subPostings: Array.isArray(phase?.subPostings) ? phase.subPostings.filter(Boolean) : [],
+    subPostings: Array.isArray(phase?.subPostings)
+      ? phase.subPostings.filter(Boolean)
+      : [],
   }));
 };
 
-export const getClassLevelPhasePlan = (className?: string | null): AcademicClockPhaseDefinition[] => {
+export const getClassLevelPhasePlan = (
+  className?: string | null,
+): AcademicClockPhaseDefinition[] => {
   const normalized = (className ?? "").toLowerCase();
 
   if (normalized.includes("500") || normalized.includes("fifth")) {
@@ -222,8 +248,13 @@ export const buildInitialPhasePlan = ({
   }));
 };
 
-export const getTotalPhaseMonths = (phasePlan: Array<AcademicClockPhasePlanEntry> = ACADEMIC_CLOCK_PHASES) =>
-  phasePlan.reduce((total, phase) => total + Math.max(0, phase.durationMonths), 0);
+export const getTotalPhaseMonths = (
+  phasePlan: Array<AcademicClockPhasePlanEntry> = ACADEMIC_CLOCK_PHASES,
+) =>
+  phasePlan.reduce(
+    (total, phase) => total + Math.max(0, phase.durationMonths),
+    0,
+  );
 
 export const getClockPhaseId = (
   startDate: Date,
@@ -233,17 +264,23 @@ export const getClockPhaseId = (
   const totalMonths = Math.max(0, getTotalPhaseMonths(phasePlan));
   const maxDays = totalMonths * ACADEMIC_CLOCK_DAYS_PER_MONTH;
   const elapsedDays = clamp(
-    Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)),
+    Math.floor(
+      (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+    ),
     0,
     maxDays,
   );
 
-  const progressMonths = totalMonths > 0 ? elapsedDays / ACADEMIC_CLOCK_DAYS_PER_MONTH : 0;
+  const progressMonths =
+    totalMonths > 0 ? elapsedDays / ACADEMIC_CLOCK_DAYS_PER_MONTH : 0;
   const currentMonth = clamp(progressMonths, 0, totalMonths);
   let localMonth = currentMonth;
 
   for (const phase of phasePlan) {
-    if (localMonth < phase.durationMonths || phase === phasePlan[phasePlan.length - 1]) {
+    if (
+      localMonth < phase.durationMonths ||
+      phase === phasePlan[phasePlan.length - 1]
+    ) {
       return phase.id;
     }
     localMonth -= phase.durationMonths;
@@ -257,21 +294,80 @@ export interface ResolvedAcademicClockPhase {
   phasePlan: AcademicClockPhaseDefinition[];
 }
 
+const normalizeClockPhaseConfig = (
+  phaseConfig?: unknown,
+): AcademicClockPhaseDefinition[] => {
+  if (!phaseConfig) return [];
+
+  if (Array.isArray(phaseConfig)) {
+    return phaseConfig.map((phase: any, index: number) => ({
+      id: phase?.id ?? `phase${index + 1}`,
+      name: phase?.name ?? `Phase ${index + 1}`,
+      durationMonths: Number.isFinite(phase?.durationMonths)
+        ? phase.durationMonths
+        : Number.isFinite(phase?.duration)
+          ? phase.duration
+          : 1,
+      color: phase?.color ?? "#3B82F6",
+      subPostings: Array.isArray(phase?.subPostings)
+        ? phase.subPostings.filter(Boolean)
+        : [],
+    }));
+  }
+
+  if (typeof phaseConfig === "object") {
+    return Object.entries(phaseConfig).reduce<AcademicClockPhaseDefinition[]>(
+      (acc, [key, phase], index) => {
+        const phaseObj = phase as any;
+        acc.push({
+          id: String(key),
+          name: phaseObj?.name ?? `Phase ${index + 1}`,
+          durationMonths: Number.isFinite(phaseObj?.durationMonths)
+            ? phaseObj.durationMonths
+            : Number.isFinite(phaseObj?.duration)
+              ? phaseObj.duration
+              : 1,
+          color: phaseObj?.color ?? "#3B82F6",
+          subPostings: Array.isArray(phaseObj?.subPostings)
+            ? phaseObj.subPostings.filter(Boolean)
+            : [],
+        });
+        return acc;
+      },
+      [],
+    );
+  }
+
+  return [];
+};
+
 export const resolveActiveAcademicClockPhase = (
   clock?: {
     clockPhase?: string | null;
     clockStartDate?: string | Date | null;
     classLevel?: string | null;
+    phaseConfig?: unknown;
   } | null,
   classNameOrLevel?: string | null,
   currentDate: Date = new Date(),
 ): ResolvedAcademicClockPhase => {
-  const phasePlan = normalizePhasePlan(getClassLevelPhasePlan(clock?.classLevel ?? classNameOrLevel ?? ""));
+  const phaseConfigPlan = normalizeClockPhaseConfig(clock?.phaseConfig);
+  const classLevelPlan = normalizePhasePlan(
+    getClassLevelPhasePlan(clock?.classLevel ?? classNameOrLevel ?? ""),
+  );
+  const phasePlan =
+    phaseConfigPlan.length > 0 ? phaseConfigPlan : classLevelPlan;
 
   if (clock?.clockStartDate) {
-    const startDate = clock.clockStartDate instanceof Date ? clock.clockStartDate : new Date(clock.clockStartDate);
+    const startDate =
+      clock.clockStartDate instanceof Date
+        ? clock.clockStartDate
+        : new Date(clock.clockStartDate);
     if (!Number.isNaN(startDate.getTime()) && phasePlan.length > 0) {
-      return { phaseId: getClockPhaseId(startDate, currentDate, phasePlan), phasePlan };
+      return {
+        phaseId: getClockPhaseId(startDate, currentDate, phasePlan),
+        phasePlan,
+      };
     }
   }
 

@@ -97,13 +97,29 @@ const profileThemes = {
 
 const getProfileTheme = (value?: string) => {
   const key = (value || "").toLowerCase();
-  if (key.includes("violet") || key.includes("purple")) return profileThemes.violet;
-  if (key.includes("emerald") || key.includes("green")) return profileThemes.emerald;
-  if (key.includes("amber") || key.includes("gold") || key.includes("orange")) return profileThemes.amber;
+  if (key.includes("violet") || key.includes("purple"))
+    return profileThemes.violet;
+  if (key.includes("emerald") || key.includes("green"))
+    return profileThemes.emerald;
+  if (key.includes("amber") || key.includes("gold") || key.includes("orange"))
+    return profileThemes.amber;
   if (key.includes("rose") || key.includes("pink")) return profileThemes.rose;
-  if (key.includes("indigo") || key.includes("blue")) return profileThemes.indigo;
+  if (key.includes("indigo") || key.includes("blue"))
+    return profileThemes.indigo;
   return profileThemes.sky;
 };
+
+const TextMarquee = ({ children }: { children: ReactNode }) => (
+  <div className="marquee-line w-full overflow-hidden text-left">
+    <div className="marquee-track inline-flex whitespace-nowrap items-center gap-10">
+      <br />
+      <span className="marquee-item inline-block">{children}</span>
+      <br />
+      <span className="marquee-item inline-block">{children}</span>
+      <br />
+    </div>
+  </div>
+);
 
 export function UsersList({
   title,
@@ -127,12 +143,15 @@ export function UsersList({
   const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
 
   const departments = useMemo(
-    () => Array.from(new Set(users.map((user) => user.department || "General"))).sort(),
-    [users]
+    () =>
+      Array.from(
+        new Set(users.map((user) => user.department || "General")),
+      ).sort(),
+    [users],
   );
   const statuses = useMemo(
     () => Array.from(new Set(users.map((user) => user.status))).sort(),
-    [users]
+    [users],
   );
 
   const userDepartment = (user: User) => user.department || "General";
@@ -143,9 +162,11 @@ export function UsersList({
         const matchesSearch =
           user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
           user.email.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesStatus = selectedStatus === "all" || user.status === selectedStatus;
+        const matchesStatus =
+          selectedStatus === "all" || user.status === selectedStatus;
         const matchesDepartment =
-          selectedDepartment === "all" || (user.department || "General") === selectedDepartment;
+          selectedDepartment === "all" ||
+          (user.department || "General") === selectedDepartment;
         return matchesSearch && matchesStatus && matchesDepartment;
       })
       .sort((a, b) => {
@@ -155,7 +176,14 @@ export function UsersList({
         if (first > second) return sortDirection === "asc" ? 1 : -1;
         return 0;
       });
-  }, [users, searchTerm, selectedStatus, selectedDepartment, sortBy, sortDirection]);
+  }, [
+    users,
+    searchTerm,
+    selectedStatus,
+    selectedDepartment,
+    sortBy,
+    sortDirection,
+  ]);
 
   const groupedUsers = useMemo(() => {
     return filteredUsers.reduce<Record<string, User[]>>((acc, user) => {
@@ -174,7 +202,10 @@ export function UsersList({
       Status: user.status,
     }));
     if (rows.length === 0) return;
-    const csv = [Object.keys(rows[0]).join(","), ...rows.map((row) => Object.values(row).join(","))].join("\n");
+    const csv = [
+      Object.keys(rows[0]).join(","),
+      ...rows.map((row) => Object.values(row).join(",")),
+    ].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -187,11 +218,15 @@ export function UsersList({
   };
 
   const toggleUserSelection = (userId: string, checked: boolean) => {
-    setSelectedUserIds((current) => (checked ? [...current, userId] : current.filter((id) => id !== userId)));
+    setSelectedUserIds((current) =>
+      checked ? [...current, userId] : current.filter((id) => id !== userId),
+    );
   };
 
   const toggleSelectAll = (checked: boolean) => {
-    const ids = checked ? filteredUsers.map((user) => user.id || user._id || "") : [];
+    const ids = checked
+      ? filteredUsers.map((user) => user.id || user._id || "")
+      : [];
     setSelectedUserIds(ids.filter(Boolean));
   };
 
@@ -228,20 +263,32 @@ export function UsersList({
             </div>
             <div className="flex flex-wrap gap-2">
               {selectedUserIds.length > 0 && onBulkDeleteUsers && (
-                <Button variant="destructive" size="sm" onClick={() => setIsBulkDeleteOpen(true)}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setIsBulkDeleteOpen(true)}
+                >
                   Delete {selectedUserIds.length}
                 </Button>
               )}
-              <Button variant="outline" size="sm" className="gap-2" onClick={handleExport}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleExport}
+              >
                 <Download className="h-4 w-4" /> Export
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="gap-2"
-                onClick={() => setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"))}
+                onClick={() =>
+                  setSortDirection((dir) => (dir === "asc" ? "desc" : "asc"))
+                }
               >
-                <ArrowUpDown className="h-4 w-4" /> {sortDirection === "asc" ? "A-Z" : "Z-A"}
+                <ArrowUpDown className="h-4 w-4" />{" "}
+                {sortDirection === "asc" ? "A-Z" : "Z-A"}
               </Button>
             </div>
           </div>
@@ -249,7 +296,10 @@ export function UsersList({
           <div className="grid gap-3 md:grid-cols-5">
             <label className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
               <Checkbox
-                checked={filteredUsers.length > 0 && selectedUserIds.length === filteredUsers.length}
+                checked={
+                  filteredUsers.length > 0 &&
+                  selectedUserIds.length === filteredUsers.length
+                }
                 onCheckedChange={(checked) => toggleSelectAll(checked === true)}
               />
               Select all visible
@@ -259,7 +309,10 @@ export function UsersList({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+            <Select
+              value={selectedDepartment}
+              onValueChange={setSelectedDepartment}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="All Departments" />
               </SelectTrigger>
@@ -315,21 +368,29 @@ export function UsersList({
             <div key={department} className="space-y-4">
               <div className="flex items-center justify-between rounded-3xl border border-border bg-surface p-4">
                 <div>
-                  <p className="text-sm font-semibold text-foreground">{department}</p>
-                  <p className="text-xs text-muted-foreground">{departmentUsers.length} users</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {department}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {departmentUsers.length} users
+                  </p>
                 </div>
-                <span className="text-xs text-muted-foreground">Department</span>
+                <span className="text-xs text-muted-foreground">
+                  Department
+                </span>
               </div>
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {departmentUsers.map((user) => {
                   const isFocused = focusedUserId === (user.id || user._id);
                   const userId = user.id || user._id || "";
                   const theme = getProfileTheme(user.theme || userId);
-                  
+
                   return (
                     <div
                       key={userId}
-                      onClick={() => setFocusedUserId(isFocused ? null : userId)}
+                      onClick={() =>
+                        setFocusedUserId(isFocused ? null : userId)
+                      }
                       onBlur={() => setFocusedUserId(null)}
                       role="button"
                       tabIndex={0}
@@ -339,7 +400,9 @@ export function UsersList({
                           : "overflow-hidden hover:-translate-y-0.5 hover:shadow-md"
                       }`}
                     >
-                      <div className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`} />
+                      <div
+                        className={`absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-gradient-to-r ${theme.avatar}`}
+                      />
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex items-start gap-3 min-w-0 flex-1">
                           <div
@@ -360,33 +423,53 @@ export function UsersList({
                                 className="w-full h-full object-cover"
                               />
                             ) : (
-                              <div className={`w-full h-full bg-gradient-to-br ${theme.avatar} flex items-center justify-center text-white font-semibold text-sm`}>
+                              <div
+                                className={`w-full h-full bg-gradient-to-br ${theme.avatar} flex items-center justify-center text-white font-semibold text-sm`}
+                              >
                                 {user.name.charAt(0).toUpperCase()}
                               </div>
                             )}
                           </div>
-                          {isFocused ? (
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-muted-foreground">{user.department || "General"}</p>
-                              <p className="text-lg font-semibold text-foreground truncate">{user.name}</p>
-                              <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="space-y-1">
+                              <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                                Name
+                              </p>
+                              <div className="text-lg font-semibold text-foreground">
+                                <TextMarquee>{user.name}</TextMarquee>
+                              </div>
                             </div>
-                          ) : (
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm text-muted-foreground">{user.department || "General"}</p>
-                              <p className="text-lg font-semibold text-foreground truncate">{user.name}</p>
-                              <p className="text-sm text-muted-foreground truncate">{user.email}</p>
+                            <div className="space-y-1">
+                              <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                                Email
+                              </p>
+                              <div className="text-sm text-muted-foreground">
+                                <TextMarquee>{user.email}</TextMarquee>
+                              </div>
                             </div>
-                          )}
+                            <div className="space-y-1">
+                              <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">
+                                Department
+                              </p>
+                              <div className="text-sm text-muted-foreground">
+                                <TextMarquee>
+                                  {user.department || "General"}
+                                </TextMarquee>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                         {!isFocused && (
                           <div className="flex flex-col items-end gap-2">
                             <Checkbox
                               checked={selectedUserIds.includes(userId)}
-                              onCheckedChange={(checked) => toggleUserSelection(userId, checked === true)}
+                              onCheckedChange={(checked) =>
+                                toggleUserSelection(userId, checked === true)
+                              }
                             />
                             <Badge className={getStatusClass(user.status)}>
-                              {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                              {user.status.charAt(0).toUpperCase() +
+                                user.status.slice(1)}
                             </Badge>
                           </div>
                         )}
@@ -396,9 +479,13 @@ export function UsersList({
                         <div className="mt-4 space-y-2 text-sm text-muted-foreground">
                           {columns.map((column) => (
                             <div key={column.key} className="space-y-1">
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{column.label}</p>
-                              <div className="text-foreground">
-                                {column.render ? column.render(user, user[column.key]) : String(user[column.key] ?? "—")}
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                {column.label}
+                              </p>
+                              <div className="text-foreground w-full break-words min-w-0">
+                                {column.render
+                                  ? column.render(user, user[column.key])
+                                  : String(user[column.key] ?? "—")}
                               </div>
                             </div>
                           ))}
@@ -439,7 +526,8 @@ export function UsersList({
                                 onDeleteUser(userId);
                                 return;
                               }
-                              if (navigationPath) navigate(`${navigationPath}/${userId}`);
+                              if (navigationPath)
+                                navigate(`${navigationPath}/${userId}`);
                             }}
                           >
                             <Trash2 className="h-4 w-4" /> Delete
@@ -451,17 +539,27 @@ export function UsersList({
                         <div className="mt-4 space-y-4 animate-in fade-in duration-200">
                           <div className="space-y-2 text-sm">
                             {columns.map((column) => (
-                              <div key={column.key} className="rounded-2xl bg-background p-3">
-                                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{column.label}</p>
+                              <div
+                                key={column.key}
+                                className="rounded-2xl bg-background p-3"
+                              >
+                                <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                  {column.label}
+                                </p>
                                 <div className="text-foreground">
-                                  {column.render ? column.render(user, user[column.key]) : String(user[column.key] ?? "—")}
+                                  {column.render
+                                    ? column.render(user, user[column.key])
+                                    : String(user[column.key] ?? "—")}
                                 </div>
                               </div>
                             ))}
                             <div className="rounded-2xl bg-background p-3">
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p>
+                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                                Status
+                              </p>
                               <Badge className={getStatusClass(user.status)}>
-                                {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                                {user.status.charAt(0).toUpperCase() +
+                                  user.status.slice(1)}
                               </Badge>
                             </div>
                           </div>
@@ -501,7 +599,8 @@ export function UsersList({
         )}
 
         <div className="text-sm text-muted-foreground">
-          Showing {filteredUsers.length} of {users.length} {title.toLowerCase()}.
+          Showing {filteredUsers.length} of {users.length} {title.toLowerCase()}
+          .
         </div>
       </CardContent>
 
@@ -515,4 +614,3 @@ export function UsersList({
     </Card>
   );
 }
-

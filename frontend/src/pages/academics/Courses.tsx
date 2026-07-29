@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { ChevronRight, Search as SearchIcon, PlusCircle, RefreshCw, Wand2, Pencil } from "lucide-react";
+import {
+  ChevronRight,
+  Search as SearchIcon,
+  PlusCircle,
+  RefreshCw,
+  Wand2,
+  Pencil,
+} from "lucide-react";
 import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -21,7 +28,6 @@ import { CustomMultiSelect } from "@/components/global/CustomMultiSelect";
 import { CustomSelect } from "@/components/global/CustomSelect";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Label } from "@/components/ui/label";
-
 
 type LoadingState = "idle" | "loading" | "error";
 
@@ -61,7 +67,8 @@ type CreateSubjectFormValues = z.infer<typeof createSubjectSchema>;
 
 const getApiErrorMessage = (error: unknown, fallback: string) => {
   if (typeof error === "object" && error !== null && "response" in error) {
-    const response = (error as { response?: { data?: { message?: string } } }).response;
+    const response = (error as { response?: { data?: { message?: string } } })
+      .response;
     if (response?.data?.message) {
       return response.data.message;
     }
@@ -81,7 +88,9 @@ type Teacher = {
   _id: string;
   name: string;
   email?: string;
-  department?: string | { _id?: string; name?: string; code?: string; departmentID?: string };
+  department?:
+    | string
+    | { _id?: string; name?: string; code?: string; departmentID?: string };
 };
 
 type SubjectCourse = {
@@ -97,17 +106,29 @@ const getTeacherDepartmentValue = (department: unknown) => {
   if (!department) return "";
   if (typeof department === "string") return department.trim().toLowerCase();
   if (typeof department === "object" && department !== null) {
-    const deptObj = department as { _id?: string; name?: string; code?: string; departmentID?: string };
-    return (
-      String(deptObj._id ?? deptObj.code ?? deptObj.departmentID ?? deptObj.name ?? "").trim().toLowerCase()
-    );
+    const deptObj = department as {
+      _id?: string;
+      name?: string;
+      code?: string;
+      departmentID?: string;
+    };
+    return String(
+      deptObj._id ?? deptObj.code ?? deptObj.departmentID ?? deptObj.name ?? "",
+    )
+      .trim()
+      .toLowerCase();
   }
   return "";
 };
 
 const teacherBelongsToDepartment = (
   teacher: Teacher,
-  department: { _id: string; name: string; code: string; departmentID: string } | null
+  department: {
+    _id: string;
+    name: string;
+    code: string;
+    departmentID: string;
+  } | null,
 ) => {
   if (!department) return false;
   const teacherDepartment = getTeacherDepartmentValue(teacher.department);
@@ -123,20 +144,25 @@ const teacherBelongsToDepartment = (
 export default function Courses() {
   const { user } = useAuth();
   const isAdminOrTeacher = user?.role === "admin" || user?.role === "teacher";
-  const canManageCourses = ["admin", "teacher", "unitconsultant"].includes(user?.role ?? "");
+  const canManageCourses = ["admin", "teacher", "unitconsultant"].includes(
+    user?.role ?? "",
+  );
   const isAdmin = user?.role === "admin";
   // Allow create/add actions for any user except students and parents
-  const canCreateCourse = Boolean(user) && !["student", "parent"].includes(user?.role ?? "");
+  const canCreateCourse =
+    Boolean(user) && !["student", "parent"].includes(user?.role ?? "");
 
   const [classes, setClasses] = useState<Class[]>([]);
   const [loadingState, setLoadingState] = useState<LoadingState>("idle");
-  const [hoveredCourse, setHoveredCourse] = useState<{ courseId: string; x: number; y: number } | null>(null);
+  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
 
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [addCourseOpen, setAddCourseOpen] = useState(false);
   const [createCourseOpen, setCreateCourseOpen] = useState(false);
-  const [createCourseForClassId, setCreateCourseForClassId] = useState<string | null>(null);
+  const [createCourseForClassId, setCreateCourseForClassId] = useState<
+    string | null
+  >(null);
   const [editingCourse, setEditingCourse] = useState<courses | null>(null);
   const [allCourses, setAllCourses] = useState<courses[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
@@ -145,11 +171,24 @@ export default function Courses() {
   const [deduplicating, setDeduplicating] = useState(false);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
-  const [departments, setDepartments] = useState<{ _id: string; name: string; departmentID: string; code: string }[]>([]);
-  const [units, setUnits] = useState<{ _id: string; name: string; unitID: string; department: string | { _id?: string } }[]>([]);
-  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [departments, setDepartments] = useState<
+    { _id: string; name: string; departmentID: string; code: string }[]
+  >([]);
+  const [units, setUnits] = useState<
+    {
+      _id: string;
+      name: string;
+      unitID: string;
+      department: string | { _id?: string };
+    }[]
+  >([]);
+  const [academicYears, setAcademicYears] = useState<
+    { _id: string; name: string }[]
+  >([]);
   const [subjectModalOpen, setSubjectModalOpen] = useState(false);
-  const [subjectCourse, setSubjectCourse] = useState<SubjectCourse | null>(null);
+  const [subjectCourse, setSubjectCourse] = useState<SubjectCourse | null>(
+    null,
+  );
   const [uploadingCourses, setUploadingCourses] = useState(false);
   const uploadCourseInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -159,7 +198,9 @@ export default function Courses() {
   });
 
   const createForm = useForm<CreateCourseFormValues>({
-    resolver: zodResolver(createCourseSchema) as Resolver<CreateCourseFormValues>,
+    resolver: zodResolver(
+      createCourseSchema,
+    ) as Resolver<CreateCourseFormValues>,
     defaultValues: {
       name: "",
       code: "",
@@ -175,7 +216,9 @@ export default function Courses() {
   });
 
   const subjectForm = useForm<CreateSubjectFormValues>({
-    resolver: zodResolver(createSubjectSchema) as Resolver<CreateSubjectFormValues>,
+    resolver: zodResolver(
+      createSubjectSchema,
+    ) as Resolver<CreateSubjectFormValues>,
     defaultValues: {
       name: "",
       code: "",
@@ -190,7 +233,10 @@ export default function Courses() {
     const q = search.trim().toLowerCase();
     if (!q) return classes;
     return classes.filter((c) => {
-      const haystack = [c.name, c.academicYear?.name].filter(Boolean).join(" ").toLowerCase();
+      const haystack = [c.name, c.academicYear?.name]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       return haystack.includes(q);
     });
   }, [classes, search]);
@@ -203,14 +249,19 @@ export default function Courses() {
   const selectedCourses: courses[] = useMemo(() => {
     const courses = selectedClass?.courses;
     if (Array.isArray(courses)) return courses;
-    const subjectsLegacy = (selectedClass as unknown as { subjects?: courses[] })?.subjects;
+    const subjectsLegacy = (
+      selectedClass as unknown as { subjects?: courses[] }
+    )?.subjects;
     if (Array.isArray(subjectsLegacy)) return subjectsLegacy;
     return [];
   }, [selectedClass]);
 
   const createCourseTargetClass = useMemo(() => {
     if (createCourseForClassId) {
-      return classes.find((cls) => cls._id === createCourseForClassId) ?? selectedClass;
+      return (
+        classes.find((cls) => cls._id === createCourseForClassId) ??
+        selectedClass
+      );
     }
     return selectedClass;
   }, [classes, createCourseForClassId, selectedClass]);
@@ -224,31 +275,40 @@ export default function Courses() {
     const selectedDept = selectedCourseDepartmentId;
     if (!selectedDept) return units;
     return units.filter((u) => {
-      const deptId = typeof u.department === "object" ? u.department._id : u.department;
+      const deptId =
+        typeof u.department === "object" ? u.department._id : u.department;
       return String(deptId) === String(selectedDept);
     });
   }, [units, selectedCourseDepartmentId]);
 
   const selectedCourseDepartment = useMemo(
-    () => departments.find((dept) => dept._id === selectedCourseDepartmentId) ?? null,
-    [departments, selectedCourseDepartmentId]
+    () =>
+      departments.find((dept) => dept._id === selectedCourseDepartmentId) ??
+      null,
+    [departments, selectedCourseDepartmentId],
   );
 
   const hodOptions = useMemo(() => {
     const filtered = selectedCourseDepartment
-      ? teachers.filter((teacher) => teacherBelongsToDepartment(teacher, selectedCourseDepartment))
+      ? teachers.filter((teacher) =>
+          teacherBelongsToDepartment(teacher, selectedCourseDepartment),
+        )
       : teachers;
     return filtered.map((t) => ({ label: t.name, value: t._id }));
   }, [teachers, selectedCourseDepartment]);
 
   const selectedSubjectDepartment = useMemo(
-    () => departments.find((dept) => dept._id === subjectCourse?.departmentId) ?? null,
-    [departments, subjectCourse]
+    () =>
+      departments.find((dept) => dept._id === subjectCourse?.departmentId) ??
+      null,
+    [departments, subjectCourse],
   );
 
   const subjectTeacherOptions = useMemo(() => {
     const filtered = selectedSubjectDepartment
-      ? teachers.filter((teacher) => teacherBelongsToDepartment(teacher, selectedSubjectDepartment))
+      ? teachers.filter((teacher) =>
+          teacherBelongsToDepartment(teacher, selectedSubjectDepartment),
+        )
       : teachers;
     return filtered.map((t) => ({ label: t.name, value: t._id }));
   }, [teachers, selectedSubjectDepartment]);
@@ -262,12 +322,19 @@ export default function Courses() {
         },
       ];
     }
-    return departments.map((dept) => ({ label: dept.departmentID, value: dept.departmentID }));
+    return departments.map((dept) => ({
+      label: dept.departmentID,
+      value: dept.departmentID,
+    }));
   }, [departments, selectedSubjectDepartment]);
 
   const availableCourses = useMemo(() => {
-    const assignedIds = new Set(selectedCourses.map((c) => c._id).filter(Boolean));
-    return allCourses.filter((course) => course._id && !assignedIds.has(course._id));
+    const assignedIds = new Set(
+      selectedCourses.map((c) => c._id).filter(Boolean),
+    );
+    return allCourses.filter(
+      (course) => course._id && !assignedIds.has(course._id),
+    );
   }, [allCourses, selectedCourses]);
 
   const fetchClasses = useCallback(async () => {
@@ -309,14 +376,34 @@ export default function Courses() {
   const fetchTeachers = useCallback(async (departmentId?: string) => {
     try {
       setLoadingTeachers(true);
-      const query = new URLSearchParams({ page: "1", limit: "500", role: "teacher" });
+      const query = new URLSearchParams({
+        page: "1",
+        limit: "500",
+        role: "teacher",
+      });
       if (departmentId) {
         query.set("department", departmentId);
       }
       const { data } = await api.get(`/users?${query.toString()}`);
-      const allUsers = (data.users ?? []) as Array<user & { department?: string | { _id?: string; name?: string; code?: string; departmentID?: string } }>;
+      const allUsers = (data.users ?? []) as Array<
+        user & {
+          department?:
+            | string
+            | {
+                _id?: string;
+                name?: string;
+                code?: string;
+                departmentID?: string;
+              };
+        }
+      >;
       setTeachers(
-        allUsers.map((u) => ({ _id: u._id, name: u.name, email: u.email, department: u.department }))
+        allUsers.map((u) => ({
+          _id: u._id,
+          name: u.name,
+          email: u.email,
+          department: u.department,
+        })),
       );
     } catch {
       toast.error("Failed to load teachers");
@@ -363,7 +450,8 @@ export default function Courses() {
     }
 
     const targetClassId = classId ?? selectedClassId;
-    const targetClass = classes.find((c) => c._id === targetClassId) ?? selectedClass;
+    const targetClass =
+      classes.find((c) => c._id === targetClassId) ?? selectedClass;
 
     setCreateCourseForClassId(targetClassId ?? null);
     createForm.reset({
@@ -391,9 +479,12 @@ export default function Courses() {
     if (course) {
       setEditingCourse(course);
       setCreateCourseOpen(true);
-      const lecturerId = Array.isArray(course.lecturer) && course.lecturer.length > 0
-        ? (typeof course.lecturer[0] === "object" ? (course.lecturer[0] as { _id?: string })._id ?? "" : String(course.lecturer[0]))
-        : "";
+      const lecturerId =
+        Array.isArray(course.lecturer) && course.lecturer.length > 0
+          ? typeof course.lecturer[0] === "object"
+            ? ((course.lecturer[0] as { _id?: string })._id ?? "")
+            : String(course.lecturer[0])
+          : "";
       const courseWithRefs = course as courses & {
         courseID?: string;
         semester?: "First" | "Second";
@@ -420,14 +511,29 @@ export default function Courses() {
 
   const parseBulkUploadRows = (rows: Array<Record<string, unknown>>) =>
     rows.map((row) => ({
-      name: String(row["Course Title"] || row["Subject"] || row["name"] || "").trim(),
-      code: String(row["Course Code"] || row["code"] || "").trim().toUpperCase(),
-      courseID: String(row["Course Group ID"] || row["courseID"] || row["Group ID"] || "").trim().toUpperCase(),
-      department: String(row["Department"] || row["Department Name"] || row["department"] || "").trim(),
+      name: String(
+        row["Course Title"] || row["Subject"] || row["name"] || "",
+      ).trim(),
+      code: String(row["Course Code"] || row["code"] || "")
+        .trim()
+        .toUpperCase(),
+      courseID: String(
+        row["Course Group ID"] || row["courseID"] || row["Group ID"] || "",
+      )
+        .trim()
+        .toUpperCase(),
+      department: String(
+        row["Department"] || row["Department Name"] || row["department"] || "",
+      ).trim(),
       unit: String(row["Unit"] || row["Unit Name"] || row["unit"] || "").trim(),
       semester: String(row["Semester"] || row["semester"] || "").trim(),
       year: String(row["Year"] || row["year"] || "").trim(),
-      academicYearId: String(row["Academic Year ID"] || row["academicYearId"] || row["academicYear"] || "").trim(),
+      academicYearId: String(
+        row["Academic Year ID"] ||
+          row["academicYearId"] ||
+          row["academicYear"] ||
+          "",
+      ).trim(),
       lecturer: String(row["Lecturer"] || row["lecturer"] || "").trim(),
     }));
 
@@ -437,7 +543,10 @@ export default function Courses() {
       const arrayBuffer = await file.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
       const workbookSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbookSheet, { defval: "" });
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+        workbookSheet,
+        { defval: "" },
+      );
       const parsedRows = parseBulkUploadRows(rows);
 
       if (parsedRows.length === 0) {
@@ -445,9 +554,13 @@ export default function Courses() {
         return;
       }
 
-      const response = await api.post("/courses/bulk-upload", { courses: parsedRows });
+      const response = await api.post("/courses/bulk-upload", {
+        courses: parsedRows,
+      });
       const result = response.data?.results;
-      toast.success(`Bulk upload completed. Created ${result?.created ?? 0}, skipped ${result?.skipped ?? 0}.`);
+      toast.success(
+        `Bulk upload completed. Created ${result?.created ?? 0}, skipped ${result?.skipped ?? 0}.`,
+      );
       void fetchAllCourses();
       void fetchClasses();
     } catch (error) {
@@ -457,7 +570,7 @@ export default function Courses() {
     }
   };
 
-  const onUpdateCourseSubmit = async (values: CreateCourseFormValues) => {  
+  const onUpdateCourseSubmit = async (values: CreateCourseFormValues) => {
     if (!editingCourse?._id) return;
     try {
       setUpdatingCourse(true);
@@ -488,9 +601,13 @@ export default function Courses() {
   const onAddCoursesSubmit = async (values: AddCoursesFormValues) => {
     if (!selectedClassId) return;
     try {
-      const existingIds = selectedCourses.map((c) => c._id).filter(Boolean) as string[];
+      const existingIds = selectedCourses
+        .map((c) => c._id)
+        .filter(Boolean) as string[];
       const allCourseIds = [...existingIds, ...values.courseIds];
-      await api.patch(`/classes/update/${selectedClassId}`, { courses: allCourseIds });
+      await api.patch(`/classes/update/${selectedClassId}`, {
+        courses: allCourseIds,
+      });
       toast.success("Courses assigned successfully");
       setAddCourseOpen(false);
       void fetchClasses();
@@ -517,10 +634,16 @@ export default function Courses() {
       const classIdToAssign = createCourseForClassId ?? selectedClassId;
       if (values.assignToClass && classIdToAssign) {
         try {
-          const existingIds = selectedCourses.map((c) => c._id).filter(Boolean) as string[];
-          await api.patch(`/classes/update/${classIdToAssign}`, { courses: [...existingIds, data._id] });
+          const existingIds = selectedCourses
+            .map((c) => c._id)
+            .filter(Boolean) as string[];
+          await api.patch(`/classes/update/${classIdToAssign}`, {
+            courses: [...existingIds, data._id],
+          });
         } catch {
-          toast.error("Course created, but failed to assign it to the selected class.");
+          toast.error(
+            "Course created, but failed to assign it to the selected class.",
+          );
         }
       }
       toast.success(`Course "${values.name}" created successfully`);
@@ -553,7 +676,14 @@ export default function Courses() {
       toast.success(`Subject "${values.name}" added to ${subjectCourse.name}`);
       setSubjectModalOpen(false);
       setSubjectCourse(null);
-      subjectForm.reset({ name: "", code: "", subjectID: "", unit: "", lecturer: "", isActive: true });
+      subjectForm.reset({
+        name: "",
+        code: "",
+        subjectID: "",
+        unit: "",
+        lecturer: "",
+        isActive: true,
+      });
       void fetchAllCourses();
       void fetchClasses();
     } catch (e: unknown) {
@@ -566,7 +696,9 @@ export default function Courses() {
   type CourseWithDepartment = {
     _id?: string;
     name?: string;
-    department?: string | { _id?: string; name?: string; code?: string; departmentID?: string };
+    department?:
+      | string
+      | { _id?: string; name?: string; code?: string; departmentID?: string };
   };
 
   const handleOpenSubjectModal = (open: boolean, course?: SubjectCourse) => {
@@ -606,7 +738,9 @@ export default function Courses() {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Courses</h1>
-          <p className="text-muted-foreground">Available course subjects for each class.</p>
+          <p className="text-muted-foreground">
+            Available course subjects for each class.
+          </p>
         </div>
         <div className="flex gap-3 items-center">
           <div className="relative w-[260px] max-w-[60vw]">
@@ -660,8 +794,14 @@ export default function Courses() {
             <Button
               variant="default"
               size="sm"
-              onClick={() => handleOpenCreateCourse(true, selectedClassId ?? undefined)}
-              title={selectedClass ? "Create course for the selected class" : "Create a course"}
+              onClick={() =>
+                handleOpenCreateCourse(true, selectedClassId ?? undefined)
+              }
+              title={
+                selectedClass
+                  ? "Create course for the selected class"
+                  : "Create a course"
+              }
             >
               <PlusCircle className="mr-1 h-4 w-4" />
               New Course
@@ -708,7 +848,12 @@ export default function Courses() {
                           {cls.academicYear?.name ?? "N/A"}
                         </div>
                       </div>
-                      <ChevronRight className={"h-4 w-4 text-muted-foreground " + (isActive ? "opacity-100" : "opacity-60")} />
+                      <ChevronRight
+                        className={
+                          "h-4 w-4 text-muted-foreground " +
+                          (isActive ? "opacity-100" : "opacity-60")
+                        }
+                      />
                     </div>
                   </button>
                 );
@@ -717,7 +862,11 @@ export default function Courses() {
           )}
 
           <div className="mt-4 flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => void fetchClasses()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void fetchClasses()}
+            >
               <RefreshCw className="mr-1 h-4 w-4" />
               Refresh
             </Button>
@@ -745,7 +894,9 @@ export default function Courses() {
           {selectedClass ? (
             <div className="space-y-4">
               <div>
-                <div className="text-sm text-muted-foreground">Selected class</div>
+                <div className="text-sm text-muted-foreground">
+                  Selected class
+                </div>
                 <div className="font-medium">{selectedClass.name}</div>
                 <div className="text-sm text-muted-foreground">
                   {selectedClass.academicYear?.name ?? "N/A"}
@@ -767,209 +918,237 @@ export default function Courses() {
                   );
                 }
 
-                const hoveredCourseDetails = uniqueCourses.find((course) => course._id === hoveredCourse?.courseId);
-
                 return (
                   <>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {uniqueCourses.map((c) => {
-                const lecturerArr = Array.isArray(c.lecturer) ? c.lecturer : [];
-                const teacherNames = lecturerArr
-                  .map((t) => {
-                    if (!t || typeof t !== "object") return undefined;
-                    const maybeName = (t as { name?: string }).name;
-                    return maybeName ?? undefined;
-                  })
-                  .filter((x): x is string => typeof x === "string" && x.length > 0);
-                const displayLecturers = teacherNames.length > 0
-                  ? teacherNames.join(", ")
-                  : lecturerArr.length > 0
-                  ? `${lecturerArr.length} lecturer${lecturerArr.length !== 1 ? "s" : ""}`
-                  : undefined;
-
-                const departmentName = typeof c.department === "string"
-                  ? c.department
-                  : c.department?.name ?? c.department?.code ?? c.department?.departmentID ?? "";
-                const academicYearName = typeof c.academicYear === "string"
-                  ? c.academicYear
-                  : c.academicYear?.name ?? "";
-                const isHovered = hoveredCourse?.courseId === c._id;
-
-                return (
-                  <div
-                    key={c._id}
-                    className={
-                      "relative border rounded-md p-3 transition cursor-pointer " +
-                      (isHovered
-                        ? "border-primary bg-primary/5 shadow-md"
-                        : "hover:border-muted-foreground/40 hover:shadow-sm")
-                    }
-                    onMouseEnter={(event) => {
-                      setHoveredCourse({ courseId: c._id, x: event.clientX, y: event.clientY });
-                    }}
-                    onMouseMove={(event) => {
-                      setHoveredCourse((prev) => prev?.courseId === c._id ? { courseId: c._id, x: event.clientX, y: event.clientY } : prev);
-                    }}
-                    onMouseLeave={() => setHoveredCourse((prev) => (prev?.courseId === c._id ? null : prev))}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 text-left">
-                        <div className="font-medium text-left">{c.name}</div>
-                        <div className="text-sm text-muted-foreground">{c.code}</div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {canManageCourses && (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleOpenEditCourse(true, c);
-                            }}
-                            className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
-                            title="Edit course"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {canManageCourses && (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              const courseWithDept = c as CourseWithDepartment;
-                              const department =
-                                typeof courseWithDept.department === "object"
-                                  ? courseWithDept.department
-                                  : null;
-                              const departmentId =
-                                typeof courseWithDept.department === "string"
-                                  ? courseWithDept.department
-                                  : resolveReferenceId(courseWithDept.department);
-                              handleOpenSubjectModal(true, {
-                                id: c._id ?? "",
-                                name: c.name ?? "Course",
-                                departmentId,
-                                departmentCode: department?.code ?? "",
-                                departmentID: department?.departmentID ?? "",
-                                departmentName: department?.name ?? "",
-                              });
-                            }}
-                            className="text-muted-foreground hover:text-primary p-1 rounded shrink-0"
-                            title="Add subject to course"
-                          >
-                            +
-                          </button>
-                        )}
-                        {canManageCourses && (
-                          <button
-                            type="button"
-                            onClick={async (event) => {
-                              event.stopPropagation();
-                              try {
-                                const remaining = (selectedCourses ?? [])
-                                  .filter((x) => x._id !== c._id)
-                                  .map((x) => x._id);
-
-                                await api.patch(`/classes/update/${selectedClassId}`, { courses: remaining });
-
-                                toast.success("Course removed from class");
-                                void fetchClasses();
-                              } catch {
-                                toast.error("Failed to remove course from class");
-                              }
-                            }}
-                            className="text-muted-foreground hover:text-red-600 p-1 rounded shrink-0"
-                            title="Remove from class"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {displayLecturers && (
-                      <div className="text-xs text-muted-foreground mt-1">👤 {displayLecturers}</div>
-                    )}
-                    {!c.isActive ? (
-                      <div className="mt-2">
-                        <Badge variant="destructive">Inactive</Badge>
-                      </div>
-                    ) : (
-                      <div className="mt-2">
-                        <Badge variant="default">Active</Badge>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-                  </div>
-                    {hoveredCourseDetails && (
-                      <div
-                        className="pointer-events-none fixed z-[70] w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-primary/20 bg-background/95 p-4 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl"
-                        style={{
-                          left: `${hoveredCourse?.x ?? 0}px`,
-                          top: `${hoveredCourse?.y ?? 0}px`,
-                          transform: "translate(-50%, -50%)",
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-semibold text-foreground">{hoveredCourseDetails.name}</div>
-                            <div className="text-sm text-muted-foreground">{hoveredCourseDetails.code}</div>
-                          </div>
-                          {hoveredCourseDetails.isActive ? (
-                            <Badge variant="default">Active</Badge>
-                          ) : (
-                            <Badge variant="destructive">Inactive</Badge>
-                          )}
-                        </div>
-
-                        <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-                          <div>
-                            <span className="font-medium text-foreground">Course Group:</span> {hoveredCourseDetails.courseID ?? "N/A"}
-                          </div>
-                          <div>
-                            <span className="font-medium text-foreground">Department:</span> {typeof hoveredCourseDetails.department === "string"
-                              ? hoveredCourseDetails.department
-                              : hoveredCourseDetails.department?.name ?? hoveredCourseDetails.department?.code ?? hoveredCourseDetails.department?.departmentID ?? "N/A"}
-                          </div>
-                          <div>
-                            <span className="font-medium text-foreground">Semester:</span> {hoveredCourseDetails.semester ?? "N/A"}
-                          </div>
-                          <div>
-                            <span className="font-medium text-foreground">Academic Year:</span> {typeof hoveredCourseDetails.academicYear === "string"
-                              ? hoveredCourseDetails.academicYear
-                              : hoveredCourseDetails.academicYear?.name ?? "N/A"}
-                          </div>
-                          {(() => {
-                            const hoverLecturerArr = Array.isArray(hoveredCourseDetails.lecturer) ? hoveredCourseDetails.lecturer : [];
-                            const hoverTeacherNames = hoverLecturerArr
-                              .map((t) => {
-                                if (!t || typeof t !== "object") return undefined;
-                                const maybeName = (t as { name?: string }).name;
-                                return maybeName ?? undefined;
-                              })
-                              .filter((x): x is string => typeof x === "string" && x.length > 0);
-                            const hoverDisplayLecturers = hoverTeacherNames.length > 0
-                              ? hoverTeacherNames.join(", ")
-                              : hoverLecturerArr.length > 0
-                              ? `${hoverLecturerArr.length} lecturer${hoverLecturerArr.length !== 1 ? "s" : ""}`
+                      {uniqueCourses.map((c) => {
+                        const lecturerArr = Array.isArray(c.lecturer)
+                          ? c.lecturer
+                          : [];
+                        const teacherNames = lecturerArr
+                          .map((t) => {
+                            if (!t || typeof t !== "object") return undefined;
+                            const maybeName = (t as { name?: string }).name;
+                            return maybeName ?? undefined;
+                          })
+                          .filter(
+                            (x): x is string =>
+                              typeof x === "string" && x.length > 0,
+                          );
+                        const displayLecturers =
+                          teacherNames.length > 0
+                            ? teacherNames.join(", ")
+                            : lecturerArr.length > 0
+                              ? `${lecturerArr.length} lecturer${lecturerArr.length !== 1 ? "s" : ""}`
                               : undefined;
 
-                            return hoverDisplayLecturers ? (
-                              <div>
-                                <span className="font-medium text-foreground">Lecturers:</span> {hoverDisplayLecturers}
+                        const departmentName =
+                          typeof (
+                            c as {
+                              department?: {
+                                name?: string;
+                                code?: string;
+                                departmentID?: string;
+                              };
+                            }
+                          ).department === "string"
+                            ? (c as { department?: string }).department
+                            : ((
+                                c as {
+                                  department?: {
+                                    name?: string;
+                                    code?: string;
+                                    departmentID?: string;
+                                  };
+                                }
+                              ).department?.name ??
+                              (
+                                c as {
+                                  department?: {
+                                    name?: string;
+                                    code?: string;
+                                    departmentID?: string;
+                                  };
+                                }
+                              ).department?.code ??
+                              (
+                                c as {
+                                  department?: {
+                                    name?: string;
+                                    code?: string;
+                                    departmentID?: string;
+                                  };
+                                }
+                              ).department?.departmentID ??
+                              "");
+                        const academicYearName =
+                          typeof (
+                            c as { academicYear?: string | { name?: string } }
+                          ).academicYear === "string"
+                            ? (c as { academicYear?: string }).academicYear
+                            : ((c as { academicYear?: { name?: string } })
+                                .academicYear?.name ?? "");
+                        const isExpanded = expandedCourseId === c._id;
+
+                        return (
+                          <div
+                            key={c._id}
+                            className={
+                              "relative border rounded-md p-3 cursor-pointer " +
+                              (isExpanded
+                                ? "border-primary bg-primary/5 shadow-sm"
+                                : "border-border bg-background")
+                            }
+                            onClick={() =>
+                              setExpandedCourseId((prev) =>
+                                prev === c._id ? null : c._id,
+                              )
+                            }
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 text-left">
+                                <div className="font-medium text-left">
+                                  {c.name}
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  {c.code}
+                                </div>
                               </div>
-                            ) : null;
-                          })()}
-                        </div>
-                      </div>
-                    )}
+                              <div className="flex items-center gap-1">
+                                {canManageCourses && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenEditCourse(true, c);
+                                    }}
+                                    className="text-muted-foreground p-1 rounded shrink-0"
+                                    title="Edit course"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {canManageCourses && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      const courseWithDept =
+                                        c as CourseWithDepartment;
+                                      const department =
+                                        typeof courseWithDept.department ===
+                                        "object"
+                                          ? courseWithDept.department
+                                          : null;
+                                      const departmentId =
+                                        typeof courseWithDept.department ===
+                                        "string"
+                                          ? courseWithDept.department
+                                          : resolveReferenceId(
+                                              courseWithDept.department,
+                                            );
+                                      handleOpenSubjectModal(true, {
+                                        id: c._id ?? "",
+                                        name: c.name ?? "Course",
+                                        departmentId,
+                                        departmentCode: department?.code ?? "",
+                                        departmentID:
+                                          department?.departmentID ?? "",
+                                        departmentName: department?.name ?? "",
+                                      });
+                                    }}
+                                    className="text-muted-foreground p-1 rounded shrink-0"
+                                    title="Add subject to course"
+                                  >
+                                    +
+                                  </button>
+                                )}
+                                {canManageCourses && (
+                                  <button
+                                    type="button"
+                                    onClick={async (event) => {
+                                      event.stopPropagation();
+                                      try {
+                                        const remaining = (
+                                          selectedCourses ?? []
+                                        )
+                                          .filter((x) => x._id !== c._id)
+                                          .map((x) => x._id);
+
+                                        await api.patch(
+                                          `/classes/update/${selectedClassId}`,
+                                          { courses: remaining },
+                                        );
+
+                                        toast.success(
+                                          "Course removed from class",
+                                        );
+                                        void fetchClasses();
+                                      } catch {
+                                        toast.error(
+                                          "Failed to remove course from class",
+                                        );
+                                      }
+                                    }}
+                                    className="text-muted-foreground p-1 rounded shrink-0"
+                                    title="Remove from class"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {displayLecturers && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                👤 {displayLecturers}
+                              </div>
+                            )}
+                            {!c.isActive ? (
+                              <div className="mt-2">
+                                <Badge variant="destructive">Inactive</Badge>
+                              </div>
+                            ) : (
+                              <div className="mt-2">
+                                <Badge variant="default">Active</Badge>
+                              </div>
+                            )}
+                            {isExpanded && (
+                              <div className="mt-4 rounded-2xl border border-primary/20 bg-background/95 p-4 transition-all duration-300 shadow-sm">
+                                <div className="text-sm text-muted-foreground space-y-2">
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Course Group:
+                                    </span>{" "}
+                                    {(c as { courseID?: string }).courseID ??
+                                      "N/A"}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Department:
+                                    </span>{" "}
+                                    {departmentName || "N/A"}
+                                  </div>
+                                  <div>
+                                    <span className="font-medium text-foreground">
+                                      Semester:
+                                    </span>{" "}
+                                    {academicYearName || "N/A"}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </>
                 );
               })()}
             </div>
           ) : (
-            <div className="text-muted-foreground">Select a class to view its available courses.</div>
+            <div className="text-muted-foreground">
+              Select a class to view its available courses.
+            </div>
           )}
         </Card>
       </div>
@@ -979,9 +1158,14 @@ export default function Courses() {
         open={addCourseOpen}
         setOpen={handleOpenAddCourse}
         title="Assign Courses"
-        description={selectedClass ? `Add courses to ${selectedClass.name}` : "Add courses"}
+        description={
+          selectedClass ? `Add courses to ${selectedClass.name}` : "Add courses"
+        }
       >
-        <form onSubmit={form.handleSubmit(onAddCoursesSubmit)} className="space-y-4">
+        <form
+          onSubmit={form.handleSubmit(onAddCoursesSubmit)}
+          className="space-y-4"
+        >
           <Controller
             name="courseIds"
             control={form.control}
@@ -993,13 +1177,20 @@ export default function Courses() {
                   name="courseIds"
                   label="Select Courses"
                   placeholder="Select courses..."
-                  options={availableCourses.map((c) => ({ label: `${c.name} ${c.code ? `(${c.code})` : ""}`.trim(), value: c._id }))}
+                  options={availableCourses.map((c) => ({
+                    label: `${c.name} ${c.code ? `(${c.code})` : ""}`.trim(),
+                    value: c._id,
+                  }))}
                   loading={loadingCourses}
                 />
               </Field>
             )}
           />
-          <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={form.formState.isSubmitting}
+          >
             {form.formState.isSubmitting ? "Saving..." : "Assign Courses"}
           </Button>
         </form>
@@ -1010,14 +1201,18 @@ export default function Courses() {
         open={createCourseOpen}
         setOpen={handleOpenCreateCourse}
         title={editingCourse ? "Edit Course" : "Create New Course"}
-        description={editingCourse
-          ? `Update course "${editingCourse.name}".`
-          : createCourseTargetClass
-          ? `Create a new course and assign it to ${createCourseTargetClass.name}.`
-          : "Add a new course subject to the system. Admin and teachers can create courses."}
+        description={
+          editingCourse
+            ? `Update course "${editingCourse.name}".`
+            : createCourseTargetClass
+              ? `Create a new course and assign it to ${createCourseTargetClass.name}.`
+              : "Add a new course subject to the system. Admin and teachers can create courses."
+        }
       >
         <form
-          onSubmit={createForm.handleSubmit(editingCourse ? onUpdateCourseSubmit : onCreateCourseSubmit)}
+          onSubmit={createForm.handleSubmit(
+            editingCourse ? onUpdateCourseSubmit : onCreateCourseSubmit,
+          )}
           className="space-y-4"
         >
           <Field>
@@ -1027,7 +1222,9 @@ export default function Courses() {
               placeholder="e.g., Pediatrics"
             />
             {createForm.formState.errors.name && (
-              <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.name.message)}</p>
+              <p className="text-xs text-red-500 mt-1">
+                {String(createForm.formState.errors.name.message)}
+              </p>
             )}
           </Field>
 
@@ -1038,7 +1235,9 @@ export default function Courses() {
               placeholder="e.g., PAE 501"
             />
             {createForm.formState.errors.code && (
-              <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.code.message)}</p>
+              <p className="text-xs text-red-500 mt-1">
+                {String(createForm.formState.errors.code.message)}
+              </p>
             )}
           </Field>
 
@@ -1047,11 +1246,16 @@ export default function Courses() {
             name="courseID"
             label="Course Group ID"
             placeholder="Select department code"
-            options={departments.map((dept) => ({ label: dept.departmentID ?? dept.code ?? dept.name, value: dept.code }))}
+            options={departments.map((dept) => ({
+              label: dept.departmentID ?? dept.code ?? dept.name,
+              value: dept.code,
+            }))}
             loading={departments.length === 0}
           />
           {createForm.formState.errors.courseID && (
-            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.courseID.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(createForm.formState.errors.courseID.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1065,7 +1269,9 @@ export default function Courses() {
             ]}
           />
           {createForm.formState.errors.semester && (
-            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.semester.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(createForm.formState.errors.semester.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1073,11 +1279,16 @@ export default function Courses() {
             name="department"
             label="Department"
             placeholder="Select department"
-            options={departments.map((dept) => ({ label: dept.name, value: dept._id }))}
+            options={departments.map((dept) => ({
+              label: dept.name,
+              value: dept._id,
+            }))}
             loading={departments.length === 0}
           />
           {createForm.formState.errors.department && (
-            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.department.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(createForm.formState.errors.department.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1085,11 +1296,19 @@ export default function Courses() {
             name="unit"
             label="Unit (optional)"
             placeholder="Select unit"
-            options={filteredUnits.map((u) => ({ label: u.name, value: u._id }))}
-            loading={filteredUnits.length === 0 && createForm.getValues("department") !== ""}
+            options={filteredUnits.map((u) => ({
+              label: u.name,
+              value: u._id,
+            }))}
+            loading={
+              filteredUnits.length === 0 &&
+              createForm.getValues("department") !== ""
+            }
           />
           {createForm.formState.errors.unit && (
-            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.unit.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(createForm.formState.errors.unit.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1097,11 +1316,16 @@ export default function Courses() {
             name="academicYearId"
             label="Academic Year"
             placeholder="Select academic year"
-            options={academicYears.map((year) => ({ label: year.name, value: year._id }))}
+            options={academicYears.map((year) => ({
+              label: year.name,
+              value: year._id,
+            }))}
             loading={academicYears.length === 0}
           />
           {createForm.formState.errors.academicYearId && (
-            <p className="text-xs text-red-500 mt-1">{String(createForm.formState.errors.academicYearId.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(createForm.formState.errors.academicYearId.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1121,7 +1345,9 @@ export default function Courses() {
                 {...createForm.register("isActive")}
                 className="h-4 w-4 rounded border-input"
               />
-              <Label htmlFor="isActive" className="text-sm font-normal">Active (visible to students)</Label>
+              <Label htmlFor="isActive" className="text-sm font-normal">
+                Active (visible to students)
+              </Label>
             </div>
             {shouldShowAssignCheckbox && (
               <div className="flex items-center gap-2">
@@ -1131,7 +1357,9 @@ export default function Courses() {
                   {...createForm.register("assignToClass")}
                   className="h-4 w-4 rounded border-input"
                 />
-                <Label htmlFor="assignToClass" className="text-sm font-normal">Assign to selected class after create</Label>
+                <Label htmlFor="assignToClass" className="text-sm font-normal">
+                  Assign to selected class after create
+                </Label>
               </div>
             )}
           </div>
@@ -1159,8 +1387,8 @@ export default function Courses() {
                 ? "Updating..."
                 : "Update Course"
               : creatingCourse
-              ? "Creating..."
-              : "Create Course"}
+                ? "Creating..."
+                : "Create Course"}
           </Button>
         </form>
       </Modal>
@@ -1169,10 +1397,15 @@ export default function Courses() {
       <Modal
         open={subjectModalOpen}
         setOpen={handleOpenSubjectModal}
-        title={subjectCourse ? `Add Subject to ${subjectCourse.name}` : "Add Subject"}
+        title={
+          subjectCourse ? `Add Subject to ${subjectCourse.name}` : "Add Subject"
+        }
         description="Add a new subject under the selected course."
       >
-        <form onSubmit={subjectForm.handleSubmit(onCreateSubjectSubmit)} className="space-y-4">
+        <form
+          onSubmit={subjectForm.handleSubmit(onCreateSubjectSubmit)}
+          className="space-y-4"
+        >
           <Field>
             <FieldLabel>Subject Name *</FieldLabel>
             <Input
@@ -1180,7 +1413,9 @@ export default function Courses() {
               placeholder="e.g., Cardiology Rotation"
             />
             {subjectForm.formState.errors.name && (
-              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.name.message)}</p>
+              <p className="text-xs text-red-500 mt-1">
+                {String(subjectForm.formState.errors.name.message)}
+              </p>
             )}
           </Field>
 
@@ -1191,7 +1426,9 @@ export default function Courses() {
               placeholder="e.g., CARD-101"
             />
             {subjectForm.formState.errors.code && (
-              <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.code.message)}</p>
+              <p className="text-xs text-red-500 mt-1">
+                {String(subjectForm.formState.errors.code.message)}
+              </p>
             )}
           </Field>
 
@@ -1201,10 +1438,14 @@ export default function Courses() {
             label="Subject ID"
             placeholder="Select department subject ID"
             options={subjectIdOptions}
-            loading={selectedSubjectDepartment === null && departments.length === 0}
+            loading={
+              selectedSubjectDepartment === null && departments.length === 0
+            }
           />
           {subjectForm.formState.errors.subjectID && (
-            <p className="text-xs text-red-500 mt-1">{String(subjectForm.formState.errors.subjectID.message)}</p>
+            <p className="text-xs text-red-500 mt-1">
+              {String(subjectForm.formState.errors.subjectID.message)}
+            </p>
           )}
 
           <CustomSelect
@@ -1232,11 +1473,12 @@ export default function Courses() {
               {...subjectForm.register("isActive")}
               className="h-4 w-4 rounded border-input"
             />
-            <Label htmlFor="subjectIsActive" className="text-sm font-normal">Active</Label>
+            <Label htmlFor="subjectIsActive" className="text-sm font-normal">
+              Active
+            </Label>
           </div>
 
-          <Button type="submit" className="w-full" disabled={updatingCourse}
-          >
+          <Button type="submit" className="w-full" disabled={updatingCourse}>
             {updatingCourse ? "Saving..." : "Create Subject"}
           </Button>
         </form>
@@ -1244,4 +1486,3 @@ export default function Courses() {
     </div>
   );
 }
-

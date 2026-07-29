@@ -1,6 +1,20 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Award, Globe2, ShieldCheck, Sparkles, Github, Mail, Phone, Twitter, X, QrCode, Moon, Sun } from "lucide-react";
+import {
+  ArrowLeft,
+  Award,
+  Globe2,
+  ShieldCheck,
+  Sparkles,
+  Github,
+  Mail,
+  Phone,
+  Twitter,
+  X,
+  QrCode,
+  Moon,
+  Sun,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import HeroStars from "@/components/HeroStars";
 import { useTheme } from "@/components/provider/theme";
@@ -13,17 +27,20 @@ import abokImage from "./assets/abok.png";
 const highlights = [
   {
     title: "Unified clinical workflows",
-    description: "Manage rotations, attendance, assessments, and sign-offs from one secure platform.",
+    description:
+      "Manage rotations, attendance, assessments, and sign-offs from one secure platform.",
     icon: Globe2,
   },
   {
     title: "Role-aware access",
-    description: "Students, supervisors, and administrators each see the right information and tools.",
+    description:
+      "Students, supervisors, and administrators each see the right information and tools.",
     icon: ShieldCheck,
   },
   {
     title: "Enterprise-level readiness",
-    description: "Designed for medical schools, teaching hospitals, and accreditation-driven programs.",
+    description:
+      "Designed for medical schools, teaching hospitals, and accreditation-driven programs.",
     icon: Award,
   },
 ];
@@ -42,7 +59,7 @@ const developers = [
       name: "Avalon Ent.",
       logo: "/ae.png",
       website: "https://draco-mordred.vercel.app",
-    }
+    },
   },
   {
     name: "Charles M. Nwaeze",
@@ -57,9 +74,9 @@ const developers = [
       name: "UnlockBigChange9ja",
       logo: charlesImage,
       website: "https://unlockbigchange9ja.com",
-    }
+    },
   },
-    {
+  {
     name: "Prof. Ishaya Abok",
     role: "Technical Advisor & Teacher",
     avatar: abokImage,
@@ -72,15 +89,19 @@ const developers = [
       name: "University of Jos",
       logo: abokImage,
       website: "https://universityofjos.edu.ng",
-    }
+    },
   },
 ];
 
 const About = () => {
   const { theme, setTheme } = useTheme();
-  const [activeContactDeveloper, setActiveContactDeveloper] = useState<(typeof developers)[number] | null>(null);
+  const [activeContactDeveloper, setActiveContactDeveloper] = useState<
+    (typeof developers)[number] | null
+  >(null);
   const [isContactVisible, setIsContactVisible] = useState(false);
-  const [activeDetailsDeveloper, setActiveDetailsDeveloper] = useState<(typeof developers)[number] | null>(null);
+  const [activeDetailsDeveloper, setActiveDetailsDeveloper] = useState<
+    (typeof developers)[number] | null
+  >(null);
   const [isDetailsVisible, setIsDetailsVisible] = useState(false);
   const [contactQrDataUrl, setContactQrDataUrl] = useState("");
   const isDark = theme === "dark";
@@ -117,7 +138,10 @@ const About = () => {
     };
   }, [activeContactDeveloper]);
 
-  const openContactPopover = (developer: (typeof developers)[number], event: MouseEvent<HTMLButtonElement>) => {
+  const openContactPopover = (
+    developer: (typeof developers)[number],
+    event: MouseEvent<HTMLButtonElement>,
+  ) => {
     event.preventDefault();
     event.stopPropagation();
     setActiveContactDeveloper(developer);
@@ -137,7 +161,10 @@ const About = () => {
     }
   };
 
-  const toggleCardDetails = (developer: (typeof developers)[number], event: MouseEvent<HTMLElement>) => {
+  const toggleCardDetails = (
+    developer: (typeof developers)[number],
+    event: MouseEvent<HTMLElement>,
+  ) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest("a, button")) {
       return;
@@ -182,7 +209,10 @@ const About = () => {
               A premium platform built for modern clinical education.
             </h1>
             <p className="max-w-2xl text-lg leading-8 text-muted-foreground">
-              MedLog is the next-generation school operations platform for medical programs, combining clinical placement management, attendance tracking, digital logbooks, and accreditation workflows in one elegant experience.
+              MedLog is the next-generation school operations platform for
+              medical programs, combining clinical placement management,
+              attendance tracking, digital logbooks, and accreditation workflows
+              in one elegant experience.
             </p>
             <div className="flex flex-wrap gap-4">
               <Button size="lg">Request a Demo</Button>
@@ -192,21 +222,31 @@ const About = () => {
           <div className="rounded-[2rem] border border-border/70 bg-card/90 p-8 shadow-2xl backdrop-blur-xl">
             <div className="space-y-6">
               <div className="rounded-[1.75rem] bg-secondary/10 p-6">
-                <p className="text-sm uppercase tracking-[0.28em] text-muted-foreground">Why MedLog</p>
+                <p className="text-sm uppercase tracking-[0.28em] text-muted-foreground">
+                  Why MedLog
+                </p>
                 <h2 className="mt-4 text-2xl font-semibold text-foreground">
-                  Built with the operational realities of clinical education in mind.
+                  Built with the operational realities of clinical education in
+                  mind.
                 </h2>
               </div>
               <div className="grid gap-4">
                 {highlights.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <div key={item.title} className="rounded-[1.5rem] border border-border/70 bg-background/70 p-5 text-foreground">
+                    <div
+                      key={item.title}
+                      className="rounded-[1.5rem] border border-border/70 bg-background/70 p-5 text-foreground"
+                    >
                       <div className="inline-flex h-11 w-11 items-center justify-center rounded-3xl bg-primary/10 text-primary">
                         <Icon className="h-5 w-5" />
                       </div>
-                      <h3 className="mt-4 text-lg font-semibold text-foreground">{item.title}</h3>
-                      <p className="mt-2 text-sm text-muted-foreground">{item.description}</p>
+                      <h3 className="mt-4 text-lg font-semibold text-foreground">
+                        {item.title}
+                      </h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {item.description}
+                      </p>
                     </div>
                   );
                 })}
@@ -218,12 +258,18 @@ const About = () => {
         <section className="mt-24 rounded-[2rem] border border-border/70 bg-card/90 p-10 shadow-2xl backdrop-blur-xl">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] items-center">
             <div className="space-y-4">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">Our mission</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">
+                Our mission
+              </p>
               <h2 className="text-3xl font-bold text-foreground sm:text-4xl">
-                Help medical teams deliver better clinical training without administrative friction.
+                Help medical teams deliver better clinical training without
+                administrative friction.
               </h2>
               <p className="max-w-xl text-muted-foreground">
-                We believe clinical training should be powered by intelligent workflows, not tangled spreadsheets. MedLog puts supervision, reporting, and progress tracking in one place so teams can stay focused on learning.
+                We believe clinical training should be powered by intelligent
+                workflows, not tangled spreadsheets. MedLog puts supervision,
+                reporting, and progress tracking in one place so teams can stay
+                focused on learning.
               </p>
             </div>
             <div className="grid gap-4 rounded-[1.75rem] bg-background/80 p-6 text-muted-foreground">
@@ -246,12 +292,16 @@ const About = () => {
         <section className="mt-24 rounded-[2rem] border border-border/70 bg-card/90 p-10 shadow-2xl backdrop-blur-xl">
           <div className="space-y-6">
             <div className="space-y-2 text-center">
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">About the developers</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-primary">
+                About the developers
+              </p>
               <h2 className="text-3xl font-bold text-foreground sm:text-4xl">
                 Meet the team behind MedLog.
               </h2>
               <p className="mx-auto max-w-2xl text-muted-foreground">
-                Strategic technologists and creative problem-solvers committed to transforming healthcare education through thoughtful, elegant software design.
+                Strategic technologists and creative problem-solvers committed
+                to transforming healthcare education through thoughtful, elegant
+                software design.
               </p>
             </div>
 
@@ -273,12 +323,20 @@ const About = () => {
                   </div>
 
                   <div className="absolute left-5 right-5 bottom-5 z-10 rounded-[1.75rem] border border-border/70 bg-background/55 p-5 backdrop-blur-xl shadow-lg shadow-foreground/5 transition-all duration-500 group-hover:translate-y-4 dark:bg-background/85">
-                    <p className="text-xs uppercase tracking-[0.3em] text-primary/80">Developer</p>
-                    <h3 className="mt-2 text-2xl font-semibold leading-tight text-foreground">{developer.name}</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">{developer.role}</p>
+                    <p className="text-xs uppercase tracking-[0.3em] text-primary/80">
+                      Developer
+                    </p>
+                    <h3 className="mt-2 text-2xl font-semibold leading-tight text-foreground">
+                      {developer.name}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {developer.role}
+                    </p>
                   </div>
 
-                  <div className={`absolute inset-x-0 bottom-0 z-20 flex h-full flex-col justify-end bg-gradient-to-t from-background/80 via-background/60 to-transparent p-6 pt-24 transition-all duration-500 dark:from-background dark:via-background/95 dark:to-transparent ${activeContactDeveloper?.name === developer.name && isContactVisible ? "translate-y-6 opacity-0 pointer-events-none" : `${activeDetailsDeveloper?.name === developer.name && isDetailsVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-6 opacity-0 pointer-events-none group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto"}`}`}>
+                  <div
+                    className={`absolute inset-x-0 bottom-0 z-20 flex h-full flex-col justify-end bg-gradient-to-t from-background/80 via-background/60 to-transparent p-6 pt-24 transition-all duration-500 dark:from-background dark:via-background/95 dark:to-transparent ${activeContactDeveloper?.name === developer.name && isContactVisible ? "translate-y-6 opacity-0 pointer-events-none" : `${activeDetailsDeveloper?.name === developer.name && isDetailsVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-6 opacity-0 pointer-events-none group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto"}`}`}
+                  >
                     <div className="space-y-6">
                       <div className="flex flex-wrap items-center gap-2 text-[9px] uppercase tracking-[0.2em] text-muted-foreground">
                         <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5">
@@ -291,7 +349,9 @@ const About = () => {
 
                       <div className="rounded-[1.75rem] border border-border/70 bg-background/50 p-5 shadow-inner shadow-foreground/5 dark:bg-background/80">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">Professional profiles</p>
+                          <p className="text-xs uppercase tracking-[0.28em] text-muted-foreground">
+                            Professional profiles
+                          </p>
                           {developer.company?.logo ? (
                             <a
                               href={developer.company.website}
@@ -300,7 +360,11 @@ const About = () => {
                               aria-label={`Open ${developer.company.name} website`}
                               className="rounded-full border border-border/70 bg-background/70 p-1 transition hover:border-primary/40 hover:bg-muted"
                             >
-                              <img src={developer.company.logo} alt={`${developer.company.name} logo`} className="h-7 w-7 rounded-full object-cover shadow-sm" />
+                              <img
+                                src={developer.company.logo}
+                                alt={`${developer.company.name} logo`}
+                                className="h-7 w-7 rounded-full object-cover shadow-sm"
+                              />
                             </a>
                           ) : null}
                         </div>
@@ -333,13 +397,22 @@ const About = () => {
                             <span>{developer.phone}</span>
                           </a>
                           <a
-                            href={developer.twitter?.startsWith("http") ? developer.twitter : `https://x.com/${developer.twitter?.replace(/^@/, "")}`}
+                            href={
+                              developer.twitter?.startsWith("http")
+                                ? developer.twitter
+                                : `https://x.com/${developer.twitter?.replace(/^@/, "")}`
+                            }
                             target="_blank"
                             rel="noreferrer noopener"
                             className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm text-foreground transition hover:border-primary/40 hover:bg-muted"
                           >
                             <Twitter className="h-3.5 w-3.5 text-primary" />
-                            <span>{developer.twitter?.replace(/^https?:\/\/twitter\.com\//i, "@")}</span>
+                            <span>
+                              {developer.twitter?.replace(
+                                /^https?:\/\/twitter\.com\//i,
+                                "@",
+                              )}
+                            </span>
                           </a>
                           <a
                             href={developer.website}
@@ -348,7 +421,9 @@ const About = () => {
                             className="flex items-center gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2.5 text-sm text-foreground transition hover:border-primary/40 hover:bg-muted"
                           >
                             <Globe2 className="h-3.5 w-3.5 text-primary" />
-                            <span>{developer.website.replace(/^https?:\/\//, "")}</span>
+                            <span>
+                              {developer.website.replace(/^https?:\/\//, "")}
+                            </span>
                           </a>
                         </div>
                       </div>
@@ -359,7 +434,9 @@ const About = () => {
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={(event) => openContactPopover(developer, event)}
+                          onClick={(event) =>
+                            openContactPopover(developer, event)
+                          }
                           className="rounded-full border border-border/70 bg-background/70 px-4 py-3 text-foreground hover:bg-muted"
                         >
                           Save contact
@@ -375,7 +452,11 @@ const About = () => {
                           </a>
                           {developer.twitter ? (
                             <a
-                              href={developer.twitter.startsWith("http") ? developer.twitter : `https://x.com/${developer.twitter.replace(/^@/, "")}`}
+                              href={
+                                developer.twitter.startsWith("http")
+                                  ? developer.twitter
+                                  : `https://x.com/${developer.twitter.replace(/^@/, "")}`
+                              }
                               target="_blank"
                               rel="noreferrer noopener"
                               className="flex h-8 w-8 items-center justify-center rounded-2xl bg-background/70 text-primary transition hover:bg-muted"
@@ -404,15 +485,21 @@ const About = () => {
                     </div>
                   </div>
 
-                  <div className={`absolute inset-x-0 bottom-0 z-30 rounded-[1.75rem] border border-border/70 bg-background/80 p-5 shadow-2xl shadow-foreground/10 backdrop-blur-xl transition-all duration-500 dark:bg-background/95 ${activeContactDeveloper?.name === developer.name && isContactVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-6 opacity-0 pointer-events-none"}`}>
+                  <div
+                    className={`absolute inset-x-0 bottom-0 z-30 rounded-[1.75rem] border border-border/70 bg-background/80 p-5 shadow-2xl shadow-foreground/10 backdrop-blur-xl transition-all duration-500 dark:bg-background/95 ${activeContactDeveloper?.name === developer.name && isContactVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-6 opacity-0 pointer-events-none"}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.28em] text-primary">
                           <QrCode className="h-3 w-3" />
                           Contact QR
                         </div>
-                        <h3 className="mt-2 text-lg font-semibold text-foreground">{developer.name}</h3>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Scan to save a contact card for {developer.email}.</p>
+                        <h3 className="mt-2 text-lg font-semibold text-foreground">
+                          {developer.name}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          Scan to save a contact card for {developer.email}.
+                        </p>
                       </div>
                       <button
                         type="button"
@@ -428,9 +515,21 @@ const About = () => {
 
                     <div className="mt-4 rounded-[1.25rem] border border-border/70 bg-background/70 p-3 dark:bg-background/80">
                       <div className="relative mx-auto flex h-36 w-36 items-center justify-center rounded-[1rem] bg-white p-3">
-                        <img src={activeContactDeveloper?.name === developer.name ? contactQrDataUrl : ""} alt="Contact QR code" className="h-full w-full object-contain" />
+                        <img
+                          src={
+                            activeContactDeveloper?.name === developer.name
+                              ? contactQrDataUrl
+                              : ""
+                          }
+                          alt="Contact QR code"
+                          className="h-full w-full object-contain"
+                        />
                         <div className="absolute inset-0 flex items-center justify-center">
-                          <img src={medlogDarkLogo} alt="MedLog logo" className="h-10 w-10 rounded-full border border-slate-200 bg-white p-1 shadow-lg" />
+                          <img
+                            src={medlogDarkLogo}
+                            alt="MedLog logo"
+                            className="h-10 w-10 rounded-full border border-slate-200 bg-white p-1 shadow-lg"
+                          />
                         </div>
                       </div>
                     </div>
@@ -465,7 +564,13 @@ const About = () => {
 
       <button
         type="button"
-        onClick={() => setTheme(isDark ? "light" : "dark")}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setTheme(isDark ? "light" : "dark", {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          });
+        }}
         aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
         className="fixed bottom-4 right-4 z-50 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-4 py-3 text-sm font-semibold text-foreground shadow-lg backdrop-blur transition hover:-translate-y-0.5 hover:bg-muted"
       >
