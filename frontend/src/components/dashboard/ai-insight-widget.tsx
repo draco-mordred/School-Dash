@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/hooks/useAuth";
 
-interface InsightItem {
+export interface InsightItem {
   id: string;
   type: "CRITICAL" | "WARNING" | "INFO";
   targetUser: string;
@@ -9,12 +10,31 @@ interface InsightItem {
   timestamp: string;
 }
 
-export function AIInsightWidget() {
+interface AIInsightWidgetProps {
+  prependInsights?: InsightItem[];
+}
+
+export function AIInsightWidget({ prependInsights = [] }: AIInsightWidgetProps) {
+  const { user } = useAuth();
   const [insights, setInsights] = useState<InsightItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!user) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const allowedRoles = ["admin", "teacher", "unitconsultant", "unitresident", "parent", "student"];
+    if (!allowedRoles.includes(user.role)) {
+      setInsights([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     api
       .get("/mordred/insights")
       .then((response) => {
@@ -22,12 +42,18 @@ export function AIInsightWidget() {
       })
       .catch((err) => {
         console.error(err);
-        setError(err?.response?.data?.error ?? err.message ?? "Unable to load AI insights.");
+        const message = err?.response?.data?.message || err?.response?.data?.error || err.message || "Unable to load AI insights.";
+        setError(message);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [user]);
 
-  if (loading) {
+  const combinedInsights = [
+    ...(prependInsights ?? []),
+    ...insights.filter((item) => !(prependInsights ?? []).some((prependItem) => prependItem.id === item.id)),
+  ];
+
+  if (loading && combinedInsights.length === 0) {
     return (
       <div className="p-6 border border-border rounded-xl bg-card text-sm text-muted-foreground flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
@@ -36,7 +62,7 @@ export function AIInsightWidget() {
     );
   }
 
-  if (error) {
+  if (error && combinedInsights.length === 0) {
     return (
       <div className="p-6 border border-destructive/20 rounded-xl bg-destructive/10 text-xs text-destructive-foreground font-medium">
         ⚠️ MORDRED Dashboard Sync Interruption: {error}
@@ -60,12 +86,12 @@ export function AIInsightWidget() {
       </div>
 
       <div className="space-y-3">
-        {insights.length === 0 ? (
+        {combinedInsights.length === 0 ? (
           <div className="rounded-3xl border border-border bg-background p-4 text-sm text-muted-foreground">
             No AI insights available right now. Check back after more timetable and attendance activity.
           </div>
         ) : (
-          insights.map((item) => (
+          combinedInsights.map((item) => (
             <div key={item.id} className="flex gap-3 p-3 rounded-lg bg-surface border border-border items-start text-xs transition hover:bg-muted">
               <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold tracking-wider border ${
                 item.type === "CRITICAL"

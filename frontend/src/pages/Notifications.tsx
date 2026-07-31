@@ -68,8 +68,16 @@ const statusColors: Record<string, string> = {
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
-  const { notifications, unreadCount, markAllAsRead, markAsRead, isLoading: notifsLoading } = useNotifications(1, 20);
-  const [systemNotifications, setSystemNotifications] = useState<any[] | null>(null);
+  const {
+    notifications,
+    unreadCount,
+    markAllAsRead,
+    markAsRead,
+    isLoading: notifsLoading,
+  } = useNotifications(1, 20);
+  const [systemNotifications, setSystemNotifications] = useState<any[] | null>(
+    null,
+  );
   const [systemLoading, setSystemLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -84,14 +92,17 @@ export default function Notifications() {
     if (unreadCount <= 0) return;
 
     const el = newNotifsRef.current;
-    const obs = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          void markAllAsRead();
-          obs.disconnect();
-        }
-      });
-    }, { threshold: 0.2 });
+    const obs = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            void markAllAsRead();
+            obs.disconnect();
+          }
+        });
+      },
+      { threshold: 0.2 },
+    );
 
     obs.observe(el);
     return () => obs.disconnect();
@@ -101,7 +112,9 @@ export default function Notifications() {
     const fetchSystem = async () => {
       try {
         setSystemLoading(true);
-        const endpoint = isStudent ? "/notifications?limit=200" : "/notifications/system?limit=200";
+        const endpoint = isStudent
+          ? "/notifications?limit=200"
+          : "/notifications/system?limit=200";
         const { data } = await api.get(endpoint);
         // Deduplicate by type + createdAt and sort so unreadForUser are first
         const raw: any[] = data.notifications || [];
@@ -112,7 +125,10 @@ export default function Notifications() {
         }
         const deduped = Array.from(seen.values()).map((n) => ({ ...n }));
         const items = deduped.sort((a: any, b: any) => {
-          if (a.unreadForUser === b.unreadForUser) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          if (a.unreadForUser === b.unreadForUser)
+            return (
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
           return a.unreadForUser ? -1 : 1;
         });
         setSystemNotifications(items);
@@ -128,22 +144,27 @@ export default function Notifications() {
   // Handler after editing user (refresh system notifications and status)
   const onUserEditSuccess = async (removedNotificationId?: string | null) => {
     try {
-      if (editingUser?.approvalStatus === "pending" || editingUser?.isActive === false) {
+      if (
+        editingUser?.approvalStatus === "pending" ||
+        editingUser?.isActive === false
+      ) {
         try {
           await api.post(`/users/${editingUser._id}/approve`);
         } catch (approveErr) {
-          console.error('Failed to approve pending user', approveErr);
+          console.error("Failed to approve pending user", approveErr);
         }
       }
 
       // optimistic removal for snappier UX
       if (removedNotificationId) {
-        setSystemNotifications((prev) => (prev || []).filter((s) => s._id !== removedNotificationId));
+        setSystemNotifications((prev) =>
+          (prev || []).filter((s) => s._id !== removedNotificationId),
+        );
       }
       const { data } = await api.get("/notifications/system?limit=200");
-      setSystemNotifications((data.notifications || []).slice(0,200));
+      setSystemNotifications((data.notifications || []).slice(0, 200));
     } catch (e) {
-      console.error('Failed to refresh system notifications', e);
+      console.error("Failed to refresh system notifications", e);
     }
     void fetchStatusIfNeeded();
     setEditOpen(false);
@@ -153,8 +174,10 @@ export default function Notifications() {
 
   // fetchStatus is defined inside AdminNotifications; create a lightweight bridge
   const fetchStatusIfNeeded = async () => {
-    try { await api.get('/attendance/status'); } catch {};
-  }
+    try {
+      await api.get("/attendance/status");
+    } catch {}
+  };
 
   useEffect(() => {
     if (!editOpen) {
@@ -165,119 +188,161 @@ export default function Notifications() {
 
   return (
     <>
-    <div id="page-notifications" className="flex w-full flex-col gap-4 px-6 py-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <Bell className="h-5 w-5" />
-          {isStudent ? "My Notifications" : "Class Status Overview"}
-        </h2>
-      </div>
+      <div
+        data-tour="student-notifications"
+        id="page-notifications"
+        className="flex w-full flex-col gap-4 px-6 py-6"
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            {isStudent ? "My Notifications" : "Class Status Overview"}
+          </h2>
+        </div>
 
-      {isStudent ? (
-        <>
-          {/* Student class info and academic year card above system notifications */}
-          <StudentNotifications />
+        {isStudent ? (
+          <>
+            {/* Student class info and academic year card above system notifications */}
+            <StudentNotifications />
 
-          {/* New system notifications card (system-wide) */}
-          <div ref={newNotifsRef as any}>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">New System Notifications</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {systemLoading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                ) : (systemNotifications || [])
-                    .slice(0, 10)
-                    .map((n) => (
+            {/* New system notifications card (system-wide) */}
+            <div ref={newNotifsRef as any}>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    New System Notifications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {systemLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </div>
+                  ) : (
+                    (systemNotifications || []).slice(0, 10).map((n) => (
                       <button
                         key={n._id}
                         onClick={async () => {
-                          try { if (n.unreadForUser) await markAsRead(n._id); } catch {}
+                          try {
+                            if (n.unreadForUser) await markAsRead(n._id);
+                          } catch {}
                           if (n.link) window.location.href = n.link;
                         }}
                         className={`w-full text-left border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}
                       >
                         <div className="flex items-start justify-between">
                           <div className="min-w-0">
-                            <p className="font-medium truncate">{n.title} {n.unreadForUser && <Badge className="ml-2">New</Badge>}</p>
-                            <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                            <p className="font-medium truncate">
+                              {n.title}{" "}
+                              {n.unreadForUser && (
+                                <Badge className="ml-2">New</Badge>
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate mt-1">
+                              {n.message}
+                            </p>
                           </div>
                           <div className="text-xs text-muted-foreground ml-3 shrink-0">
                             {new Date(n.createdAt).toLocaleString()}
                           </div>
                         </div>
                       </button>
-                    ))}
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      ) : (
-        <>
-          {/* New system notifications card (system-wide) */}
-          <div ref={newNotifsRef as any}>
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">New System Notifications</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {systemLoading ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                ) : (systemNotifications || [])
-                    .slice(0, 10)
-                    .map((n) => (
-                              <div key={n._id} className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* New system notifications card (system-wide) */}
+            <div ref={newNotifsRef as any}>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    New System Notifications
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {systemLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                    </div>
+                  ) : (
+                    (systemNotifications || []).slice(0, 10).map((n) => (
+                      <div
+                        key={n._id}
+                        className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}
+                      >
                         <div className="flex items-start justify-between">
                           <div className="min-w-0">
-                            <p className="font-medium truncate">{n.title} {n.unreadForUser && <Badge className="ml-2">New</Badge>}</p>
-                            <p className="text-xs text-muted-foreground truncate mt-1">{n.message}</p>
+                            <p className="font-medium truncate">
+                              {n.title}{" "}
+                              {n.unreadForUser && (
+                                <Badge className="ml-2">New</Badge>
+                              )}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate mt-1">
+                              {n.message}
+                            </p>
                           </div>
-                                  <div className="text-xs text-muted-foreground ml-3 shrink-0 text-right flex flex-col items-end gap-2">
-                                    <div>{new Date(n.createdAt).toLocaleString()}</div>
-                                    {/* If this notification references a pending user, allow review and approval */}
-                                    {(n.metadata?.pendingUserId || n.metadata?.newUserId) && (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={async () => {
-                                          const userId = n.metadata?.pendingUserId || n.metadata?.newUserId;
-                                          const ok = window.confirm(
-                                            n.metadata?.pendingUserId ? 'Review and approve this registration?' : 'Open assign dialog for this new user?'
-                                          );
-                                          if (!ok) return;
-                                          try {
-                                            const { data } = await api.get(`/users/${userId}`);
-                                            setEditingUser(data);
-                                            setAssignNotifId(n._id);
-                                            setEditOpen(true);
-                                            try { if (n.unreadForUser) await markAsRead(n._id); } catch {};
-                                          } catch (err) {
-                                            console.error('Failed to fetch user for review', err);
-                                          }
-                                        }}
-                                      >
-                                        {n.metadata?.pendingUserId ? 'Review & approve' : 'Assign class'}
-                                      </Button>
-                                    )}
-                                  </div>
+                          <div className="text-xs text-muted-foreground ml-3 shrink-0 text-right flex flex-col items-end gap-2">
+                            <div>{new Date(n.createdAt).toLocaleString()}</div>
+                            {/* If this notification references a pending user, allow review and approval */}
+                            {(n.metadata?.pendingUserId ||
+                              n.metadata?.newUserId) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  const userId =
+                                    n.metadata?.pendingUserId ||
+                                    n.metadata?.newUserId;
+                                  const ok = window.confirm(
+                                    n.metadata?.pendingUserId
+                                      ? "Review and approve this registration?"
+                                      : "Open assign dialog for this new user?",
+                                  );
+                                  if (!ok) return;
+                                  try {
+                                    const { data } = await api.get(
+                                      `/users/${userId}`,
+                                    );
+                                    setEditingUser(data);
+                                    setAssignNotifId(n._id);
+                                    setEditOpen(true);
+                                    try {
+                                      if (n.unreadForUser)
+                                        await markAsRead(n._id);
+                                    } catch {}
+                                  } catch (err) {
+                                    console.error(
+                                      "Failed to fetch user for review",
+                                      err,
+                                    );
+                                  }
+                                }}
+                              >
+                                {n.metadata?.pendingUserId
+                                  ? "Review & approve"
+                                  : "Assign class"}
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    ))}
-              </CardContent>
-            </Card>
-          </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
-          <AdminNotifications />
-        </>
-      )}
-    </div>
+            <AdminNotifications />
+          </>
+        )}
+      </div>
       <NotificationsWrapperDialog
         editingUser={editingUser}
         open={editOpen}
@@ -330,7 +395,9 @@ function StudentNotifications() {
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {[1, 2, 3].map((i) => (
           <Card key={i}>
-            <CardHeader className="pb-3"><Skeleton className="h-4 w-32" /></CardHeader>
+            <CardHeader className="pb-3">
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
             <CardContent className="space-y-2">
               <Skeleton className="h-3 w-full" />
               <Skeleton className="h-3 w-3/4" />
@@ -353,7 +420,9 @@ function StudentNotifications() {
           <BookOpen className="h-5 w-5 text-muted-foreground" />
           <div>
             <p className="text-sm font-medium">{data.className ?? "—"}</p>
-            <p className="text-xs text-muted-foreground">Academic Year {data.academicYear ?? "—"}</p>
+            <p className="text-xs text-muted-foreground">
+              Academic Year {data.academicYear ?? "—"}
+            </p>
           </div>
         </div>
         <Button variant="outline" size="sm" onClick={() => void fetchData()}>
@@ -372,12 +441,15 @@ function StudentNotifications() {
             <p className="text-3xl font-semibold">
               {data.totalAttended}
               <span className="text-base font-normal text-muted-foreground">
-                {" "}of {data.totalClasses}
+                {" "}
+                of {data.totalClasses}
               </span>
             </p>
             <div className="mt-2 flex items-center gap-2">
               <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                <div className={`h-full rounded-full bg-green-500 transition-all w-[${data.percentage}%]`} />
+                <div
+                  className={`h-full rounded-full bg-green-500 transition-all w-[${data.percentage}%]`}
+                />
               </div>
               <span className="text-sm font-semibold">{data.percentage}%</span>
             </div>
@@ -387,10 +459,14 @@ function StudentNotifications() {
         {/* Active Timetables Card (shows today's lectures summary) */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Today&apos;s Lectures</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Today&apos;s Lectures
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <p className="text-3xl font-semibold">{data.todayLectures.length}</p>
+            <p className="text-3xl font-semibold">
+              {data.todayLectures.length}
+            </p>
             <p className="text-xs text-muted-foreground">{data.todayDay}</p>
           </CardContent>
         </Card>
@@ -398,13 +474,18 @@ function StudentNotifications() {
         {/* Attendance Alerts Card */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Attendance Alerts</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Attendance Alerts
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">
               {data.weeklyAlerts.reduce(
-                (acc, d) => acc + d.lectures.filter((l) => l.status && l.status !== "present").length,
-                0
+                (acc, d) =>
+                  acc +
+                  d.lectures.filter((l) => l.status && l.status !== "present")
+                    .length,
+                0,
               )}
             </p>
             <p className="text-xs text-muted-foreground">This week</p>
@@ -429,25 +510,43 @@ function StudentNotifications() {
             <div className="space-y-4">
               {/* Only show today and tomorrow */}
               {(() => {
-                const todayName = data.todayDay || (() => {
-                  const jsDay = new Date().getDay();
-                  // map JS day (0=Sun) to our DAYS (Monday..Friday)
-                  const map: Record<number, string> = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 0: "Monday", 6: "Monday"};
-                  return map[jsDay] || DAYS[0];
-                })();
+                const todayName =
+                  data.todayDay ||
+                  (() => {
+                    const jsDay = new Date().getDay();
+                    // map JS day (0=Sun) to our DAYS (Monday..Friday)
+                    const map: Record<number, string> = {
+                      1: "Monday",
+                      2: "Tuesday",
+                      3: "Wednesday",
+                      4: "Thursday",
+                      5: "Friday",
+                      0: "Monday",
+                      6: "Monday",
+                    };
+                    return map[jsDay] || DAYS[0];
+                  })();
                 const idx = DAYS.indexOf(todayName);
                 const tomorrowName = DAYS[(idx + 1) % DAYS.length];
                 const daysToShow = [todayName, tomorrowName];
 
                 return daysToShow.map((day) => {
-                  const daySchedule = data.timetable.find((s: any) => s.day === day);
+                  const daySchedule = data.timetable.find(
+                    (s: any) => s.day === day,
+                  );
                   const lectures = daySchedule?.periods ?? [];
-                  const alertsForDay = data.weeklyAlerts.find((a) => a.day === day)?.lectures ?? [];
+                  const alertsForDay =
+                    data.weeklyAlerts.find((a) => a.day === day)?.lectures ??
+                    [];
                   return (
                     <div key={day}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">{day}</p>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                        {day}
+                      </p>
                       {lectures.length === 0 ? (
-                        <p className="text-xs text-muted-foreground italic py-1">No lectures</p>
+                        <p className="text-xs text-muted-foreground italic py-1">
+                          No lectures
+                        </p>
                       ) : (
                         <div className="space-y-1">
                           {lectures.map((lec: any, i: number) => {
@@ -459,19 +558,29 @@ function StudentNotifications() {
                                 className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
                               >
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-medium truncate">{typeof lec.subject === "object" ? lec.subject?.name ?? "—" : (lec.subject ?? "—")}</p>
+                                  <p className="font-medium truncate">
+                                    {typeof lec.subject === "object"
+                                      ? (lec.subject?.name ?? "—")
+                                      : (lec.subject ?? "—")}
+                                  </p>
                                   <p className="text-xs text-muted-foreground">
-                                    {typeof lec.lecturer === "object" && lec.lecturer?.name ? lec.lecturer.name : (lec.lecturer ?? "—")}
+                                    {typeof lec.lecturer === "object" &&
+                                    lec.lecturer?.name
+                                      ? lec.lecturer.name
+                                      : (lec.lecturer ?? "—")}
                                   </p>
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                                     <Clock className="h-3 w-3" />
-                                    <span>{lec.startTime} – {lec.endTime}</span>
+                                    <span>
+                                      {lec.startTime} – {lec.endTime}
+                                    </span>
                                   </div>
                                 </div>
                                 {status && (
                                   <span
                                     className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
-                                      statusColors[status] ?? "bg-muted text-foreground"
+                                      statusColors[status] ??
+                                      "bg-muted text-foreground"
                                     }`}
                                   >
                                     {status}
@@ -500,14 +609,18 @@ function StudentNotifications() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {data.weeklyAlerts.every((d) => d.lectures.every((l) => !l.status || l.status === "present")) ? (
+          {data.weeklyAlerts.every((d) =>
+            d.lectures.every((l) => !l.status || l.status === "present"),
+          ) ? (
             <p className="text-sm text-muted-foreground py-4 text-center">
               No attendance alerts. All lectures marked present.
             </p>
           ) : (
             <div className="space-y-4">
               {data.weeklyAlerts.map((dayAlert) => {
-                const hasAlerts = dayAlert.lectures.some((l) => l.status && l.status !== "present");
+                const hasAlerts = dayAlert.lectures.some(
+                  (l) => l.status && l.status !== "present",
+                );
                 if (!hasAlerts) return null;
                 return (
                   <div key={dayAlert.day}>
@@ -524,16 +637,21 @@ function StudentNotifications() {
                           >
                             <div className="flex-1 min-w-0">
                               <p className="font-medium truncate">
-                                {typeof lec.subject === "object" ? lec.subject?.name ?? "—" : "—"}
+                                {typeof lec.subject === "object"
+                                  ? (lec.subject?.name ?? "—")
+                                  : "—"}
                               </p>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Clock className="h-3 w-3" />
-                                <span>{lec.startTime} – {lec.endTime}</span>
+                                <span>
+                                  {lec.startTime} – {lec.endTime}
+                                </span>
                               </div>
                             </div>
                             <span
                               className={`text-xs font-semibold px-2 py-1 rounded-full capitalize shrink-0 ${
-                                statusColors[lec.status ?? ""] ?? "bg-muted text-foreground"
+                                statusColors[lec.status ?? ""] ??
+                                "bg-muted text-foreground"
                               }`}
                             >
                               {lec.status}
@@ -556,15 +674,19 @@ function StudentNotifications() {
 function AdminNotifications() {
   const [classes, setClasses] = useState<ClassStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [systemNotificationsAdmin, setSystemNotificationsAdmin] = useState<any[] | null>(null);
+  const [systemNotificationsAdmin, setSystemNotificationsAdmin] = useState<
+    any[] | null
+  >(null);
   const [sysLoading, setSysLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const totalClasses = classes.length;
-  const activeTimetables = classes.filter((cls) => cls.timetableStatus === "active").length;
+  const activeTimetables = classes.filter(
+    (cls) => cls.timetableStatus === "active",
+  ).length;
   const missingTimetables = totalClasses - activeTimetables;
   const classesWithAttendanceAlerts = classes.filter(
-    (cls) => cls.absent > 0 || cls.late > 0 || cls.excused > 0
+    (cls) => cls.absent > 0 || cls.late > 0 || cls.excused > 0,
   );
 
   const fetchStatus = async () => {
@@ -582,14 +704,14 @@ function AdminNotifications() {
   const fetchSystemNotificationsAdmin = async () => {
     try {
       setSysLoading(true);
-      const { data } = await api.get('/notifications/system?limit=200');
+      const { data } = await api.get("/notifications/system?limit=200");
       setSystemNotificationsAdmin(data.notifications || []);
     } catch (err) {
-      console.error('Failed to load system notifications for admin', err);
+      console.error("Failed to load system notifications for admin", err);
     } finally {
       setSysLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     void fetchStatus();
@@ -603,14 +725,18 @@ function AdminNotifications() {
   const deleteSelected = async () => {
     const ids = Object.keys(selectedIds).filter((k) => selectedIds[k]);
     if (ids.length === 0) return;
-    const ok = window.confirm(`Delete ${ids.length} selected notification(s)? This will remove them from the system.`);
+    const ok = window.confirm(
+      `Delete ${ids.length} selected notification(s)? This will remove them from the system.`,
+    );
     if (!ok) return;
     try {
       await Promise.all(ids.map((id) => api.delete(`/notifications/${id}`)));
-      setSystemNotificationsAdmin((prev) => (prev || []).filter((n) => !ids.includes(n._id)));
+      setSystemNotificationsAdmin((prev) =>
+        (prev || []).filter((n) => !ids.includes(n._id)),
+      );
       setSelectedIds({});
     } catch (err) {
-      console.error('Failed to delete selected notifications', err);
+      console.error("Failed to delete selected notifications", err);
     }
   };
 
@@ -627,7 +753,9 @@ function AdminNotifications() {
         </Card>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Active Timetables</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Active Timetables
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold">{activeTimetables}</p>
@@ -635,10 +763,14 @@ function AdminNotifications() {
         </Card>
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium">Attendance Alerts</CardTitle>
+            <CardTitle className="text-sm font-medium">
+              Attendance Alerts
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-semibold">{classesWithAttendanceAlerts.length}</p>
+            <p className="text-3xl font-semibold">
+              {classesWithAttendanceAlerts.length}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -669,7 +801,9 @@ function AdminNotifications() {
               <Card key={cls.classId}>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">{cls.className}</CardTitle>
-                  <div className="text-xs text-muted-foreground">{cls.academicYear}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {cls.academicYear}
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -678,7 +812,11 @@ function AdminNotifications() {
                       <span>Timetable</span>
                     </div>
                     <Badge
-                      variant={cls.timetableStatus === "active" ? "default" : "secondary"}
+                      variant={
+                        cls.timetableStatus === "active"
+                          ? "default"
+                          : "secondary"
+                      }
                       className="text-xs"
                     >
                       {cls.timetableStatus === "active" ? "Active" : "Not Set"}
@@ -694,12 +832,31 @@ function AdminNotifications() {
 
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { label: "Present", value: cls.present, color: "bg-green-500" },
-                      { label: "Absent", value: cls.absent, color: "bg-red-500" },
-                      { label: "Late", value: cls.late, color: "bg-yellow-500" },
-                      { label: "Excused", value: cls.excused, color: "bg-blue-500" },
+                      {
+                        label: "Present",
+                        value: cls.present,
+                        color: "bg-green-500",
+                      },
+                      {
+                        label: "Absent",
+                        value: cls.absent,
+                        color: "bg-red-500",
+                      },
+                      {
+                        label: "Late",
+                        value: cls.late,
+                        color: "bg-yellow-500",
+                      },
+                      {
+                        label: "Excused",
+                        value: cls.excused,
+                        color: "bg-blue-500",
+                      },
                     ].map(({ label, value, color }) => (
-                      <div key={label} className="flex items-center justify-between border rounded px-2 py-1">
+                      <div
+                        key={label}
+                        className="flex items-center justify-between border rounded px-2 py-1"
+                      >
                         <div className="flex items-center gap-1">
                           <div className={`h-2 w-2 rounded-full ${color}`} />
                           <span className="text-xs">{label}</span>
@@ -714,10 +871,13 @@ function AdminNotifications() {
           </div>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Other Important Notifications</CardTitle>
+              <CardTitle className="text-base">
+                Other Important Notifications
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {classesWithAttendanceAlerts.length === 0 && missingTimetables === 0 ? (
+              {classesWithAttendanceAlerts.length === 0 &&
+              missingTimetables === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No urgent notifications. All classes are up to date.
                 </p>
@@ -725,9 +885,12 @@ function AdminNotifications() {
                 <div className="space-y-3">
                   {missingTimetables > 0 && (
                     <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-3 text-sm">
-                      <p className="font-medium">{missingTimetables} classes need timetable generation</p>
+                      <p className="font-medium">
+                        {missingTimetables} classes need timetable generation
+                      </p>
                       <p className="text-muted-foreground">
-                        Please generate timetables to avoid attendance and schedule gaps.
+                        Please generate timetables to avoid attendance and
+                        schedule gaps.
                       </p>
                     </div>
                   )}
@@ -736,9 +899,17 @@ function AdminNotifications() {
                       key={cls.classId}
                       className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700 p-3 text-sm"
                     >
-                      <p className="font-medium">{cls.className} has attendance alerts</p>
+                      <p className="font-medium">
+                        {cls.className} has attendance alerts
+                      </p>
                       <p className="text-muted-foreground">
-                        {[cls.absent > 0 && `${cls.absent} absent`, cls.late > 0 && `${cls.late} late`, cls.excused > 0 && `${cls.excused} excused`].filter(Boolean).join(", ") || "No alerts"}
+                        {[
+                          cls.absent > 0 && `${cls.absent} absent`,
+                          cls.late > 0 && `${cls.late} late`,
+                          cls.excused > 0 && `${cls.excused} excused`,
+                        ]
+                          .filter(Boolean)
+                          .join(", ") || "No alerts"}
                       </p>
                     </div>
                   ))}
@@ -746,56 +917,106 @@ function AdminNotifications() {
               )}
             </CardContent>
           </Card>
-            <Card>
-              <CardHeader className="pb-3 flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">System Notifications</CardTitle>
-                  <div className="text-xs text-muted-foreground">Manage system-wide notifications</div>
+          <Card>
+            <CardHeader className="pb-3 flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base">
+                  System Notifications
+                </CardTitle>
+                <div className="text-xs text-muted-foreground">
+                  Manage system-wide notifications
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void fetchSystemNotificationsAdmin()}>
-                    Refresh
-                  </Button>
-                  <Button size="sm" variant="destructive" onClick={deleteSelected}>
-                    Delete Selected
-                  </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void fetchSystemNotificationsAdmin()}
+                >
+                  Refresh
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={deleteSelected}
+                >
+                  Delete Selected
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {sysLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {sysLoading ? (
-                  <div className="space-y-2"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /></div>
-                ) : (systemNotificationsAdmin || []).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No system notifications</p>
-                ) : (
-                  <div className="space-y-2">
-                    {(systemNotificationsAdmin || []).map((n) => (
-                      <div key={n._id} className="flex items-start gap-3 border rounded-md p-3" style={{ backgroundColor: n.unreadForUser ? '#fef3c7' : 'transparent', overflow: "auto" }}>
-                        <input aria-label={`Select notification ${n.title}`} type="checkbox" checked={!!selectedIds[n._id]} onChange={() => toggleSelect(n._id)} />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div className="min-w-0">
-                              <p className="font-medium truncate">{n.title}</p>
-                              <p className="text-xs text-muted-foreground truncate">{n.message}</p>
-                            </div>
-                            <div className="text-xs text-muted-foreground ml-3 shrink-0">{new Date(n.createdAt).toLocaleString()}</div>
+              ) : (systemNotificationsAdmin || []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No system notifications
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {(systemNotificationsAdmin || []).map((n) => (
+                    <div
+                      key={n._id}
+                      className="flex items-start gap-3 border rounded-md p-3"
+                      style={{
+                        backgroundColor: n.unreadForUser
+                          ? "#fef3c7"
+                          : "transparent",
+                        overflow: "auto",
+                      }}
+                    >
+                      <input
+                        aria-label={`Select notification ${n.title}`}
+                        type="checkbox"
+                        checked={!!selectedIds[n._id]}
+                        onChange={() => toggleSelect(n._id)}
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{n.title}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {n.message}
+                            </p>
+                          </div>
+                          <div className="text-xs text-muted-foreground ml-3 shrink-0">
+                            {new Date(n.createdAt).toLocaleString()}
                           </div>
                         </div>
-                        <div className="flex-shrink-0">
-                          <Button size="sm" variant="ghost" onClick={async () => {
-                            const ok = window.confirm('Delete this notification?');
+                      </div>
+                      <div className="flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={async () => {
+                            const ok = window.confirm(
+                              "Delete this notification?",
+                            );
                             if (!ok) return;
                             try {
                               await api.delete(`/notifications/${n._id}`);
-                              setSystemNotificationsAdmin((prev) => (prev || []).filter((s) => s._id !== n._id));
-                            } catch (err) { console.error('Failed to delete notification', err); }
-                          }}>Delete</Button>
-                        </div>
+                              setSystemNotificationsAdmin((prev) =>
+                                (prev || []).filter((s) => s._id !== n._id),
+                              );
+                            } catch (err) {
+                              console.error(
+                                "Failed to delete notification",
+                                err,
+                              );
+                            }
+                          }}
+                        >
+                          Delete
+                        </Button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </>

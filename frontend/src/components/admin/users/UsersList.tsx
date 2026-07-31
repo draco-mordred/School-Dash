@@ -111,6 +111,7 @@ const getProfileTheme = (value?: string) => {
 
 const TextMarquee = ({ children }: { children: ReactNode }) => (
   <div className="marquee-line w-full overflow-hidden text-left">
+    {/* added a marquee for user's details on the card display for consistent text flow. */}
     <div className="marquee-track inline-flex whitespace-nowrap items-center gap-10">
       <br />
       <span className="marquee-item inline-block">{children}</span>
@@ -118,6 +119,8 @@ const TextMarquee = ({ children }: { children: ReactNode }) => (
       <span className="marquee-item inline-block">{children}</span>
       <br />
     </div>
+    {/* END OF THE MARQUEE FLOW here
+    See SCHEMATICS FOR MORE DETAILS AND HOW TO ADD MORE IN ANY AREAS OF THE APP UI */}
   </div>
 );
 

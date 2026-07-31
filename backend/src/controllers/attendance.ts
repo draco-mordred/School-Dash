@@ -6,6 +6,7 @@ import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest";
 import { validateClinicalPresence } from "../services/attendanceValidation";
 import HospitalUnit from "../models/hospitalUnit";
+import Class from "../models/classes";
 
 //Fisrt we need to generate an Attendance for a class so that the teacher can record attendance for that class session, then we can update the attendance records for each student in that class session. We also need to implement a way to approve excused absences, and to get attendance records for a specific student, with pagination and filtering by date range and status (present, absent, late, excused). This should be consistent wtth the getMyAttendanceSummary controller, but with more detailed records and pagination support. The endpoint should be GET /api/attendance/student/:studentId?startDate=&endDate=&status=&page=&limit=
 // Request should be sent to inngest to biuld the attendance sheet
@@ -15,10 +16,10 @@ import HospitalUnit from "../models/hospitalUnit";
 // @ access Private (Teacher/Admin)
 export const generateAttendanceForClassSession = async (req: Request, res: Response) => {
   try {
-    const { courseId, classId, academicYearId, date } = req.body;
-    const lecturer = (req as any).user._id;
-    if (!courseId || !classId || !academicYearId || !date) {
-      return res.status(400).json({ message: "Missing required fields." });
+    const { courseId, classId, academicYearId, date, subjectId } = req.body;
+    const requester = (req as any).user._id;
+    if (!courseId || !classId || !academicYearId || !date || !subjectId) {
+      return res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
     }
     const dateObj = new Date(date);
     const dayMap: Record<number, string> = {
@@ -30,12 +31,38 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
       return res.status(400).json({ message: "Attendance cannot be generated on weekends." });
     }
 
-    const course = await Course.findById(courseId).populate("students", "_id");
+    const course = await Course.findById(courseId).populate({
+      path: "subjects.lecturer",
+      select: "_id name email departmentRole",
+    });
     if (!course) {
       return res.status(404).json({ message: "Course not found." });
     }
 
-    // Check for duplicates
+    const matchingSubject = (course.subjects ?? []).find((subject: any) => {
+      return (
+        String(subject._id) === String(subjectId) ||
+        String(subject.subjectUID) === String(subjectId) ||
+        String(subject.subjectID) === String(subjectId) ||
+        String(subject.name) === String(subjectId) ||
+        String(subject.code ?? "") === String(subjectId)
+      );
+    });
+
+    if (!matchingSubject) {
+      return res.status(404).json({ message: "Subject not found in selected course." });
+    }
+
+    const classDoc = await Class.findById(classId).populate("students", "_id");
+    if (!classDoc) {
+      return res.status(404).json({ message: "Class not found." });
+    }
+
+    const subjectLecturerId = Array.isArray(matchingSubject.lecturer)
+      ? matchingSubject.lecturer[0]?._id ?? matchingSubject.lecturer[0]
+      : null;
+    const lecturer = subjectLecturerId ?? requester;
+
     const startOfDay = new Date(dateObj);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(startOfDay);
@@ -43,23 +70,25 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
     const existing = await Attendance.findOne({
       class: classId,
       course: courseId,
+      subject: matchingSubject._id,
       date: { $gte: startOfDay, $lt: endOfDay },
     });
     if (existing) {
-      return res.status(409).json({ message: "Attendance records already exist for this class, course, and date." });
+      return res.status(409).json({ message: "Attendance records already exist for this class, course, subject, and date." });
     }
 
-    // generate attendance records for each student in the course for the given class session
-    const attendanceRecords = await Promise.all(course.students.map(async (studentId) => {
+    const studentIds = (classDoc.students ?? []).map((student: any) => student._id ?? student);
+    const attendanceRecords = await Promise.all(studentIds.map(async (studentId: any) => {
       const record = await Attendance.create({
         student: studentId,
         lecturer,
         course: courseId,
+        subject: matchingSubject._id,
         class: classId,
         academicYear: academicYearId,
         date: dateObj,
         dayOfWeek: dayName,
-        status: "present", // default to present, can be updated later by the teacher
+        status: "present",
       });
       return record;
     }));
@@ -67,7 +96,7 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
     await logActivity({
       userId: lecturer,
       action: "Generated attendance for class session",
-      details: `Generated attendance for course ID: ${courseId}, class ID: ${classId} on ${new Date(date).toDateString()}`,
+      details: `Generated attendance for course ID: ${courseId}, subject ID: ${String(matchingSubject._id)}, class ID: ${classId} on ${new Date(date).toDateString()}`,
     });
     res.status(201).json({ message: "Attendance generated for class session", attendanceRecords });
   } catch (error) {
@@ -125,7 +154,8 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       ]);
 
       const records = await Attendance.find({ student: userId })
-        .populate("course", "name code courseID subjects.subjectID")
+        .populate("course", "name code courseID subjects")
+        .populate("subject", "name code subjectID subjectUID")
         .populate("class", "name")
         .populate("lecturer", "name email")
         .sort({ date: -1 })
@@ -147,7 +177,8 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
     ]);
 
     const records = await Attendance.find({ lecturer: userId })
-      .populate("course", "name code courseID subjects.subjectID")
+      .populate("course", "name code courseID subjects")
+      .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
       .populate("student", "name idNumber email")
       .populate("lecturer", "name email")
@@ -180,7 +211,8 @@ export const getStudentAttendanceSummary = async (req: Request, res: Response) =
     ]);
 
     const records = await Attendance.find({ student: studentId })
-      .populate("course", "name code courseID subjects.subjectID")
+      .populate("course", "name code courseID subjects")
+      .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ date: -1 })
@@ -479,7 +511,8 @@ export const getStudentAttendanceRecords = async (req: Request, res: Response) =
     }
 
     const records = await Attendance.find(filter)
-      .populate("course", "name code courseID subjects.subjectID")
+      .populate("course", "name code courseID subjects")
+      .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ date: -1 })
@@ -500,7 +533,7 @@ export const getStudentAttendanceRecords = async (req: Request, res: Response) =
 // @access  Private (Admin/Teacher)
 export const getClassSessionAttendance = async (req: Request, res: Response) => {
   try {
-    const { classId, courseId, date } = req.query;
+    const { classId, courseId, date, subjectId } = req.query;
     if (!classId || !courseId || !date) {
       res.status(400).json({ message: "classId, courseId, and date are required." });
       return;
@@ -510,11 +543,16 @@ export const getClassSessionAttendance = async (req: Request, res: Response) => 
     const nextDay = new Date(dateObj);
     nextDay.setDate(nextDay.getDate() + 1);
 
-    const records = await Attendance.find({
+    const filter: any = {
       class: classId,
       course: courseId,
       date: { $gte: dateObj, $lt: nextDay },
-    })
+    };
+    if (subjectId) {
+      filter.subject = subjectId;
+    }
+
+    const records = await Attendance.find(filter)
       .populate("student", "name email idNumber")
       .populate("course", "name code subjects.subjectID")
       .populate("class", "name")
@@ -577,9 +615,9 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
 // @access  Private (Admin/Teacher)
 export const triggerAttendanceGeneration = async (req: Request, res: Response) => {
   try {
-    const { courseId, classId, academicYearId, date } = req.body;
-    if (!courseId || !classId || !academicYearId || !date) {
-      res.status(400).json({ message: "courseId, classId, academicYearId, and date are required." });
+    const { courseId, classId, academicYearId, date, subjectId } = req.body;
+    if (!courseId || !classId || !academicYearId || !date || !subjectId) {
+      res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
       return;
     }
 
@@ -592,7 +630,7 @@ export const triggerAttendanceGeneration = async (req: Request, res: Response) =
     const userId = (req as any).user._id?.toString();
     await inngest.send({
       name: "attendance/generate",
-      data: { courseId, classId, academicYearId, date, userId },
+      data: { courseId, classId, academicYearId, date, subjectId, userId },
     });
 
     res.status(202).json({ message: "Attendance generation started.", status: "processing" });

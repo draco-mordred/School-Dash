@@ -1119,3 +1119,9 @@ input.border.rounded-md {
 html {
   scroll-behavior: smooth;
 }
+
+.glassBg {
+  background: color-mix(in srgb, var(--background) 35%, var(--accent) 25%);
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+}

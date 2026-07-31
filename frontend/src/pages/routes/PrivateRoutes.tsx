@@ -5,6 +5,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import AppShell from "@/components/layout/AppShell";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
+import StudentTourOverlay from "@/components/onboarding/StudentTourOverlay";
 
 const getPortalLoginPath = () => {
   const lastPortalRole = localStorage.getItem("lastPortalRole");
@@ -46,10 +47,12 @@ const PrivateRoutes = () => {
         <SidebarInset className="flex min-h-screen flex-col pl-0">
           <AppShell>
             <div className="rounded-xl border border-border bg-muted p-8 text-center">
-              <h1 className="text-2xl font-semibold">No current academic year</h1>
+              <h1 className="text-2xl font-semibold">
+                No current academic year
+              </h1>
               <p className="mt-4 text-sm text-muted-foreground">
-                You are signed in, but the system does not have an active academic year configured yet.
-                Please contact your administrator.
+                You are signed in, but the system does not have an active
+                academic year configured yet. Please contact your administrator.
               </p>
             </div>
           </AppShell>
@@ -65,6 +68,7 @@ const PrivateRoutes = () => {
         <AppShell>
           <Outlet />
           <OnboardingFlow />
+          <StudentTourOverlay />
         </AppShell>
       </SidebarInset>
     </SidebarProvider>

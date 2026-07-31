@@ -14,7 +14,7 @@ import { createNotificationIfUnique } from "../utils/notificationUtils";
 import { buildMordredFallbackResponse } from "../utils/mordredFallback";
 import { normalizeRole } from "../middleware/auth";
 
-const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent"]);
+const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent", "student"]);
 const systemActionType = z.enum([
   "NONE",
   "UPDATE_PROFILE",
@@ -401,6 +401,62 @@ export const testWhatsAppAlert = async (
   req: Request, 
   res: Response
 ) => {}
+
+export const createPostingAttendanceAlert = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = (req as any).user;
+    const payload = req.body ?? {};
+
+    if (!user?._id) {
+      return res.status(401).json({ message: "Authentication required." });
+    }
+
+    const targetUserId = payload.studentId
+      ? new mongoose.Types.ObjectId(String(payload.studentId))
+      : user._id;
+
+    const overallPercent = Number(payload.overallPercent ?? 0);
+    const activeLocationTitle = String(payload.activeLocationTitle || "Active unit").trim();
+    const activeLocationValue = String(payload.activeLocationValue || "Current posting").trim();
+    const note = String(payload.note || "Please attend the next scheduled session to stay on track.").trim();
+
+    const message = `Your posting attendance is below the expected target at ${overallPercent}%. ${activeLocationTitle}: ${activeLocationValue}. ${note}`;
+
+    const notification = await createNotificationIfUnique({
+      userId: targetUserId,
+      role: "student",
+      title: "Posting attendance needs attention",
+      message,
+      type: "attendance",
+      metadata: {
+        source: "posting-attendance-alert",
+        activeLocationTitle,
+        activeLocationValue,
+        overallPercent,
+      },
+      actorName: user.name || "MORDRED",
+      actorRole: "student",
+    });
+
+    return res.status(200).json({
+      success: true,
+      notification,
+      insight: {
+        id: notification?._id?.toString() ?? `attendance-alert-${Date.now()}`,
+        type: "WARNING",
+        targetUser: user.name || "You",
+        message,
+        timestamp: "Just Now",
+      },
+    });
+  } catch (error: any) {
+    console.error("Failed to create posting attendance alert", error);
+    return res.status(500).json({ message: error.message || "Unable to create attendance alert." });
+  }
+};
 
 export const dynamicAIInsights = async (
   req: Request, 

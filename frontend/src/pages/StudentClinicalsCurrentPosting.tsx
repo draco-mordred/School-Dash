@@ -58,10 +58,35 @@ export default function StudentClinicalsCurrentPosting() {
           return;
         }
 
-        // Fetch current clinical rotation posting
-        const { data } = await api.get(`/clinical-rotations/student/current-posting`);
-        if (data?.posting) {
-          setPosting(data.posting);
+        const studentId = user?._id ?? (user as any)?.id;
+        if (!studentId) {
+          setError("User not authenticated");
+          return;
+        }
+
+        const { data } = await api.get(`/rotation-schedules/student/${studentId}/current`);
+        const current = Array.isArray(data?.current) ? data.current[0] : null;
+        if (current) {
+          const windowData = current.window ?? {};
+          setPosting({
+            _id: current.scheduleId ?? current.windowIndex ?? "",
+            rotation: {
+              _id: current.scheduleId ?? current.windowIndex ?? "",
+              name: current.postingName || "Current posting",
+              startDate: windowData.startDate || "",
+              endDate: windowData.endDate || "",
+              description: current.postingName ? `Current posting window for ${current.postingName}` : undefined,
+            },
+            unit: {
+              _id: windowData.unitId ?? "",
+              name: windowData.unitName ?? current.postingName ?? "Current unit",
+              department: windowData.departmentName ?? "",
+              location: windowData.location ?? "",
+            },
+            status: "active",
+            reportingTime: windowData.reportingTime ?? "",
+            reportingVenue: windowData.venue ?? "",
+          });
         } else {
           setError("No active clinical posting found");
         }

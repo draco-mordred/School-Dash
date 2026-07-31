@@ -6,6 +6,7 @@ export interface IAttendance extends Document {
   student?: mongoose.Types.ObjectId;
   lecturer?: mongoose.Types.ObjectId;
   course?: mongoose.Types.ObjectId;
+  subject?: mongoose.Types.ObjectId | null;
   class: mongoose.Types.ObjectId;
   academicYear: mongoose.Types.ObjectId;
   date: Date;
@@ -35,6 +36,10 @@ const AttendanceSchema = new Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Course",
       required: true,
+    },
+    subject: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
     },
     class: {
       type: mongoose.Schema.Types.ObjectId,

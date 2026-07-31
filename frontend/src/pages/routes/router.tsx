@@ -45,6 +45,7 @@ import AdminUnits from "@/pages/admin/AdminUnits";
 import StaffApprovals from "@/pages/StaffApprovals";
 import SupervisorQrAttendancePage from "@/pages/SupervisorQrAttendancePage";
 import StudentClinicalAttendancePage from "@/pages/StudentClinicalAttendancePage";
+import StudentAcademicAttendancePage from "@/pages/StudentAcademicAttendancePage";
 
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
@@ -253,7 +254,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/attendance/academic",
-            element: <StudentSection title="Academic Attendance" description="Monitor your academic attendance and class participation." />,
+            element: <StudentAcademicAttendancePage />,
           },
           {
             path: "student/attendance/clinical",

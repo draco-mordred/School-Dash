@@ -118,20 +118,26 @@ function getUserSubInfo(user: any) {
   switch (user?.role) {
     case "student":
       if (user?.studentClass) {
-        return `Class: ${typeof user.studentClass === 'object' ? user.studentClass.name : user.studentClass}`;
+        return `Class: ${typeof user.studentClass === "object" ? user.studentClass.name : user.studentClass}`;
       }
       if (user?.studentClasses?.length) {
-        const classes = user.studentClasses.map((c: any) => typeof c === 'object' ? c.name : c);
+        const classes = user.studentClasses.map((c: any) =>
+          typeof c === "object" ? c.name : c,
+        );
         return `Classes: ${classes.join(", ")}`;
       }
       return "Student";
     case "teacher":
       if (user?.teacherSubjects?.length) {
-        const subjects = user.teacherSubjects.map((s: any) => typeof s === 'object' ? s.name : s);
+        const subjects = user.teacherSubjects.map((s: any) =>
+          typeof s === "object" ? s.name : s,
+        );
         return `Subjects: ${subjects.join(", ")}`;
       }
       if (user?.teacherSubject?.length) {
-        const subjects = user.teacherSubject.map((s: any) => typeof s === 'object' ? s.name : s);
+        const subjects = user.teacherSubject.map((s: any) =>
+          typeof s === "object" ? s.name : s,
+        );
         return `Subjects: ${subjects.join(", ")}`;
       }
       return "Teacher";
@@ -143,11 +149,18 @@ function getUserSubInfo(user: any) {
         (user.parentStudents ?? []).forEach((s: any) => {
           if (s && typeof s === "object") {
             const rawClass = s.studentClasses ?? s.studentClass;
-            const className = rawClass && typeof rawClass === "object" ? rawClass.name : (typeof rawClass === "string" ? null : null);
+            const className =
+              rawClass && typeof rawClass === "object"
+                ? rawClass.name
+                : typeof rawClass === "string"
+                  ? null
+                  : null;
             if (className) classNames.push(className);
           }
         });
-        const classesPart = classNames.length ? ` · Classes: ${Array.from(new Set(classNames)).join(", ")}` : "";
+        const classesPart = classNames.length
+          ? ` · Classes: ${Array.from(new Set(classNames)).join(", ")}`
+          : "";
         return `Children: ${count}${classesPart}`;
       }
       return "Parent";
@@ -184,7 +197,9 @@ function getPageTitle(pathname: string) {
       return parts[1] === "calendar" ? "Academic Calendar" : "Timetable";
     case "users":
       return parts[1]
-        ? parts[1].replace(/-/g, " ").replace(/\b\w/g, (value) => value.toUpperCase())
+        ? parts[1]
+            .replace(/-/g, " ")
+            .replace(/\b\w/g, (value) => value.toUpperCase())
         : "People";
     case "classes":
       return "Classes";
@@ -213,7 +228,9 @@ function getPageTitle(pathname: string) {
     case "notifications":
       return "Notifications";
     default:
-      return first.replace(/-/g, " ").replace(/\b\w/g, (value) => value.toUpperCase());
+      return first
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (value) => value.toUpperCase());
   }
 }
 
@@ -225,13 +242,16 @@ export default function AppShell({ children }: PropsWithChildren) {
   const { notifications, unreadCount, isLoading } = useNotifications(1, 5);
 
   const pageTitle = getPageTitle(location.pathname);
-  const isProtected = location.pathname !== "/" && location.pathname !== "/login";
+  const isProtected =
+    location.pathname !== "/" && location.pathname !== "/login";
 
   // Expandable search state
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [notificationsMenuState, setNotificationsMenuState] = useState<"closed" | "opening" | "open" | "closing">("closed");
+  const [notificationsMenuState, setNotificationsMenuState] = useState<
+    "closed" | "opening" | "open" | "closing"
+  >("closed");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const notificationsTimerRef = useRef<number | null>(null);
   const notificationsMenuRef = useRef<HTMLDivElement>(null);
@@ -305,7 +325,11 @@ export default function AppShell({ children }: PropsWithChildren) {
   // the active element, blur the active element and set `inert` on that
   // subtree when supported so assistive tech won't lose sync.
   useEffect(() => {
-    if (typeof MutationObserver === "undefined" || typeof document === "undefined") return;
+    if (
+      typeof MutationObserver === "undefined" ||
+      typeof document === "undefined"
+    )
+      return;
 
     const observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
@@ -317,12 +341,20 @@ export default function AppShell({ children }: PropsWithChildren) {
             if (isHidden) {
               const active = document.activeElement as HTMLElement | null;
               if (active && target.contains(active)) {
-                try { active.blur(); } catch {}
-                try { (target as any).inert = true; } catch {}
-                try { (document.body as HTMLElement).focus(); } catch {}
+                try {
+                  active.blur();
+                } catch {}
+                try {
+                  (target as any).inert = true;
+                } catch {}
+                try {
+                  (document.body as HTMLElement).focus();
+                } catch {}
               }
             } else {
-              try { (target as any).inert = false; } catch {}
+              try {
+                (target as any).inert = false;
+              } catch {}
             }
           } catch (err) {
             // ignore errors here
@@ -331,7 +363,11 @@ export default function AppShell({ children }: PropsWithChildren) {
       }
     });
 
-    observer.observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ["aria-hidden"] });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["aria-hidden"],
+    });
     return () => observer.disconnect();
   }, []);
 
@@ -342,7 +378,9 @@ export default function AppShell({ children }: PropsWithChildren) {
 
     // cancel any in-flight animations
     if (notificationsAnimRef.current) {
-      try { notificationsAnimRef.current.cancel(); } catch (e) {}
+      try {
+        notificationsAnimRef.current.cancel();
+      } catch (e) {}
       notificationsAnimRef.current = null;
     }
 
@@ -357,27 +395,45 @@ export default function AppShell({ children }: PropsWithChildren) {
 
       // animate backdrop (if present)
       if (backdropEl) {
-        try { backdropEl.style.pointerEvents = "auto"; } catch (e) {}
-        const bAnim = backdropEl.animate(
-          [{ opacity: 0 }, { opacity: 1 }],
-          { duration: 200, easing: "linear", fill: "forwards" }
-        );
+        try {
+          backdropEl.style.pointerEvents = "auto";
+        } catch (e) {}
+        const bAnim = backdropEl.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: 200,
+          easing: "linear",
+          fill: "forwards",
+        });
         // safe store so we can cancel later
         notificationsAnimRef.current = bAnim;
       }
 
       const anim = el.animate(
         [
-          { opacity: 0, transform: "translateY(-8px) scaleY(0.96)", clipPath: "inset(0 0 100% 0 round 16px)" },
-          { opacity: 1, transform: "translateY(0) scaleY(1)", clipPath: "inset(0 0 0% 0 round 16px)" },
+          {
+            opacity: 0,
+            transform: "translateY(-8px) scaleY(0.96)",
+            clipPath: "inset(0 0 100% 0 round 16px)",
+          },
+          {
+            opacity: 1,
+            transform: "translateY(0) scaleY(1)",
+            clipPath: "inset(0 0 0% 0 round 16px)",
+          },
         ],
-        { duration: 260, easing: "cubic-bezier(0.25, 0.1, 0.25, 1)", fill: "forwards" }
+        {
+          duration: 260,
+          easing: "cubic-bezier(0.25, 0.1, 0.25, 1)",
+          fill: "forwards",
+        },
       );
       notificationsAnimRef.current = anim;
-      anim.finished.then(() => {
-        notificationsAnimRef.current = null;
-        if (notificationsMenuState === "opening") setNotificationsMenuState("open");
-      }).catch(() => {});
+      anim.finished
+        .then(() => {
+          notificationsAnimRef.current = null;
+          if (notificationsMenuState === "opening")
+            setNotificationsMenuState("open");
+        })
+        .catch(() => {});
       return;
     }
 
@@ -385,75 +441,242 @@ export default function AppShell({ children }: PropsWithChildren) {
       if (!el) return;
       // animate backdrop out
       if (backdropEl) {
-        try { backdropEl.style.pointerEvents = "none"; } catch (e) {}
-        const bAnim = backdropEl.animate(
-          [{ opacity: 1 }, { opacity: 0 }],
-          { duration: 200, easing: "linear", fill: "forwards" }
-        );
+        try {
+          backdropEl.style.pointerEvents = "none";
+        } catch (e) {}
+        const bAnim = backdropEl.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 200,
+          easing: "linear",
+          fill: "forwards",
+        });
         notificationsAnimRef.current = bAnim;
       }
 
       const anim = el.animate(
         [
-          { opacity: 1, transform: "translateY(0) scaleY(1)", clipPath: "inset(0 0 0% 0 round 16px)" },
-          { opacity: 0, transform: "translateY(-8px) scaleY(0.96)", clipPath: "inset(0 0 100% 0 round 16px)" },
+          {
+            opacity: 1,
+            transform: "translateY(0) scaleY(1)",
+            clipPath: "inset(0 0 0% 0 round 16px)",
+          },
+          {
+            opacity: 0,
+            transform: "translateY(-8px) scaleY(0.96)",
+            clipPath: "inset(0 0 100% 0 round 16px)",
+          },
         ],
-        { duration: 220, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "forwards" }
+        {
+          duration: 220,
+          easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+          fill: "forwards",
+        },
       );
       notificationsAnimRef.current = anim;
-      anim.finished.then(() => {
-        notificationsAnimRef.current = null;
-        if (notificationsMenuState === "closing") {
-          setNotificationsMenuState("closed");
-          setIsNotificationsOpen(false);
-        }
-      }).catch(() => {});
+      anim.finished
+        .then(() => {
+          notificationsAnimRef.current = null;
+          if (notificationsMenuState === "closing") {
+            setNotificationsMenuState("closed");
+            setIsNotificationsOpen(false);
+          }
+        })
+        .catch(() => {});
     }
   }, [notificationsMenuState, isNotificationsOpen]);
 
   // ─── Role-based pages registry ────────────────────────────────
   const allPages = [
     // Admin
-    { role: "admin", title: "Dashboard", path: "/dashboard", icon: "shield" as W11Glyph },
-    { role: "admin", title: "Manage Students", path: "/users/students", icon: "graduation-cap" as W11Glyph },
-    { role: "admin", title: "All Users", path: "/users", icon: "users" as W11Glyph },
-    { role: "admin", title: "Classes", path: "/classes", icon: "layers" as W11Glyph },
-    { role: "admin", title: "Attendance", path: "/attendance", icon: "clipboard-list" as W11Glyph },
-    { role: "admin", title: "Timetable", path: "/timetable", icon: "clock" as W11Glyph },
-    { role: "admin", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
-    { role: "admin", title: "Academic Years", path: "/timetable/calendar", icon: "info" as W11Glyph },
-    { role: "admin", title: "Notifications", path: "/notifications", icon: "bell" as W11Glyph },
-    { role: "admin", title: "Activities Log", path: "/activities-log", icon: "shield" as W11Glyph },
+    {
+      role: "admin",
+      title: "Dashboard",
+      path: "/dashboard",
+      icon: "shield" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Manage Students",
+      path: "/users/students",
+      icon: "graduation-cap" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "All Users",
+      path: "/users",
+      icon: "users" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Classes",
+      path: "/classes",
+      icon: "layers" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Attendance",
+      path: "/attendance",
+      icon: "clipboard-list" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Timetable",
+      path: "/timetable",
+      icon: "clock" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Settings",
+      path: "/settings",
+      icon: "settings" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Academic Years",
+      path: "/timetable/calendar",
+      icon: "info" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Notifications",
+      path: "/notifications",
+      icon: "bell" as W11Glyph,
+    },
+    {
+      role: "admin",
+      title: "Activities Log",
+      path: "/activities-log",
+      icon: "shield" as W11Glyph,
+    },
     // Teacher
-    { role: "teacher", title: "Dashboard", path: "/dashboard", icon: "shield" as W11Glyph },
-    { role: "teacher", title: "Take Attendance", path: "/attendance", icon: "clipboard-list" as W11Glyph },
-    { role: "teacher", title: "My Classes", path: "/classes", icon: "layers" as W11Glyph },
-    { role: "teacher", title: "Timetable", path: "/timetable", icon: "clock" as W11Glyph },
-    { role: "teacher", title: "Results", path: "/lms/exams", icon: "trending-up" as W11Glyph },
-    { role: "teacher", title: "Notifications", path: "/notifications", icon: "bell" as W11Glyph },
-    { role: "teacher", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
+    {
+      role: "teacher",
+      title: "Dashboard",
+      path: "/dashboard",
+      icon: "shield" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "Take Attendance",
+      path: "/attendance",
+      icon: "clipboard-list" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "My Classes",
+      path: "/classes",
+      icon: "layers" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "Timetable",
+      path: "/timetable",
+      icon: "clock" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "Results",
+      path: "/lms/exams",
+      icon: "trending-up" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "Notifications",
+      path: "/notifications",
+      icon: "bell" as W11Glyph,
+    },
+    {
+      role: "teacher",
+      title: "Settings",
+      path: "/settings",
+      icon: "settings" as W11Glyph,
+    },
     // Student
-    { role: "student", title: "Dashboard", path: "/dashboard", icon: "shield" as W11Glyph },
-    { role: "student", title: "My Portal", path: "/student-portal", icon: "book-open" as W11Glyph },
-    { role: "student", title: "My Attendance", path: "/attendance", icon: "bar-chart" as W11Glyph },
-    { role: "student", title: "Timetable", path: "/timetable", icon: "clock" as W11Glyph },
-    { role: "student", title: "Courses", path: "/courses", icon: "book-open" as W11Glyph },
-    { role: "student", title: "Notifications", path: "/notifications", icon: "bell" as W11Glyph },
-    { role: "student", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
+    {
+      role: "student",
+      title: "Dashboard",
+      path: "/dashboard",
+      icon: "shield" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "My Portal",
+      path: "/student-portal",
+      icon: "book-open" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "My Attendance",
+      path: "/attendance",
+      icon: "bar-chart" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "Timetable",
+      path: "/timetable",
+      icon: "clock" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "Courses",
+      path: "/courses",
+      icon: "book-open" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "Notifications",
+      path: "/notifications",
+      icon: "bell" as W11Glyph,
+    },
+    {
+      role: "student",
+      title: "Settings",
+      path: "/settings",
+      icon: "settings" as W11Glyph,
+    },
     // Parent
-    { role: "parent", title: "Dashboard", path: "/dashboard", icon: "shield" as W11Glyph },
-    { role: "parent", title: "My Children", path: "/settings/account", icon: "users" as W11Glyph },
-    { role: "parent", title: "Children's Attendance", path: "/attendance", icon: "bar-chart" as W11Glyph },
-    { role: "parent", title: "Timetables", path: "/timetable", icon: "clock" as W11Glyph },
-    { role: "parent", title: "Notifications", path: "/notifications", icon: "bell" as W11Glyph },
-    { role: "parent", title: "Settings", path: "/settings", icon: "settings" as W11Glyph },
+    {
+      role: "parent",
+      title: "Dashboard",
+      path: "/dashboard",
+      icon: "shield" as W11Glyph,
+    },
+    {
+      role: "parent",
+      title: "My Children",
+      path: "/settings/account",
+      icon: "users" as W11Glyph,
+    },
+    {
+      role: "parent",
+      title: "Children's Attendance",
+      path: "/attendance",
+      icon: "bar-chart" as W11Glyph,
+    },
+    {
+      role: "parent",
+      title: "Timetables",
+      path: "/timetable",
+      icon: "clock" as W11Glyph,
+    },
+    {
+      role: "parent",
+      title: "Notifications",
+      path: "/notifications",
+      icon: "bell" as W11Glyph,
+    },
+    {
+      role: "parent",
+      title: "Settings",
+      path: "/settings",
+      icon: "settings" as W11Glyph,
+    },
   ];
 
   const userRole = user?.role ?? "";
   const filteredPages = allPages.filter(
     (page) =>
       page.role === userRole &&
-      page.title.toLowerCase().includes(searchQuery.toLowerCase())
+      page.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const handleLogout = () => {
@@ -511,7 +734,11 @@ export default function AppShell({ children }: PropsWithChildren) {
       <div className="flex min-h-screen">
         <div className="flex min-h-screen flex-1 flex-col">
           {isProtected && (
-            <header className="fixed top-0 z-60 left-0 right-0 border-b border-border bg-background/60 dark:bg-background/60 backdrop-blur-xl Supports-[backdrop-blur]:bg-background/30 transition-all duration-200 ease-in-out" style={{backdropFilter: 'blur(10px)'}}>
+            <header
+              data-tour="student-topbar"
+              className="fixed top-0 z-60 left-0 right-0 border-b border-border bg-background/60 dark:bg-background/60 backdrop-blur-xl Supports-[backdrop-blur]:bg-background/30 transition-all duration-200 ease-in-out"
+              style={{ backdropFilter: "blur(10px)" }}
+            >
               <div className="flex h-14 items-center justify-between gap-4 px-4">
                 {/* Left: Hamburger + Home + Title */}
                 <div className="flex items-center gap-2 min-w-0">
@@ -537,21 +764,29 @@ export default function AppShell({ children }: PropsWithChildren) {
 
                   <div className="hidden xs:flex items-center gap-1.5 min-w-0">
                     <span className="text-muted-foreground">/</span>
-                    <h1 className="truncate text-sm font-medium">{pageTitle}</h1>
+                    <h1 className="truncate text-sm font-medium">
+                      {pageTitle}
+                    </h1>
                   </div>
 
                   {/* Mobile only title */}
                   <div className="xs:hidden min-w-0">
-                    <h1 className="truncate text-sm font-medium">{pageTitle}</h1>
+                    <h1 className="truncate text-sm font-medium">
+                      {pageTitle}
+                    </h1>
                   </div>
                 </div>
 
                 {/* Center: User Info (hidden on small screens) */}
                 <div className="hidden md:flex flex-col items-center justify-center text-center mx-auto">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{user?.name?.toUpperCase()}</span>
+                    <span className="text-sm font-semibold">
+                      {user?.name?.toUpperCase()}
+                    </span>
                     <span className="text-xs text-muted-foreground">—</span>
-                    <span className="text-xs text-muted-foreground font-mono">{user?.idNumber || "N/A"}</span>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {user?.idNumber || "N/A"}
+                    </span>
                   </div>
                   <div className="text-xs text-muted-foreground truncate max-w-[200px]">
                     {getUserSubInfo(user)}
@@ -561,7 +796,12 @@ export default function AppShell({ children }: PropsWithChildren) {
                 {/* Right: Search + Notifications + User Avatar (always visible, sticky) */}
                 <div className="flex items-center gap-1">
                   {/* Role-aware Search with dropdown */}
-                  <div className={cn("relative transition-all duration-300 ease-in-out", searchExpanded ? "w-64" : "w-8")}>
+                  <div
+                    className={cn(
+                      "relative transition-all duration-300 ease-in-out",
+                      searchExpanded ? "w-64" : "w-8",
+                    )}
+                  >
                     {searchExpanded ? (
                       /* Full search input */
                       <div className="flex items-center gap-1 w-full rounded-lg border border-border bg-muted/50 px-2 py-1">
@@ -577,7 +817,10 @@ export default function AppShell({ children }: PropsWithChildren) {
                           className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                         />
                         <button
-                          onClick={() => { setSearchExpanded(false); setSearchQuery(""); }}
+                          onClick={() => {
+                            setSearchExpanded(false);
+                            setSearchQuery("");
+                          }}
                           className="rounded p-0.5 hover:bg-accent"
                         >
                           <X className="h-3 w-3 text-muted-foreground" />
@@ -597,39 +840,51 @@ export default function AppShell({ children }: PropsWithChildren) {
                     )}
 
                     {/* Search Results Dropdown */}
-                    {searchExpanded && searchQuery && filteredPages.length > 0 && (
-                      <div className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 overflow-hidden">
-                        {filteredPages.map((page) => (
-                          <button
-                            key={page.path}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              navigate(page.path);
-                              setSearchExpanded(false);
-                              setSearchQuery("");
-                            }}
-                            className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-accent transition-colors"
-                          >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                              <W11Icon glyph={page.icon} size="sm" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="font-medium truncate">{page.title}</div>
-                              <div className="text-xs text-muted-foreground capitalize">{user?.role}</div>
-                            </div>
-                            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    {searchExpanded &&
+                      searchQuery &&
+                      filteredPages.length > 0 && (
+                        <div className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 overflow-hidden">
+                          {filteredPages.map((page) => (
+                            <button
+                              key={page.path}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                navigate(page.path);
+                                setSearchExpanded(false);
+                                setSearchQuery("");
+                              }}
+                              className="flex w-full items-center gap-3 px-3 py-2.5 text-sm text-left hover:bg-accent transition-colors"
+                            >
+                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                                <W11Icon glyph={page.icon} size="sm" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-medium truncate">
+                                  {page.title}
+                                </div>
+                                <div className="text-xs text-muted-foreground capitalize">
+                                  {user?.role}
+                                </div>
+                              </div>
+                              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
 
                     {/* No results */}
-                    {searchExpanded && searchQuery && filteredPages.length === 0 && (
-                      <div className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 px-4 py-6 text-center">
-                        <p className="text-sm text-muted-foreground">No pages found</p>
-                        <p className="text-xs text-muted-foreground mt-1 capitalize">Try searching for {user?.role} pages</p>
-                      </div>
-                    )}
+                    {searchExpanded &&
+                      searchQuery &&
+                      filteredPages.length === 0 && (
+                        <div className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 px-4 py-6 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            No pages found
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1 capitalize">
+                            Try searching for {user?.role} pages
+                          </p>
+                        </div>
+                      )}
                   </div>
 
                   <div className="relative" ref={notificationsWrapperRef}>
@@ -649,7 +904,7 @@ export default function AppShell({ children }: PropsWithChildren) {
                       <Bell
                         className={cn(
                           "h-4 w-4 transition-transform",
-                          unreadCount > 0 && "animate-ring"
+                          unreadCount > 0 && "animate-ring",
                         )}
                       />
                       {unreadCount > 0 ? (
@@ -679,42 +934,67 @@ export default function AppShell({ children }: PropsWithChildren) {
                           ref={notificationsMenuRef}
                           className="notification-dropdown-scroll absolute right-0 top-full mt-2 z-[60] w-80 overflow-hidden rounded-xl border border-border/80 bg-background/85 p-0 shadow-2xl"
                         >
-                        <div id="notificationScrollHeader" className="flex items-center justify-between border-b border-border px-3 py-2">
-                          <div>
-                            <p className="text-sm font-semibold">Notifications</p>
-                            <p className="text-xs text-muted-foreground">
-                              {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
-                            </p>
+                          <div
+                            id="notificationScrollHeader"
+                            className="flex items-center justify-between border-b border-border px-3 py-2"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold">
+                                Notifications
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {unreadCount > 0
+                                  ? `${unreadCount} unread`
+                                  : "All caught up"}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                handleNotificationItemClick("/notifications")
+                              }
+                            >
+                              View all
+                            </Button>
                           </div>
-                          <Button variant="ghost" size="sm" onClick={() => handleNotificationItemClick("/notifications")}>
-                            View all
-                          </Button>
-                        </div>
-                        {isLoading ? (
-                          <div className="space-y-2 p-3">
-                            <div className="h-8 animate-pulse rounded bg-muted" />
-                            <div className="h-8 animate-pulse rounded bg-muted" />
-                          </div>
-                        ) : notifications.length === 0 ? (
-                          <div className="px-3 py-4 text-sm text-muted-foreground">No recent notifications</div>
-                        ) : (
-                          <div className="max-h-80 overflow-y-auto">
-                            {notifications.slice(0, 5).map((notification) => (
-                              <button
-                                key={notification._id}
-                                type="button"
-                                onClick={() => handleNotificationItemClick(notification.link || "/notifications")}
-                                className="flex w-full cursor-pointer flex-col items-start gap-1 rounded-none px-3 py-2 text-left transition-colors hover:bg-accent"
-                              >
-                                <div className="flex w-full items-center justify-between gap-3">
-                                  <span className="truncate text-sm font-medium">{notification.title}</span>
-                                  {!notification.isRead && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
-                                </div>
-                                <span className="text-xs text-muted-foreground">{notification.message}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                          {isLoading ? (
+                            <div className="space-y-2 p-3">
+                              <div className="h-8 animate-pulse rounded bg-muted" />
+                              <div className="h-8 animate-pulse rounded bg-muted" />
+                            </div>
+                          ) : notifications.length === 0 ? (
+                            <div className="px-3 py-4 text-sm text-muted-foreground">
+                              No recent notifications
+                            </div>
+                          ) : (
+                            <div className="max-h-80 overflow-y-auto">
+                              {notifications.slice(0, 5).map((notification) => (
+                                <button
+                                  key={notification._id}
+                                  type="button"
+                                  onClick={() =>
+                                    handleNotificationItemClick(
+                                      notification.link || "/notifications",
+                                    )
+                                  }
+                                  className="flex w-full cursor-pointer flex-col items-start gap-1 rounded-none px-3 py-2 text-left transition-colors hover:bg-accent"
+                                >
+                                  <div className="flex w-full items-center justify-between gap-3">
+                                    <span className="truncate text-sm font-medium">
+                                      {notification.title}
+                                    </span>
+                                    {!notification.isRead && (
+                                      <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {notification.message}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -730,7 +1010,10 @@ export default function AppShell({ children }: PropsWithChildren) {
                       >
                         <Avatar className="h-8 w-8">
                           {user?.profileImage ? (
-                            <AvatarImage src={user.profileImage} alt={user?.name ?? "User"} />
+                            <AvatarImage
+                              src={user.profileImage}
+                              alt={user?.name ?? "User"}
+                            />
                           ) : (
                             <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
                               {getInitials(user?.name)}
@@ -739,16 +1022,24 @@ export default function AppShell({ children }: PropsWithChildren) {
                         </Avatar>
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" side="bottom" className="w-56">
+                    <DropdownMenuContent
+                      align="end"
+                      side="bottom"
+                      className="w-56"
+                    >
                       <DropdownMenuLabel className="font-normal">
                         <div className="flex flex-col space-y-1">
-                          <p className="text-sm font-medium leading-none">{user?.name}</p>
+                          <p className="text-sm font-medium leading-none">
+                            {user?.name}
+                          </p>
                           <p className="text-xs leading-none text-muted-foreground">
                             {user?.email}
                           </p>
                           <div className="flex items-center gap-1 pt-1">
                             {getRoleIcon(user?.role)}
-                            <span className="text-xs text-muted-foreground">{getRoleLabel(user?.role)}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {getRoleLabel(user?.role)}
+                            </span>
                           </div>
                           {(user?.academicStatus || user?.departmentRole) && (
                             <div className="flex flex-wrap items-center gap-1 pt-1">
@@ -767,12 +1058,17 @@ export default function AppShell({ children }: PropsWithChildren) {
                         </div>
                       </DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={() => navigate("/settings/account")}>
+                      <DropdownMenuItem
+                        onSelect={() => navigate("/settings/account")}
+                      >
                         <Settings className="mr-2 h-4 w-4" />
                         Account Settings
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
+                      <DropdownMenuItem
+                        onSelect={handleLogout}
+                        className="text-destructive"
+                      >
                         <LogOut className="mr-2 h-4 w-4" />
                         Logout
                       </DropdownMenuItem>
@@ -780,15 +1076,23 @@ export default function AppShell({ children }: PropsWithChildren) {
                   </DropdownMenu>
                 </div>
               </div>
-            </header> 
+            </header>
           )}
 
           <main
             id="app-main"
-            className={cn("flex-1 overflow-y-auto will-change-transform", isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "")}
+            className={cn(
+              "flex-1 overflow-y-auto will-change-transform",
+              isProtected ? "mt-[0px] px-4 md:pl-0 md:pr-4 py-4 pb-16" : "",
+            )}
             style={{ contain: "layout paint" }}
           >
-            <div key={location.pathname} className="page-transition will-change-transform">{children ?? <Outlet />}</div>
+            <div
+              key={location.pathname}
+              className="page-transition will-change-transform"
+            >
+              {children ?? <Outlet />}
+            </div>
           </main>
           {/* <MordredFloatingChat /> */}
           {isProtected && (
@@ -796,7 +1100,10 @@ export default function AppShell({ children }: PropsWithChildren) {
               id="app-footer"
               className="fixed bottom-0 z-50 border-t border-border bg-background px-4 py-3 text-xs text-muted-foreground transition-[left,right,width] duration-200 ease-linear"
               style={{
-                left: sidebarState === "expanded" ? "var(--sidebar-width)" : "var(--sidebar-width-icon)",
+                left:
+                  sidebarState === "expanded"
+                    ? "var(--sidebar-width)"
+                    : "var(--sidebar-width-icon)",
                 right: 0,
                 width: `calc(100% - ${sidebarState === "expanded" ? "var(--sidebar-width)" : "var(--sidebar-width-icon)"})`,
               }}
@@ -804,11 +1111,17 @@ export default function AppShell({ children }: PropsWithChildren) {
               <div className="mx-auto flex max-w-7xl flex-col gap-2 md:flex-row md:items-center md:justify-between">
                 <span>© {new Date().getFullYear()} Avalon Enterprises</span>
                 <div className="flex flex-wrap items-center gap-2">
-                  <a href="#" className="transition-colors hover:text-foreground">
+                  <a
+                    href="#"
+                    className="transition-colors hover:text-foreground"
+                  >
                     Privacy policy
                   </a>
                   <span className="hidden sm:inline">|</span>
-                  <a href="#" className="transition-colors hover:text-foreground">
+                  <a
+                    href="#"
+                    className="transition-colors hover:text-foreground"
+                  >
                     Terms of use
                   </a>
                 </div>
@@ -820,4 +1133,3 @@ export default function AppShell({ children }: PropsWithChildren) {
     </div>
   );
 }
-

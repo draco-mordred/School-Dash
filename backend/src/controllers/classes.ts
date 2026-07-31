@@ -8,7 +8,10 @@ export const getClassById = async (req: Request, res: Response) => {
     const cls = await ClassModel.findById(req.params.id)
       .populate("academicYear", "name")
       .populate("classTeacher", "name email")
-      .populate("courses", "name code subjects.subjectID")
+      .populate(
+        "courses",
+        "name code subjects.name subjects.code subjects.subjectID subjects.lecturer"
+      )
       .select("name academicYear classTeacher courses");
     if (!cls) {
       return res.status(404).json({ message: "Class not found" });
@@ -109,7 +112,10 @@ res: Response
       ClassModel.find(query)
         .populate("academicYear", "name")
         .populate("classTeacher", "name email")
-        .populate("courses", "name code subjects.subjectID lecturer")
+        .populate(
+          "courses",
+          "name code subjects._id subjects.subjectUID subjects._id subjects.subjectUID subjects.name subjects.code subjects.subjectID subjects.lecturer"
+        )
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),

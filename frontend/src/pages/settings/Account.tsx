@@ -31,6 +31,7 @@ import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import type { user } from "@/types";
 import { cn } from "@/lib/utils";
 import { useInstitution } from "@/lib/useInstitution";
+import { getClassLevelPhasePlan } from "@/lib/academicClock";
 
 // ─── Types ─────────────────────────────────────────────────────
 type NavItemId = "profile" | "photo" | "academic" | "linked" | "password";
@@ -38,6 +39,13 @@ type NavItemId = "profile" | "photo" | "academic" | "linked" | "password";
 interface NavSection {
   title?: string;
   items: { id: NavItemId; icon: W11Glyph; label: string }[];
+}
+
+interface StudentAtAGlanceData {
+  upcomingLecture: string | null;
+  upcomingPosting: string | null;
+  upcomingExam: string | null;
+  todayAttendance: string | null;
 }
 
 function buildNavSections(role?: string): NavSection[] {
@@ -95,6 +103,8 @@ const Account = () => {
   const [showPasswords, setShowPasswords] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [studentAtAGlanceData, setStudentAtAGlanceData] = useState<StudentAtAGlanceData | null>(null);
+  const [studentAtAGlanceLoading, setStudentAtAGlanceLoading] = useState(false);
 
   // Parent-specific
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
@@ -140,6 +150,150 @@ const Account = () => {
   useEffect(() => {
     setProfileImage(user?.profileImage ?? null);
   }, [user?.profileImage]);
+
+  useEffect(() => {
+    const loadStudentAtAGlance = async () => {
+      if (!user || user.role !== "student") {
+        setStudentAtAGlanceData(null);
+        setStudentAtAGlanceLoading(false);
+        return;
+      }
+
+      const studentClassId = typeof user.studentClasses === "object"
+        ? (user.studentClasses as any)?._id ?? null
+        : user.studentClasses;
+
+      setStudentAtAGlanceLoading(true);
+      try {
+        const [summaryResult, examsResult, clockResult, attendanceResult] = await Promise.allSettled([
+          api.get("/attendance/student-notifications"),
+          api.get("/exams"),
+          studentClassId ? api.get(`/academic-clocks?classId=${studentClassId}`) : Promise.resolve({ data: { clocks: [] } }),
+          api.get("/attendance/me/summary"),
+        ]);
+
+        const summaryData = summaryResult.status === "fulfilled" ? summaryResult.value.data : null;
+        const examsData = examsResult.status === "fulfilled" ? examsResult.value.data : [];
+        const clockData = clockResult.status === "fulfilled" ? clockResult.value.data : null;
+        const attendanceData = attendanceResult.status === "fulfilled" ? attendanceResult.value.data : null;
+
+        const lectureEntries = Array.isArray(summaryData?.todayLectures) ? summaryData.todayLectures : [];
+        const parseTimeToMinutes = (value?: string | null) => {
+          if (!value) return null;
+          const [hours, minutes] = value.split(":").map((part) => Number(part));
+          if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+          return hours * 60 + minutes;
+        };
+
+        const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+        const sortedLectures = [...lectureEntries].sort((a, b) => {
+          const aStart = parseTimeToMinutes(a?.startTime);
+          const bStart = parseTimeToMinutes(b?.startTime);
+          if (aStart == null || bStart == null) return 0;
+          return aStart - bStart;
+        });
+
+        const activeLectureIndex = sortedLectures.findIndex((lecture) => {
+          const start = parseTimeToMinutes(lecture?.startTime);
+          const end = parseTimeToMinutes(lecture?.endTime);
+          if (start == null || end == null) return false;
+          return nowMinutes >= start && nowMinutes <= end;
+        });
+
+        const nextLecture = activeLectureIndex >= 0
+          ? sortedLectures[activeLectureIndex + 1] ?? sortedLectures[activeLectureIndex]
+          : sortedLectures.find((lecture) => {
+              const start = parseTimeToMinutes(lecture?.startTime);
+              return start != null && start >= nowMinutes;
+            }) ?? sortedLectures[0] ?? null;
+
+        const resolveLectureName = (lecture: any) => {
+          const subject = typeof lecture?.subject === "object" ? lecture.subject?.name : lecture?.subject;
+          const lecturer = typeof lecture?.lecturer === "object" ? lecture.lecturer?.name : lecture?.lecturer;
+          if (subject) return lecturer ? `${subject} with ${lecturer}` : subject;
+          if (lecturer) return `Lecture with ${lecturer}`;
+          return "Lecture session";
+        };
+
+        const upcomingLecture = nextLecture ? resolveLectureName(nextLecture) : "No lecture scheduled for today";
+
+        const clocks = Array.isArray(clockData?.clocks) ? clockData.clocks : [];
+        const activeClock = clocks[0] ?? null;
+        const phasePlan = getClassLevelPhasePlan(activeClock?.classId?.name ?? "");
+        const phaseEntries = (activeClock?.phaseConfig && typeof activeClock.phaseConfig === "object"
+          ? Object.entries(activeClock.phaseConfig)
+              .filter(([key, value]) => key.startsWith("phase") && value && typeof value === "object")
+              .map(([key, value]: [string, any]) => ({ key, name: value?.name || key }))
+          : []) as Array<{ key: string; name: string }>;
+
+        const phaseSequence = phaseEntries.length > 0
+          ? phaseEntries
+          : phasePlan.map((phase) => ({ key: phase.id, name: phase.name }));
+
+        const currentPhaseKey = activeClock?.clockPhase ?? null;
+        const currentPhaseIndex = phaseSequence.findIndex((phase) => phase.key === currentPhaseKey);
+        const nextPhase = currentPhaseIndex >= 0 && currentPhaseIndex + 1 < phaseSequence.length
+          ? phaseSequence[currentPhaseIndex + 1]
+          : phaseSequence[0] ?? null;
+
+        const upcomingPosting = nextPhase?.name ?? "Posting phase pending";
+
+        const upcomingExam = (() => {
+          const upcomingExams = Array.isArray(examsData)
+            ? [...examsData]
+                .filter((exam: any) => exam?.dueDate && new Date(exam.dueDate).getTime() >= Date.now())
+                .sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+            : [];
+          const exam = upcomingExams[0];
+          if (!exam) return "No upcoming exams";
+          const dateLabel = new Date(exam.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+          return `${exam.title || exam.name || "Exam"} • ${dateLabel}`;
+        })();
+
+        const todayRecords = Array.isArray(attendanceData?.records)
+          ? attendanceData.records.filter((record: any) => {
+              const recordDate = record?.date ? new Date(record.date) : null;
+              if (!recordDate || Number.isNaN(recordDate.getTime())) return false;
+              const today = new Date();
+              return recordDate.getFullYear() === today.getFullYear()
+                && recordDate.getMonth() === today.getMonth()
+                && recordDate.getDate() === today.getDate();
+            })
+          : [];
+
+        const todayAttendanceSummary = todayRecords.length === 0
+          ? "No attendance marked for today yet"
+          : (() => {
+              const counts = todayRecords.reduce((acc: Record<string, number>, record: any) => {
+                const status = String(record?.status ?? "").trim().toLowerCase();
+                const normalized = status === "present" || status === "late" || status === "absent" || status === "excused" ? status : "other";
+                acc[normalized] = (acc[normalized] ?? 0) + 1;
+                return acc;
+              }, {});
+              return `Present ${counts.present ?? 0} • Absent ${counts.absent ?? 0} • Late ${counts.late ?? 0}`;
+            })();
+
+        setStudentAtAGlanceData({
+          upcomingLecture,
+          upcomingPosting,
+          upcomingExam,
+          todayAttendance: todayAttendanceSummary,
+        });
+      } catch (error) {
+        console.error("Failed to load student account overview", error);
+        setStudentAtAGlanceData({
+          upcomingLecture: "Unavailable",
+          upcomingPosting: "Unavailable",
+          upcomingExam: "Unavailable",
+          todayAttendance: "Unavailable",
+        });
+      } finally {
+        setStudentAtAGlanceLoading(false);
+      }
+    };
+
+    void loadStudentAtAGlance();
+  }, [user?._id, user?.role, user?.studentClasses]);
 
   // ─── Helpers ─────────────────────────────────────────────────
   const getInitials = (name?: string) => {
@@ -439,6 +593,36 @@ const Account = () => {
 
   const AtAGlance = () => {
     if (!user) return null;
+
+    if (user.role === "student") {
+      return (
+        <div className="rounded-xl border bg-card p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-md uppercase font-semibold">At a glance</h3>
+            {studentAtAGlanceLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-border/70 bg-muted/40 p-3">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Upcoming Lectures</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{studentAtAGlanceData?.upcomingLecture ?? "Loading…"}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/40 p-3">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Upcoming Posting</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{studentAtAGlanceData?.upcomingPosting ?? "Loading…"}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/40 p-3">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Upcoming Exams</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{studentAtAGlanceData?.upcomingExam ?? "Loading…"}</p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/40 p-3">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Today&apos;s Attendance</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{studentAtAGlanceData?.todayAttendance ?? "Loading…"}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-xl border bg-card p-4">
         <h3 className="text-md uppercase font-semibold mb-2">At a glance</h3>
@@ -454,18 +638,6 @@ const Account = () => {
               <p className="text-xs text-muted-foreground">Classes / Subjects</p>
               <p className="text-lg font-medium">{getDisplayClasses()}</p>
             </div>
-          )}
-          {user.role === "student" && (
-            <>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Upcoming Lectures</p>
-                <p className="text-lg font-medium">{user.upcomingLectures?.length ?? "—"}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Upcoming Exams</p>
-                <p className="text-lg font-medium">{user.upcomingExams?.length ?? "—"}</p>
-              </div>
-            </>
           )}
           {user.role === "admin" && (
             <div className="space-y-1">

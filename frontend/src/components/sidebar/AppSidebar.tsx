@@ -1,7 +1,13 @@
-
 "use client";
 
-import { LogOut, ShieldCheck, GraduationCap, BookOpen, Users, type LucideIcon } from "lucide-react";
+import {
+  LogOut,
+  ShieldCheck,
+  GraduationCap,
+  BookOpen,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 
 import { NavMain } from "@/components/sidebar/nav-main";
 import { NavMainMiniSidebar } from "@/components/sidebar/nav-main-mini-sidebar";
@@ -18,13 +24,16 @@ import type { UserRole } from "@/types";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useMemo } from "react";
-import { toast } from "sonner"; 
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ThemeToogle } from "./ThemeToogle";
 import { sidebardata } from "./sidebardata";
 import { useInstitution } from "@/lib/useInstitution";
-import { getInstitutionDisplayName, getInstitutionSubtitle } from "@/lib/institutionDisplay";
+import {
+  getInstitutionDisplayName,
+  getInstitutionSubtitle,
+} from "@/lib/institutionDisplay";
 
 // NOTE: AppSidebar header customization (institution + academic year)
 // NavItem is intentionally left as-is for compatibility.
@@ -41,8 +50,12 @@ export interface NavItem {
   }[];
 }
 
-
-export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentProps<typeof Sidebar> & { collapsible?: "offcanvas" | "icon" | "none" }) {
+export function AppSidebar({
+  collapsible = "icon",
+  ...props
+}: React.ComponentProps<typeof Sidebar> & {
+  collapsible?: "offcanvas" | "icon" | "none";
+}) {
   const { user, year, setUser } = useAuth();
   const location = useLocation(); // <--- Get current URL
   const pathname = location.pathname; // e.g., "/dashboard/analytics"
@@ -55,7 +68,9 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
   };
 
   const userRole = (user?.role || "student") as UserRole;
-  const normalizedUserRole = ((userRole as string) === "staff" ? "teacher" : userRole) as UserRole | "teacher";
+  const normalizedUserRole = (
+    (userRole as string) === "staff" ? "teacher" : userRole
+  ) as UserRole | "teacher";
 
   const roleMeta: Record<string, { icon: LucideIcon; label: string }> = {
     admin: { icon: ShieldCheck, label: "Administrator" },
@@ -80,7 +95,8 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
           isActive: isMainActive || isChildActive,
           items: item.items
             ?.filter(
-              (subItem) => !subItem.roles || subItem.roles.includes(normalizedUserRole),
+              (subItem) =>
+                !subItem.roles || subItem.roles.includes(normalizedUserRole),
             )
             .map((subItem) => ({
               ...subItem,
@@ -89,7 +105,7 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
         };
       });
   }, [pathname, normalizedUserRole]);
- 
+
   const logout = async () => {
     try {
       const role = user?.role;
@@ -105,13 +121,15 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
       console.error("Logout failed:", error);
       toast.error("Logout failed. Please try again.");
     }
-  }; 
+  };
   const { institution } = useInstitution();
   const institutionName = getInstitutionDisplayName(institution);
-  const institutionSubtitle = getInstitutionSubtitle(institution, year?.name ?? "") || "Institution profile";
+  const institutionSubtitle =
+    getInstitutionSubtitle(institution, year?.name ?? "") ||
+    "Institution profile";
 
   return (
-    <Sidebar collapsible={collapsible} {...props}>
+    <Sidebar collapsible={collapsible} {...props} data-tour="student-sidebar">
       <SidebarHeader>
         {(() => {
           const institutionLogoUrl = institution?.logoUrl ?? null;
@@ -133,8 +151,12 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold">{institutionName}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">{institutionSubtitle}</p>
+                  <p className="truncate text-sm font-semibold">
+                    {institutionName}
+                  </p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {institutionSubtitle}
+                  </p>
                 </div>
               </div>
 
@@ -214,28 +236,32 @@ export function AppSidebar({ collapsible = "icon", ...props }: React.ComponentPr
               </span>
               <div>
                 <p className="text-sm font-semibold">{roleInfo.label}</p>
-                <p className="text-xs text-muted-foreground">UNIJOS, JOS, Nigeria</p>
-                <p className="truncate text-[7px] text-muted-foreground">{institutionSubtitle}</p>
+                <p className="text-xs text-muted-foreground">
+                  UNIJOS, JOS, Nigeria
+                </p>
+                <p className="truncate text-[7px] text-muted-foreground">
+                  {institutionSubtitle}
+                </p>
               </div>
             </div>
           </div>
         </div>
         <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
-        {/* Compact icon-only footer — only visible when collapsed */}
-        <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
-          <Button
-            onClick={logout}
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
-            aria-label="Logout"
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <RoleIcon className="h-4 w-4" />
-          </span>
-        </div>
+          {/* Compact icon-only footer — only visible when collapsed */}
+          <div className="hidden group-data-[collapsible=icon]:flex flex-col items-center gap-1 py-2">
+            <Button
+              onClick={logout}
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded hover:bg-accent hover:text-accent-foreground transition-colors"
+              aria-label="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+            <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
+              <RoleIcon className="h-4 w-4" />
+            </span>
+          </div>
         </div>
       </SidebarFooter>
       <SidebarRail />

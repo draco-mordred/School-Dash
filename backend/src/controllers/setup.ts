@@ -108,12 +108,13 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     console.info("Request /api/setup/status: received (cache miss)");
 
     const institution = await Institution.findOne()
-      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings')
       .lean()
       .exec()
       .then((value) => value as any);
 
     let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
+    let attendanceSettings = { minimumAttendancePercentage: 75 };
     if (institution?.brandingSettings) {
       const branding = await Promise.race([
         BrandingSettings.findById(institution.brandingSettings).select('primaryColor accentColor').lean().exec(),
@@ -124,6 +125,20 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
         brandingSettings = {
           primaryColor: brandingData.primaryColor || "#2563eb",
           accentColor: brandingData.accentColor || "#4f46e5",
+        };
+      }
+    }
+
+    if (institution?.attendanceSettings) {
+      const settings = await Promise.race([
+        AttendanceSettings.findById(institution.attendanceSettings).select('minimumAttendancePercentage').lean().exec(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+      ]);
+      if (settings && typeof settings === "object" && settings !== null) {
+        const settingsData = settings as { minimumAttendancePercentage?: number };
+        const numericThreshold = Number(settingsData.minimumAttendancePercentage ?? 75);
+        attendanceSettings = {
+          minimumAttendancePercentage: Number.isFinite(numericThreshold) ? numericThreshold : 75,
         };
       }
     }
@@ -152,6 +167,7 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             logoUrl: institution.logoUrl || "",
             backgroundImageUrl: (institution as any).backgroundImageUrl || "",
             brandingSettings,
+            attendanceSettings,
           }
         : null,
     };

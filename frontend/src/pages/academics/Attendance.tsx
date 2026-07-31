@@ -41,13 +41,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 type AttendanceStatus = "present" | "absent" | "late" | "excused";
 
@@ -117,7 +111,11 @@ type WeeklyCourseRow = {
   excused: number;
 };
 
-const STATUS_OPTIONS: { value: AttendanceStatus; label: string; color: string }[] = [
+const STATUS_OPTIONS: {
+  value: AttendanceStatus;
+  label: string;
+  color: string;
+}[] = [
   { value: "present", label: "Present", color: "bg-green-500" },
   { value: "absent", label: "Absent", color: "bg-red-500" },
   { value: "late", label: "Late", color: "bg-yellow-500" },
@@ -132,8 +130,12 @@ export default function Attendance() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<AttendanceStat[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [subjectSummary, setSubjectSummary] = useState<SubjectAttendanceSummaryRow[]>([]);
-  const [chartMode, setChartMode] = useState<"byStatus" | "bySubject">("bySubject");
+  const [subjectSummary, setSubjectSummary] = useState<
+    SubjectAttendanceSummaryRow[]
+  >([]);
+  const [chartMode, setChartMode] = useState<"byStatus" | "bySubject">(
+    "bySubject",
+  );
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [weeklyData, setWeeklyData] = useState<WeeklyCourseRow[]>([]);
   const [classAttendanceData, setClassAttendanceData] = useState<any[]>([]);
@@ -141,34 +143,49 @@ export default function Attendance() {
   // Deduplicated latest records (one per course+lecturer pair)
   const latestRecordsDeduplicated = useMemo(() => {
     const seen = new Set<string>();
-    return records.filter((r) => {
-      const courseId = typeof r.course === "object" ? r.course?._id : r.course;
-      const lecturerId = typeof r.lecturer === "object" ? r.lecturer?._id : r.lecturer;
-      const key = `${courseId ?? ""}-${lecturerId ?? ""}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 10);
+    return records
+      .filter((r) => {
+        const courseId =
+          typeof r.course === "object" ? r.course?._id : r.course;
+        const lecturerId =
+          typeof r.lecturer === "object" ? r.lecturer?._id : r.lecturer;
+        const key = `${courseId ?? ""}-${lecturerId ?? ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 10);
   }, [records]);
 
   // Session management state
   const [classes, setClasses] = useState<Class[]>([]);
-  const [academicYears, setAcademicYears] = useState<{ _id: string; name: string }[]>([]);
+  const [academicYears, setAcademicYears] = useState<
+    { _id: string; name: string }[]
+  >([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [sessionDate, setSessionDate] = useState("");
   const [selectedAcademicYearId, setSelectedAcademicYearId] = useState("");
   const [isSessionOpen, setIsSessionOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [sessionRecords, setSessionRecords] = useState<SessionRecord[]>([]);
   const [loadingSession, setLoadingSession] = useState(false);
-  const [lecturerApproval, setLecturerApproval] = useState<"approved" | "not-approved" | "">("");
-  const [hodApproval, setHodApproval] = useState<"approved" | "not-approved" | "">("");
+  const [lecturerApproval, setLecturerApproval] = useState<
+    "approved" | "not-approved" | ""
+  >("");
+  const [hodApproval, setHodApproval] = useState<
+    "approved" | "not-approved" | ""
+  >("");
   const [saving, setSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNoTimetableModal, setShowNoTimetableModal] = useState(false);
-  const [sessionLecturerApproval, setSessionLecturerApproval] = useState<"approved" | "not-approved" | null>(null);
-  const [sessionHodApproval, setSessionHodApproval] = useState<"approved" | "not-approved" | null>(null);
+  const [sessionLecturerApproval, setSessionLecturerApproval] = useState<
+    "approved" | "not-approved" | null
+  >(null);
+  const [sessionHodApproval, setSessionHodApproval] = useState<
+    "approved" | "not-approved" | null
+  >(null);
 
   const fetchAttendance = async () => {
     try {
@@ -183,17 +200,20 @@ export default function Attendance() {
         setStats((data.stats ?? []) as AttendanceStat[]);
         setRecords((data.records ?? []) as AttendanceRecord[]);
       } else {
-        const [meRes, subjRes, listsRes, weeklyRes, statusRes] = await Promise.all([
-          api.get("/attendance/me"),
-          api.get("/attendance/subjects"),
-          api.get("/attendance/lists"),
-          api.get("/attendance/weekly"),
-          api.get("/attendance/status"),
-        ]);
+        const [meRes, subjRes, listsRes, weeklyRes, statusRes] =
+          await Promise.all([
+            api.get("/attendance/me"),
+            api.get("/attendance/subjects"),
+            api.get("/attendance/lists"),
+            api.get("/attendance/weekly"),
+            api.get("/attendance/status"),
+          ]);
 
         setStats((meRes.data?.stats ?? []) as AttendanceStat[]);
         setRecords((meRes.data?.records ?? []) as AttendanceRecord[]);
-        setSubjectSummary((subjRes.data?.summary ?? []) as SubjectAttendanceSummaryRow[]);
+        setSubjectSummary(
+          (subjRes.data?.summary ?? []) as SubjectAttendanceSummaryRow[],
+        );
         setAllLists((listsRes.data?.records ?? []) as SessionRecord[]);
         setWeeklyData((weeklyRes.data?.records ?? []) as WeeklyCourseRow[]);
         setClassAttendanceData(statusRes.data?.classes ?? []);
@@ -213,7 +233,9 @@ export default function Attendance() {
         api.get("/academic-years"),
       ]);
       setClasses((clsRes.data.classes ?? []) as Class[]);
-      const years = Array.isArray(yearRes.data.years) ? yearRes.data.years : yearRes.data;
+      const years = Array.isArray(yearRes.data.years)
+        ? yearRes.data.years
+        : yearRes.data;
       setAcademicYears(years);
       const current = years.find((y: any) => y.isCurrent);
       if (current?._id) setSelectedAcademicYearId(current._id);
@@ -222,11 +244,17 @@ export default function Attendance() {
     }
   };
 
-  const fetchSessionRecords = async (classId: string, courseId: string, date: string) => {
+  const fetchSessionRecords = async (
+    classId: string,
+    courseId: string,
+    date: string,
+  ) => {
     try {
       setLoadingSession(true);
       const params = new URLSearchParams({ classId, courseId, date });
-      const { data } = await api.get(`/attendance/session?${params.toString()}`);
+      const { data } = await api.get(
+        `/attendance/session?${params.toString()}`,
+      );
       setSessionRecords((data.records ?? []) as SessionRecord[]);
     } catch {
       toast.error("Failed to load session records");
@@ -251,25 +279,70 @@ export default function Attendance() {
     if (!selectedClass) return [];
     const courses = selectedClass.courses;
     if (Array.isArray(courses)) return courses;
-    return (selectedClass as unknown as { subjects?: courses[] }).subjects ?? [];
+    return (
+      (selectedClass as unknown as { subjects?: courses[] }).subjects ?? []
+    );
   }, [selectedClass]);
 
   const selectedCourse = useMemo(() => {
     return selectedClassCourses.find((c) => c._id === selectedCourseId) ?? null;
   }, [selectedClassCourses, selectedCourseId]);
 
+  const selectedCourseSubjects = useMemo(() => {
+    const subjectList = (selectedCourse as any)?.subjects ?? [];
+    const normalizedSubjects = Array.isArray(subjectList) && subjectList.length > 0
+      ? subjectList
+      : Array.isArray((selectedCourse as any)?.courseSubjects)
+        ? (selectedCourse as any).courseSubjects
+        : [];
+
+    return normalizedSubjects
+      .filter((subject: any) => {
+        if (!subject) return false;
+        return Boolean(subject.name || subject.code || subject.subjectID || subject._id || subject.subjectUID);
+      })
+      .map((subject: any, index: number) => {
+        const optionValue = String(
+          subject?._id ?? subject?.subjectUID ?? subject?.subjectID ?? subject?.code ?? `${subject?.name ?? "subject"}-${index}`,
+        );
+
+        return {
+          ...subject,
+          optionValue,
+        };
+      });
+  }, [selectedCourse]);
+
+  const selectedSubject = useMemo(() => {
+    return selectedCourseSubjects.find((subject: any) => {
+      return String(subject.optionValue) === String(selectedSubjectId);
+    }) ?? null;
+  }, [selectedCourseSubjects, selectedSubjectId]);
+
   const handleGenerateClick = async () => {
-    if (!selectedClassId || !selectedCourseId || !sessionDate || !selectedAcademicYearId) {
-      toast.error("Please select class, course, academic year, and date");
+    if (
+      !selectedClassId ||
+      !selectedCourseId ||
+      !selectedSubjectId ||
+      !sessionDate ||
+      !selectedAcademicYearId
+    ) {
+      toast.error("Please select class, course, subject, academic year, and date");
       return;
     }
 
     // Check if timetable exists first
     try {
       setIsGenerating(true);
-      const { data: timetabledata } = await api.get("/attendance/timetable-check", {
-        params: { classId: selectedClassId, academicYearId: selectedAcademicYearId },
-      }) as { data: { exists: boolean } };
+      const { data: timetabledata } = (await api.get(
+        "/attendance/timetable-check",
+        {
+          params: {
+            classId: selectedClassId,
+            academicYearId: selectedAcademicYearId,
+          },
+        },
+      )) as { data: { exists: boolean } };
 
       if (!timetabledata.exists) {
         setIsGenerating(false);
@@ -289,6 +362,7 @@ export default function Attendance() {
       const { data } = await api.post("/attendance/generate", {
         classId: selectedClassId,
         courseId: selectedCourseId,
+        subjectId: selectedSubjectId,
         date: sessionDate,
         academicYearId: selectedAcademicYearId,
       });
@@ -304,8 +378,15 @@ export default function Attendance() {
       const poll = async (): Promise<boolean> => {
         attempts++;
         try {
-          const params = new URLSearchParams({ classId: selectedClassId, courseId: selectedCourseId, date: sessionDate });
-          const { data: sessionData } = await api.get(`/attendance/session?${params.toString()}`);
+          const params = new URLSearchParams({
+            classId: selectedClassId,
+            courseId: selectedCourseId,
+            subjectId: selectedSubjectId,
+            date: sessionDate,
+          });
+          const { data: sessionData } = await api.get(
+            `/attendance/session?${params.toString()}`,
+          );
           const records = sessionData.records ?? [];
           if (records.length > 0) {
             setSessionRecords(records as SessionRecord[]);
@@ -325,7 +406,9 @@ export default function Attendance() {
 
       const success = await poll();
       if (!success) {
-        toast.error("Timed out waiting for attendance records. They may still be generating — check back shortly or refresh.");
+        toast.error(
+          "Timed out waiting for attendance records. They may still be generating — check back shortly or refresh.",
+        );
       }
     } catch (e: any) {
       const msg = e.response?.data?.message || "Generation failed";
@@ -359,8 +442,15 @@ export default function Attendance() {
       setSessionHodApproval(null);
       void fetchAttendance();
       // Refresh session records to reflect saved approvals
-      const params = new URLSearchParams({ classId: selectedClassId, courseId: selectedCourseId, date: sessionDate });
-      const { data: sessionData } = await api.get(`/attendance/session?${params.toString()}`);
+      const params = new URLSearchParams({
+        classId: selectedClassId,
+        courseId: selectedCourseId,
+        subjectId: selectedSubjectId,
+        date: sessionDate,
+      });
+      const { data: sessionData } = await api.get(
+        `/attendance/session?${params.toString()}`,
+      );
       setSessionRecords((sessionData.records ?? []) as SessionRecord[]);
     } catch {
       toast.error("Failed to save attendance");
@@ -373,7 +463,16 @@ export default function Attendance() {
     if (chartMode === "bySubject" && !isStudent) {
       // If we have weekly data, aggregate per course across all days
       if (weeklyData.length > 0) {
-        const courseMap = new Map<string, ChartRow["kind" extends "subject" ? "subject" : never] & { label: string; present: number; absent: number; late: number; excused: number }>();
+        const courseMap = new Map<
+          string,
+          ChartRow["kind" extends "subject" ? "subject" : never] & {
+            label: string;
+            present: number;
+            absent: number;
+            late: number;
+            excused: number;
+          }
+        >();
         weeklyData.forEach((row) => {
           const existing = courseMap.get(row.courseId);
           if (existing) {
@@ -397,7 +496,8 @@ export default function Attendance() {
       }
       // Fallback to subject summary
       return subjectSummary.slice(0, 8).map((r) => {
-        const label = r.subject?.[0]?.name ?? r.subject?.[0]?.code ?? r._id ?? "Unknown";
+        const label =
+          r.subject?.[0]?.name ?? r.subject?.[0]?.code ?? r._id ?? "Unknown";
         return {
           kind: "subject",
           key: r._id,
@@ -422,7 +522,9 @@ export default function Attendance() {
   const maxStatusValue = useMemo(() => {
     if (chartMode !== "byStatus" || isStudent) return 0;
     const values = chartRows
-      .filter((r): r is Extract<ChartRow, { kind: "status" }> => r.kind === "status")
+      .filter(
+        (r): r is Extract<ChartRow, { kind: "status" }> => r.kind === "status",
+      )
       .map((r) => r.value);
     return values.reduce((m, v) => Math.max(m, v), 0);
   }, [chartMode, isStudent, chartRows]);
@@ -451,11 +553,31 @@ export default function Attendance() {
         };
       });
     }
-    const map = new Map<string, { classId: string; className: string; present: number; absent: number; late: number; excused: number }>();
+    const map = new Map<
+      string,
+      {
+        classId: string;
+        className: string;
+        present: number;
+        absent: number;
+        late: number;
+        excused: number;
+      }
+    >();
     records.forEach((r) => {
-      const classId = typeof r.class === "string" ? r.class : r.class?._id ?? "unknown";
-      const className = typeof r.class === "string" ? r.class : r.class?.name ?? "Unknown";
-      if (!map.has(classId)) map.set(classId, { classId, className, present: 0, absent: 0, late: 0, excused: 0 });
+      const classId =
+        typeof r.class === "string" ? r.class : (r.class?._id ?? "unknown");
+      const className =
+        typeof r.class === "string" ? r.class : (r.class?.name ?? "Unknown");
+      if (!map.has(classId))
+        map.set(classId, {
+          classId,
+          className,
+          present: 0,
+          absent: 0,
+          late: 0,
+          excused: 0,
+        });
       const s = map.get(classId)!;
       if (r.status === "present") s.present++;
       else if (r.status === "absent") s.absent++;
@@ -499,12 +621,23 @@ export default function Attendance() {
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
-            <CardHeader><CardTitle>Chart</CardTitle><CardDescription>Summary</CardDescription></CardHeader>
-            <CardContent><Skeleton className="h-60 w-full" /></CardContent>
+            <CardHeader>
+              <CardTitle>Chart</CardTitle>
+              <CardDescription>Summary</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-60 w-full" />
+            </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Latest Records</CardTitle></CardHeader>
-            <CardContent><Skeleton className="h-10 w-full" /><div className="h-2" /><Skeleton className="h-10 w-full" /></CardContent>
+            <CardHeader>
+              <CardTitle>Latest Records</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-10 w-full" />
+              <div className="h-2" />
+              <Skeleton className="h-10 w-full" />
+            </CardContent>
           </Card>
         </div>
       </div>
@@ -512,22 +645,40 @@ export default function Attendance() {
   }
 
   return (
-    <div id="page-attendance" className="p-6 space-y-4">
+    <div
+      data-tour="student-attendance"
+      id="page-attendance"
+      className="p-6 space-y-4"
+    >
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Attendance</h1>
           <p className="text-muted-foreground">
-            {isStudent ? "Your attendance summary" : "Attendance overview and session management"}
+            {isStudent
+              ? "Your attendance summary"
+              : "Attendance overview and session management"}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {!isStudent && (
             <>
-              <Button variant="outline" size="sm" onClick={() => { void fetchClassesAndYears(); setIsSessionOpen(true); }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void fetchClassesAndYears();
+                  setIsSessionOpen(true);
+                }}
+              >
                 <Plus className="mr-2 h-4 w-4" /> Generate Session
               </Button>
-              <Select value={chartMode} onValueChange={(v) => setChartMode(v as "byStatus" | "bySubject")}>
+              <Select
+                value={chartMode}
+                onValueChange={(v) =>
+                  setChartMode(v as "byStatus" | "bySubject")
+                }
+              >
                 <SelectTrigger className="w-52">
                   <SelectValue placeholder="Chart mode" />
                 </SelectTrigger>
@@ -546,9 +697,7 @@ export default function Attendance() {
       </div>
 
       {/* Timetable Status Card — for admin/teacher */}
-      {!isStudent && (
-        <TimetableStatusCard />
-      )}
+      {!isStudent && <TimetableStatusCard />}
 
       {/* Saved Attendance Lists Table — admin/teacher */}
       {!isStudent && (
@@ -570,15 +719,45 @@ export default function Attendance() {
                 // If class exists but missing this course, merge the course in
                 return prev.map((c) =>
                   c._id === classId && course
-                    ? { ...c, courses: [...(c.courses ?? []), { _id: courseId, name: course.name ?? "", code: course.code ?? "" }] }
-                    : c
+                    ? {
+                        ...c,
+                        courses: [
+                          ...(c.courses ?? []),
+                          {
+                            _id: courseId,
+                            name: course.name ?? "",
+                            code: course.code ?? "",
+                          },
+                        ],
+                      }
+                    : c,
                 );
               }
               return cls && course
-                ? [...prev, { _id: classId, name: cls.name ?? "", courses: [{ _id: courseId, name: course.name ?? "", code: course.code ?? "" }] } as Class]
+                ? [
+                    ...prev,
+                    {
+                      _id: classId,
+                      name: cls.name ?? "",
+                      courses: [
+                        {
+                          _id: courseId,
+                          name: course.name ?? "",
+                          code: course.code ?? "",
+                        },
+                      ],
+                    } as Class,
+                  ]
                 : cls
-                ? [...prev, { _id: classId, name: cls.name ?? "", courses: [] } as Class]
-                : prev;
+                  ? [
+                      ...prev,
+                      {
+                        _id: classId,
+                        name: cls.name ?? "",
+                        courses: [],
+                      } as Class,
+                    ]
+                  : prev;
             });
             setIsManageOpen(true);
           }}
@@ -589,7 +768,9 @@ export default function Attendance() {
       {!isStudent && <LatestWeekTable />}
 
       {/* Student: class-grouped attendance records */}
-      {isStudent && <StudentRecordsByClass records={records} loading={loading} />}
+      {isStudent && (
+        <StudentRecordsByClass records={records} loading={loading} />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -613,13 +794,22 @@ export default function Attendance() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {classChartData.map((cls) => (
-                  <div key={cls.classId} className="border rounded-lg p-3 space-y-2">
+                  <div
+                    key={cls.classId}
+                    className="border rounded-lg p-3 space-y-2"
+                  >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium truncate">{cls.className}</span>
-                      <span className="text-xs text-muted-foreground shrink-0 ml-2">Total: {cls.total}</span>
+                      <span className="text-sm font-medium truncate">
+                        {cls.className}
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                        Total: {cls.total}
+                      </span>
                     </div>
                     {cls.total === 0 ? (
-                      <p className="text-xs text-muted-foreground italic text-center py-4">No records</p>
+                      <p className="text-xs text-muted-foreground italic text-center py-4">
+                        No records
+                      </p>
                     ) : (
                       <ResponsiveContainer width="100%" height={100}>
                         <PieChart>
@@ -638,7 +828,10 @@ export default function Attendance() {
                             ))}
                           </Pie>
                           <Tooltip
-                            formatter={(value: number, name: string) => [`${value}`, name]}
+                            formatter={(value: number, name: string) => [
+                              `${value}`,
+                              name,
+                            ]}
                             contentStyle={{ fontSize: 11 }}
                           />
                         </PieChart>
@@ -646,9 +839,17 @@ export default function Attendance() {
                     )}
                     <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
                       {cls.chartSegments.map((seg) => (
-                        <span key={seg.name} className="flex items-center gap-1 text-xs">
-                          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: seg.color }} />
-                          <span>{seg.name}: {seg.value}</span>
+                        <span
+                          key={seg.name}
+                          className="flex items-center gap-1 text-xs"
+                        >
+                          <div
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: seg.color }}
+                          />
+                          <span>
+                            {seg.name}: {seg.value}
+                          </span>
                         </span>
                       ))}
                     </div>
@@ -670,15 +871,25 @@ export default function Attendance() {
             ) : (
               <div className="space-y-3">
                 {latestRecordsDeduplicated.map((r) => {
-                  const subjectLabel = typeof r.course === "string" ? r.course : r.course?.name ?? r.course?.code;
-                  const classLabel = typeof r.class === "string" ? r.class : r.class?.name;
+                  const subjectLabel =
+                    typeof r.course === "string"
+                      ? r.course
+                      : (r.course?.name ?? r.course?.code);
+                  const classLabel =
+                    typeof r.class === "string" ? r.class : r.class?.name;
                   return (
-                    <div key={r._id} className="flex flex-col gap-2 border rounded-lg p-3">
+                    <div
+                      key={r._id}
+                      className="flex flex-col gap-2 border rounded-lg p-3"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
-                          <p className="text-sm font-medium">{subjectLabel ?? "Subject"}</p>
+                          <p className="text-sm font-medium">
+                            {subjectLabel ?? "Subject"}
+                          </p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(r.date).toLocaleDateString()} • {classLabel ?? "Class"}
+                            {new Date(r.date).toLocaleDateString()} •{" "}
+                            {classLabel ?? "Class"}
                           </p>
                         </div>
                         <span
@@ -701,8 +912,16 @@ export default function Attendance() {
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>Lecturer: {r.lecturer?.name ?? "—"}</span>
                         {r.status === "excused" && (
-                          <span className={r.approvedBy ? "text-green-600 font-medium" : "text-amber-500"}>
-                            {r.approvedBy ? `Approved by ${r.approvedBy.name}` : "Pending HOD approval"}
+                          <span
+                            className={
+                              r.approvedBy
+                                ? "text-green-600 font-medium"
+                                : "text-amber-500"
+                            }
+                          >
+                            {r.approvedBy
+                              ? `Approved by ${r.approvedBy.name}`
+                              : "Pending HOD approval"}
                           </span>
                         )}
                       </div>
@@ -727,28 +946,66 @@ export default function Attendance() {
             <Label>Class</Label>
             <Select
               value={selectedClassId}
-              onValueChange={(v) => { setSelectedClassId(v); setSelectedCourseId(""); }}
+              onValueChange={(v) => {
+                setSelectedClassId(v);
+                setSelectedCourseId("");
+                setSelectedSubjectId("");
+              }}
             >
-              <SelectTrigger><SelectValue placeholder="Select a class" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a class" />
+              </SelectTrigger>
               <SelectContent>
                 {classes.map((cls) => (
-                  <SelectItem key={cls._id} value={cls._id}>{cls.name}</SelectItem>
+                  <SelectItem key={cls._id} value={cls._id}>
+                    {cls.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>Course / Subject</Label>
+            <Label>Course</Label>
             <Select
               value={selectedCourseId}
-              onValueChange={setSelectedCourseId}
+              onValueChange={(value) => {
+                setSelectedCourseId(value);
+                setSelectedSubjectId("");
+              }}
               disabled={!selectedClassId}
             >
-              <SelectTrigger><SelectValue placeholder="Select a course subject" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a course" />
+              </SelectTrigger>
               <SelectContent>
                 {selectedClassCourses.map((c) => (
-                  <SelectItem key={c._id} value={c._id}>{c.name} ({c.code})</SelectItem>
+                  <SelectItem key={c._id} value={c._id}>
+                    {c.name} ({c.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Subject</Label>
+            <Select
+              value={selectedSubjectId}
+              onValueChange={setSelectedSubjectId}
+              disabled={!selectedCourseId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a subject" />
+              </SelectTrigger>
+              <SelectContent>
+                {selectedCourseSubjects.map((subject: any) => (
+                  <SelectItem key={subject.optionValue} value={subject.optionValue}>
+                    {subject.name ?? subject.subjectID ?? subject.code ?? "Subject"}
+                    {subject.code || subject.subjectID
+                      ? ` (${subject.code ?? subject.subjectID})`
+                      : ""}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -760,10 +1017,14 @@ export default function Attendance() {
               value={selectedAcademicYearId}
               onValueChange={setSelectedAcademicYearId}
             >
-              <SelectTrigger><SelectValue placeholder="Select academic year" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder="Select academic year" />
+              </SelectTrigger>
               <SelectContent>
                 {academicYears.map((y) => (
-                  <SelectItem key={y._id} value={y._id}>{y.name}</SelectItem>
+                  <SelectItem key={y._id} value={y._id}>
+                    {y.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -790,7 +1051,14 @@ export default function Attendance() {
           <Button
             className="w-full"
             onClick={() => void handleGenerateClick()}
-            disabled={!selectedClassId || !selectedCourseId || !sessionDate || !selectedAcademicYearId || isGenerating}
+            disabled={
+              !selectedClassId ||
+              !selectedCourseId ||
+              !selectedSubjectId ||
+              !sessionDate ||
+              !selectedAcademicYearId ||
+              isGenerating
+            }
           >
             {isGenerating ? (
               <>
@@ -818,8 +1086,13 @@ export default function Attendance() {
           <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
             <div className="text-sm text-amber-800">
-              <p className="font-medium">This class does not have a timetable yet.</p>
-              <p className="mt-1">Please generate the timetable first before creating attendance records.</p>
+              <p className="font-medium">
+                This class does not have a timetable yet.
+              </p>
+              <p className="mt-1">
+                Please generate the timetable first before creating attendance
+                records.
+              </p>
             </div>
           </div>
           <Button
@@ -828,7 +1101,9 @@ export default function Attendance() {
               setShowNoTimetableModal(false);
               setIsSessionOpen(false);
               // Navigate to timetable page would be ideal here
-              toast.info("Go to Timetable Management to generate a timetable for this class first.");
+              toast.info(
+                "Go to Timetable Management to generate a timetable for this class first.",
+              );
             }}
           >
             Go to Timetable Management
@@ -865,28 +1140,48 @@ export default function Attendance() {
                   </div>
                   <div>
                     <span className="text-muted-foreground">Class: </span>
-                    <span className="font-medium">{selectedClass?.name ?? "—"}</span>
+                    <span className="font-medium">
+                      {selectedClass?.name ?? "—"}
+                    </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Subject: </span>
-                    <span className="font-medium">{selectedCourse?.name ?? "—"} ({selectedCourse?.code})</span>
+                    <span className="font-medium">
+                      {selectedSubject?.name ?? "—"} ({selectedSubject?.code ?? selectedSubject?.subjectID ?? ""})
+                    </span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Academic Year: </span>
-                    <span className="font-medium">{academicYears.find((y) => y._id === selectedAcademicYearId)?.name ?? "—"}</span>
+                    <span className="text-muted-foreground">
+                      Academic Year:{" "}
+                    </span>
+                    <span className="font-medium">
+                      {academicYears.find(
+                        (y) => y._id === selectedAcademicYearId,
+                      )?.name ?? "—"}
+                    </span>
                   </div>
                   <div className="col-span-2">
                     <span className="text-muted-foreground">Lecturer: </span>
-                    <span className="font-medium">{sessionLecturer?.name ?? "—"}</span>
+                    <span className="font-medium">
+                      {sessionLecturer?.name ?? "—"}
+                    </span>
                   </div>
                 </div>
                 {/* Signature lines */}
                 <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t">
                   <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">Lecturer Signature</div>
+                    <div className="text-xs text-muted-foreground">
+                      Lecturer Signature
+                    </div>
                     <Select
                       value={sessionLecturerApproval ?? "pending"}
-                      onValueChange={(v) => setSessionLecturerApproval(v === "pending" ? null : v as "approved" | "not-approved")}
+                      onValueChange={(v) =>
+                        setSessionLecturerApproval(
+                          v === "pending"
+                            ? null
+                            : (v as "approved" | "not-approved"),
+                        )
+                      }
                     >
                       <SelectTrigger className="h-8">
                         <SelectValue placeholder="Select approval status" />
@@ -909,15 +1204,26 @@ export default function Attendance() {
                     </Select>
                     {sessionLecturerApproval && (
                       <div className="text-xs text-muted-foreground">
-                        {sessionLecturerApproval === "approved" ? "Approved" : "Not Approved"} on {new Date().toLocaleDateString()}
+                        {sessionLecturerApproval === "approved"
+                          ? "Approved"
+                          : "Not Approved"}{" "}
+                        on {new Date().toLocaleDateString()}
                       </div>
                     )}
                   </div>
                   <div className="space-y-1">
-                    <div className="text-xs text-muted-foreground">HOD Signature</div>
+                    <div className="text-xs text-muted-foreground">
+                      HOD Signature
+                    </div>
                     <Select
                       value={sessionHodApproval ?? "pending"}
-                      onValueChange={(v) => setSessionHodApproval(v === "pending" ? null : v as "approved" | "not-approved")}
+                      onValueChange={(v) =>
+                        setSessionHodApproval(
+                          v === "pending"
+                            ? null
+                            : (v as "approved" | "not-approved"),
+                        )
+                      }
                     >
                       <SelectTrigger className="h-8">
                         <SelectValue placeholder="Select approval status" />
@@ -940,7 +1246,10 @@ export default function Attendance() {
                     </Select>
                     {sessionHodApproval && (
                       <div className="text-xs text-muted-foreground">
-                        {sessionHodApproval === "approved" ? "Approved" : "Not Approved"} on {new Date().toLocaleDateString()}
+                        {sessionHodApproval === "approved"
+                          ? "Approved"
+                          : "Not Approved"}{" "}
+                        on {new Date().toLocaleDateString()}
                       </div>
                     )}
                   </div>
@@ -963,18 +1272,32 @@ export default function Attendance() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 sticky top-0">
                     <tr>
-                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground">#</th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground text-left">Student Name</th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground text-left">ID Number</th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">Attendance</th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">Lect. Approval</th>
-                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">HOD Approval</th>
+                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground">
+                        #
+                      </th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-left">
+                        Student Name
+                      </th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-left">
+                        ID Number
+                      </th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">
+                        Attendance
+                      </th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">
+                        Lect. Approval
+                      </th>
+                      <th className="px-3 py-2 font-medium text-muted-foreground text-center">
+                        HOD Approval
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {sessionRecords.map((r, i) => (
                       <tr key={r._id} className="border-t last:border-b">
-                        <td className="text-center px-2 py-1.5 text-muted-foreground">{i + 1}</td>
+                        <td className="text-center px-2 py-1.5 text-muted-foreground">
+                          {i + 1}
+                        </td>
                         <td className="px-3 py-1.5 font-medium">
                           {r.student?.name ?? "—"}
                         </td>
@@ -986,7 +1309,11 @@ export default function Attendance() {
                             value={r.status}
                             onValueChange={(v) => {
                               setSessionRecords((prev) =>
-                                prev.map((rec) => (rec._id === r._id ? { ...rec, status: v as AttendanceStatus } : rec))
+                                prev.map((rec) =>
+                                  rec._id === r._id
+                                    ? { ...rec, status: v as AttendanceStatus }
+                                    : rec,
+                                ),
                               );
                             }}
                           >
@@ -997,7 +1324,9 @@ export default function Attendance() {
                               {STATUS_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
                                   <div className="flex items-center gap-2">
-                                    <div className={`h-2 w-2 rounded-full ${opt.color}`} />
+                                    <div
+                                      className={`h-2 w-2 rounded-full ${opt.color}`}
+                                    />
                                     {opt.label}
                                   </div>
                                 </SelectItem>
@@ -1010,7 +1339,19 @@ export default function Attendance() {
                             value={r.lecturerApproval ?? "pending"}
                             onValueChange={(v) => {
                               setSessionRecords((prev) =>
-                                prev.map((rec) => (rec._id === r._id ? { ...rec, lecturerApproval: v === "pending" ? null : v as "approved" | "not-approved" } : rec))
+                                prev.map((rec) =>
+                                  rec._id === r._id
+                                    ? {
+                                        ...rec,
+                                        lecturerApproval:
+                                          v === "pending"
+                                            ? null
+                                            : (v as
+                                                | "approved"
+                                                | "not-approved"),
+                                      }
+                                    : rec,
+                                ),
                               );
                             }}
                           >
@@ -1039,7 +1380,19 @@ export default function Attendance() {
                             value={r.hodApproval ?? "pending"}
                             onValueChange={(v) => {
                               setSessionRecords((prev) =>
-                                prev.map((rec) => (rec._id === r._id ? { ...rec, hodApproval: v === "pending" ? null : v as "approved" | "not-approved" } : rec))
+                                prev.map((rec) =>
+                                  rec._id === r._id
+                                    ? {
+                                        ...rec,
+                                        hodApproval:
+                                          v === "pending"
+                                            ? null
+                                            : (v as
+                                                | "approved"
+                                                | "not-approved"),
+                                      }
+                                    : rec,
+                                ),
                               );
                             }}
                           >
@@ -1074,13 +1427,23 @@ export default function Attendance() {
                 <span className="font-medium">Summary:</span>
                 {STATUS_OPTIONS.map((opt) => (
                   <span key={opt.value}>
-                    <span className={`h-2 w-2 rounded-full inline-block mr-1 ${opt.color}`} />
-                    {opt.label}: {sessionRecords.filter((r) => r.status === opt.value).length}
+                    <span
+                      className={`h-2 w-2 rounded-full inline-block mr-1 ${opt.color}`}
+                    />
+                    {opt.label}:{" "}
+                    {
+                      sessionRecords.filter((r) => r.status === opt.value)
+                        .length
+                    }
                   </span>
                 ))}
               </div>
 
-              <Button className="w-full" onClick={() => void handleSaveSession()} disabled={saving}>
+              <Button
+                className="w-full"
+                onClick={() => void handleSaveSession()}
+                disabled={saving}
+              >
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? "Saving…" : "Save Attendance"}
               </Button>
@@ -1095,7 +1458,9 @@ export default function Attendance() {
 // ─── Timetable Status Card ──────────────────────────────────────────
 function TimetableStatusCard() {
   const [loading, setLoading] = useState(true);
-  const [classStatuses, setClassStatuses] = useState<{ _id: string; name: string; hasTimetable: boolean }[]>([]);
+  const [classStatuses, setClassStatuses] = useState<
+    { _id: string; name: string; hasTimetable: boolean }[]
+  >([]);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -1106,9 +1471,14 @@ function TimetableStatusCard() {
           api.get("/academic-years"),
         ]);
         const clsData = (clsRes.data.classes ?? []) as Class[];
-        const years = Array.isArray(yearRes.data.years) ? yearRes.data.years : yearRes.data;
+        const years = Array.isArray(yearRes.data.years)
+          ? yearRes.data.years
+          : yearRes.data;
         const current = years.find((y: any) => y.isCurrent);
-        if (!current?._id || clsData.length === 0) { setLoading(false); return; }
+        if (!current?._id || clsData.length === 0) {
+          setLoading(false);
+          return;
+        }
 
         const checks = await Promise.all(
           clsData.map(async (cls) => {
@@ -1116,11 +1486,15 @@ function TimetableStatusCard() {
               const { data } = await api.get("/attendance/timetable-check", {
                 params: { classId: cls._id, academicYearId: current._id },
               });
-              return { _id: cls._id, name: cls.name, hasTimetable: !!data.exists };
+              return {
+                _id: cls._id,
+                name: cls.name,
+                hasTimetable: !!data.exists,
+              };
             } catch {
               return { _id: cls._id, name: cls.name, hasTimetable: false };
             }
-          })
+          }),
         );
         setClassStatuses(checks);
       } catch {
@@ -1142,7 +1516,9 @@ function TimetableStatusCard() {
           <CalendarDays className="h-4 w-4" />
           Timetable Status
         </CardTitle>
-        <CardDescription>Timetable generation status across all classes</CardDescription>
+        <CardDescription>
+          Timetable generation status across all classes
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {loading ? (
@@ -1158,15 +1534,23 @@ function TimetableStatusCard() {
               <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-green-50 border-green-200">
                 <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
                 <div>
-                  <span className="font-semibold text-green-700 text-sm">{withTimetable.length}</span>
-                  <span className="text-green-700 text-xs ml-1">with timetable</span>
+                  <span className="font-semibold text-green-700 text-sm">
+                    {withTimetable.length}
+                  </span>
+                  <span className="text-green-700 text-xs ml-1">
+                    with timetable
+                  </span>
                 </div>
               </div>
               <div className="flex items-center gap-2 border rounded-lg px-3 py-2 bg-amber-50 border-amber-200">
                 <XCircle className="h-4 w-4 text-amber-600 shrink-0" />
                 <div>
-                  <span className="font-semibold text-amber-700 text-sm">{withoutTimetable.length}</span>
-                  <span className="text-amber-700 text-xs ml-1">without timetable</span>
+                  <span className="font-semibold text-amber-700 text-sm">
+                    {withoutTimetable.length}
+                  </span>
+                  <span className="text-amber-700 text-xs ml-1">
+                    without timetable
+                  </span>
                 </div>
               </div>
               <Button
@@ -1180,15 +1564,22 @@ function TimetableStatusCard() {
 
             {withoutTimetable.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Missing timetable:</p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Missing timetable:
+                </p>
                 {withoutTimetable.slice(0, 5).map((cls) => (
-                  <div key={cls._id} className="text-xs text-amber-700 flex items-center gap-1">
+                  <div
+                    key={cls._id}
+                    className="text-xs text-amber-700 flex items-center gap-1"
+                  >
                     <XCircle className="h-3 w-3 shrink-0" />
                     {cls.name}
                   </div>
                 ))}
                 {withoutTimetable.length > 5 && (
-                  <p className="text-xs text-muted-foreground">+{withoutTimetable.length - 5} more</p>
+                  <p className="text-xs text-muted-foreground">
+                    +{withoutTimetable.length - 5} more
+                  </p>
                 )}
               </div>
             )}
@@ -1208,7 +1599,12 @@ function SavedListsTable({
 }: {
   allLists: SessionRecord[];
   loading: boolean;
-  onEditSession: (session: { records: SessionRecord[]; course?: { name: string; code?: string; _id?: string }; class?: { name: string; _id?: string }; lecturer?: { name: string } }) => void;
+  onEditSession: (session: {
+    records: SessionRecord[];
+    course?: { name: string; code?: string; _id?: string };
+    class?: { name: string; _id?: string };
+    lecturer?: { name: string };
+  }) => void;
 }) {
   const statusBadge = (status: string) => {
     const cls =
@@ -1220,7 +1616,9 @@ function SavedListsTable({
             ? "bg-yellow-500/15 text-yellow-600"
             : "bg-blue-500/15 text-blue-600";
     return (
-      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
+      <span
+        className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}
+      >
         {status}
       </span>
     );
@@ -1228,14 +1626,17 @@ function SavedListsTable({
 
   // Step 1: group records into sessions (date + course within a class)
   const sessionsMap = useMemo(() => {
-    const map = new Map<string, {
-      date: string;
-      dayOfWeek?: string;
-      course?: { name: string; code?: string };
-      class?: { name: string; _id?: string };
-      lecturer?: { name: string };
-      records: SessionRecord[];
-    }>();
+    const map = new Map<
+      string,
+      {
+        date: string;
+        dayOfWeek?: string;
+        course?: { name: string; code?: string };
+        class?: { name: string; _id?: string };
+        lecturer?: { name: string };
+        records: SessionRecord[];
+      }
+    >();
 
     allLists.forEach((r) => {
       const classId = r.class?._id ?? r.class?.name ?? "unknown";
@@ -1258,18 +1659,21 @@ function SavedListsTable({
 
   // Step 2: group sessions by class
   const byClass = useMemo(() => {
-    const map = new Map<string, {
-      className: string;
-      classId: string;
-      sessions: Array<{
-        date: string;
-        dayOfWeek?: string;
-        course?: { name: string; code?: string };
-        class?: { name: string; _id?: string };
-        lecturer?: { name: string };
-        records: SessionRecord[];
-      }>;
-    }>();
+    const map = new Map<
+      string,
+      {
+        className: string;
+        classId: string;
+        sessions: Array<{
+          date: string;
+          dayOfWeek?: string;
+          course?: { name: string; code?: string };
+          class?: { name: string; _id?: string };
+          lecturer?: { name: string };
+          records: SessionRecord[];
+        }>;
+      }
+    >();
 
     sessionsMap.forEach((session) => {
       const classId = session.class?._id ?? session.class?.name ?? "unknown";
@@ -1297,12 +1701,16 @@ function SavedListsTable({
           <FileText className="h-4 w-4" />
           Saved Attendance Lists
         </CardTitle>
-        <CardDescription>Saved attendance sessions — click a class card to expand its sessions</CardDescription>
+        <CardDescription>
+          Saved attendance sessions — click a class card to expand its sessions
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="space-y-2">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
           </div>
         ) : byClass.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
@@ -1313,18 +1721,26 @@ function SavedListsTable({
             {byClass.map((cls) => {
               const isOpen = openClass === cls.classId;
               const totalSessions = cls.sessions.length;
-              const totalRecords = cls.sessions.reduce((sum, s) => sum + s.records.length, 0);
+              const totalRecords = cls.sessions.reduce(
+                (sum, s) => sum + s.records.length,
+                0,
+              );
               const totalPresent = cls.sessions.reduce(
-                (sum, s) => sum + s.records.filter((r) => r.status === "present").length,
-                0
+                (sum, s) =>
+                  sum + s.records.filter((r) => r.status === "present").length,
+                0,
               );
               const totalAbsent = cls.sessions.reduce(
-                (sum, s) => sum + s.records.filter((r) => r.status === "absent").length,
-                0
+                (sum, s) =>
+                  sum + s.records.filter((r) => r.status === "absent").length,
+                0,
               );
 
               return (
-                <div key={cls.classId} className="border rounded-lg overflow-hidden">
+                <div
+                  key={cls.classId}
+                  className="border rounded-lg overflow-hidden"
+                >
                   {/* Class card header */}
                   <button
                     type="button"
@@ -1334,11 +1750,14 @@ function SavedListsTable({
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-semibold text-sm truncate">{cls.className}</span>
+                        <span className="font-semibold text-sm truncate">
+                          {cls.className}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
                         <span className="bg-muted px-1.5 py-0.5 rounded-full">
-                          {totalSessions} session{totalSessions !== 1 ? "s" : ""}
+                          {totalSessions} session
+                          {totalSessions !== 1 ? "s" : ""}
                         </span>
                         <span>{totalRecords} records</span>
                       </div>
@@ -1347,68 +1766,115 @@ function SavedListsTable({
                     <div className="flex items-center gap-3 text-xs shrink-0">
                       <span className="flex items-center gap-1">
                         <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-green-600 font-medium">{totalPresent}</span>
+                        <span className="text-green-600 font-medium">
+                          {totalPresent}
+                        </span>
                       </span>
                       <span className="flex items-center gap-1">
                         <div className="h-2 w-2 rounded-full bg-red-500" />
-                        <span className="text-red-600 font-medium">{totalAbsent}</span>
+                        <span className="text-red-600 font-medium">
+                          {totalAbsent}
+                        </span>
                       </span>
                     </div>
-                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-90" : ""}`} />
+                    <ChevronRight
+                      className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-90" : ""}`}
+                    />
                   </button>
 
                   {/* Expanded sessions */}
                   {isOpen && (
                     <div className="divide-y">
                       {cls.sessions
-                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                        .sort(
+                          (a, b) =>
+                            new Date(b.date).getTime() -
+                            new Date(a.date).getTime(),
+                        )
                         .map((session) => {
-                          const present = session.records.filter((r) => r.status === "present").length;
-                          const absent = session.records.filter((r) => r.status === "absent").length;
-                          const late = session.records.filter((r) => r.status === "late").length;
-                          const excused = session.records.filter((r) => r.status === "excused").length;
+                          const present = session.records.filter(
+                            (r) => r.status === "present",
+                          ).length;
+                          const absent = session.records.filter(
+                            (r) => r.status === "absent",
+                          ).length;
+                          const late = session.records.filter(
+                            (r) => r.status === "late",
+                          ).length;
+                          const excused = session.records.filter(
+                            (r) => r.status === "excused",
+                          ).length;
                           const total = session.records.length;
 
                           const sessionKey = `${session.date}-${cls.classId}`;
 
                           return (
-                            <div key={sessionKey} className="px-4 py-3 space-y-2">
+                            <div
+                              key={sessionKey}
+                              className="px-4 py-3 space-y-2"
+                            >
                               {/* Session meta */}
                               <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
                                 <span>
-                                  <span className="text-muted-foreground">Date: </span>
+                                  <span className="text-muted-foreground">
+                                    Date:{" "}
+                                  </span>
                                   <span className="font-medium">
-                                    {new Date(session.date).toLocaleDateString("en-US", {
-                                      weekday: "short",
-                                      year: "numeric",
-                                      month: "short",
-                                      day: "numeric",
-                                    })}
+                                    {new Date(session.date).toLocaleDateString(
+                                      "en-US",
+                                      {
+                                        weekday: "short",
+                                        year: "numeric",
+                                        month: "short",
+                                        day: "numeric",
+                                      },
+                                    )}
                                   </span>
                                   {session.dayOfWeek && (
-                                    <span className="ml-1 text-muted-foreground">({session.dayOfWeek})</span>
+                                    <span className="ml-1 text-muted-foreground">
+                                      ({session.dayOfWeek})
+                                    </span>
                                   )}
                                 </span>
                                 <span>
-                                  <span className="text-muted-foreground">Subject: </span>
+                                  <span className="text-muted-foreground">
+                                    Subject:{" "}
+                                  </span>
                                   <span className="font-medium">
-                                    {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
+                                    {session.course?.name ?? "—"}
+                                    {session.course?.code
+                                      ? ` (${session.course.code})`
+                                      : ""}
                                   </span>
                                 </span>
                                 <span>
-                                  <span className="text-muted-foreground">Lecturer: </span>
-                                  <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                                  <span className="text-muted-foreground">
+                                    Lecturer:{" "}
+                                  </span>
+                                  <span className="font-medium">
+                                    {session.lecturer?.name ?? "—"}
+                                  </span>
                                 </span>
                                 <span className="flex items-center gap-1 ml-auto">
                                   <div className="h-2 w-2 rounded-full bg-green-500" />
-                                  <span className="text-green-600 font-medium">{present}</span>
+                                  <span className="text-green-600 font-medium">
+                                    {present}
+                                  </span>
                                   <div className="h-2 w-2 rounded-full bg-red-500 ml-1" />
-                                  <span className="text-red-600 font-medium">{absent}</span>
+                                  <span className="text-red-600 font-medium">
+                                    {absent}
+                                  </span>
                                   <div className="h-2 w-2 rounded-full bg-yellow-500 ml-1" />
-                                  <span className="text-yellow-600 font-medium">{late}</span>
+                                  <span className="text-yellow-600 font-medium">
+                                    {late}
+                                  </span>
                                   <div className="h-2 w-2 rounded-full bg-blue-500 ml-1" />
-                                  <span className="text-blue-600 font-medium">{excused}</span>
-                                  <span className="text-muted-foreground ml-1">/ {total}</span>
+                                  <span className="text-blue-600 font-medium">
+                                    {excused}
+                                  </span>
+                                  <span className="text-muted-foreground ml-1">
+                                    / {total}
+                                  </span>
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -1432,19 +1898,35 @@ function SavedListsTable({
                                 <table className="w-full text-sm">
                                   <thead className="bg-muted/30 sticky top-0">
                                     <tr>
-                                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Student Name</th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">ID Number</th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
+                                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">
+                                        #
+                                      </th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
+                                        Student Name
+                                      </th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
+                                        ID Number
+                                      </th>
+                                      <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">
+                                        Status
+                                      </th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     {session.records.map((r, i) => (
                                       <tr key={r._id} className="border-t">
-                                        <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
-                                        <td className="px-3 py-1.5 font-medium text-xs">{r.student?.name ?? "—"}</td>
-                                        <td className="px-3 py-1.5 text-muted-foreground text-xs">{r.student?.idNumber ?? "—"}</td>
-                                        <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                                        <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">
+                                          {i + 1}
+                                        </td>
+                                        <td className="px-3 py-1.5 font-medium text-xs">
+                                          {r.student?.name ?? "—"}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-muted-foreground text-xs">
+                                          {r.student?.idNumber ?? "—"}
+                                        </td>
+                                        <td className="px-3 py-1.5 text-center">
+                                          {statusBadge(r.status)}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -1474,24 +1956,34 @@ function StudentRecordsByClass({
   loading: boolean;
 }) {
   const grouped = useMemo(() => {
-    const map = new Map<string, {
-      date: string;
-      dayOfWeek?: string;
-      subject?: { name: string; code?: string };
-      class?: { name: string; _id?: string };
-      lecturer?: { name: string };
-      records: AttendanceRecord[];
-    }>();
+    const map = new Map<
+      string,
+      {
+        date: string;
+        dayOfWeek?: string;
+        subject?: { name: string; code?: string };
+        class?: { name: string; _id?: string };
+        lecturer?: { name: string };
+        records: AttendanceRecord[];
+      }
+    >();
 
     records.forEach((r) => {
-      const classId = typeof r.class === "string" ? r.class : r.class?._id ?? "unknown";
+      const classId =
+        typeof r.class === "string" ? r.class : (r.class?._id ?? "unknown");
       const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
       if (!map.has(dateKey)) {
         map.set(dateKey, {
           date: r.date,
           dayOfWeek: r.dayOfWeek,
-          course: typeof r.course === "object" && r.course !== null ? r.course : undefined,
-          class: typeof r.class === "object" && r.class !== null ? r.class : undefined,
+          course:
+            typeof r.course === "object" && r.course !== null
+              ? r.course
+              : undefined,
+          class:
+            typeof r.class === "object" && r.class !== null
+              ? r.class
+              : undefined,
           lecturer: r.lecturer ?? undefined,
           records: [],
         });
@@ -1500,7 +1992,7 @@ function StudentRecordsByClass({
     });
 
     return Array.from(map.values()).sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
     );
   }, [records]);
 
@@ -1514,7 +2006,9 @@ function StudentRecordsByClass({
             ? "bg-yellow-500/15 text-yellow-600"
             : "bg-blue-500/15 text-blue-600";
     return (
-      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}>
+      <span
+        className={`text-xs font-semibold px-2 py-0.5 rounded-full capitalize ${cls}`}
+      >
         {status}
       </span>
     );
@@ -1527,12 +2021,16 @@ function StudentRecordsByClass({
           <FileText className="h-4 w-4" />
           My Attendance Records
         </CardTitle>
-        <CardDescription>Your attendance history grouped by date and class</CardDescription>
+        <CardDescription>
+          Your attendance history grouped by date and class
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="space-y-2">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
           </div>
         ) : grouped.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
@@ -1541,15 +2039,26 @@ function StudentRecordsByClass({
         ) : (
           <div className="space-y-4">
             {grouped.map((session) => {
-              const present = session.records.filter((r) => r.status === "present").length;
-              const absent = session.records.filter((r) => r.status === "absent").length;
-              const late = session.records.filter((r) => r.status === "late").length;
-              const excused = session.records.filter((r) => r.status === "excused").length;
+              const present = session.records.filter(
+                (r) => r.status === "present",
+              ).length;
+              const absent = session.records.filter(
+                (r) => r.status === "absent",
+              ).length;
+              const late = session.records.filter(
+                (r) => r.status === "late",
+              ).length;
+              const excused = session.records.filter(
+                (r) => r.status === "excused",
+              ).length;
               const total = session.records.length;
 
-              const sessionKey = `${session.date}-${typeof session.class === "object" ? session.class?._id ?? session.class?.name ?? "unknown" : session.class ?? "unknown"}`;
+              const sessionKey = `${session.date}-${typeof session.class === "object" ? (session.class?._id ?? session.class?.name ?? "unknown") : (session.class ?? "unknown")}`;
               return (
-                <div key={sessionKey} className="border rounded-lg overflow-hidden">
+                <div
+                  key={sessionKey}
+                  className="border rounded-lg overflow-hidden"
+                >
                   <div className="bg-muted/40 px-4 py-3 space-y-2">
                     <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
                       <div className="flex items-center gap-2">
@@ -1571,19 +2080,27 @@ function StudentRecordsByClass({
                       <div className="ml-auto flex items-center gap-3 text-xs">
                         <span className="flex items-center gap-1">
                           <div className="h-2 w-2 rounded-full bg-green-500" />
-                          <span className="text-green-600 font-medium">{present}</span>
+                          <span className="text-green-600 font-medium">
+                            {present}
+                          </span>
                         </span>
                         <span className="flex items-center gap-1">
                           <div className="h-2 w-2 rounded-full bg-red-500" />
-                          <span className="text-red-600 font-medium">{absent}</span>
+                          <span className="text-red-600 font-medium">
+                            {absent}
+                          </span>
                         </span>
                         <span className="flex items-center gap-1">
                           <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                          <span className="text-yellow-600 font-medium">{late}</span>
+                          <span className="text-yellow-600 font-medium">
+                            {late}
+                          </span>
                         </span>
                         <span className="flex items-center gap-1">
                           <div className="h-2 w-2 rounded-full bg-blue-500" />
-                          <span className="text-blue-600 font-medium">{excused}</span>
+                          <span className="text-blue-600 font-medium">
+                            {excused}
+                          </span>
                         </span>
                         <span className="text-muted-foreground">/ {total}</span>
                       </div>
@@ -1592,16 +2109,27 @@ function StudentRecordsByClass({
                       <span>
                         <span className="text-muted-foreground">Subject: </span>
                         <span className="font-medium">
-                          {session.course?.name ?? "—"}{session.course?.code ? ` (${session.course.code})` : ""}
+                          {session.course?.name ?? "—"}
+                          {session.course?.code
+                            ? ` (${session.course.code})`
+                            : ""}
                         </span>
                       </span>
                       <span>
                         <span className="text-muted-foreground">Class: </span>
-                        <span className="font-medium">{typeof session.class === "object" ? session.class?.name ?? "—" : session.class ?? "—"}</span>
+                        <span className="font-medium">
+                          {typeof session.class === "object"
+                            ? (session.class?.name ?? "—")
+                            : (session.class ?? "—")}
+                        </span>
                       </span>
                       <span>
-                        <span className="text-muted-foreground">Lecturer: </span>
-                        <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                        <span className="text-muted-foreground">
+                          Lecturer:{" "}
+                        </span>
+                        <span className="font-medium">
+                          {session.lecturer?.name ?? "—"}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -1610,26 +2138,38 @@ function StudentRecordsByClass({
                     <table className="w-full text-sm">
                       <thead className="bg-muted/30 sticky top-0">
                         <tr>
-                          <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Subject</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
-                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Notes</th>
+                          <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">
+                            #
+                          </th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
+                            Subject
+                          </th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">
+                            Status
+                          </th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
+                            Notes
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {session.records.map((r, i) => (
                           <tr key={r._id} className="border-t">
-                            <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
+                            <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">
+                              {i + 1}
+                            </td>
                             <td className="px-3 py-1.5 font-medium text-xs">
                               {r.course?.name ?? r.course?.code ?? "—"}
                             </td>
-                            <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                            <td className="px-3 py-1.5 text-center">
+                              {statusBadge(r.status)}
+                            </td>
                             <td className="px-3 py-1.5 text-xs text-muted-foreground">
                               {r.status === "excused" && r.approvedBy
                                 ? `Approved by ${r.approvedBy.name}`
                                 : r.status === "excused"
-                                ? "Pending HOD approval"
-                                : "—"}
+                                  ? "Pending HOD approval"
+                                  : "—"}
                             </td>
                           </tr>
                         ))}
@@ -1696,16 +2236,27 @@ function LatestWeekTable() {
 
   // Build a per-class summary across all days
   const classSummary = useMemo(() => {
-    const map = new Map<string, {
-      className: string;
-      present: number;
-      absent: number;
-      late: number;
-      excused: number;
-    }>();
+    const map = new Map<
+      string,
+      {
+        className: string;
+        present: number;
+        absent: number;
+        late: number;
+        excused: number;
+      }
+    >();
     records.forEach((r) => {
-      const className = r.class && typeof r.class !== "string" ? r.class.name : "Unknown";
-      if (!map.has(className)) map.set(className, { className, present: 0, absent: 0, late: 0, excused: 0 });
+      const className =
+        r.class && typeof r.class !== "string" ? r.class.name : "Unknown";
+      if (!map.has(className))
+        map.set(className, {
+          className,
+          present: 0,
+          absent: 0,
+          late: 0,
+          excused: 0,
+        });
       const s = map.get(className)!;
       if (r.status === "present") s.present++;
       else if (r.status === "absent") s.absent++;
@@ -1718,13 +2269,19 @@ function LatestWeekTable() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium">This Week&apos;s Attendance</CardTitle>
-        <CardDescription>Mon–Friday records for the current week</CardDescription>
+        <CardTitle className="text-base font-medium">
+          This Week&apos;s Attendance
+        </CardTitle>
+        <CardDescription>
+          Mon–Friday records for the current week
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="space-y-2">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-12 w-full" />
+            ))}
           </div>
         ) : (
           <>
@@ -1732,32 +2289,50 @@ function LatestWeekTable() {
             {classSummary.length > 0 && (
               <div className="border rounded-lg bg-muted/20 overflow-hidden mb-3">
                 <div className="px-3 py-2 border-b bg-muted/40">
-                  <p className="text-xs font-semibold text-muted-foreground">By Class</p>
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    By Class
+                  </p>
                 </div>
                 <div className="divide-y">
                   {classSummary.map((cls) => {
-                    const total = cls.present + cls.absent + cls.late + cls.excused;
+                    const total =
+                      cls.present + cls.absent + cls.late + cls.excused;
                     return (
-                      <div key={cls.className} className="flex items-center gap-3 px-3 py-2 text-xs">
-                        <span className="font-medium min-w-0 truncate flex-1">{cls.className}</span>
+                      <div
+                        key={cls.className}
+                        className="flex items-center gap-3 px-3 py-2 text-xs"
+                      >
+                        <span className="font-medium min-w-0 truncate flex-1">
+                          {cls.className}
+                        </span>
                         <div className="flex items-center gap-2 shrink-0">
                           <span className="flex items-center gap-0.5">
                             <div className="h-2 w-2 rounded-full bg-green-500" />
-                            <span className="text-green-600 font-medium">{cls.present}</span>
+                            <span className="text-green-600 font-medium">
+                              {cls.present}
+                            </span>
                           </span>
                           <span className="flex items-center gap-0.5">
                             <div className="h-2 w-2 rounded-full bg-red-500" />
-                            <span className="text-red-600 font-medium">{cls.absent}</span>
+                            <span className="text-red-600 font-medium">
+                              {cls.absent}
+                            </span>
                           </span>
                           <span className="flex items-center gap-0.5">
                             <div className="h-2 w-2 rounded-full bg-yellow-500" />
-                            <span className="text-yellow-600 font-medium">{cls.late}</span>
+                            <span className="text-yellow-600 font-medium">
+                              {cls.late}
+                            </span>
                           </span>
                           <span className="flex items-center gap-0.5">
                             <div className="h-2 w-2 rounded-full bg-blue-500" />
-                            <span className="text-blue-600 font-medium">{cls.excused}</span>
+                            <span className="text-blue-600 font-medium">
+                              {cls.excused}
+                            </span>
                           </span>
-                          <span className="text-muted-foreground text-[10px] ml-1">/ {total}</span>
+                          <span className="text-muted-foreground text-[10px] ml-1">
+                            / {total}
+                          </span>
                         </div>
                       </div>
                     );
@@ -1774,10 +2349,21 @@ function LatestWeekTable() {
               <div className="space-y-3">
                 {groupedByDay.map(({ day, records: dayRecords }) => (
                   <div key={day}>
-                    <div className={`flex items-center gap-2 text-sm font-medium mb-1 ${day === todayName ? "text-primary" : "text-foreground"}`}>
-                      <span className={day === todayName ? "font-bold" : ""}>{day}</span>
-                      {day === todayName && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">Today</span>}
-                      <span className="text-xs text-muted-foreground font-normal ml-auto">{dayRecords.length} record{dayRecords.length !== 1 ? "s" : ""}</span>
+                    <div
+                      className={`flex items-center gap-2 text-sm font-medium mb-1 ${day === todayName ? "text-primary" : "text-foreground"}`}
+                    >
+                      <span className={day === todayName ? "font-bold" : ""}>
+                        {day}
+                      </span>
+                      {day === todayName && (
+                        <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                          Today
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground font-normal ml-auto">
+                        {dayRecords.length} record
+                        {dayRecords.length !== 1 ? "s" : ""}
+                      </span>
                     </div>
                     {dayRecords.length === 0 ? (
                       <div className="border rounded-lg px-3 py-2 text-xs text-muted-foreground italic">
@@ -1788,17 +2374,31 @@ function LatestWeekTable() {
                         <table className="w-full text-xs">
                           <thead className="bg-muted/50">
                             <tr>
-                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Class</th>
-                              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Date</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
+                                Subject
+                              </th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
+                                Class
+                              </th>
+                              <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">
+                                Status
+                              </th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">
+                                Date
+                              </th>
                             </tr>
                           </thead>
                           <tbody>
                             {dayRecords.map((r) => (
                               <tr key={r._id} className="border-t">
-                                <td className="px-2 py-1.5">{r.course?.name ?? "—"}</td>
-                                <td className="px-2 py-1.5">{r.class && typeof r.class !== "string" ? r.class.name : "—"}</td>
+                                <td className="px-2 py-1.5">
+                                  {r.course?.name ?? "—"}
+                                </td>
+                                <td className="px-2 py-1.5">
+                                  {r.class && typeof r.class !== "string"
+                                    ? r.class.name
+                                    : "—"}
+                                </td>
                                 <td className="px-2 py-1.5 text-center">
                                   <span
                                     className={
@@ -1815,7 +2415,9 @@ function LatestWeekTable() {
                                     {r.status}
                                   </span>
                                 </td>
-                                <td className="px-2 py-1.5">{new Date(r.date).toLocaleDateString()}</td>
+                                <td className="px-2 py-1.5">
+                                  {new Date(r.date).toLocaleDateString()}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
