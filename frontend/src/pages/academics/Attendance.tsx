@@ -38,7 +38,7 @@ import {
   CalendarDays,
   CheckCircle2,
   XCircle,
-  ChevronRight,
+  ChevronRightIcon,
 } from "lucide-react";
 
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
@@ -58,6 +58,8 @@ type SessionRecord = {
   student?: { _id: string; name: string; email?: string; idNumber?: string };
   lecturer?: { _id: string; name: string; email?: string };
   course?: { _id: string; name: string; code?: string };
+  subject?: { _id: string; name: string; code?: string; subjectID?: string; subjectUID?: string } | string;
+  sessionName?: string;
   class?: { _id: string; name: string };
   academicYear?: { _id: string; name: string };
   approvedBy?: { _id: string; name: string; email?: string } | null;
@@ -73,6 +75,7 @@ type AttendanceRecord = {
   date: string | Date;
   dayOfWeek?: string;
   class?: { _id: string; name: string } | string;
+  course?: { _id: string; name: string; code?: string } | string;
   subject?: { _id: string; name: string; code?: string } | string;
   student?: { _id: string; name: string; email?: string; idNumber?: string };
   lecturer?: { _id: string; name: string; email?: string };
@@ -1624,73 +1627,144 @@ function SavedListsTable({
     );
   };
 
-  // Step 1: group records into sessions (date + course within a class)
-  const sessionsMap = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        date: string;
-        dayOfWeek?: string;
-        course?: { name: string; code?: string };
-        class?: { name: string; _id?: string };
-        lecturer?: { name: string };
-        records: SessionRecord[];
-      }
-    >();
-
-    allLists.forEach((r) => {
-      const classId = r.class?._id ?? r.class?.name ?? "unknown";
-      const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
-      if (!map.has(dateKey)) {
-        map.set(dateKey, {
-          date: r.date,
-          dayOfWeek: r.dayOfWeek,
-          course: r.course,
-          class: r.class,
-          lecturer: r.lecturer,
-          records: [],
-        });
-      }
-      map.get(dateKey)!.records.push(r);
-    });
-
-    return map;
-  }, [allLists]);
-
-  // Step 2: group sessions by class
   const byClass = useMemo(() => {
-    const map = new Map<
+    const classMap = new Map<
       string,
       {
         className: string;
         classId: string;
-        sessions: Array<{
-          date: string;
-          dayOfWeek?: string;
-          course?: { name: string; code?: string };
-          class?: { name: string; _id?: string };
-          lecturer?: { name: string };
-          records: SessionRecord[];
+        courses: Array<{
+          courseId: string;
+          courseName: string;
+          courseCode?: string;
+          subjects: Array<{
+            subjectId: string;
+            subjectName: string;
+            subjectCode?: string;
+            sessions: Array<{
+              sessionKey: string;
+              date: string;
+              dayOfWeek?: string;
+              lecturer?: { _id?: string; name: string; email?: string };
+              sessionName?: string;
+              records: SessionRecord[];
+            }>;
+          }>;
         }>;
       }
     >();
 
-    sessionsMap.forEach((session) => {
-      const classId = session.class?._id ?? session.class?.name ?? "unknown";
-      const className = session.class?.name ?? "Unknown Class";
-      if (!map.has(classId)) {
-        map.set(classId, { className, classId, sessions: [] });
+    allLists.forEach((record) => {
+      const classId =
+        record.class && typeof record.class === "object"
+          ? record.class._id ?? record.class.name ?? "unknown"
+          : typeof record.class === "string"
+            ? record.class
+            : "unknown";
+      const className =
+        record.class && typeof record.class === "object"
+          ? record.class.name ?? "Unknown Class"
+          : typeof record.class === "string"
+            ? record.class
+            : "Unknown Class";
+
+      if (!classMap.has(classId)) {
+        classMap.set(classId, {
+          className,
+          classId,
+          courses: [],
+        });
       }
-      map.get(classId)!.sessions.push(session);
+
+      const classEntry = classMap.get(classId)!;
+      const courseId =
+        record.course && typeof record.course === "object"
+          ? record.course._id ?? record.course.name ?? "unknown-course"
+          : typeof record.course === "string"
+            ? record.course
+            : "unknown-course";
+      const courseName =
+        record.course && typeof record.course === "object"
+          ? record.course.name ?? "Unassigned course"
+          : typeof record.course === "string"
+            ? record.course
+            : "Unassigned course";
+      const courseCode =
+        record.course && typeof record.course === "object"
+          ? record.course.code
+          : undefined;
+
+      let courseEntry = classEntry.courses.find((entry) => entry.courseId === courseId);
+      if (!courseEntry) {
+        courseEntry = {
+          courseId,
+          courseName,
+          courseCode,
+          subjects: [],
+        };
+        classEntry.courses.push(courseEntry);
+      }
+
+      const subjectId =
+        record.subject && typeof record.subject === "object"
+          ? record.subject._id ?? record.subject.subjectID ?? record.subject.subjectUID ?? record.subject.code ?? record.subject.name ?? `${courseId}:subject`
+          : typeof record.subject === "string"
+            ? record.subject
+            : `${courseId}:subject`;
+      const subjectName =
+        record.subject && typeof record.subject === "object"
+          ? record.subject.name ?? record.subject.code ?? "Untitled subject"
+          : typeof record.subject === "string"
+            ? record.subject
+            : "Untitled subject";
+      const subjectCode =
+        record.subject && typeof record.subject === "object"
+          ? record.subject.code
+          : undefined;
+
+      let subjectEntry = courseEntry.subjects.find((entry) => entry.subjectId === subjectId);
+      if (!subjectEntry) {
+        subjectEntry = {
+          subjectId,
+          subjectName,
+          subjectCode,
+          sessions: [],
+        };
+        courseEntry.subjects.push(subjectEntry);
+      }
+
+      const lecturer = record.lecturer && typeof record.lecturer === "object" ? record.lecturer : undefined;
+      const sessionLabel =
+        record.sessionName ||
+        `${courseName} • ${subjectName} • ${new Date(record.date).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })}`;
+      const sessionKey = `${new Date(record.date).toDateString()}__${subjectId}__${lecturer?._id ?? lecturer?.name ?? "unknown"}`;
+
+      let sessionEntry = subjectEntry.sessions.find(
+        (entry) => entry.sessionKey === sessionKey,
+      );
+      if (!sessionEntry) {
+        sessionEntry = {
+          sessionKey,
+          date: new Date(record.date).toISOString(),
+          dayOfWeek: record.dayOfWeek,
+          lecturer,
+          sessionName: sessionLabel,
+          records: [],
+        };
+        subjectEntry.sessions.push(sessionEntry);
+      }
+
+      sessionEntry.records.push(record);
     });
 
-    // Sort sessions within each class by date (newest first)
-    return Array.from(map.values()).sort((a, b) => {
-      const aDate = a.sessions[0]?.date ?? "";
-      const bDate = b.sessions[0]?.date ?? "";
-      return new Date(bDate).getTime() - new Date(aDate).getTime();
+    return Array.from(classMap.values()).sort((a, b) => {
+      return a.className.localeCompare(b.className);
     });
-  }, [sessionsMap]);
+  }, [allLists]);
 
   const [openClass, setOpenClass] = useState<string | null>(null);
 
@@ -1720,28 +1794,48 @@ function SavedListsTable({
           <div className="space-y-3">
             {byClass.map((cls) => {
               const isOpen = openClass === cls.classId;
-              const totalSessions = cls.sessions.length;
-              const totalRecords = cls.sessions.reduce(
-                (sum, s) => sum + s.records.length,
+              const totalSessions = cls.courses.reduce(
+                (sum, course) =>
+                  sum + course.subjects.reduce((subjectTotal, subject) => subjectTotal + subject.sessions.length, 0),
                 0,
               );
-              const totalPresent = cls.sessions.reduce(
-                (sum, s) =>
-                  sum + s.records.filter((r) => r.status === "present").length,
+              const totalRecords = cls.courses.reduce(
+                (sum, course) =>
+                  sum + course.subjects.reduce(
+                    (subjectTotal, subject) => subjectTotal + subject.sessions.reduce((sessionTotal, session) => sessionTotal + session.records.length, 0),
+                    0,
+                  ),
                 0,
               );
-              const totalAbsent = cls.sessions.reduce(
-                (sum, s) =>
-                  sum + s.records.filter((r) => r.status === "absent").length,
+              const totalPresent = cls.courses.reduce(
+                (sum, course) =>
+                  sum + course.subjects.reduce(
+                    (subjectTotal, subject) =>
+                      subjectTotal + subject.sessions.reduce(
+                        (sessionTotal, session) =>
+                          sessionTotal + session.records.filter((r) => r.status === "present").length,
+                        0,
+                      ),
+                    0,
+                  ),
+                0,
+              );
+              const totalAbsent = cls.courses.reduce(
+                (sum, course) =>
+                  sum + course.subjects.reduce(
+                    (subjectTotal, subject) =>
+                      subjectTotal + subject.sessions.reduce(
+                        (sessionTotal, session) =>
+                          sessionTotal + session.records.filter((r) => r.status === "absent").length,
+                        0,
+                      ),
+                    0,
+                  ),
                 0,
               );
 
               return (
-                <div
-                  key={cls.classId}
-                  className="border rounded-lg overflow-hidden"
-                >
-                  {/* Class card header */}
+                <div key={cls.classId} className="border rounded-lg overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setOpenClass(isOpen ? null : cls.classId)}
@@ -1750,191 +1844,151 @@ function SavedListsTable({
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <CalendarDays className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <span className="font-semibold text-sm truncate">
-                          {cls.className}
-                        </span>
+                        <span className="font-semibold text-sm truncate">{cls.className}</span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
                         <span className="bg-muted px-1.5 py-0.5 rounded-full">
-                          {totalSessions} session
-                          {totalSessions !== 1 ? "s" : ""}
+                          {totalSessions} session{totalSessions !== 1 ? "s" : ""}
                         </span>
                         <span>{totalRecords} records</span>
                       </div>
                     </div>
-                    {/* Summary stats */}
                     <div className="flex items-center gap-3 text-xs shrink-0">
                       <span className="flex items-center gap-1">
                         <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-green-600 font-medium">
-                          {totalPresent}
-                        </span>
+                        <span className="text-green-600 font-medium">{totalPresent}</span>
                       </span>
                       <span className="flex items-center gap-1">
                         <div className="h-2 w-2 rounded-full bg-red-500" />
-                        <span className="text-red-600 font-medium">
-                          {totalAbsent}
-                        </span>
+                        <span className="text-red-600 font-medium">{totalAbsent}</span>
                       </span>
                     </div>
-                    <ChevronRight
-                      className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-90" : ""}`}
-                    />
+                    <ChevronRightIcon className={`h-4 w-4 text-muted-foreground transition-transform shrink-0 ${isOpen ? "rotate-90" : ""}`} />
                   </button>
 
-                  {/* Expanded sessions */}
                   {isOpen && (
                     <div className="divide-y">
-                      {cls.sessions
-                        .sort(
-                          (a, b) =>
-                            new Date(b.date).getTime() -
-                            new Date(a.date).getTime(),
-                        )
-                        .map((session) => {
-                          const present = session.records.filter(
-                            (r) => r.status === "present",
-                          ).length;
-                          const absent = session.records.filter(
-                            (r) => r.status === "absent",
-                          ).length;
-                          const late = session.records.filter(
-                            (r) => r.status === "late",
-                          ).length;
-                          const excused = session.records.filter(
-                            (r) => r.status === "excused",
-                          ).length;
-                          const total = session.records.length;
+                      {cls.courses.map((course) => (
+                        <div key={course.courseId} className="px-4 py-3 space-y-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-sm">{course.courseName}</span>
+                            {course.courseCode ? (
+                              <Badge variant="secondary" className="text-xs">
+                                {course.courseCode}
+                              </Badge>
+                            ) : null}
+                          </div>
 
-                          const sessionKey = `${session.date}-${cls.classId}`;
+                          <div className="space-y-3 pl-2">
+                            {course.subjects.map((subject) => (
+                              <div key={subject.subjectId} className="rounded-lg border bg-background/50 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-sm font-semibold">{subject.subjectName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {subject.sessions.length} session{subject.sessions.length !== 1 ? "s" : ""}
+                                    </p>
+                                  </div>
+                                </div>
 
-                          return (
-                            <div
-                              key={sessionKey}
-                              className="px-4 py-3 space-y-2"
-                            >
-                              {/* Session meta */}
-                              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                                <span>
-                                  <span className="text-muted-foreground">
-                                    Date:{" "}
-                                  </span>
-                                  <span className="font-medium">
-                                    {new Date(session.date).toLocaleDateString(
-                                      "en-US",
-                                      {
-                                        weekday: "short",
-                                        year: "numeric",
-                                        month: "short",
-                                        day: "numeric",
-                                      },
-                                    )}
-                                  </span>
-                                  {session.dayOfWeek && (
-                                    <span className="ml-1 text-muted-foreground">
-                                      ({session.dayOfWeek})
-                                    </span>
-                                  )}
-                                </span>
-                                <span>
-                                  <span className="text-muted-foreground">
-                                    Subject:{" "}
-                                  </span>
-                                  <span className="font-medium">
-                                    {session.course?.name ?? "—"}
-                                    {session.course?.code
-                                      ? ` (${session.course.code})`
-                                      : ""}
-                                  </span>
-                                </span>
-                                <span>
-                                  <span className="text-muted-foreground">
-                                    Lecturer:{" "}
-                                  </span>
-                                  <span className="font-medium">
-                                    {session.lecturer?.name ?? "—"}
-                                  </span>
-                                </span>
-                                <span className="flex items-center gap-1 ml-auto">
-                                  <div className="h-2 w-2 rounded-full bg-green-500" />
-                                  <span className="text-green-600 font-medium">
-                                    {present}
-                                  </span>
-                                  <div className="h-2 w-2 rounded-full bg-red-500 ml-1" />
-                                  <span className="text-red-600 font-medium">
-                                    {absent}
-                                  </span>
-                                  <div className="h-2 w-2 rounded-full bg-yellow-500 ml-1" />
-                                  <span className="text-yellow-600 font-medium">
-                                    {late}
-                                  </span>
-                                  <div className="h-2 w-2 rounded-full bg-blue-500 ml-1" />
-                                  <span className="text-blue-600 font-medium">
-                                    {excused}
-                                  </span>
-                                  <span className="text-muted-foreground ml-1">
-                                    / {total}
-                                  </span>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="ml-3 h-6 text-xs"
-                                    onClick={() =>
-                                      onEditSession({
-                                        records: session.records,
-                                        course: session.course,
-                                        class: session.class,
-                                        lecturer: session.lecturer,
-                                      })
-                                    }
-                                  >
-                                    Edit
-                                  </Button>
-                                </span>
+                                <div className="mt-3 space-y-3">
+                                  {subject.sessions
+                                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                    .map((session) => {
+                                      const present = session.records.filter((r) => r.status === "present").length;
+                                      const absent = session.records.filter((r) => r.status === "absent").length;
+                                      const late = session.records.filter((r) => r.status === "late").length;
+                                      const excused = session.records.filter((r) => r.status === "excused").length;
+                                      const total = session.records.length;
+
+                                      return (
+                                        <div key={session.sessionKey} className="rounded-md border bg-muted/20 p-3">
+                                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                                            <span>
+                                              <span className="text-muted-foreground">Date: </span>
+                                              <span className="font-medium">
+                                                {new Date(session.date).toLocaleDateString("en-US", {
+                                                  weekday: "short",
+                                                  year: "numeric",
+                                                  month: "short",
+                                                  day: "numeric",
+                                                })}
+                                              </span>
+                                              {session.dayOfWeek ? (
+                                                <span className="ml-1 text-muted-foreground">({session.dayOfWeek})</span>
+                                              ) : null}
+                                            </span>
+                                            <span>
+                                              <span className="text-muted-foreground">Session: </span>
+                                              <span className="font-medium">{session.sessionName ?? "Attendance session"}</span>
+                                            </span>
+                                            <span>
+                                              <span className="text-muted-foreground">Subject: </span>
+                                              <span className="font-medium">{subject.subjectName}</span>
+                                            </span>
+                                            <span>
+                                              <span className="text-muted-foreground">Lecturer: </span>
+                                              <span className="font-medium">{session.lecturer?.name ?? "—"}</span>
+                                            </span>
+                                            <span className="ml-auto flex items-center gap-1">
+                                              <div className="h-2 w-2 rounded-full bg-green-500" />
+                                              <span className="text-green-600 font-medium">{present}</span>
+                                              <div className="h-2 w-2 rounded-full bg-red-500 ml-1" />
+                                              <span className="text-red-600 font-medium">{absent}</span>
+                                              <div className="h-2 w-2 rounded-full bg-yellow-500 ml-1" />
+                                              <span className="text-yellow-600 font-medium">{late}</span>
+                                              <div className="h-2 w-2 rounded-full bg-blue-500 ml-1" />
+                                              <span className="text-blue-600 font-medium">{excused}</span>
+                                              <span className="text-muted-foreground ml-1">/ {total}</span>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="ml-3 h-6 text-xs"
+                                                onClick={() =>
+                                                  onEditSession({
+                                                    records: session.records,
+                                                    course: course.courseName ? { _id: course.courseId, name: course.courseName, code: course.courseCode } : undefined,
+                                                    class: cls.className ? { _id: cls.classId, name: cls.className } : undefined,
+                                                    lecturer: session.lecturer,
+                                                  })
+                                                }
+                                              >
+                                                Edit
+                                              </Button>
+                                            </span>
+                                          </div>
+
+                                          <div className="mt-3 overflow-auto max-h-[32vh] border rounded">
+                                            <table className="w-full text-sm">
+                                              <thead className="glassBg bg-muted/30 sticky top-0">
+                                                <tr>
+                                                  <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">#</th>
+                                                  <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Student Name</th>
+                                                  <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">Mat. Number</th>
+                                                  <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">Status</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                {session.records.map((r, i) => (
+                                                  <tr key={r._id} className="border-t">
+                                                    <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">{i + 1}</td>
+                                                    <td className="px-3 py-1.5 font-medium text-xs">{r.student?.name ?? "—"}</td>
+                                                    <td className="px-3 py-1.5 text-muted-foreground text-xs">{r.student?.idNumber ?? "—"}</td>
+                                                    <td className="px-3 py-1.5 text-center">{statusBadge(r.status)}</td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
                               </div>
-
-                              {/* Student table */}
-                              <div className="overflow-auto max-h-[25vh] border rounded">
-                                <table className="w-full text-sm">
-                                  <thead className="bg-muted/30 sticky top-0">
-                                    <tr>
-                                      <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">
-                                        #
-                                      </th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
-                                        Student Name
-                                      </th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
-                                        ID Number
-                                      </th>
-                                      <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">
-                                        Status
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {session.records.map((r, i) => (
-                                      <tr key={r._id} className="border-t">
-                                        <td className="text-center px-2 py-1.5 text-muted-foreground text-xs">
-                                          {i + 1}
-                                        </td>
-                                        <td className="px-3 py-1.5 font-medium text-xs">
-                                          {r.student?.name ?? "—"}
-                                        </td>
-                                        <td className="px-3 py-1.5 text-muted-foreground text-xs">
-                                          {r.student?.idNumber ?? "—"}
-                                        </td>
-                                        <td className="px-3 py-1.5 text-center">
-                                          {statusBadge(r.status)}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2136,7 +2190,7 @@ function StudentRecordsByClass({
 
                   <div className="overflow-auto max-h-[30vh]">
                     <table className="w-full text-sm">
-                      <thead className="bg-muted/30 sticky top-0">
+                      <thead className="glassBg bg-muted/30 sticky top-0">
                         <tr>
                           <th className="text-center w-10 px-2 py-2 font-medium text-muted-foreground text-xs">
                             #

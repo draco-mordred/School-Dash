@@ -702,15 +702,51 @@ export const getAllAttendanceLists = async (req: Request, res: Response) => {
     }
 
     const records = await Attendance.find(filter)
-      .populate("course", "name code courseID subjects.subjectID")
+      .populate("course", "name code courseID subjects")
       .populate("class", "name")
       .populate("student", "name idNumber email")
       .populate("lecturer", "name email")
       .populate("approvedBy", "name email")
-      .sort({ date: -1 })
-      .limit(100);
+      .sort({ date: -1 });
 
-    res.json({ records });
+    const enrichedRecords = records.map((record: any) => {
+      const courseDoc = record.course;
+      const subjectId = record.subject ? String(record.subject) : "";
+      const matchingSubject = courseDoc?.subjects?.find((subject: any) => {
+        return (
+          String(subject?._id) === subjectId ||
+          String(subject?.subjectUID) === subjectId ||
+          String(subject?.subjectID) === subjectId ||
+          String(subject?.code ?? "") === subjectId
+        );
+      });
+
+      const resolvedSubject = matchingSubject
+        ? {
+            _id: matchingSubject._id,
+            name: matchingSubject.name,
+            code: matchingSubject.code,
+            subjectID: matchingSubject.subjectID,
+            subjectUID: matchingSubject.subjectUID,
+          }
+        : null;
+
+      const subjectName = resolvedSubject?.name || (record.subject && typeof record.subject === "object" ? record.subject.name : null) || "Untitled subject";
+      const courseName = courseDoc?.name || "Attendance session";
+      const dateLabel = new Date(record.date).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+
+      return {
+        ...record.toObject(),
+        subject: resolvedSubject || record.subject,
+        sessionName: `${courseName} • ${subjectName} • ${dateLabel}`,
+      };
+    });
+
+    res.json({ records: enrichedRecords });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });

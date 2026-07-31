@@ -17,6 +17,7 @@ import Modal from "@/components/global/Modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Pencil, Trash2, Plus, X } from "lucide-react";
+import {
+  Pencil,
+  Trash2,
+  Plus,
+  X,
+  Clock3,
+  CalendarDays,
+  Activity,
+} from "lucide-react";
 
 const DAYS = [
   "Monday",
@@ -56,6 +65,31 @@ type SelectedClassInfo = {
   academicYearId?: string;
 };
 
+const parseTimeToMinutes = (time: string) => {
+  if (!time || typeof time !== "string") return Number.POSITIVE_INFINITY;
+  const [hourText, minuteText] = time.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return hour * 60 + minute;
+};
+
+const formatClockTime = (value: string | undefined) => {
+  if (!value) return "—";
+  const [hourText, minuteText] = value.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 const Timetable = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -73,6 +107,7 @@ const Timetable = () => {
     useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedClass, setSelectedClass] = useState("");
+  const [clinicalEventsToday, setClinicalEventsToday] = useState<any[]>([]);
 
   // Parent: classes of linked children (multiple)
   const [parentChildrenClasses, setParentChildrenClasses] = useState<
@@ -221,6 +256,35 @@ const Timetable = () => {
       }
     }
   }, [isStudent, user]);
+
+  useEffect(() => {
+    if (!isStudent || !selectedClass) {
+      setClinicalEventsToday([]);
+      return;
+    }
+
+    const loadClinicalHighlights = async () => {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+
+      try {
+        const { data } = await api.get("/rotation-schedules/events", {
+          params: {
+            classId: selectedClass,
+            start: start.toISOString(),
+            end: end.toISOString(),
+          },
+        });
+        setClinicalEventsToday(Array.isArray(data?.events) ? data.events : []);
+      } catch {
+        setClinicalEventsToday([]);
+      }
+    };
+
+    void loadClinicalHighlights();
+  }, [isStudent, selectedClass]);
 
   // Fetch student's class name + academic year
   useEffect(() => {
@@ -410,12 +474,56 @@ const Timetable = () => {
     [selectedDay],
   );
 
+  const todayLabel = useMemo(() => {
+    return new Date().toLocaleDateString("en-US", { weekday: "long" });
+  }, []);
+
   const selectedDaySchedule = useMemo(() => {
     if (selectedDayIndex < 0) return null;
     return scheduleData.find(
       (s) => s.day.toLowerCase() === DAYS[selectedDayIndex].toLowerCase(),
     );
   }, [scheduleData, selectedDayIndex]);
+
+  const todaySchedule = useMemo(() => {
+    return scheduleData.find((s) => s.day.toLowerCase() === todayLabel.toLowerCase()) ?? null;
+  }, [scheduleData, todayLabel]);
+
+  const currentTimeMinutes = useMemo(() => {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  }, []);
+
+  const currentTimetableActivity = useMemo(() => {
+    if (!todaySchedule?.periods?.length) return null;
+    return todaySchedule.periods.find((period) => {
+      const start = parseTimeToMinutes(period.startTime);
+      const end = parseTimeToMinutes(period.endTime);
+      return Number.isFinite(start) && Number.isFinite(end) && currentTimeMinutes >= start && currentTimeMinutes < end;
+    }) ?? null;
+  }, [currentTimeMinutes, todaySchedule]);
+
+  const nextTimetableActivity = useMemo(() => {
+    if (!todaySchedule?.periods?.length) return null;
+    return [...todaySchedule.periods]
+      .filter((period) => parseTimeToMinutes(period.startTime) > currentTimeMinutes)
+      .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime))[0] ?? null;
+  }, [currentTimeMinutes, todaySchedule]);
+
+  const nextClinicalEvent = useMemo(() => {
+    const now = new Date().getTime();
+    return [...clinicalEventsToday]
+      .filter((event) => new Date(event.startDate).getTime() >= now)
+      .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())[0] ?? null;
+  }, [clinicalEventsToday]);
+
+  const currentTimeLabel = useMemo(() => {
+    const now = new Date();
+    return now.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }, []);
 
   const handleAddPeriod = async () => {
     if (
@@ -712,6 +820,75 @@ const Timetable = () => {
               selectedClass={selectedClass}
               setSelectedClass={setSelectedClass}
             />
+          )}
+
+          {isStudent && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                    <Clock3 className="h-4 w-4 text-primary" />
+                    Current activity
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-1 text-sm">
+                  <p className="font-medium text-foreground">
+                    {currentTimetableActivity?.subject?.name ?? currentTimetableActivity?.displayLabel ?? "No active timetable activity"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {currentTimetableActivity
+                      ? `${formatClockTime(currentTimetableActivity.startTime)} – ${formatClockTime(currentTimetableActivity.endTime)} · as of ${currentTimeLabel}`
+                      : `No timetable activity is running right now (${currentTimeLabel}).`}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                    Next scheduled activity
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <Activity className="h-4 w-4 text-muted-foreground mt-0.5" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {nextTimetableActivity?.subject?.name ?? nextTimetableActivity?.displayLabel ?? "No upcoming lecture"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        {nextTimetableActivity
+                          ? `${formatClockTime(nextTimetableActivity.startTime)} – ${formatClockTime(nextTimetableActivity.endTime)}`
+                          : "No lecture is scheduled later today."}
+                      </p>
+                    </div>
+                  </div>
+
+                  {nextClinicalEvent ? (
+                    <div className="flex items-start gap-2">
+                      <CalendarDays className="h-4 w-4 text-muted-foreground mt-0.5" />
+                      <div>
+                        <p className="font-medium text-foreground">
+                          {nextClinicalEvent.postingName ?? "Clinical activity"}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {new Date(nextClinicalEvent.startDate).toLocaleString("en-US", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">No new clinical activity is scheduled for today.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           <div className="mb-4 space-y-1">

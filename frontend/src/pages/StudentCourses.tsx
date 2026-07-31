@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronRight, BookOpen, Search as SearchIcon } from "lucide-react";
+import { ChevronRightIcon, BookOpen, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -72,9 +72,8 @@ export default function StudentCourses() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"name-asc" | "name-desc" | "subjects-high" | "subjects-low">("name-asc");
-  
-  const [subjectsPanelCourseId, setSubjectsPanelCourseId] = useState<string | null>(null);
-  const [subjectsPanelVisible, setSubjectsPanelVisible] = useState(false);
+  const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
+  const [closingCourseId, setClosingCourseId] = useState<string | null>(null);
   const [courseSummaryDialogOpen, setCourseSummaryDialogOpen] = useState(false);
   const [summaryCourse, setSummaryCourse] = useState<Course | null>(null);
   const [courseSummaryText, setCourseSummaryText] = useState<string>("");
@@ -112,7 +111,7 @@ export default function StudentCourses() {
         } else {
           setError("No class assigned to your account");
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch student class:", err);
         setError("Failed to load your class assignment");
       } finally {
@@ -153,7 +152,7 @@ export default function StudentCourses() {
           console.warn("Unable to load class timetable:", timetableResponse.reason);
           setClassSchedule([]);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Failed to fetch courses or timetable:", err);
         setError("Failed to load courses for your class");
         setCourses([]);
@@ -210,7 +209,7 @@ export default function StudentCourses() {
       }
     });
 
-  const handleViewSubjects = async (course: Course) => {
+  const openSubjectsPanel = async (course: Course) => {
     setSelectedCourse(course);
     setLoadingSubjects(true);
     setError(null);
@@ -223,9 +222,9 @@ export default function StudentCourses() {
         setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
       }
 
-      setSubjectsPanelCourseId(course._id);
-      setSubjectsPanelVisible(true);
-    } catch (err: any) {
+      setExpandedCourseId(course._id);
+      setClosingCourseId(null);
+    } catch (err: unknown) {
       console.error("Failed to fetch subjects:", err);
       toast.error("Failed to load subjects for this course");
       setSubjects([]);
@@ -234,9 +233,44 @@ export default function StudentCourses() {
     }
   };
 
+  const dismissSubjectsPanel = () => {
+    if (!expandedCourseId) return;
+
+    setClosingCourseId(expandedCourseId);
+    window.setTimeout(() => {
+      setExpandedCourseId(null);
+      setClosingCourseId(null);
+      setSelectedCourse(null);
+      setSubjects([]);
+    }, 220);
+  };
+
+  const handleViewSubjects = async (course: Course) => {
+    const isSameCourse = expandedCourseId === course._id;
+
+    if (isSameCourse) {
+      dismissSubjectsPanel();
+      return;
+    }
+
+    if (expandedCourseId && expandedCourseId !== course._id) {
+      const pendingCourse = course;
+      setClosingCourseId(expandedCourseId);
+      window.setTimeout(() => {
+        setExpandedCourseId(null);
+        setClosingCourseId(null);
+        setSelectedCourse(null);
+        setSubjects([]);
+        void openSubjectsPanel(pendingCourse);
+      }, 220);
+      return;
+    }
+
+    void openSubjectsPanel(course);
+  };
+
   const closeSubjectsPanel = () => {
-    setSubjectsPanelVisible(false);
-    setSubjectsPanelCourseId(null);
+    dismissSubjectsPanel();
   };
 
   const openCourseSummary = async (course: Course) => {
@@ -332,7 +366,7 @@ export default function StudentCourses() {
           </div>
         </div>
         <div className="w-full md:w-48">
-          <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
+          <Select value={sortBy} onValueChange={(value: string) => setSortBy(value as "name-asc" | "name-desc" | "subjects-high" | "subjects-low")}>
             <SelectTrigger>
               <SelectValue placeholder="Sort by..." />
             </SelectTrigger>
@@ -367,47 +401,12 @@ export default function StudentCourses() {
           </Card>
         ) : (
           <>
-            {subjectsPanelCourseId && subjectsPanelVisible && (
-              <div className="fixed inset-0 z-40 bg-black/30" onClick={closeSubjectsPanel} style={{ backdropFilter: "blur(20px)" }}>
-                <div
-                  className="absolute left-1/2 top-1/2 z-50 w-[min(680px,calc(100vw-48px))] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-primary/40 bg-background p-6 shadow-2xl"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold">{selectedCourse?.name ?? "Course subjects"}</p>
-                    <p className="text-xs text-muted-foreground">{selectedCourse?.code}</p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={closeSubjectsPanel}>
-                    Close
-                  </Button>
-                </div>
-                <div className="space-y-2 overflow-y-auto pr-1">
-                  {loadingSubjects ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-10 rounded" />
-                      <Skeleton className="h-10 rounded" />
-                    </div>
-                  ) : subjects.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No subjects assigned to this course.</p>
-                  ) : (
-                    subjects.map((subject) => (
-                      <div key={subject._id} className="rounded-lg border border-border bg-muted/50 p-3">
-                        <p className="font-medium">{subject.name}</p>
-                        <p className="text-xs text-muted-foreground">{subject.code}</p>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-            )}
             <div className="contents">
               {filteredAndSortedCourses.map((course) => {
                 return (
             <Card
               key={course._id}
-              className={`cursor-pointer ${selectedCourse?._id === course._id ? "ring-2 ring-primary" : ""}`}
+              className={`relative cursor-pointer overflow-visible ${selectedCourse?._id === course._id ? "ring-2 ring-primary" : ""}`}
               data-course-id={course._id}
             >
               <CardHeader>
@@ -417,7 +416,7 @@ export default function StudentCourses() {
                     <CardDescription className="mt-1">{course.code}</CardDescription>
                   </div>
                   {selectedCourse?._id === course._id && (
-                    <ChevronRight className="h-5 w-5 text-primary" />
+                    <ChevronRightIcon className="h-5 w-5 text-primary" />
                   )}
                 </div>
               </CardHeader>
@@ -479,8 +478,8 @@ export default function StudentCourses() {
                       void handleViewSubjects(course);
                     }}
                   >
-                    View Subjects
-                    <ChevronRight className="ml-2 h-4 w-4" />
+                    {expandedCourseId === course._id ? "Hide Subjects" : "View Subjects"}
+                    <ChevronRightIcon className="ml-2 h-4 w-4" />
                   </Button>
                   <Button
                     variant="secondary"
@@ -493,6 +492,45 @@ export default function StudentCourses() {
                     Course Summary
                   </Button>
                 </div>
+
+                {(expandedCourseId === course._id || closingCourseId === course._id) && (
+                  <div
+                    className={`glassBg absolute left-0 right-0 top-0 z-20 mt-2 overflow-hidden rounded-xl border border-primary/30 shadow-lg backdrop-blur-sm ${closingCourseId === course._id ? "subject-panel-dismiss" : "subject-panel-rollout"}`}
+                    // style={{background: "transparent"}}
+                  >
+                    <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">
+                          Subjects
+                        </p>
+                        <p className="text-xs text-muted-foreground">{selectedCourse?.name ?? course.name}</p>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={(e) => {
+                        e.stopPropagation();
+                        closeSubjectsPanel();
+                      }}>
+                        Close
+                      </Button>
+                    </div>
+                    <div className="max-h-64 space-y-2 overflow-y-auto px-3 py-3">
+                      {loadingSubjects ? (
+                        <div className="space-y-2">
+                          <Skeleton className="h-10 rounded" />
+                          <Skeleton className="h-10 rounded" />
+                        </div>
+                      ) : subjects.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No subjects assigned to this course.</p>
+                      ) : (
+                        subjects.map((subject) => (
+                          <div key={subject._id} className="rounded-lg border border-border bg-muted/50 p-3">
+                            <p className="font-medium">{subject.name}</p>
+                            <p className="text-xs text-muted-foreground">{subject.code}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
                 );
