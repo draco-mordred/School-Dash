@@ -107,6 +107,77 @@ const deriveUnitCode = (name: string) =>
     .slice(0, 4)
     .toUpperCase() || "UNIT";
 
+const normalizeSubjectDateValue = (value: unknown) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const slashMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (slashMatch) {
+    const [, part1, part2, part3] = slashMatch;
+    const day = Number(part1);
+    const month = Number(part2);
+    let year = Number(part3);
+    if (year < 100) {
+      year += year > 50 ? 1900 : 2000;
+    }
+
+    const candidate = new Date(year, month - 1, day);
+    if (!Number.isNaN(candidate.getTime()) && candidate.getDate() === day) {
+      return candidate;
+    }
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeSubjectTimeValue = (value: unknown): string | null => {
+  if (value === null || value === undefined) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (!match) return null;
+
+  let hour = Number(match[1]);
+  const minutes = Number(match[2] ?? "0");
+  const period = String(match[3] ?? "").toLowerCase();
+
+  if (hour < 0 || hour > 23 || minutes < 0 || minutes > 59) return null;
+
+  if (period === "pm" && hour < 12) hour += 12;
+  if (period === "am" && hour === 12) hour = 0;
+
+  return `${String(hour).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+
+const normalizeSubjectTimeWindow = (startTime: unknown, endTime: unknown) => {
+  const normalizedStart = normalizeSubjectTimeValue(startTime);
+  const normalizedEnd = normalizeSubjectTimeValue(endTime);
+
+  if (normalizedStart && normalizedEnd) {
+    return { startTime: normalizedStart, endTime: normalizedEnd };
+  }
+
+  if (normalizedStart) {
+    return { startTime: normalizedStart, endTime: null };
+  }
+
+  if (normalizedEnd) {
+    return { startTime: null, endTime: normalizedEnd };
+  }
+
+  return { startTime: null, endTime: null };
+};
+
 const getNormalizedDepartmentValue = (value: unknown) => {
   if (!value) return "";
   if (typeof value === "string") return value.trim().toLowerCase();
@@ -136,6 +207,10 @@ const isUserInDepartment = (user: any, departmentDoc: any) => {
   return validDeptValues.has(userDept);
 };
 
+const normalizeLecturerName = (value: unknown) => {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+};
+
 const generateSubjectUID = (subject: any) => {
   if (
     subject &&
@@ -145,6 +220,43 @@ const generateSubjectUID = (subject: any) => {
     return String(subject.subjectUID).trim();
   }
   return new mongoose.Types.ObjectId().toHexString();
+};
+
+const normalizeSubjectNameValue = (value: unknown) => {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFC")
+    .replace(/\u00A0/g, " ")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|–|—/g, "-")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|“|”/g, '"')
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|‘|’/g, "'")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+};
+
+const normalizeSubjectText = (value: unknown) => {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/\u00A0/g, " ")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|–|—/g, "-")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|“|”/g, '"')
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|‘|’/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const normalizeSubjectCodeValue = (value: unknown) =>
+  String(value ?? "").trim().toLowerCase();
+
+const generateSubjectCodeFromCourse = (courseCode: string, index: number) => {
+  const courseCodeText = String(courseCode ?? "").trim().replace(/\s+/g, " ");
+  const match = courseCodeText.match(/^(.*?)(\d+)$/);
+  if (match) {
+    const prefix = match[1].trim();
+    const baseNumber = Number(match[2]);
+    return `${prefix} ${String(baseNumber + index + 1).padStart(3, "0")}`.trim();
+  }
+  return `${courseCodeText} ${String(index + 1).padStart(3, "0")}`;
 };
 
 const normalizeClassIdValue = (value: any): string | undefined => {
@@ -213,22 +325,30 @@ const getRoleIdPrefix = (role: string) => {
   return UserIDs.STUDENTID.slice(0, -4);
 };
 
+const roleIdCounterCache: Record<string, number | null> = {};
+
 const generateUniqueUserIdNumber = async (role: string) => {
   const prefix = getRoleIdPrefix(role);
-  const lastUser = await User.findOne({ idNumber: { $regex: `^${prefix}` } })
-    .sort({ idNumber: -1 })
-    .select("idNumber")
-    .lean();
+  if (roleIdCounterCache[role] == null) {
+    const lastUser = await User.findOne({ idNumber: { $regex: `^${prefix}` } })
+      .sort({ idNumber: -1 })
+      .select("idNumber")
+      .lean();
 
-  let nextNumber = 1;
-  if (lastUser?.idNumber) {
-    const suffix = lastUser.idNumber.slice(-4);
-    const parsed = Number.parseInt(suffix, 10);
-    if (!Number.isNaN(parsed)) {
-      nextNumber = parsed + 1;
+    let nextNumber = 1;
+    if (lastUser?.idNumber) {
+      const suffix = lastUser.idNumber.slice(-4);
+      const parsed = Number.parseInt(suffix, 10);
+      if (!Number.isNaN(parsed)) {
+        nextNumber = parsed + 1;
+      }
     }
+
+    roleIdCounterCache[role] = nextNumber;
   }
 
+  const nextNumber = roleIdCounterCache[role] ?? 1;
+  roleIdCounterCache[role] = nextNumber + 1;
   return `${prefix}${String(nextNumber).padStart(4, "0")}`;
 };
 
@@ -286,7 +406,7 @@ const findOrCreateTeacherAccount = async (
           teacherSubject: courseId,
         },
       },
-      { new: true },
+      { returnDocument: "after" },
     );
     return String(existingTeacher._id);
   }
@@ -570,6 +690,11 @@ export const addCourseSubject = async (req: Request, res: Response) => {
     }
 
     const studentIds = Array.isArray(subject?.students) ? subject.students : [];
+    const subjectDate = normalizeSubjectDateValue(subject?.date);
+    const subjectTimeWindow = normalizeSubjectTimeWindow(
+      subject?.startTime,
+      subject?.endTime,
+    );
     const subjectUID = generateSubjectUID(subject);
 
     const existingSubject = (topLevelCourse.subjects ?? []).some(
@@ -600,6 +725,9 @@ export const addCourseSubject = async (req: Request, res: Response) => {
       lecturer: lecturerIds,
       isActive: Boolean(subject.isActive ?? true),
       semester: subject.semester ?? null,
+      date: subjectDate,
+      startTime: subjectTimeWindow.startTime,
+      endTime: subjectTimeWindow.endTime,
       students: studentIds,
     } as any);
 
@@ -643,13 +771,90 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
         .json({ message: `Parent course department not found.` });
     }
 
+    const departmentTeacherDocs = await User.find({
+      role: "teacher",
+      $or: [
+        { departmentId: departmentDoc._id },
+        { department: departmentDoc.name },
+      ],
+    })
+      .select("_id name email")
+      .lean();
+
+    const existingDepartmentTeacherNameLookup = new Map<string, string>();
+    const existingDepartmentTeacherEmailLookup = new Map<string, string>();
+    for (const teacher of departmentTeacherDocs) {
+      const normalizedName = normalizeLecturerName(String(teacher.name ?? ""));
+      if (normalizedName) {
+        existingDepartmentTeacherNameLookup.set(normalizedName, String(teacher._id));
+      }
+      if (typeof teacher.email === "string" && teacher.email.trim()) {
+        existingDepartmentTeacherEmailLookup.set(
+          teacher.email.trim().toLowerCase(),
+          String(teacher._id),
+        );
+      }
+    }
+
+    const payloadLecturerIds = new Set<string>();
+    for (const row of subjects) {
+      if (Array.isArray(row?.lecturer)) {
+        for (const rawId of row.lecturer) {
+          const candidateId = String(rawId ?? "").trim();
+          if (candidateId) payloadLecturerIds.add(candidateId);
+        }
+      }
+    }
+
+    const initialValidLecturerUsers = payloadLecturerIds.size > 0
+      ? await User.find({
+          _id: { $in: Array.from(payloadLecturerIds) },
+          role: { $in: ["teacher", "admin"] },
+          $or: [
+            { departmentId: departmentDoc._id },
+            { department: departmentDoc.name },
+          ],
+        }).select("_id")
+      : [];
+
+    const teacherLookupCache = new Map<string, string | null>();
+    const initialValidLecturerIds = new Set(
+      initialValidLecturerUsers.map((userDoc) => String(userDoc._id)),
+    );
+    for (const id of payloadLecturerIds) {
+      teacherLookupCache.set(id, initialValidLecturerIds.has(id) ? id : null);
+    }
+
     const teacherLookup = async (lecturerIds: any[]) => {
       const ids = Array.isArray(lecturerIds) ? lecturerIds : [];
       const normalized = ids.map((id) => String(id).trim()).filter(Boolean);
-      const validUsers = await User.find({ _id: { $in: normalized } }).select(
-        "_id",
-      );
-      return validUsers.map((userDoc) => String(userDoc._id));
+      const missingIds = normalized.filter((id) => !teacherLookupCache.has(id));
+
+      if (missingIds.length > 0) {
+        const validUsers = await User.find({
+          _id: { $in: missingIds },
+          role: { $in: ["teacher", "admin"] },
+          $or: [
+            { departmentId: departmentDoc._id },
+            { department: departmentDoc.name },
+          ],
+        }).select("_id");
+        const foundIds = new Set(validUsers.map((userDoc) => String(userDoc._id)));
+        missingIds.forEach((id) => {
+          teacherLookupCache.set(id, foundIds.has(id) ? id : null);
+        });
+      }
+
+      return normalized.filter((id) => teacherLookupCache.get(id));
+    };
+
+    const teacherCache = new Map<string, string>();
+    const buildTeacherCacheKey = (lecturerName: string) => {
+      const normalizedName = normalizeLecturerName(lecturerName);
+      const normalizedDepartment = String(departmentDoc?.name ?? "")
+        .trim()
+        .toLowerCase();
+      return `${normalizedDepartment}::${normalizedName}`;
     };
 
     const resolveSubjectLecturers = async (row: any) => {
@@ -668,20 +873,87 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
           return null;
         }
 
+        const cacheKey = buildTeacherCacheKey(lecturerName);
+        if (teacherCache.has(cacheKey)) {
+          return [teacherCache.get(cacheKey)!];
+        }
+
+        const normalizedName = normalizeLecturerName(lecturerName);
+        const existingTeacherId = existingDepartmentTeacherNameLookup.get(normalizedName);
+        if (existingTeacherId) {
+          teacherCache.set(cacheKey, existingTeacherId);
+          return [existingTeacherId];
+        }
+
         const createdTeacherId = await findOrCreateTeacherAccount(
           lecturerName,
           departmentDoc,
           topLevelCourse._id,
         );
+        if (createdTeacherId) {
+          teacherCache.set(cacheKey, createdTeacherId);
+        }
         return createdTeacherId ? [createdTeacherId] : [];
       }
 
       return [];
     };
 
+    const normalizeSubjectName = (value: unknown) => normalizeSubjectNameValue(value);
+    const normalizeSubjectCode = (value: unknown) => normalizeSubjectCodeValue(value);
+
+    const existingSubjects = Array.isArray(topLevelCourse.subjects)
+      ? topLevelCourse.subjects
+      : [];
+    const existingNameSet = new Set<string>();
+    const existingCodeSet = new Set<string>();
+
+    for (const subject of existingSubjects) {
+      const normalizedName = normalizeSubjectName(subject.name);
+      const normalizedCode = normalizeSubjectCode(subject.code ?? null);
+      if (normalizedName) existingNameSet.add(normalizedName);
+      if (normalizedCode) existingCodeSet.add(normalizedCode);
+    }
+
+    const pendingSubjects: Array<{
+      row: any;
+      rowNumber: number;
+      keep: boolean;
+      normalizedName: string;
+      normalizedCode: string;
+      subjectLecturerIds: string[];
+      subjectDate: string | null;
+      subjectTimeWindow: { startTime: string | null; endTime: string | null };
+    }> = [];
+    const uploadNameMap = new Map<string, number>();
+    const uploadCodeMap = new Map<string, number>();
+
+    const getExistingSubjectCodeSuffixes = () => {
+      const courseCodeText = String(topLevelCourse.code ?? "").trim().replace(/\s+/g, " ");
+      const match = courseCodeText.match(/^(.*?)(\d+)$/);
+      if (!match) {
+        return 0;
+      }
+      const baseNumber = Number(match[2]);
+      const suffixes = existingSubjects
+        .map((subject: any) => String(subject.code ?? "").trim())
+        .map((subjectCode) => {
+          const codeMatch = subjectCode.match(/^(.*?)(\d+)$/);
+          if (!codeMatch) return null;
+          const prefix = codeMatch[1].trim();
+          const number = Number(codeMatch[2]);
+          return prefix === match[1].trim() ? number - baseNumber : null;
+        })
+        .filter((suffix): suffix is number => typeof suffix === "number" && suffix >= 1);
+      return suffixes.length === 0 ? 0 : Math.max(...suffixes);
+    };
+
+    let nextGeneratedSubjectIndex = getExistingSubjectCodeSuffixes();
+
     const results = {
       created: 0,
       skipped: 0,
+      replaced: 0,
       errors: [] as Array<{ row: number; message: string }>,
     };
 
@@ -698,15 +970,14 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
         continue;
       }
 
-      const name = String(row.name ?? "").trim();
-      const code = row.code ? String(row.code).trim() : null;
-      const subjectID = String(
-        row.subjectID ?? departmentDoc.departmentID ?? "",
-      ).trim();
-      const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
-      const isActive = row.isActive === false ? false : true;
+      const rawName = String(row.name ?? "");
+      const normalizedName = normalizeSubjectName(rawName);
+      const codeValue = row.code ? String(row.code) : null;
+      const normalizedCode = normalizeSubjectCode(codeValue);
+      const subjectID = String(row.subjectID ?? departmentDoc.departmentID ?? "");
+      const trimmedID = subjectID.trim();
 
-      if (!name || !subjectID) {
+      if (!rawName.trim() || !trimmedID) {
         results.errors.push({
           row: rowNumber,
           message: "Missing required subject name or subject ID.",
@@ -715,9 +986,7 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
         continue;
       }
 
-      if (
-        String(subjectID).trim() !== String(departmentDoc.departmentID).trim()
-      ) {
+      if (trimmedID !== String(departmentDoc.departmentID).trim()) {
         results.errors.push({
           row: rowNumber,
           message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).`,
@@ -726,6 +995,11 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
         continue;
       }
 
+      const subjectDate = normalizeSubjectDateValue(row.date);
+      const subjectTimeWindow = normalizeSubjectTimeWindow(
+        row.startTime,
+        row.endTime,
+      );
       const subjectLecturerIds = await resolveSubjectLecturers(row);
       if (subjectLecturerIds === null) {
         results.errors.push({
@@ -746,38 +1020,89 @@ export const bulkUploadCourseSubjects = async (req: Request, res: Response) => {
         continue;
       }
 
-      const subjectUID = generateSubjectUID({ subjectID, name, code });
-      const existingSubject = (topLevelCourse.subjects ?? []).some(
-        (s: any) =>
-          String(s.subjectUID) === String(subjectUID) ||
-          (String(s.name).trim().toLowerCase() ===
-            String(name).trim().toLowerCase() &&
-            String(s.code ?? "")
-              .trim()
-              .toLowerCase() ===
-              String(code ?? "")
-                .trim()
-                .toLowerCase()),
-      );
-
-      if (existingSubject) {
-        results.skipped += 1;
-        continue;
+      if (normalizedName && uploadNameMap.has(normalizedName)) {
+        const previousIndex = uploadNameMap.get(normalizedName)!;
+        pendingSubjects[previousIndex].keep = false;
+        results.replaced += 1;
+      }
+      if (normalizedCode && uploadCodeMap.has(normalizedCode)) {
+        const previousIndex = uploadCodeMap.get(normalizedCode)!;
+        if (pendingSubjects[previousIndex]?.keep) {
+          pendingSubjects[previousIndex].keep = false;
+          results.replaced += 1;
+        }
       }
 
-      topLevelCourse.subjects.push({
-        subjectUID,
-        name,
-        code: code || null,
-        subjectID,
-        unit: row.unit ?? null,
-        lecturer: subjectLecturerIds,
-        isActive,
-        semester: row.semester ?? null,
-        students: Array.isArray(row.students) ? row.students : [],
-      } as any);
-      results.created += 1;
+      pendingSubjects.push({
+        row,
+        rowNumber,
+        keep: true,
+        normalizedName,
+        normalizedCode,
+        subjectLecturerIds,
+        subjectDate,
+        subjectTimeWindow,
+      });
+      if (normalizedName) uploadNameMap.set(normalizedName, pendingSubjects.length - 1);
+      if (normalizedCode) uploadCodeMap.set(normalizedCode, pendingSubjects.length - 1);
     }
+
+    const newSubjects = pendingSubjects
+      .filter((entry) => entry.keep)
+      .map((entry) => {
+        const row = entry.row;
+        const name = normalizeSubjectText(String(row.name ?? ""));
+        const rawCode = row.code ? String(row.code) : null;
+        let code = rawCode ? normalizeSubjectText(rawCode) : null;
+        const subjectID = normalizeSubjectText(String(row.subjectID ?? departmentDoc.departmentID ?? "")).trim();
+        const isActive = row.isActive === false ? false : true;
+
+        if (!code && topLevelCourse.code) {
+          code = generateSubjectCodeFromCourse(topLevelCourse.code, nextGeneratedSubjectIndex);
+          nextGeneratedSubjectIndex += 1;
+        }
+
+        const subjectUID = generateSubjectUID({ subjectID, name, code });
+
+        return {
+          subjectUID,
+          name,
+          code: code || null,
+          subjectID,
+          unit: row.unit ?? null,
+          lecturer: Array.isArray(entry.subjectLecturerIds) ? entry.subjectLecturerIds : [],
+          isActive,
+          semester: row.semester ?? null,
+          date: entry.subjectDate,
+          startTime: entry.subjectTimeWindow.startTime,
+          endTime: entry.subjectTimeWindow.endTime,
+          students: Array.isArray(row.students) ? row.students : [],
+        };
+      });
+
+    const combinedSubjects = [...existingSubjects, ...newSubjects];
+    const keptByName = new Set<string>();
+    const keptByCode = new Set<string>();
+    const dedupedSubjects: any[] = [];
+
+    for (let index = combinedSubjects.length - 1; index >= 0; index -= 1) {
+      const subject = combinedSubjects[index];
+      const normalizedName = normalizeSubjectName(subject.name);
+      const normalizedCode = normalizeSubjectCode(subject.code ?? null);
+      const duplicateByName = normalizedName && keptByName.has(normalizedName);
+      const duplicateByCode = normalizedCode && keptByCode.has(normalizedCode);
+      if (duplicateByName || duplicateByCode) {
+        if (subject._id) {
+          results.replaced += 1;
+        }
+        continue;
+      }
+      if (normalizedName) keptByName.add(normalizedName);
+      if (normalizedCode) keptByCode.add(normalizedCode);
+      dedupedSubjects.push(subject);
+    }
+
+    topLevelCourse.subjects = dedupedSubjects.reverse();
 
     await topLevelCourse.save();
 
@@ -846,11 +1171,15 @@ export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
       subjectID: subdoc.subjectID ?? null,
     };
 
-    // Remove the subdocument
-    topLevelCourse.subjects = (topLevelCourse.subjects ?? []).filter(
-      (s: any) => String(s._id) !== String(removed._id),
+    const updatedCourse = await Course.findOneAndUpdate(
+      { _id: topLevelCourse._id, "subjects._id": removed._id },
+      { $pull: { subjects: { _id: removed._id } } },
+      { new: true }
     );
-    await topLevelCourse.save();
+
+    if (!updatedCourse) {
+      return res.status(404).json({ message: `Subject ${subjectId} not found in course ${courseId}` });
+    }
 
     // Cascade clean-up: remove matching top-level Subjects documents
     try {
@@ -874,6 +1203,67 @@ export const deleteEmbeddedSubject = async (req: Request, res: Response) => {
       message: "Subject removed",
       subject: removed,
       course: topLevelCourse,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// -----------------------------
+// Bulk delete embedded subjects from a course
+// -----------------------------
+export const bulkDeleteCourseSubjects = async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.params as { courseId: string };
+    const { subjectIds } = req.body as { subjectIds?: string[] };
+
+    if (!Array.isArray(subjectIds) || subjectIds.length === 0) {
+      return res.status(400).json({ message: "subjectIds array is required." });
+    }
+
+    const validIds = subjectIds.map((id) => String(id).trim()).filter(Boolean);
+    if (validIds.length === 0) {
+      return res.status(400).json({ message: "subjectIds cannot be empty." });
+    }
+
+    const course = await Course.findById(courseId).select("courseID name");
+    if (!course) {
+      return res.status(404).json({ message: `Course ${courseId} not found` });
+    }
+
+    const oldCourse = await Course.findById(courseId).select("subjects").lean();
+    const removedSubjects = Array.isArray(oldCourse?.subjects)
+      ? (oldCourse.subjects as any[]).filter((subject) => validIds.includes(String(subject._id)))
+      : [];
+
+    await Course.updateOne(
+      { _id: courseId },
+      { $pull: { subjects: { _id: { $in: validIds } } } }
+    );
+
+    if (removedSubjects.length > 0) {
+      const deleteConditions = removedSubjects.map((removed) => ({
+        courseID: course.courseID,
+        $or: [{ name: removed.name }, { code: removed.code ?? "" }],
+      }));
+      await Subjects.deleteMany({ $or: deleteConditions });
+    }
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Bulk deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"} from course ${course.name} (${course.courseID}).`,
+      });
+    }
+
+    return res.json({
+      courseId,
+      courseName: course.name,
+      courseCode: course.courseID,
+      message: `Deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"}.`,
+      deleted: removedSubjects.length,
     });
   } catch (error) {
     console.error(error);
@@ -1359,6 +1749,7 @@ export const updateCourseSubjects = async (req: Request, res: Response) => {
           students: Array.isArray(subject.students) ? subject.students : [],
           isActive: Boolean(subject.isActive ?? true),
           semester: subject.semester ?? null,
+          date: normalizeSubjectDateValue(subject.date),
         }),
       );
     }

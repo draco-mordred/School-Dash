@@ -2,6 +2,7 @@ import express from "express";
 import { authorize, protect } from "../middleware/auth";
 import {
   addCourseSubject,
+  bulkDeleteCourseSubjects,
   deleteEmbeddedSubject,
   createCourse,
   createCourseSubject,
@@ -47,7 +48,9 @@ courseRouter
 courseRouter
   .route("/departments")
   .get(getAvailableDepartments)
-  .post(protect, authorize(["admin"]), createDepartment);
+  .post(protect, authorize(["admin"]), 
+  createDepartment
+);
 
 courseRouter
   .route("/department-constants")
@@ -67,6 +70,14 @@ courseRouter
     protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     bulkUploadCourseSubjects
+  );
+
+courseRouter
+  .route("/:courseId/subjects/bulk-delete")
+  .delete(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+    bulkDeleteCourseSubjects
   );
 
 // Delete a single embedded subject by its subdocument _id or subjectID
@@ -126,12 +137,13 @@ courseRouter
 
 courseRouter
   .route("/delete/:id")
-  .delete(protect, authorize(["admin"]), deleteCourseSubjects);
+  .delete(protect, authorize(["admin"]), 
+  deleteCourseSubjects
+);
 
 courseRouter
   .route("/update/:id")
-  .patch(
-    protect,
+  .patch(protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
     updateCourseSubjects
   );

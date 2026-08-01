@@ -37,6 +37,8 @@ interface ParsedSubjectRow {
   code: string;
   lecturer: string;
   date: string;
+  startTime: string;
+  endTime: string;
   semester: string;
   subjectID: string;
   valid: boolean;
@@ -88,18 +90,113 @@ const LECTURER_KEYS = [
 
 const DATE_KEYS = ["Date", "date", "Session Date", "session date", "Schedule Date", "schedule date"];
 
+const TIME_RANGE_KEYS = [
+  "Time Range",
+  "time range",
+  "Time",
+  "time",
+  "Session Time",
+  "session time",
+  "Class Time",
+  "class time",
+  "Period",
+  "period",
+  "Time Slot",
+  "time slot",
+];
+
+const START_TIME_KEYS = [
+  "Start Time",
+  "start time",
+  "Session Start",
+  "session start",
+  "Time Start",
+  "time start",
+  "Start",
+  "start",
+];
+
+const END_TIME_KEYS = [
+  "End Time",
+  "end time",
+  "Session End",
+  "session end",
+  "Time End",
+  "time end",
+  "End",
+  "end",
+];
+
 const SEMESTER_KEYS = ["Semester", "semester", "Sem", "sem"];
 
 const SUBJECT_ID_KEYS = ["Subject ID", "subject id", "subjectID", "subjectID"];
 
-const parseValue = (row: Record<string, unknown>, keys: string[]) => {
+const parseValue = (row: Record<string, unknown>, keys: string[], preserveWhitespace = false) => {
   for (const key of keys) {
     const value = row[key] ?? row[key.toLowerCase()] ?? row[key.toUpperCase()];
     if (value === undefined || value === null) continue;
-    const text = String(value).trim();
-    if (text) return text;
+    const text = String(value);
+    if (preserveWhitespace) {
+      if (text !== "") return text;
+    } else {
+      const trimmed = text.trim();
+      if (trimmed) return trimmed;
+    }
   }
   return "";
+};
+
+const normalizeTimeString = (value: string): string | null => {
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+
+  const normalized = raw
+    .replace(/\s+/g, " ")
+    .replace(/\u2013|\u2014/g, "-")
+    .replace(/\s+to\s+/g, "-")
+    .replace(/\s+through\s+/g, "-");
+
+  const simpleMatch = normalized.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+  if (simpleMatch) {
+    let hour = Number(simpleMatch[1]);
+    const minutes = Number(simpleMatch[2] ?? "0");
+    const modifier = simpleMatch[3]?.toLowerCase();
+    if (modifier === "pm" && hour < 12) hour += 12;
+    if (modifier === "am" && hour === 12) hour = 0;
+    const safeHour = String(hour).padStart(2, "0");
+    const safeMinutes = String(minutes).padStart(2, "0");
+    return `${safeHour}:${safeMinutes}`;
+  }
+
+  const rangeMatch = normalized.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–]\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (rangeMatch) {
+    const start = normalizeTimeString(`${rangeMatch[1]}:${rangeMatch[2] ?? "00"} ${rangeMatch[3] ?? ""}`);
+    const end = normalizeTimeString(`${rangeMatch[4]}:${rangeMatch[5] ?? "00"} ${rangeMatch[6] ?? ""}`);
+    return start && end ? `${start}|${end}` : null;
+  }
+
+  if (/^\d{1,2}:\d{2}$/.test(normalized)) {
+    const [hours, minutes] = normalized.split(":");
+    return `${String(Number(hours)).padStart(2, "0")}:${String(Number(minutes)).padStart(2, "0")}`;
+  }
+
+  return null;
+};
+
+const parseTimeRange = (value: unknown): { startTime: string; endTime: string } => {
+  if (value === undefined || value === null) return { startTime: "", endTime: "" };
+  const raw = String(value).trim();
+  if (!raw) return { startTime: "", endTime: "" };
+
+  const range = normalizeTimeString(raw);
+  if (!range) return { startTime: "", endTime: "" };
+
+  if (range.includes("|")) {
+    const [startTime, endTime] = range.split("|");
+    return { startTime, endTime };
+  }
+
+  return { startTime: range, endTime: "" };
 };
 
 const parsePotentialDate = (value: unknown): Date | null => {
@@ -110,8 +207,13 @@ const parsePotentialDate = (value: unknown): Date | null => {
     return null;
   }
 
-  const raw = String(value).trim();
+  let raw = String(value).trim();
   if (!raw) return null;
+
+  const weekdayPrefix = raw.match(/^([A-Za-z]{3,9})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})$/);
+  if (weekdayPrefix) {
+    raw = weekdayPrefix[2];
+  }
 
   const slashMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (slashMatch) {
@@ -161,6 +263,9 @@ const mapPdfColumnKey = (label: string) => {
   if (SUBJECT_CODE_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "code";
   if (LECTURER_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "lecturer";
   if (DATE_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "date";
+  if (TIME_RANGE_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "timeRange";
+  if (START_TIME_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "startTime";
+  if (END_TIME_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "endTime";
   if (SEMESTER_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "semester";
   if (SUBJECT_ID_KEYS.some((key) => normalized.includes(key.toLowerCase()))) return "subjectID";
   return "";
@@ -205,6 +310,8 @@ const parsePdfText = (rawText: string): ParsedSubjectRow[] => {
       code: "",
       lecturer: "",
       date: "",
+      startTime: "",
+      endTime: "",
       semester: "",
       subjectID: "",
       valid: false,
@@ -214,19 +321,30 @@ const parsePdfText = (rawText: string): ParsedSubjectRow[] => {
     };
 
     cells.forEach((cell, index) => {
+      const content = normalizeSubjectText(cell);
       const key = columnKeys[index] || "";
-      if (key === "name") row.name = cell;
-      else if (key === "code") row.code = cell;
-      else if (key === "lecturer") row.lecturer = cell;
-      else if (key === "date") row.date = formatDateForDisplay(cell);
-      else if (key === "semester") row.semester = cell;
-      else if (key === "subjectID") row.subjectID = cell;
-      else if (!row.name) row.name = cell;
-      else if (!row.code) row.code = cell;
-      else if (!row.lecturer) row.lecturer = cell;
-      else if (!row.date) row.date = formatDateForDisplay(cell);
-      else if (!row.semester) row.semester = cell;
-      else if (!row.subjectID) row.subjectID = cell;
+      const timeRange = parseTimeRange(key === "timeRange" ? content : "");
+      if (key === "name") row.name = content;
+      else if (key === "code") row.code = content;
+      else if (key === "lecturer") row.lecturer = content;
+      else if (key === "date") row.date = formatDateForDisplay(content);
+      else if (key === "timeRange") {
+        row.startTime = timeRange.startTime;
+        row.endTime = timeRange.endTime;
+      } else if (key === "startTime") row.startTime = normalizeTimeString(content) ?? "";
+      else if (key === "endTime") row.endTime = normalizeTimeString(content) ?? "";
+      else if (key === "semester") row.semester = content;
+      else if (key === "subjectID") row.subjectID = content;
+      else if (!row.name) row.name = content;
+      else if (!row.code) row.code = content;
+      else if (!row.lecturer) row.lecturer = content;
+      else if (!row.date) row.date = formatDateForDisplay(content);
+      else if (!row.startTime && !row.endTime) {
+        const parsedTimeRange = parseTimeRange(content);
+        row.startTime = parsedTimeRange.startTime;
+        row.endTime = parsedTimeRange.endTime;
+      } else if (!row.semester) row.semester = content;
+      else if (!row.subjectID) row.subjectID = content;
     });
 
     parsed.push(row);
@@ -286,22 +404,30 @@ const normalizeLecturerString = (value: string) =>
     .replace(/[\s\u00A0]+/g, " ")
     .replace(/[,;]+/g, ",");
 
-const generateSubjectCode = (name: string, index: number, courseCode?: string, semester?: string) => {
-  const courseCodeText = String(courseCode ?? "").trim().toUpperCase();
-  const semesterKey = String(semester ?? "").trim().toLowerCase();
-  const semDigit = semesterKey.startsWith("first") ? "1" : semesterKey.startsWith("second") ? "2" : "0";
+const normalizeSubjectText = (value: string) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
 
-  const courseMatch = courseCodeText.match(/^([A-Z]{2,})\s*(\d+)$/i);
-  if (courseMatch && semDigit !== "0") {
-    const [, prefix, digits] = courseMatch;
-    const baselineDigits = digits.split("");
-    if (baselineDigits.length >= 2) {
-      const resultDigits = [...baselineDigits];
-      resultDigits[1] = semDigit;
-      const suffix = String(index + 1).padStart(resultDigits.length - 1, "0");
-      resultDigits.splice(2, resultDigits.length - 2, ...suffix.split(""));
-      return `${prefix.toUpperCase()} ${resultDigits.join("")}`;
+  return raw
+    .normalize("NFC")
+    .replace(/\u00A0/g, " ")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|–|—/g, "-")
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|“|”/g, '"')
+    .replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|‘|’/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+const generateSubjectCode = (name: string, index: number, courseCode?: string) => {
+  const courseCodeText = String(courseCode ?? "").trim().replace(/\s+/g, " ");
+  if (courseCodeText) {
+    const match = courseCodeText.match(/^(.*?)(\d+)$/);
+    if (match) {
+      const prefix = match[1].trim();
+      const baseNumber = Number(match[2]);
+      return `${prefix} ${String(baseNumber + index + 1).padStart(3, "0")}`.trim();
     }
+    return `${courseCodeText} ${String(index + 1).padStart(3, "0")}`;
   }
 
   const words = name
@@ -392,12 +518,15 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
       if (!sheet) return;
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
       rows.forEach((row, rowIndex) => {
-        const name = parseValue(row, SUBJECT_NAME_KEYS);
-        const code = parseValue(row, SUBJECT_CODE_KEYS);
-        const lecturer = parseValue(row, LECTURER_KEYS);
+        const name = normalizeSubjectText(parseValue(row, SUBJECT_NAME_KEYS, true));
+        const code = normalizeSubjectText(parseValue(row, SUBJECT_CODE_KEYS));
+        const lecturer = normalizeSubjectText(parseValue(row, LECTURER_KEYS));
         const date = formatDateForDisplay(parseValue(row, DATE_KEYS));
+        const timeRange = parseTimeRange(parseValue(row, TIME_RANGE_KEYS));
+        const startTime = parseValue(row, START_TIME_KEYS) || timeRange.startTime;
+        const endTime = parseValue(row, END_TIME_KEYS) || timeRange.endTime;
         const semester = parseValue(row, SEMESTER_KEYS);
-        const subjectID = parseValue(row, SUBJECT_ID_KEYS);
+        const subjectID = normalizeSubjectText(parseValue(row, SUBJECT_ID_KEYS));
         parsed.push({
           id: `row-${sheetName}-${rowIndex}`,
           rowIndex: rowIndex + 1,
@@ -405,6 +534,8 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
           code,
           lecturer,
           date,
+          startTime,
+          endTime,
           semester,
           subjectID,
           valid: false,
@@ -417,7 +548,17 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
     return parsed;
   };
 
-  const buildReviewRows = (rows: ParsedSubjectRow[]) => {
+  const isValidTimeString = (value: string) => Boolean(normalizeTimeString(value));
+const toMinutes = (value: string) => {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+};
+
+const buildReviewRows = (rows: ParsedSubjectRow[]) => {
     const teacherMap = buildTeacherLookup(teachers);
     return rows.slice(0, MAX_ROWS).map((row, index) => {
       const issues: string[] = [];
@@ -428,6 +569,19 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
       const lecturerMatched = hasLecturer && normalizeLecturerString(row.lecturer).split(",").some((value) => teacherMap.has(value));
       if (hasLecturer && !lecturerMatched && !row.createTeacher) {
         issues.push("Lecturer name not matched to a teacher account");
+      }
+
+      if (row.startTime && !isValidTimeString(row.startTime)) {
+        issues.push("Invalid start time format");
+      }
+      if (row.endTime && !isValidTimeString(row.endTime)) {
+        issues.push("Invalid end time format");
+      }
+
+      const startMinutes = row.startTime ? toMinutes(row.startTime) : null;
+      const endMinutes = row.endTime ? toMinutes(row.endTime) : null;
+      if (startMinutes !== null && endMinutes !== null && startMinutes >= endMinutes) {
+        issues.push("Start time must be before end time");
       }
 
       const lecturerIds = row.lecturer
@@ -442,7 +596,7 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
         ...row,
         code:
           row.code ||
-          (autoGenerateCodes && row.name ? generateSubjectCode(row.name, index, selectedCourse?.code, row.semester) : ""),
+          (autoGenerateCodes && row.name ? generateSubjectCode(row.name, index, selectedCourse?.code) : ""),
         semester: row.semester || selectedCourse?.semester || "",
         valid: issues.length === 0,
         issues,
@@ -463,7 +617,8 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
       const parsed = /\.pdf$/i.test(file.name) || file.type === "application/pdf"
         ? await parsePdfFile(buffer)
         : parseSpreadsheetFile(buffer);
-      setReviewRows(buildReviewRows(parsed));
+      const orderedRows = [...parsed].sort((a, b) => a.rowIndex - b.rowIndex);
+      setReviewRows(buildReviewRows(orderedRows));
       setStep("review");
     } catch (error: unknown) {
       console.error(error);
@@ -508,6 +663,18 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
           issues.push("Lecturer name not matched to a teacher account");
         }
 
+        if (updated.startTime && !isValidTimeString(updated.startTime)) {
+          issues.push("Invalid start time format");
+        }
+        if (updated.endTime && !isValidTimeString(updated.endTime)) {
+          issues.push("Invalid end time format");
+        }
+        const startMinutes = updated.startTime ? toMinutes(updated.startTime) : null;
+        const endMinutes = updated.endTime ? toMinutes(updated.endTime) : null;
+        if (startMinutes !== null && endMinutes !== null && startMinutes >= endMinutes) {
+          issues.push("Start time must be before end time");
+        }
+
         updated.lecturerIds = updated.lecturer
           ? normalizeLecturerString(updated.lecturer)
               .split(",")
@@ -543,22 +710,41 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
 
     setIsSubmitting(true);
     try {
+      let generatedCodeCount = 0;
       const payload = {
-        subjects: validRows.map((row, index) => ({
-          name: row.name,
-          code: row.code || (autoGenerateCodes ? generateSubjectCode(row.name, index, selectedCourse?.code, row.semester) : null),
-          subjectID: row.subjectID || departmentIdentifier,
-          lecturer: row.lecturerIds,
-          semester: row.semester || null,
-          createTeacher: row.createTeacher,
-          lecturerName: row.lecturer,
-          isActive: true,
-        })),
+        subjects: validRows.map((row) => {
+          const code = row.code || (autoGenerateCodes && selectedCourse?.code
+            ? (() => {
+                const generatedIndex = generatedCodeCount;
+                generatedCodeCount += 1;
+                return generateSubjectCode(row.name, generatedIndex, selectedCourse.code);
+              })()
+            : null);
+
+          return {
+            name: normalizeSubjectText(row.name),
+            code,
+            subjectID: row.subjectID || departmentIdentifier,
+            lecturer: row.lecturerIds,
+            semester: row.semester || null,
+            date: row.date || null,
+            startTime: row.startTime || null,
+            endTime: row.endTime || null,
+            createTeacher: row.createTeacher,
+            lecturerName: row.lecturer,
+            isActive: true,
+          };
+        }),
       };
-      const { data } = await api.post(`/courses/${selectedCourseId}/subjects/bulk-upload`, payload);
+      const { data } = await api.post(
+        `/courses/${selectedCourseId}/subjects/bulk-upload`,
+        payload,
+        { timeout: 120000 },
+      );
       const results = data?.results;
+      const replaced = results?.replaced ?? 0;
       toast.success(
-        `Imported ${results?.created ?? 0} subject(s). Skipped ${results?.skipped ?? 0} duplicate or invalid row(s).`
+        `Imported ${results?.created ?? 0} subject(s). Replaced ${replaced} duplicate subject(s). Skipped ${results?.skipped ?? 0} invalid row(s).`
       );
       setOpen(false);
       onSuccess?.();
@@ -690,97 +876,104 @@ export default function SubjectBulkUploadDialog({ open, setOpen, onSuccess }: Su
               </div>
             </div>
 
-            <div className="space-y-2 overflow-x-auto rounded-xl border bg-card p-2 shadow-sm">
-              <div className="grid grid-cols-[48px_minmax(180px,1fr)_140px_180px_120px_120px_120px] gap-3 border-b px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground">
-                <span>#</span>
-                <span>Topic</span>
-                <span>Code</span>
-                <span>Lecturer</span>
-                <span>Semester</span>
-                <span>Date</span>
-                <span>Status</span>
-              </div>
-              {reviewRows.map((row) => (
-                <div key={row.id} className="grid grid-cols-[48px_minmax(180px,1fr)_140px_180px_120px_120px_120px] gap-3 items-start border-b border-border px-3 py-3 last:border-b-0 bg-background/80 hover:bg-background">
-                  <div className="text-sm text-muted-foreground">{row.rowIndex}</div>
-                  <Input
-                    value={row.name}
-                    onChange={(event) => updateRow(row.id, "name", event.target.value)}
-                    placeholder="Topic or subject name"
-                    className="w-full"
-                  />
-                  <Input
-                    value={row.code}
-                    onChange={(event) => updateRow(row.id, "code", event.target.value)}
-                    placeholder="Optional code"
-                    className="w-full"
-                  />
-                  <div className="space-y-2">
+            <div className="overflow-x-auto rounded-xl border bg-card p-2 shadow-sm max-h-[520px]">
+              <div className="max-h-[480px] overflow-y-auto">
+                <div className="grid grid-cols-[48px_minmax(180px,1fr)_140px_180px_120px_120px_120px_120px] gap-3 border-b px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground">
+                  <span>#</span>
+                  <span>Topic</span>
+                  <span>Code</span>
+                  <span>Lecturer</span>
+                  <span>Start</span>
+                  <span>End</span>
+                  <span>Date</span>
+                  <span>Status</span>
+                </div>
+                {reviewRows.map((row) => (
+                  <div key={row.id} className="grid grid-cols-[48px_minmax(180px,1fr)_140px_180px_120px_120px_120px_120px] gap-3 items-start border-b border-border px-3 py-3 last:border-b-0 bg-background/80 hover:bg-background">
+                    <div className="text-sm text-muted-foreground">{row.rowIndex}</div>
                     <Input
-                      value={row.lecturer}
-                      onChange={(event) => updateRow(row.id, "lecturer", event.target.value)}
-                      placeholder="Lecturer name"
+                      value={row.name}
+                      onChange={(event) => updateRow(row.id, "name", event.target.value)}
+                      placeholder="Topic or subject name"
                       className="w-full"
                     />
-                    {row.lecturer && row.lecturerIds.length === 0 ? (
-                      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted p-2 text-xs text-muted-foreground">
-                        <span>Unmatched lecturer</span>
-                        <label className="inline-flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={row.createTeacher}
-                            onChange={(event) => updateRow(row.id, "createTeacher", event.target.checked)}
-                            className="h-4 w-4 rounded border-border text-primary"
-                          />
-                          Create teacher
-                        </label>
-                      </div>
-                    ) : null}
+                    <Input
+                      value={row.code}
+                      onChange={(event) => updateRow(row.id, "code", event.target.value)}
+                      placeholder="Optional code"
+                      className="w-full"
+                    />
+                    <div className="space-y-2">
+                      <Input
+                        value={row.lecturer}
+                        onChange={(event) => updateRow(row.id, "lecturer", event.target.value)}
+                        placeholder="Lecturer name"
+                        className="w-full"
+                      />
+                      {row.lecturer && row.lecturerIds.length === 0 ? (
+                        <div className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted p-2 text-xs text-muted-foreground">
+                          <span>Unmatched lecturer</span>
+                          <label className="inline-flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={row.createTeacher}
+                              onChange={(event) => updateRow(row.id, "createTeacher", event.target.checked)}
+                              className="h-4 w-4 rounded border-border text-primary"
+                            />
+                            Create teacher
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                    <Input
+                      type="time"
+                      value={row.startTime}
+                      onChange={(event) => updateRow(row.id, "startTime", event.target.value)}
+                      placeholder="HH:MM"
+                      className="w-full"
+                    />
+                    <Input
+                      type="time"
+                      value={row.endTime}
+                      onChange={(event) => updateRow(row.id, "endTime", event.target.value)}
+                      placeholder="HH:MM"
+                      className="w-full"
+                    />
+                    <Input
+                      value={row.date}
+                      onChange={(event) => updateRow(row.id, "date", event.target.value)}
+                      placeholder="DD/MM/YYYY"
+                      className="w-full"
+                    />
+                    <div>
+                      {row.valid ? (
+                        <span className="inline-flex rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
+                          Ready
+                        </span>
+                      ) : (
+                        <div className="space-y-1 text-xs text-rose-600">
+                          {row.issues.map((issue) => (
+                            <div key={issue}>{issue}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <Select value={row.semester || ""} onValueChange={(value) => updateRow(row.id, "semester", value)}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Semester" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="First">First</SelectItem>
-                      <SelectItem value="Second">Second</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={row.date}
-                    onChange={(event) => updateRow(row.id, "date", event.target.value)}
-                    placeholder="DD/MM/YYYY"
-                    className="w-full"
-                  />
-                  <div>
-                    {row.valid ? (
-                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
-                        Ready
-                      </span>
-                    ) : (
-                      <div className="space-y-1 text-xs text-rose-600">
-                        {row.issues.map((issue) => (
-                          <div key={issue}>{issue}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm text-muted-foreground">
-                If a row has a blank code, auto-generated values will be applied when importing.
+                ))}
               </div>
-              <div className="flex flex-wrap gap-2">
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="flex flex-wrap gap-2">
                 <Button variant="secondary" onClick={handleReset} disabled={isSubmitting}>
                   Upload a different file
                 </Button>
                 <Button onClick={handleSubmit} disabled={isSubmitting || validCount === 0}>
                   {isSubmitting ? "Importing…" : "Import Subjects"}
                 </Button>
-              </div>
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">
+                If a row has a blank code, auto-generated values will be applied when importing.
             </div>
           </div>
         )}

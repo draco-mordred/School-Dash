@@ -77,6 +77,21 @@ export interface courses {
   code: string; // "MATH101"
   lecturer?: { _id: string; name: string; email?: string }[]; // Teachers taking this course
   isActive: boolean; // Indicates if the subject is currently active
+  date?: string | null;
+  semester?: string | null;
+  subjectID?: string | null;
+  subjects?: Array<{
+    _id?: string;
+    name: string;
+    code?: string | null;
+    subjectID?: string | null;
+    date?: string | Date | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    lecturer?: Array<{ _id: string; name: string; email?: string }>;
+    isActive?: boolean;
+    semester?: string | null;
+  }>;
 }
 
 export interface department {
@@ -117,7 +132,20 @@ export interface Submission {
 
 export interface period {
   _id: string;
-  subject?: { _id: string; name: string; code: string } | null;
+  subject?: {
+    _id?: string;
+    name?: string | null;
+    code?: string | null;
+    subjects?: Array<{
+      _id?: string;
+      name?: string | null;
+      code?: string | null;
+      date?: string | Date | null;
+      startTime?: string | null;
+      endTime?: string | null;
+      lecturer?: Array<{ _id?: string; name?: string | null; email?: string } | null> | null;
+    }> | null;
+  } | null;
   lecturer?: { _id: string; name: string; email?: string } | null;
   startTime: string; // e.g., "08:00"
   endTime: string; // e.g., "08:45"

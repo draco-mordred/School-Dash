@@ -1,9 +1,9 @@
-import { useEffect, useState, lazy, Suspense, memo, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useState, Suspense, memo, useMemo, useRef, type ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { useSidebar } from "@/components/ui/sidebar-context";
-import { ChevronRight } from "lucide-react";
+import { ChevronRightIcon } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
 import {
   LineChart,
@@ -29,13 +29,13 @@ import { cn } from "@/lib/utils";
 import { useAdminDashboard } from "@/hooks/useAdminDashboard";
 import { AcademicSnapshot, ClinicalSnapshot } from "@/components/admin/dashboard/Snapshots";
 import { shouldShowAdminDashboardSkeleton } from "@/lib/dashboardState";
-const KPICards = lazy(() => import("@/components/admin/dashboard/KPICards").then(mod => ({ default: mod.KPICards })));
-const OperationalAlerts = lazy(() => import("@/components/admin/dashboard/OperationalAlerts").then(mod => ({ default: mod.OperationalAlerts })));
-const RecentActivityFeed = lazy(() => import("@/components/admin/dashboard/RecentActivityFeed").then(mod => ({ default: mod.RecentActivityFeed })));
-const QuickActions = lazy(() => import("@/components/admin/dashboard/QuickActions").then(mod => ({ default: mod.QuickActions })));
-const AnalyticsWidgets = lazy(() => import("@/components/admin/dashboard/AnalyticsWidgets").then(mod => ({ default: mod.AnalyticsWidgets })));
-const AIInsightWidget = lazy(() => import("@/components/dashboard/ai-insight-widget").then(mod => ({ default: mod.AIInsightWidget })));
-const ActivityDashboard = lazy(() => import("@/components/activities/ActivityDashboard").then((mod) => ({ default: mod.default })));
+import { KPICards } from "@/components/admin/dashboard/KPICards";
+import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlerts";
+import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
+import { QuickActions } from "@/components/admin/dashboard/QuickActions";
+import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
+import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
+import ActivityDashboard from "@/components/activities/ActivityDashboard";
 
 const DashboardChartShell = memo(function DashboardChartShell({ paused, children, className }: { paused: boolean; children: ReactNode; className?: string }) {
   if (paused) {
@@ -72,7 +72,7 @@ const NotificationsCard = memo(function NotificationsCard() {
         </div>
         <div className="flex items-center gap-2">
           {unreadCount > 0 && <Badge variant="destructive">{unreadCount}</Badge>}
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
       <div className="p-2">
@@ -404,7 +404,7 @@ const Dashboard = memo(function Dashboard() {
         </div>
         <div className="flex items-center gap-3">
           <Badge variant={roleBadgeVariant(roleKey)} className="capitalize">{total}</Badge>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
     );
@@ -723,7 +723,7 @@ const Dashboard = memo(function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-primary">Manage Users</span>
-                  <ChevronRight className="h-4 w-4 text-primary" />
+                  <ChevronRightIcon className="h-4 w-4 text-primary" />
                 </div>
               </div>
               <div className="p-4 max-h-[36rem] overflow-auto">

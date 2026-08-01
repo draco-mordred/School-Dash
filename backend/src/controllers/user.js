@@ -109,7 +109,7 @@ export const backfillMissingInns = async () => {
         for (const user of users) {
             const institutionName = await resolveInstitutionName();
             const inn = await ensureUniqueInn({ userId: String(user._id), role: user.role, idNumber: String(user.idNumber ?? ""), institutionName });
-            const updated = await User.findByIdAndUpdate(user._id, { $set: { inn } }, { new: true });
+            const updated = await User.findByIdAndUpdate(user._id, { $set: { inn } }, { returnDocument: "after" });
             if (updated) {
                 results.push(String(updated._id));
             }

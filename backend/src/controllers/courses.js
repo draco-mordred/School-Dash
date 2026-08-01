@@ -421,6 +421,53 @@ export const deleteEmbeddedSubject = async (req, res) => {
         return res.status(500).json({ message: "Server error", error });
     }
 };
+export const bulkDeleteCourseSubjects = async (req, res) => {
+    try {
+        const { courseId } = req.params;
+        const { subjectIds } = req.body;
+        if (!Array.isArray(subjectIds) || subjectIds.length === 0) {
+            return res.status(400).json({ message: "subjectIds array is required." });
+        }
+        const validIds = subjectIds.map((id) => String(id).trim()).filter(Boolean);
+        if (validIds.length === 0) {
+            return res.status(400).json({ message: "subjectIds cannot be empty." });
+        }
+        const course = await Course.findById(courseId).select("courseID name");
+        if (!course) {
+            return res.status(404).json({ message: `Course ${courseId} not found` });
+        }
+        const oldCourse = await Course.findById(courseId).select("subjects").lean();
+        const removedSubjects = Array.isArray(oldCourse?.subjects)
+            ? oldCourse.subjects.filter((subject) => validIds.includes(String(subject._id)))
+            : [];
+        await Course.updateOne({ _id: courseId }, { $pull: { subjects: { _id: { $in: validIds } } } });
+        if (removedSubjects.length > 0) {
+            const deleteConditions = removedSubjects.map((removed) => ({
+                courseID: course.courseID,
+                $or: [{ name: removed.name }, { code: removed.code ?? "" }],
+            }));
+            await Subjects.deleteMany({ $or: deleteConditions });
+        }
+        const userId = req.user?._id;
+        if (userId) {
+            await logActivity({
+                userId,
+                action: `Bulk deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"} from course ${course.name} (${course.courseID}).`,
+            });
+        }
+        return res.json({
+            courseId,
+            courseName: course.name,
+            courseCode: course.courseID,
+            message: `Deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"}.`,
+            deleted: removedSubjects.length,
+        });
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: "Server error", error });
+    }
+};
 // -----------------------------
 // Backward-compatible wrapper
 // -----------------------------

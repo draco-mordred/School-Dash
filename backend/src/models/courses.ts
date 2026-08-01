@@ -30,6 +30,9 @@ export interface ICourseSubject extends Document {
   name: string;
   code: string | null;
   subjectID: string;
+  date?: Date | string | null;
+  startTime?: string | null;
+  endTime?: string | null;
 
   unit?: mongoose.Types.ObjectId | null;
   lecturer: mongoose.Types.ObjectId[];
@@ -85,6 +88,9 @@ const CourseSubjectSchema = new Schema<ICourseSubject>(
 
     // Keep naming consistent with requested output
     subjectID: { type: String, required: true, trim: true },
+    date: { type: Date, default: null },
+    startTime: { type: String, trim: true, default: null },
+    endTime: { type: String, trim: true, default: null },
 
     unit: {
       type: Schema.Types.ObjectId,

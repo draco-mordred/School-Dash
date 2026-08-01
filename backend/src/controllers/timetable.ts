@@ -81,7 +81,14 @@ export const getTimetable = async (
 ) => {
   try {
     const timetable = await Timetable.findOne({ class: req.params.classId })
-    .populate("schedule.periods.subject", "name code courseID subjects.subjectID")
+    .populate({
+      path: "schedule.periods.subject",
+      select: "name code courseID subjects.name subjects.code subjects.subjectID subjects.date subjects.startTime subjects.endTime subjects.lecturer",
+      populate: {
+        path: "subjects.lecturer",
+        select: "name email",
+      },
+    })
     .populate("schedule.periods.lecturer", "name email");
 
     if (!timetable) {

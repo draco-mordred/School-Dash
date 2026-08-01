@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
+import { readAuthSnapshot, persistAuthSnapshot } from "@/lib/offlineMode";
 import { AuthContext } from "./auth-context";
 import type { academicYear, user } from "@/types";
 
@@ -11,28 +12,33 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const refreshAuth = useCallback(async () => {
     setLoading(true);
     const token = localStorage.getItem("token");
+    const cachedSnapshot = readAuthSnapshot();
+
     if (!token) {
-      setUser(null);
-      setYear(null);
+      const cachedUser = (cachedSnapshot?.user as user | null) ?? null;
+      const cachedYear = (cachedSnapshot?.year as academicYear | null) ?? null;
+
+      setUser(cachedUser);
+      setYear(cachedYear);
       setLoading(false);
       return;
     }
 
-    try {
-      const { data } = await api.get("/users/profile");
-      setUser(data.user);
-    } catch (error) {
-      setUser(null);
-    }
+    const [profileResult, yearResult] = await Promise.allSettled([
+      api.get("/users/profile"),
+      api.get("/academic-years/current"),
+    ]);
 
-    try {
-      const { data } = await api.get("/academic-years/current");
-      setYear(data.year || data || null);
-    } catch (error) {
-      setYear(null);
-    } finally {
-      setLoading(false);
-    }
+    const profileUser = profileResult.status === "fulfilled" ? (profileResult.value.data?.user as user | undefined) : null;
+    const profileYear = yearResult.status === "fulfilled" ? ((yearResult.value.data?.year || yearResult.value.data || null) as academicYear | null) : null;
+
+    const nextUser = profileUser ?? ((cachedSnapshot?.user as user | null) ?? null);
+    const nextYear = profileYear ?? ((cachedSnapshot?.year as academicYear | null) ?? null);
+
+    setUser(nextUser);
+    setYear(nextYear);
+    persistAuthSnapshot(nextUser, nextYear);
+    setLoading(false);
   }, []);
 
   useEffect(() => {

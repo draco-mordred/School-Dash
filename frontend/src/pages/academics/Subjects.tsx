@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BookOpen, GraduationCap, Plus, Sparkles, ArrowDownAZ, ArrowUpZA, Loader2, Filter } from "lucide-react";
+import { BookOpen, GraduationCap, Plus, Sparkles, ArrowDownAZ, ArrowUpZA, Loader2, Filter, Search } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
@@ -9,7 +9,8 @@ import SubjectBulkUploadDialog from "@/components/subjects/SubjectBulkUploadDial
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import Search from "@/components/global/Search";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import CustomAlert from "@/components/global/CustomAlert";
 import CustomPagination from "@/components/global/CustomPagination";
 import type { pagination, courses } from "@/types";
@@ -39,6 +40,8 @@ export const Subjects = () => {
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
   const [pageNum, setPageNum] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedClassId, setSelectedClassId] = useState<string>("all");
@@ -50,6 +53,8 @@ export const Subjects = () => {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
 
   const isStudent = user?.role === "student";
 
@@ -71,6 +76,21 @@ export const Subjects = () => {
     }, 500);
     return () => clearTimeout(handler);
   }, [search]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isSearchOpen &&
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(event.target as Node)
+      ) {
+        setIsSearchOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isSearchOpen]);
 
   const fetchClasses = useCallback(async () => {
     try {
@@ -182,22 +202,116 @@ export const Subjects = () => {
     }
   };
 
+  const isSubjectSelected = (id: string) => selectedSubjects.includes(id);
+
+  const toggleSelectSubject = (id: string, checked: boolean) => {
+    setSelectedSubjects((prev) => {
+      if (checked) {
+        return Array.from(new Set([...prev, id]));
+      }
+      return prev.filter((entry) => entry !== id);
+    });
+  };
+
+  const toggleSelectAllGroup = (items: SubjectItem[]) => {
+    const itemIds = items.map((item) => item._id);
+    const allSelected = itemIds.every((id) => selectedSubjects.includes(id));
+    if (allSelected) {
+      setSelectedSubjects((prev) => prev.filter((id) => !itemIds.includes(id)));
+      return;
+    }
+    setSelectedSubjects((prev) => Array.from(new Set([...prev, ...itemIds])));
+  };
+
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+
+  const confirmBulkDelete = async () => {
+    const subjectsToDelete = selectedSubjects
+      .map((subjectId) => subjects.find((item) => item._id === subjectId))
+      .filter(Boolean) as SubjectItem[];
+
+    if (subjectsToDelete.length === 0) {
+      setIsBulkDeleteOpen(false);
+      return;
+    }
+
+    const subjectsByCourse = subjectsToDelete.reduce((groups, subject) => {
+      const courseId = subject.course?._id ?? "";
+      if (!courseId) return groups;
+      if (!groups[courseId]) groups[courseId] = [];
+      groups[courseId].push(subject._id);
+      return groups;
+    }, {} as Record<string, string[]>);
+
+    try {
+      const results = await Promise.all(
+        Object.entries(subjectsByCourse).map(([courseId, subjectIds]) =>
+          api.delete(`/courses/${courseId}/subjects/bulk-delete`, {
+            data: { subjectIds },
+          }).then((response) => ({
+            courseId,
+            deleted: response.data?.deleted ?? 0,
+            courseName: response.data?.courseName ?? courseId,
+          })),
+        ),
+      );
+
+      const totalDeleted = results.reduce((sum, result) => sum + result.deleted, 0);
+      const courseCount = results.length;
+      const courseMessage = courseCount > 1 ? ` across ${courseCount} courses` : "";
+
+      toast.success(`Deleted ${totalDeleted} subject${totalDeleted === 1 ? "" : "s"}${courseMessage}`);
+      setSelectedSubjects([]);
+      await fetchSubjects();
+    } catch {
+      toast.error("Failed to delete selected subjects");
+    } finally {
+      setIsBulkDeleteOpen(false);
+    }
+  };
+
   return (
     <div id="page-subjects" className="p-6 space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Subjects</h1>
-          <p className="text-muted-foreground">Browse subjects by class, grouped under each course with rich details.</p>
+          <p className="text-muted-foreground">Browse subjects by class, grouped under each course.</p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <Search search={search} setSearch={setSearch} title="Subject" />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative" ref={searchContainerRef}>
+            <button
+              type="button"
+              aria-label="Open search"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition hover:border-slate-400 hover:text-foreground"
+              onClick={() => setIsSearchOpen((open) => !open)}
+              ref={searchButtonRef}
+            >
+              <Search className="h-4 w-4" />
+            </button>
+            {isSearchOpen ? (
+              <div className="absolute right-0 z-20 mt-2 w-[260px] rounded-2xl border border-border bg-background p-2 shadow-lg">
+                <Input
+                  autoFocus
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search subjects..."
+                  className="w-full"
+                />
+              </div>
+            ) : null}
+          </div>
+          {selectedSubjects.length > 0 ? (
+            <Button variant="destructive" onClick={() => setIsBulkDeleteOpen(true)}>
+              Delete {selectedSubjects.length} selected
+            </Button>
+          ) : null}
           {!isStudent && (
             <>
               <Button variant="secondary" onClick={() => setIsBulkOpen(true)}>
-                Import Subjects
+                Import Roster
               </Button>
               <Button onClick={handleCreate}>
-                <Plus className="mr-2 h-4 w-4" /> Create Subject
+                <Plus className="mr-2 h-4 w-4" /> New
               </Button>
             </>
           )}
@@ -267,12 +381,20 @@ export const Subjects = () => {
               {groupedSubjects.map((group) => (
                 <div key={`${group.courseName}-${group.courseCode}`} className="rounded-2xl border bg-background/70 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-                    <div>
+                    <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2">
-                        <GraduationCap className="h-4 w-4 text-primary" />
-                        <h3 className="font-semibold">{group.courseName}</h3>
+                        <Checkbox
+                          checked={group.items.every((item) => selectedSubjects.includes(item._id))}
+                          onCheckedChange={() => toggleSelectAllGroup(group.items)}
+                        />
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <GraduationCap className="h-4 w-4 text-primary" />
+                            <h3 className="font-semibold">{group.courseName}</h3>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">{group.courseCode || "No course code"} • {group.items.length} subject{group.items.length === 1 ? "" : "s"}</p>
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-muted-foreground">{group.courseCode || "No course code"} • {group.items.length} subject{group.items.length === 1 ? "" : "s"}</p>
                     </div>
                     <Badge variant="outline">{group.courseCode || "Course"}</Badge>
                   </div>
@@ -286,6 +408,12 @@ export const Subjects = () => {
                         className="relative overflow-hidden rounded-xl border bg-gradient-to-br from-background via-background to-primary/5 p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
                       >
                           <div className={"absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-sky-500 to-violet-500 opacity-80 transition duration-300 " + (hoveredSubjectId === item._id ? "animate-pulse" : "")} />
+                          <div className="absolute right-3 top-3 z-10">
+                            <Checkbox
+                              checked={isSubjectSelected(item._id)}
+                              onCheckedChange={(value) => toggleSelectSubject(item._id, Boolean(value))}
+                            />
+                          </div>
                         <div className="relative space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -357,6 +485,13 @@ export const Subjects = () => {
         setIsOpen={setIsDeleteOpen}
         title="Delete Subject"
         description="Are you sure you want to delete this subject? This action cannot be undone."
+      />
+      <CustomAlert
+        handleDelete={confirmBulkDelete}
+        isOpen={isBulkDeleteOpen}
+        setIsOpen={setIsBulkDeleteOpen}
+        title="Delete selected subjects"
+        description={`Are you sure you want to delete ${selectedSubjects.length} subject${selectedSubjects.length === 1 ? "" : "s"}? This action cannot be undone.`}
       />
     </div>
   );

@@ -141,7 +141,7 @@ export const useAdminDashboard = () => {
             api.get("/activities").catch(() => ({ data: [] })),
             api.get("/users").catch(() => ({ data: { data: [] } })),
             api.get("/classes").catch(() => ({ data: { data: [] } })),
-            api.get("/attendance").catch(() => ({ data: { records: [] } })),
+            api.get("/attendance/status").catch(() => ({ data: { classes: [] } })),
           ]);
 
           // Generate alerts as before
@@ -152,10 +152,10 @@ export const useAdminDashboard = () => {
             alerts.push({ id: "pending-approvals", type: "warning", title: `${unapprovedCount} Pending User Approvals`, description: "Users awaiting administrator approval", count: unapprovedCount });
           }
 
-          const attendanceData = attendanceRes.data?.records || [];
-          const lowAttendance = attendanceData.filter((r: any) => r.attendancePercentage < 75).length;
+          const attendanceData = attendanceRes.data?.classes || [];
+          const lowAttendance = attendanceData.filter((cls: any) => Number(cls.absent ?? 0) > 0).length;
           if (lowAttendance > 0) {
-            alerts.push({ id: "low-attendance", type: "error", title: `${lowAttendance} Low Attendance Records`, description: "Students below 75% attendance threshold", count: lowAttendance });
+            alerts.push({ id: "low-attendance", type: "error", title: `${lowAttendance} Classes With Attendance Gaps`, description: "Classes with missing or low attendance coverage", count: lowAttendance });
           }
 
           const classesData = classesRes.data?.data || [];

@@ -198,7 +198,7 @@ export const backfillMissingInns = async () => {
             const updated = await User.findByIdAndUpdate(
                 user._id,
                 { $set: { inn } },
-                { new: true }
+                { returnDocument: "after" }
             );
 
             if (updated) {

@@ -16,7 +16,7 @@ import LogsRouter from "./routes/activitieslog";
 import academicYearRouter from "./routes/academicYear";
 import academicClockRouter from "./routes/academicClock";
 import classRouter from "./routes/classes";
-import courseRouter from "./routes/courses";
+import courseRouter from "./routes/courses.ts";
 import "./models/postings"; // ensure postings models are registered
 import "./models/clinicalRotation"; // register ClinicalRotation mongoose model
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered

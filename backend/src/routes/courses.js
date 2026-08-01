@@ -21,6 +21,9 @@ courseRouter
 courseRouter
     .route("/:courseId/subjects")
     .post(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), addCourseSubject);
+courseRouter
+    .route("/:courseId/subjects/bulk-delete")
+    .delete(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), bulkDeleteCourseSubjects);
 // Delete a single embedded subject by its subdocument _id or subjectID
 courseRouter
     .route("/:courseId/subjects/:subjectId")
