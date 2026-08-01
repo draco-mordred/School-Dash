@@ -105,6 +105,8 @@ const Timetable = () => {
   );
   const [postingScheduleAvailable, setPostingScheduleAvailable] =
     useState<boolean>(false);
+  const [currentPostingDepartmentGroup, setCurrentPostingDepartmentGroup] =
+    useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [selectedClass, setSelectedClass] = useState("");
   const [clinicalEventsToday, setClinicalEventsToday] = useState<any[]>([]);
@@ -353,9 +355,38 @@ const Timetable = () => {
         setPostingScheduleAvailable(
           Array.isArray(rotations) && rotations.length > 0,
         );
+
+        if (isStudent && user?._id) {
+          try {
+            const studentId = String(user._id);
+            const { data: currentPostingData } = await api.get(
+              `/rotation-schedules/student/${studentId}/current`,
+            );
+            const currentItem = Array.isArray(currentPostingData?.current)
+              ? currentPostingData.current[0]
+              : null;
+            const windowData = currentItem?.window ?? null;
+            const postingUsesUnits = Boolean(windowData?.unitName || windowData?.unitId);
+            if (!postingUsesUnits && windowData) {
+              setCurrentPostingDepartmentGroup(
+                windowData?.departmentName ||
+                  `Department Group ${Number(
+                    windowData?.departmentGroupIndex ?? 0,
+                  ) + 1}`,
+              );
+            } else {
+              setCurrentPostingDepartmentGroup(null);
+            }
+          } catch {
+            setCurrentPostingDepartmentGroup(null);
+          }
+        } else {
+          setCurrentPostingDepartmentGroup(null);
+        }
       } catch {
         setCurrentPostingTitle(null);
         setPostingScheduleAvailable(false);
+        setCurrentPostingDepartmentGroup(null);
       }
     };
 
@@ -909,6 +940,7 @@ const Timetable = () => {
               isLoading={loadingSchedule}
               currentPostingTitle={currentPostingTitle}
               postingScheduleAvailable={postingScheduleAvailable}
+              currentPostingDepartmentGroup={currentPostingDepartmentGroup}
             />
           </div>
         </>

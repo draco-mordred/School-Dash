@@ -249,11 +249,11 @@ export default function StudentPortal() {
           ? postingRes.data.current[0] ?? null
           : null;
         const scheduleWindow = currentScheduleEntry?.window ?? null;
-        const usesUnits = Boolean(scheduleWindow?.unitName || scheduleWindow?.unitId || scheduleWindow?.unitGroupIndex !== undefined || scheduleWindow?.unitGroupIndex !== undefined);
-        const activeLocationTitle = usesUnits ? "Active Unit" : "Active Department";
+        const usesUnits = Boolean(scheduleWindow?.unitName || scheduleWindow?.unitId);
+        const activeLocationTitle = usesUnits ? "Active Unit" : "Department Group";
         const activeLocationValue = usesUnits
           ? (scheduleWindow?.unitName || `Unit ${Number(scheduleWindow?.unitGroupIndex ?? 0) + 1}`)
-          : (scheduleWindow?.departmentName || `Department group ${Number(scheduleWindow?.departmentGroupIndex ?? 0) + 1}`);
+          : (scheduleWindow?.departmentName || `Department Group ${Number(scheduleWindow?.departmentGroupIndex ?? 0) + 1}`);
 
         const posting = currentScheduleEntry
           ? {

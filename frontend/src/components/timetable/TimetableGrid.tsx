@@ -9,6 +9,7 @@ interface Props {
   isLoading: boolean;
   currentPostingTitle?: string | null;
   postingScheduleAvailable?: boolean;
+  currentPostingDepartmentGroup?: string | null;
 }
 
 type TimetableSubjectMeta = {
@@ -148,6 +149,7 @@ const getPeriodDetailItems = (
   period: period,
   currentPostingTitle?: string | null,
   postingScheduleAvailable?: boolean,
+  currentPostingDepartmentGroup?: string | null,
 ) => {
   const items: Array<{ label: string; value: string }> = [
     { label: "Time", value: `${period.startTime} - ${period.endTime}` },
@@ -173,6 +175,9 @@ const getPeriodDetailItems = (
 
   if (period.isClinical) {
     items.push({ label: "Current posting", value: currentPostingTitle ?? "Clinical" });
+    if (postingScheduleAvailable && currentPostingDepartmentGroup) {
+      items.push({ label: "Department group", value: currentPostingDepartmentGroup });
+    }
     items.push({
       label: "Schedule",
       value: postingScheduleAvailable ? "Schedule available" : "Schedule unavailable",
@@ -195,10 +200,12 @@ const MobileList = ({
   schedule,
   currentPostingTitle,
   postingScheduleAvailable,
+  currentPostingDepartmentGroup,
 }: {
   schedule: schedule[];
   currentPostingTitle?: string | null;
   postingScheduleAvailable?: boolean;
+  currentPostingDepartmentGroup?: string | null;
 }) => (
   <div className="flex flex-col divide-y divide-border rounded-md border overflow-y-auto">
     {DAYS.map((day) => {
@@ -222,6 +229,7 @@ const MobileList = ({
                   period,
                   currentPostingTitle,
                   postingScheduleAvailable,
+                  currentPostingDepartmentGroup,
                 );
 
                 return (
@@ -285,12 +293,14 @@ const DesktopGrid = ({
   schedule,
   currentPostingTitle,
   postingScheduleAvailable,
+  currentPostingDepartmentGroup,
   timeSlots,
   getRowLabel,
 }: {
   schedule: schedule[];
   currentPostingTitle?: string | null;
   postingScheduleAvailable?: boolean;
+  currentPostingDepartmentGroup?: string | null;
   timeSlots: string[];
   getRowLabel: (startTime: string) => string;
 }) => (
@@ -327,6 +337,7 @@ const DesktopGrid = ({
                     period,
                     currentPostingTitle,
                     postingScheduleAvailable,
+                    currentPostingDepartmentGroup,
                   );
 
                   return (
@@ -342,6 +353,11 @@ const DesktopGrid = ({
                             <div className={`font-semibold text-sm leading-tight ${getPeriodHeadingClassName(period)}`}>
                               <TextMarquee>{getPeriodTitle(period, currentPostingTitle)}</TextMarquee>
                             </div>
+                            {period.isClinical && postingScheduleAvailable && currentPostingDepartmentGroup ? (
+                              <div className="mt-1 text-[11px] text-accent-foreground">
+                                Department group: {currentPostingDepartmentGroup}
+                              </div>
+                            ) : null}
                             {!period.isClinical && !period.isOptional && (
                               <div className="mt-1 text-[11px] text-muted-foreground">
                                 {getPeriodDateText(period)}
@@ -395,6 +411,7 @@ const TimetableGrid = ({
   isLoading,
   currentPostingTitle,
   postingScheduleAvailable,
+  currentPostingDepartmentGroup,
 }: Props) => {
   const timeSlots = useMemo(() => {
     const times = new Set<string>();
@@ -446,6 +463,7 @@ const TimetableGrid = ({
           schedule={schedule}
           currentPostingTitle={currentPostingTitle}
           postingScheduleAvailable={postingScheduleAvailable}
+          currentPostingDepartmentGroup={currentPostingDepartmentGroup}
         />
       </div>
       <div className="hidden md:block">
@@ -453,6 +471,7 @@ const TimetableGrid = ({
           schedule={schedule}
           currentPostingTitle={currentPostingTitle}
           postingScheduleAvailable={postingScheduleAvailable}
+          currentPostingDepartmentGroup={currentPostingDepartmentGroup}
           timeSlots={timeSlots}
           getRowLabel={getRowLabel}
         />
