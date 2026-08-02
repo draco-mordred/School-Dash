@@ -367,13 +367,11 @@ const Timetable = () => {
               : null;
             const windowData = currentItem?.window ?? null;
             const postingUsesUnits = Boolean(windowData?.unitName || windowData?.unitId);
+            const departmentGroupLabel =
+              windowData?.departmentName ||
+              `Department Group ${Number(windowData?.departmentGroupIndex ?? 0) + 1}`;
             if (!postingUsesUnits && windowData) {
-              setCurrentPostingDepartmentGroup(
-                windowData?.departmentName ||
-                  `Department Group ${Number(
-                    windowData?.departmentGroupIndex ?? 0,
-                  ) + 1}`,
-              );
+              setCurrentPostingDepartmentGroup(departmentGroupLabel);
             } else {
               setCurrentPostingDepartmentGroup(null);
             }

@@ -4,6 +4,7 @@ import {
   createActivityEntry,
   getPendingEntries,
   getStudentLogbook,
+  getStudentLogbookAll,
   approveActivityEntry,
   rejectActivityEntry,
   getActivityEntry,
@@ -40,7 +41,23 @@ router.get("/:entryId", protect, getActivityEntry);
  * GET /activity-entries/logbook/:studentId/:rotationId
  * Get student's approved logbook for a rotation
  */
+/**
+ * GET /activity-entries/logbook/:studentId
+ * Get student's approved logbook across all rotations (student-facing)
+ */
+router.get("/logbook/:studentId", protect, getStudentLogbook);
+
+/**
+ * GET /activity-entries/logbook/:studentId/:rotationId
+ * Get student's approved logbook for a rotation
+ */
 router.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
+
+/**
+ * Student-facing endpoints returning entries for all statuses
+ */
+router.get("/student/:studentId", protect, getStudentLogbookAll);
+router.get("/student/:studentId/:rotationId", protect, getStudentLogbookAll);
 
 /**
  * POST /activity-entries/:entryId/approve

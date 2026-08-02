@@ -4,12 +4,13 @@ import HospitalStaffModel from "../models/hospitalStaff";
 import type { IHospitalStaff } from "../models/hospitalStaff";
 import HospitalUnitModel from "../models/hospitalUnit";
 import type { IHospitalUnit } from "../models/hospitalUnit";
+import RotationPlan from "../models/rotationPlan";
 import mongoose from "mongoose";
 
 export interface ActivitySubmissionPayload {
   student: string;
   rotation: string;
-  unit: string;
+  unit?: string;
   supervisor?: string;
   umbrellaCategory: UmbrellaCategory;
   entryDate: Date | string;
@@ -108,23 +109,41 @@ export class ActivityLogbookService {
         return { success: false, error: "Student not found." };
       }
 
-      const rotation = await mongoose.connection.collection("clinical_rotations").findOne({
-        _id: new mongoose.Types.ObjectId(payload.rotation),
-      });
-      if (!rotation) {
-        return { success: false, error: "Clinical rotation not found." };
+      const rotationId = payload.rotation;
+      let rotationFound = null;
+
+      try {
+        rotationFound = await mongoose.connection.collection("clinical_rotations").findOne({
+          _id: new mongoose.Types.ObjectId(rotationId),
+        });
+      } catch (err) {
+        // If the posted rotation value is not a valid clinical_rotations document, allow schedule-backed rotationIds for user UI flows.
+        rotationFound = null;
       }
 
-      const unit = await HospitalUnitModel.findById(payload.unit);
-      if (!unit) {
-        return { success: false, error: "Hospital unit not found." };
+      if (!rotationFound) {
+        const scheduleWindow = await RotationPlan.findOne({
+          _id: new mongoose.Types.ObjectId(rotationId),
+        }).lean();
+
+        if (!scheduleWindow) {
+          return { success: false, error: "Clinical rotation not found." };
+        }
+      }
+
+      let unit: IHospitalUnit | null = null;
+      if (payload.unit) {
+        unit = await HospitalUnitModel.findById(payload.unit);
+        if (!unit) {
+          return { success: false, error: "Hospital unit not found." };
+        }
       }
 
       // Create the activity entry
       const entry = await ActivityEntryModel.create({
         student: payload.student,
         rotation: payload.rotation,
-        unit: payload.unit,
+        ...(payload.unit ? { unit: payload.unit } : {}),
         supervisor: payload.supervisor,
         umbrellaCategory: payload.umbrellaCategory,
         entryDate,
@@ -185,17 +204,19 @@ export class ActivityLogbookService {
         };
       }
 
-      // Validate that staff is assigned to the unit
-      if (
-        !staff.assignedUnits.some(
-          (unitId) => unitId.toString() === entry.unit.toString()
-        )
-      ) {
-        return {
-          success: false,
-          error:
-            "This staff member is not assigned to the unit where this activity occurred.",
-        };
+      // Validate that staff is assigned to the unit (if unit present)
+      if (entry.unit) {
+        if (
+          !staff.assignedUnits.some(
+            (unitId) => unitId.toString() === entry.unit?.toString()
+          )
+        ) {
+          return {
+            success: false,
+            error:
+              "This staff member is not assigned to the unit where this activity occurred.",
+          };
+        }
       }
 
       // Update the entry with approval
@@ -309,14 +330,13 @@ export class ActivityLogbookService {
    */
   async getStudentRotationLogbook(
     studentId: string,
-    rotationId: string
+    rotationId?: string
   ): Promise<{ success: boolean; entries?: any[]; error?: string }> {
     try {
-      const entries = await ActivityEntryModel.find({
-        student: studentId,
-        rotation: rotationId,
-        approvalStatus: "approved",
-      })
+      const query: any = { student: studentId, approvalStatus: "approved" };
+      if (rotationId) query.rotation = rotationId;
+
+      const entries = await ActivityEntryModel.find(query)
         .populate("unit", "name department umbrellaCategory")
         .populate("approvedBy", "name designation")
         .sort({ entryDate: 1 });
@@ -328,6 +348,32 @@ export class ActivityLogbookService {
         success: false,
         error:
           error instanceof Error ? error.message : "Failed to fetch logbook.",
+      };
+    }
+  }
+
+  /**
+   * Get all entries for a student (any approval status), optionally filtered by rotation
+   */
+  async getStudentLogbookAll(
+    studentId: string,
+    rotationId?: string
+  ): Promise<{ success: boolean; entries?: any[]; error?: string }> {
+    try {
+      const query: any = { student: studentId };
+      if (rotationId) query.rotation = rotationId;
+
+      const entries = await ActivityEntryModel.find(query)
+        .populate("unit", "name department umbrellaCategory")
+        .populate("approvedBy", "name designation")
+        .sort({ entryDate: 1 });
+
+      return { success: true, entries };
+    } catch (error) {
+      console.error("Error fetching student logbook (all statuses):", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to fetch logbook.",
       };
     }
   }

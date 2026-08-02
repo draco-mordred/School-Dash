@@ -18,7 +18,7 @@ export interface IActivityEntry extends Document {
   _id: mongoose.Types.ObjectId;
   student: mongoose.Types.ObjectId; // Reference to User (student)
   rotation: mongoose.Types.ObjectId; // Reference to ClinicalRotation
-  unit: mongoose.Types.ObjectId; // Reference to HospitalUnit
+  unit?: mongoose.Types.ObjectId; // Reference to HospitalUnit (optional)
   supervisor?: mongoose.Types.ObjectId; // Reference to HospitalStaff
   umbrellaCategory: UmbrellaCategory;
   entryDate: Date; // Must be Monday-Friday
@@ -62,7 +62,6 @@ const ActivityEntrySchema = new Schema<IActivityEntry>(
     unit: {
       type: mongoose.Types.ObjectId,
       ref: "HospitalUnit",
-      required: true,
     },
     supervisor: {
       type: mongoose.Types.ObjectId,

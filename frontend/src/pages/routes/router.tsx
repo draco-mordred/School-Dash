@@ -46,6 +46,7 @@ import StaffApprovals from "@/pages/StaffApprovals";
 import SupervisorQrAttendancePage from "@/pages/SupervisorQrAttendancePage";
 import StudentClinicalAttendancePage from "@/pages/StudentClinicalAttendancePage";
 import StudentAcademicAttendancePage from "@/pages/StudentAcademicAttendancePage";
+import StudentAttendanceHistory from "@/pages/StudentAttendanceHistory";
 
 import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
@@ -262,7 +263,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/attendance/history",
-            element: <StudentSection title="Attendance History" description="Review your past attendance records and trends." />,
+            element: <StudentAttendanceHistory />,
           },
           {
             path: "logbook-entries",

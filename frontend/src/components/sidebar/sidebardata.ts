@@ -246,36 +246,52 @@ export const sidebardata = {
       icon: GraduationCap,
       roles: ["student"],
       items: [
-        { title: "Current Posting", url: "/clinical-rotations" },
-        { title: "Rotations", url: "/clinical-rotations" },
-        { title: "Team", url: "/student/clinicals/team" },
+        { title: "Postings", url: "/clinical-rotations" },
+        { title: "Rotation Schedule", url: "/rotation-schedule" },
+        { title: "My Team", url: "/student/clinicals/team" },
         // { title: "Clinical Attendance", url: "/student/clinicals/attendance" },
         { title: "Clinical History", url: "/student/clinicals/history" },
+
+        { title: "Daily activities", url: "/student/schedule/daily-activities" },
+        { title: "This Week", url: "/student/schedule/week" },
+        { title: "Calendar", url: "/student/schedule/calendar" },
+        { title: "Upcoming", url: "/student/schedule/upcoming" },
       ],
     },
     {
-      title: "Logbook",
+      title: "My Logbook",
       url: "#",
       icon: BookOpen,
       roles: ["student"],
       items: [
-        { title: "Dashboard", url: "/logbook-entries" },
-        { title: "Entries", url: "/logbook-entries" },
+        { title: "Overview", url: "/logbook-entries" },
+        { title: "Entries", url: "/clinical-activities" },
         { title: "Pending Approvals", url: "/staff-approvals" },
         { title: "Approved Entries", url: "/student/logbook/approved" },
         { title: "Statistics", url: "/student/logbook/statistics" },
       ],
     },
+
+    {
+      title: "Student Logbooks",
+      url: "#",
+      icon: BookOpen,
+      roles: ["teacher", "unitconsultants", "unitresidents"],
+      items: [
+        { title: "Overview", url: "/logbook-supervision" },
+        { title: "Submissions", url: "/logbook-submissions" },
+        { title: "Incoming Entries", url: "/logbook-incoming" },
+        { title: "Statistics", url: "/student/logbook/statistics" },
+      ],
+    },
+
     {
       title: "Clinical Schedule",
       url: "#",
       icon: CalendarDays,
       roles: ["student"],
       items: [
-        { title: "Daily activities", url: "/student/schedule/daily-activities" },
-        { title: "This Week", url: "/student/schedule/week" },
-        { title: "Calendar", url: "/student/schedule/calendar" },
-        { title: "Upcoming", url: "/student/schedule/upcoming" },
+     
       ],
     },
     {
@@ -327,11 +343,21 @@ export const sidebardata = {
       title: "Finance",
       url: "#",
       icon: Banknote,
-      roles: ["teacher"],
+      roles: ["teacher", "unitconsultant", "unitresident"],
       items: [
         { title: "Fee Collection", url: "/finance/fees" },
         { title: "Expenses", url: "/finance/expenses" },
         { title: "Salary", url: "/finance/salary" },
+      ],
+    },
+    {
+      title: "Finance",
+      url: "#",
+      icon: Banknote,
+      roles: ["student"],
+      items: [
+        { title: "Payments", url: "/finance/fees" },
+ 
       ],
     },
     {

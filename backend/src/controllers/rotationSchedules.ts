@@ -203,7 +203,14 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
         const students = Array.isArray(t.studentIds) ? t.studentIds : [];
         if (students.some((st: any) => String(st) === String(studentId))) {
           if (start <= now && now < end) {
-            current.push({ scheduleId: s._id, postingName: s.postings?.[0]?.name || s.name, windowIndex: i, window: t });
+            // include minimal schedule info so clients can access postings/groups
+            current.push({
+              scheduleId: s._id,
+              postingName: s.postings?.[0]?.name || s.name,
+              windowIndex: i,
+              window: t,
+              schedule: { _id: s._id, postings: s.postings || [], meta: s.meta || {} },
+            });
           }
         }
       }

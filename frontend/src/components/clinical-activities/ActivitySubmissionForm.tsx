@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -32,7 +32,8 @@ import { z } from "zod";
 // Activity Submission Schema
 const activitySubmissionSchema = z.object({
   rotationId: z.string().min(1, "Rotation is required"),
-  unitId: z.string().min(1, "Unit is required"),
+  departmentGroupId: z.string().optional(),
+  unitId: z.string().optional(),
   entryDate: z.string().min(1, "Date is required"),
   umbrellaCategory: z.enum(["MEDICINE", "SURGERY"], {
     errorMap: () => ({ message: "Category is required" }),
@@ -57,9 +58,14 @@ interface ActivitySubmissionFormProps {
 export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmissionFormProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [rotations, setRotations] = useState<any[]>([]);
+  const [postings, setPostings] = useState<any[]>([]);
+  const [selectedPostingId, setSelectedPostingId] = useState<string>("");
+  const [departmentGroups, setDepartmentGroups] = useState<any[]>([]);
+  const [selectedDepartmentGroupId, setSelectedDepartmentGroupId] = useState<string>("");
   const [units, setUnits] = useState<any[]>([]);
-  const [loadingRotations, setLoadingRotations] = useState(false);
+  const [loadingPostings, setLoadingPostings] = useState(false);
+  const [loadingUnits, setLoadingUnits] = useState(false);
+  const [postingError, setPostingError] = useState<string | null>(null);
 
   const form = useForm<ActivitySubmissionInput>({
     resolver: zodResolver(activitySubmissionSchema),
@@ -71,38 +77,173 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
   });
 
   // Fetch rotations when component mounts
-  const fetchRotations = async () => {
+  const getDepartmentQuery = (window: any) => {
+    return (
+      window?.departmentName ||
+      window?.department ||
+      window?.departmentId ||
+      window?.departmentCode ||
+      ""
+    );
+  };
+
+  const normalizeText = (value: unknown) => {
+    if (typeof value !== "string") return "";
+    return value.trim().toLowerCase();
+  };
+
+  const findBestUnitMatch = (window: any, unitList: any[]) => {
+    if (!unitList.length) return null;
+
+    const unitId = String(window?.unitId || "").trim();
+    const unitName = String(window?.unitName || "").trim().toLowerCase();
+
+    if (unitId) {
+      const byId = unitList.find((unit) => String(unit._id) === unitId || String(unit._id) === unitId);
+      if (byId) return byId;
+    }
+
+    if (unitName) {
+      const byName = unitList.find(
+        (unit) =>
+          normalizeText(unit.name) === unitName ||
+          normalizeText(String(unit._id)) === unitName ||
+          normalizeText(unit.department) === unitName
+      );
+      if (byName) return byName;
+    }
+
+    return unitList[0];
+  };
+
+  const fetchUnitsForPosting = async (posting: any, category?: string) => {
     try {
-      setLoadingRotations(true);
-      const { data } = await api.get(`/clinical-rotations/active?studentId=${user?._id}`);
-      setRotations(data.rotations || []);
+      setLoadingUnits(true);
+      const windowData = posting?.window ?? {};
+      const departmentQuery = getDepartmentQuery(windowData);
+      let endpoint = "/hospital-data/units?limit=200";
+      if (departmentQuery) {
+        endpoint += `&department=${encodeURIComponent(departmentQuery)}`;
+      }
+      if (category) {
+        endpoint += `&umbrella=${encodeURIComponent(category)}`;
+      }
+
+      const { data } = await api.get(endpoint);
+      const fetchedUnits = Array.isArray(data.units) ? data.units : [];
+      setUnits(fetchedUnits);
+
+      const bestMatch = findBestUnitMatch(windowData, fetchedUnits);
+      if (bestMatch) {
+        form.setValue("unitId", bestMatch._id);
+      } else {
+        form.setValue("unitId", "");
+      }
     } catch (error) {
-      console.error("Failed to load rotations:", error);
-      toast.error("Failed to load rotations");
+      console.error("Failed to load units:", error);
+      toast.error("Failed to load units for current posting");
+      setUnits([]);
+      form.setValue("unitId", "");
     } finally {
-      setLoadingRotations(false);
+      setLoadingUnits(false);
     }
   };
 
-  // Fetch units when category changes
-  const fetchUnits = async (category: string) => {
+  const loadCurrentPostings = async () => {
     try {
-      const { data } = await api.get(`/hospital-data/units?umbrella=${category}`);
-      setUnits(data.units || []);
+      setLoadingPostings(true);
+      setPostingError(null);
+      const studentId = user?._id;
+      if (!studentId) {
+        setPostingError("User session not available");
+        return;
+      }
+
+      const { data } = await api.get(`/rotation-schedules/student/${studentId}/current`);
+      const currentPostings = Array.isArray(data.current) ? data.current : [];
+      const mapped = currentPostings.map((item: any) => ({
+        id: String(item.scheduleId ?? item.windowIndex ?? item._id ?? ""),
+        label:
+          item.postingName ||
+          item.window?.unitName ||
+          item.window?.departmentName ||
+          `Posting ${Number(item.windowIndex ?? 0) + 1}`,
+        scheduleId: item.scheduleId,
+        window: item.window,
+        schedule: item.schedule,
+      }));
+
+      setPostings(mapped);
+
+      if (mapped.length > 0) {
+        const first = mapped[0];
+        setSelectedPostingId(first.id);
+        form.setValue("rotationId", first.id);
+        // populate department groups from schedule postings if available
+        const schedule = first.schedule || {};
+        const deptIndex = first.window?.departmentIndex ?? 0;
+        const postingDef = (schedule.postings && schedule.postings[deptIndex]) || (schedule.postings && schedule.postings[0]) || null;
+        const groups = postingDef?.groups || [];
+        setDepartmentGroups(groups);
+        if (groups.length > 0) {
+          const gid = groups[0].id || groups[0].groupId || groups[0]._id || groups[0].group?._id || "";
+          form.setValue("departmentGroupId", gid);
+        }
+        await fetchUnitsForPosting(first, form.getValues("umbrellaCategory"));
+      } else {
+        setPostingError("No active posting schedule found for your account.");
+      }
     } catch (error) {
-      console.error("Failed to load units:", error);
-      toast.error("Failed to load units");
+      console.error("Failed to load current postings:", error);
+      toast.error("Failed to load active posting schedule");
+      setPostingError("Unable to load your current posting schedule.");
+    } finally {
+      setLoadingPostings(false);
+    }
+  };
+
+  const handlePostingChange = async (value: string) => {
+    setSelectedPostingId(value);
+    form.setValue("rotationId", value);
+    form.setValue("unitId", "");
+    form.setValue("departmentGroupId", "");
+
+    const posting = postings.find((postingItem) => postingItem.id === value);
+    if (posting) {
+      // populate department groups for selected posting
+      const schedule = posting.schedule || {};
+      const deptIndex = posting.window?.departmentIndex ?? 0;
+      const postingDef = (schedule.postings && schedule.postings[deptIndex]) || (schedule.postings && schedule.postings[0]) || null;
+      const groups = postingDef?.groups || [];
+      setDepartmentGroups(groups);
+      if (groups.length > 0) {
+        const gid = groups[0].id || groups[0].groupId || groups[0]._id || groups[0].group?._id || "";
+        form.setValue("departmentGroupId", gid);
+      } else {
+        setDepartmentGroups([]);
+      }
+      await fetchUnitsForPosting(posting, form.getValues("umbrellaCategory"));
     }
   };
 
   const umbrellaCategory = form.watch("umbrellaCategory");
 
   // Handle category change
-  const handleCategoryChange = (value: string) => {
+  const handleCategoryChange = async (value: string) => {
     form.setValue("umbrellaCategory", value as "MEDICINE" | "SURGERY");
     form.setValue("unitId", ""); // Reset unit selection
-    fetchUnits(value);
+
+    const posting = postings.find((postingItem) => postingItem.id === selectedPostingId);
+    if (posting) {
+      await fetchUnitsForPosting(posting, value);
+    }
   };
+
+  useEffect(() => {
+    if (user?._id) {
+      void loadCurrentPostings();
+    }
+  }, [user?._id]);
 
   const onSubmit = async (data: ActivitySubmissionInput) => {
     try {
@@ -131,9 +272,10 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
 
       // Prepare submission payload
       const payload = {
-        studentId: user?._id,
-        rotationId: data.rotationId,
-        unitId: data.unitId,
+        student: user?._id,
+        rotation: data.rotationId,
+        ...(data.departmentGroupId ? { departmentGroupId: data.departmentGroupId } : {}),
+        ...(data.unitId ? { unit: data.unitId } : {}),
         entryDate: data.entryDate,
         umbrellaCategory: data.umbrellaCategory,
         clinicsAttended: data.clinicsAttended,
@@ -155,11 +297,15 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
 
       await api.post("/activity-entries", payload);
       toast.success("Activity submitted successfully");
-      form.reset();
+      form.reset({
+        clinicsAttended: false,
+        wardRoundsAttended: "NONE",
+        callDutyCompleted: false,
+      });
       onSuccess?.();
     } catch (error: any) {
       console.error("Failed to submit activity:", error);
-      toast.error(error.response?.data?.message || "Failed to submit activity");
+      toast.error(error.response?.data?.error || error.response?.data?.message || "Failed to submit activity");
     } finally {
       setLoading(false);
     }
@@ -171,31 +317,37 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
         <CardTitle>Submit Clinical Activity</CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Rotation & Unit Selection */}
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
+        {postingError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {postingError}
+          </div>
+        ) : null}
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Rotation & Unit Selection */}
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
               control={form.control}
               name="rotationId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Clinical Rotation</FormLabel>
+                  <FormLabel>Current Posting</FormLabel>
                   <Select
                     value={field.value}
                     onValueChange={(value) => {
                       field.onChange(value);
-                      fetchRotations();
+                      void handlePostingChange(value);
                     }}
                   >
                     <FormControl>
-                      <SelectTrigger disabled={loadingRotations}>
-                        <SelectValue placeholder="Select rotation" />
+                      <SelectTrigger disabled={loadingPostings}>
+                        <SelectValue placeholder="Select current posting" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {rotations.map((rotation) => (
-                        <SelectItem key={rotation._id} value={rotation._id}>
-                          {rotation.rotationType} - {rotation.class}
+                      {postings.map((posting) => (
+                        <SelectItem key={posting.id} value={posting.id}>
+                          {posting.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -227,6 +379,33 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
               )}
             />
           </div>
+          {/* Department Group Selection */}
+          <FormField
+            control={form.control}
+            name="departmentGroupId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Department Group</FormLabel>
+                <Select value={field.value} onValueChange={(v) => { field.onChange(v); }}>
+                  <FormControl>
+                    <SelectTrigger disabled={!departmentGroups.length}>
+                      <SelectValue placeholder={departmentGroups.length ? "Select group" : "No groups available"} />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {departmentGroups.map((g: any, idx: number) => {
+                      const gid = g.id || g.groupId || g._id || g.group?._id || String(idx);
+                      const label = g.group?.name || g.name || g.groupId || gid;
+                      return (
+                        <SelectItem key={gid} value={gid}>{label}</SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           {/* Unit Selection */}
           <FormField
@@ -237,8 +416,14 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
                 <FormLabel>Hospital Unit</FormLabel>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select unit" />
+                    <SelectTrigger disabled={loadingUnits || !units.length}>
+                      <SelectValue placeholder={
+                        loadingUnits
+                          ? "Loading units..."
+                          : units.length
+                          ? "Select unit"
+                          : "No units available"
+                      } />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -403,6 +588,7 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
             {loading ? "Submitting..." : "Submit Activity"}
           </Button>
         </form>
+      </Form>
       </CardContent>
     </Card>
   );

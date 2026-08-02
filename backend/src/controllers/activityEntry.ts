@@ -89,6 +89,26 @@ export const getStudentLogbook = async (req: Request, res: Response) => {
   }
 };
 
+  /**
+   * GET /activity-entries/student/:studentId or /activity-entries/student/:studentId/:rotationId
+   * Get all entries (any status) for a student, optionally filtered by rotation
+   */
+  export const getStudentLogbookAll = async (req: Request, res: Response) => {
+    try {
+      const { studentId, rotationId } = (req as any).params;
+
+      const result = await activityLogbookService.getStudentLogbookAll(studentId, rotationId);
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      return res.status(200).json({ entries: result.entries });
+    } catch (error) {
+      console.error("Error fetching student logbook (all statuses):", error);
+      return res.status(500).json({ error: "Failed to fetch logbook." });
+    }
+  };
+
 /**
  * POST /activity-entries/:entryId/approve
  * Approve an activity entry (staff sign-off)

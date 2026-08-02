@@ -60,10 +60,16 @@ export default function StudentLogbook({
 
   const fetchRotations = async () => {
     try {
-      const { data } = await api.get(`/clinical-rotations/active?studentId=${user?._id}`);
-      setRotations(data.rotations || []);
-      if (data.rotations?.length > 0 && !selectedRotation) {
-        setSelectedRotation(data.rotations[0]._id);
+      const { data } = await api.get(`/rotation-schedules/student/${user?._id}/current`);
+      const currentPostings = Array.isArray(data.current) ? data.current : [];
+      const mapped = currentPostings.map((item: any) => ({
+        _id: String(item.scheduleId ?? item.windowIndex ?? item._id ?? ""),
+        rotationType: item.postingName || item.window?.unitName || "Current posting",
+        class: item.window?.departmentName || item.window?.department || "",
+      }));
+      setRotations(mapped);
+      if (mapped.length > 0 && !selectedRotation) {
+        setSelectedRotation(mapped[0]._id);
       }
     } catch (error) {
       console.error("Failed to load rotations:", error);
@@ -109,8 +115,9 @@ export default function StudentLogbook({
   };
 
   useEffect(() => {
+    if (!user?._id) return;
     fetchRotations();
-  }, [user]);
+  }, [user?._id]);
 
   useEffect(() => {
     fetchLogbook();

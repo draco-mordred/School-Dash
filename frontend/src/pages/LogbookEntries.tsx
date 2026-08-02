@@ -1,19 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { format } from "date-fns";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
-import { format } from "date-fns";
-import {
-  MoreHorizontal, Plus, Pencil, Trash2, X,
-  ClipboardList, Stethoscope, CalendarDays,
-  BookOpen, User, Clock, FileText,
-} from "lucide-react";
-
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -21,841 +15,399 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { toast } from "sonner";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import Search from "@/components/global/Search";
-import CustomPagination from "@/components/global/CustomPagination";
+import { Plus, BookOpen, CheckCircle, Clock, AlertCircle } from "lucide-react";
 
-interface DayEntry {
-  _id?: string;
-  time?: string;
-  procedure?: string;
-  diagnosis?: string;
-  outcome?: string;
-  caseType?: string;
-  supervisor?: string;
-  hours?: number;
-  location?: string;
-}
-
-interface TutorialEntry {
-  _id?: string;
-  topic: string;
-  date?: string;
-  presenter?: string;
-}
-
-interface PersonalEntry {
-  _id?: string;
-  activity: string;
-  date?: string;
-  notes?: string;
-}
-
-interface LogbookEntry {
+interface ActivityEntry {
   _id: string;
-  student: { _id: string; name: string; idNumber?: string; email?: string };
-  rotation: { _id: string; rotationName: string; rotationType?: string; rotationUnit?: string };
-  academicYear: { _id: string; name: string };
-  date: string;
-  callDuty: DayEntry[];
-  clinicDays: DayEntry[];
-  theatreDays: DayEntry[];
-  cwrDays: DayEntry[];
-  rwrDays: DayEntry[];
-  other: DayEntry[];
-  presentationTutorials: TutorialEntry[];
-  personal: PersonalEntry[];
-  notes: string;
-  createdAt: string;
+  entryDate: string;
+  unit?: { name?: string; department?: string };
+  umbrellaCategory?: string;
+  clinicsAttended?: boolean;
+  wardRoundsAttended?: string;
+  callDutyCompleted?: boolean;
+  approvedBy?: { name?: string; designation?: string };
+  approvedAt?: string;
+  approvalStatus?: string;
+  notes?: string;
+  duration?: number;
 }
 
-interface EntryFormData {
-  rotation: string;
-  academicYear: string;
-  date: string;
-  callDuty: DayEntry[];
-  clinicDays: DayEntry[];
-  theatreDays: DayEntry[];
-  cwrDays: DayEntry[];
-  rwrDays: DayEntry[];
-  other: DayEntry[];
-  presentationTutorials: TutorialEntry[];
-  personal: PersonalEntry[];
-  notes: string;
-}
+const STATUS_LABELS: Record<string, string> = {
+  approved: "Approved",
+  submitted: "Submitted",
+  pending: "Pending approval",
+  rejected: "Rejected",
+  draft: "Draft",
+};
 
-const DAY_SECTIONS: { key: keyof EntryFormData; label: string; icon: typeof CalendarDays }[] = [
-  { key: "clinicDays", label: "Clinic Days", icon: CalendarDays },
-  { key: "theatreDays", label: "Theatre Days", icon: Stethoscope },
-  { key: "cwrDays", label: "Consultant Ward Round", icon: ClipboardList },
-  { key: "rwrDays", label: "Resident Ward Round", icon: ClipboardList },
-  { key: "callDuty", label: "Call Duty", icon: Clock },
-  { key: "other", label: "Other Activities", icon: FileText },
-];
+const STATUS_CLASSES: Record<string, string> = {
+  approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  submitted: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  pending: "bg-sky-100 text-sky-700 border-sky-200",
+  rejected: "bg-red-100 text-red-700 border-red-200",
+  draft: "bg-slate-100 text-slate-700 border-slate-200",
+};
+
+const normalizeStatus = (status?: string) => {
+  if (!status) return "draft";
+  const value = status.toLowerCase();
+  if (value === "pending") return "pending";
+  if (value === "approved") return "approved";
+  if (value === "rejected") return "rejected";
+  if (value === "submitted") return "submitted";
+  return "draft";
+};
 
 export default function LogbookEntries() {
   const { user } = useAuth();
-  const [entries, setEntries] = useState<LogbookEntry[]>([]);
+  const navigate = useNavigate();
+  const [entries, setEntries] = useState<ActivityEntry[]>([]);
+  const [rotations, setRotations] = useState<Array<{ _id: string; rotationType?: string; class?: string }>>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [rotationFilter, setRotationFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-
-  const [showForm, setShowForm] = useState(false);
-  const [editingEntry, setEditingEntry] = useState<LogbookEntry | null>(null);
-  const [viewEntry, setViewEntry] = useState<LogbookEntry | null>(null);
-  const [showViewModal, setShowViewModal] = useState(false);
-
-  const limit = 15;
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const fetchEntries = useCallback(async () => {
+    if (!user?._id) return;
+
     try {
       setLoading(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString(),
-        ...(search && { search }),
-        ...(rotationFilter !== "all" && { rotationId: rotationFilter }),
-        ...(dateFrom && { dateFrom }),
-        ...(dateTo && { dateTo }),
-      });
-      const { data } = await api.get(`/logbook-entries?${params}`);
-      setEntries(data.entries ?? []);
-      setTotal(data.total ?? 0);
-      setTotalPages(Math.ceil((data.total ?? 0) / limit));
-    } catch (error) {
-      console.error("Failed to load logbook entries", error);
+      setError(null);
+
+      const rotationsRes = await api.get(`/rotation-schedules/student/${user._id}/current`);
+      const rotationData: any[] = Array.isArray(rotationsRes.data?.current) ? rotationsRes.data.current : [];
+
+      // Fetch logbook entries for each current rotation (student-facing endpoint)
+      const entriesPerRotation = await Promise.all(
+        rotationData.map(async (rotation: any) => {
+          try {
+            const rotationId = String(rotation.scheduleId ?? rotation._id ?? rotation.windowIndex ?? "");
+            const res = await api.get(`/activity-entries/student/${user._id}/${rotationId}`);
+            return Array.isArray(res.data?.entries) ? res.data.entries : [];
+          } catch (e) {
+            // ignore failures for individual rotations
+            return [];
+          }
+        })
+      );
+
+      let rawEntries = entriesPerRotation.flat();
+
+      // If no current rotations found or no entries from rotations, fall back to student-wide logbook
+      if ((rotationData.length === 0 || rawEntries.length === 0)) {
+        try {
+          const allRes = await api.get(`/activity-entries/student/${user._id}`);
+          rawEntries = Array.isArray(allRes.data?.entries) ? allRes.data.entries : rawEntries;
+        } catch (e) {
+          // ignore, keep existing rawEntries
+        }
+      }
+
+      setEntries(rawEntries.map((entry) => ({
+        _id: entry._id,
+        entryDate: entry.entryDate,
+        unit: entry.unit,
+        umbrellaCategory: entry.umbrellaCategory,
+        clinicsAttended: entry.clinicsAttended,
+        wardRoundsAttended: entry.wardRoundsAttended,
+        callDutyCompleted: entry.callDutyCompleted,
+        approvedBy: entry.approvedBy,
+        approvedAt: entry.approvedAt,
+        approvalStatus: normalizeStatus(entry.approvalStatus),
+        notes: entry.notes,
+        duration: entry.duration ?? 8,
+      })));
+
+      setRotations(
+        rotationData.map((rotation) => ({
+          _id: String(rotation.scheduleId ?? rotation._id ?? rotation.windowIndex ?? ""),
+          rotationType: rotation.postingName || rotation.window?.unitName || rotation.window?.departmentName || "Current posting",
+          class: rotation.window?.departmentName || rotation.window?.department || "",
+        }))
+      );
+    } catch (err: any) {
+      console.error("Failed to load logbook entries", err);
+      setError(err?.response?.data?.message || "Unable to load your logbook entries.");
     } finally {
       setLoading(false);
     }
-  }, [page, search, rotationFilter, dateFrom, dateTo]);
+  }, [user?._id]);
 
-  useEffect(() => { fetchEntries(); }, [fetchEntries]);
+  useEffect(() => {
+    void fetchEntries();
+  }, [fetchEntries]);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Delete this logbook entry?")) return;
-    try {
-      await api.delete(`/logbook-entries/${id}`);
-      setEntries((prev) => prev.filter((e) => e._id !== id));
-    } catch (error) {
-      console.error("Failed to delete entry", error);
-    }
-  };
+  const filteredEntries = useMemo(() => {
+    return entries.filter((entry) => {
+      const matchesSearch = searchQuery
+        ? [entry.unit?.name, entry.umbrellaCategory, entry.notes]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase())
+        : true;
 
-  const openForm = (entry?: LogbookEntry) => {
-    setEditingEntry(entry ?? null);
-    setShowForm(true);
-  };
+      const matchesRotation = rotationFilter === "all" || entry.unit?.name === rotationFilter;
+      const matchesStatus = statusFilter === "all" || normalizeStatus(entry.approvalStatus) === statusFilter;
+      return matchesSearch && matchesRotation && matchesStatus;
+    });
+  }, [entries, searchQuery, rotationFilter, statusFilter]);
 
-  const handleFormSubmit = async (payload: Record<string, any>) => {
-    try {
-      if (editingEntry) {
-        const { data } = await api.put(`/logbook-entries/${editingEntry._id}`, payload);
-        setEntries((prev) => prev.map((e) => (e._id === editingEntry._id ? data : e)));
-      } else {
-        const { data } = await api.post("/logbook-entries", payload);
-        setEntries((prev) => [data, ...prev]);
-      }
-      setShowForm(false);
-    } catch (error) {
-      console.error("Failed to save entry", error);
-    }
-  };
+  const stats = useMemo(() => {
+    const total = entries.length;
+    const approved = entries.filter((entry) => normalizeStatus(entry.approvalStatus) === "approved").length;
+    const pending = entries.filter((entry) => normalizeStatus(entry.approvalStatus) === "pending").length;
+    const submitted = entries.filter((entry) => normalizeStatus(entry.approvalStatus) === "submitted").length;
+    const rejected = entries.filter((entry) => normalizeStatus(entry.approvalStatus) === "rejected").length;
+    const totalHours = entries.reduce((sum, entry) => sum + (entry.duration ?? 8), 0);
+    const thisMonth = entries.filter((entry) => {
+      const date = new Date(entry.entryDate);
+      const now = new Date();
+      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    }).length;
 
-  const openView = (entry: LogbookEntry) => {
-    setViewEntry(entry);
-    setShowViewModal(true);
-  };
+    return { total, approved, submitted, pending, rejected, totalHours, thisMonth };
+  }, [entries]);
 
-  const isAdmin = user?.role === "admin";
-  const isTeacher = user?.role === "teacher";
-  const isStudent = user?.role === "student";
-  const isConsultant = user?.role === "unitconsultant";
-  const isResident = user?.role === "unitresident";
-  const canCreate = isAdmin || isTeacher || isStudent || isConsultant || isResident;
+  const categoryBreakdown = useMemo(() => {
+    return entries.reduce<Record<string, number>>((acc, entry) => {
+      const category = entry.umbrellaCategory || "Other";
+      acc[category] = (acc[category] ?? 0) + 1;
+      return acc;
+    }, {});
+  }, [entries]);
 
-  const dayCount = (entry: LogbookEntry, key: keyof LogbookEntry) => {
-    const arr = entry[key] as DayEntry[] | undefined;
-    return arr?.length ?? 0;
-  };
+  const rotationOptions = useMemo(() => {
+    const uniqueNames = Array.from(new Set(rotations.map((rotation) => rotation.rotationType || "Unknown")));
+    return ["all", ...uniqueNames];
+  }, [rotations]);
 
   return (
-    <div id="page-logbook-entries" className="space-y-6" style={{ marginLeft: "30px", marginTop: "40px" }}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">Logbook Entries</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Track and manage clinical logbook submissions.
+          <h1 className="text-3xl font-bold">Clinical Logbook Overview</h1>
+          <p className="text-sm text-muted-foreground mt-2 max-w-2xl">
+            Review your clinical activity logbook at a glance, including dates, sign-off status, and rotation progress.
           </p>
         </div>
-        {canCreate && (
-          <Button onClick={() => openForm()} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Entry
-          </Button>
-        )}
+        <Button onClick={() => navigate("/clinical-activities")} className="gap-2">
+          <Plus className="h-4 w-4" /> Submit Activity
+        </Button>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <Search
-                value={search}
-                onChange={setSearch}
-                placeholder="Search by student or rotation..."
-                className="w-full"
-              />
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Total Entries</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">{stats.total}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Approved</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-emerald-700">{stats.approved}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Pending</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-yellow-700">{stats.pending}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-red-700">{stats.rejected}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Hours Logged</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">{stats.totalHours}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">This Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold">{stats.thisMonth}</p>
+            <p className="text-sm text-muted-foreground mt-1">Activities added this month</p>
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Category Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {Object.entries(categoryBreakdown).map(([category, count]) => (
+                <div key={category} className="rounded-2xl border border-border/70 bg-muted p-3 text-sm">
+                  <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">{category}</p>
+                  <p className="mt-2 text-xl font-semibold">{count}</p>
+                </div>
+              ))}
             </div>
-            <Input
-              type="date"
-              placeholder="From date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full sm:w-40"
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground mb-2">Search</p>
+            <Search
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search by unit, activity, or note..."
+              className="w-full"
             />
-            <Input
-              type="date"
-              placeholder="To date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full sm:w-40"
-            />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground mb-2">Rotation</p>
             <Select value={rotationFilter} onValueChange={setRotationFilter}>
-              <SelectTrigger className="w-full sm:w-44">
-                <SelectValue placeholder="Rotation" />
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All rotations" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Rotations</SelectItem>
+                <SelectItem value="all">All rotations</SelectItem>
+                {rotationOptions.map((rotation) => (
+                  rotation !== "all" && (
+                    <SelectItem key={rotation} value={rotation}>{rotation}</SelectItem>
+                  )
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground mb-2">Status</p>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Table */}
       <Card>
-        <CardContent className="p-0">
+        <CardHeader>
+          <CardTitle>Logbook Activity</CardTitle>
+        </CardHeader>
+        <CardContent>
           {loading ? (
-            <div className="p-4 space-y-3">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+            <div className="space-y-4">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <Skeleton key={idx} className="h-28 rounded-[20px]" />
               ))}
             </div>
-          ) : entries.length === 0 ? (
+          ) : error ? (
+            <div className="space-y-3 py-10 text-center text-red-600">
+              <AlertCircle className="mx-auto h-10 w-10" />
+              <p>{error}</p>
+            </div>
+          ) : filteredEntries.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
-              <BookOpen className="h-8 w-8 mx-auto mb-3 opacity-50" />
-              <p className="text-sm font-medium">No logbook entries found</p>
-              <p className="text-xs mt-1">Submit your first entry to get started.</p>
+              <BookOpen className="mx-auto h-12 w-12 opacity-50" />
+              <p className="mt-3 text-lg font-medium">No logbook activities found</p>
+              <p className="mt-1 text-sm">Create a new clinical activity entry to start tracking your logbook.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Student</TableHead>
-                    <TableHead>Rotation</TableHead>
-                    <TableHead>Clinic</TableHead>
-                    <TableHead>Theatre</TableHead>
-                    <TableHead>CWR</TableHead>
-                    <TableHead>RWR</TableHead>
-                    <TableHead>Call</TableHead>
-                    <TableHead>Academic Year</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entries.map((entry) => (
-                    <TableRow key={entry._id}>
-                      <TableCell>
-                        <p className="text-sm font-medium">
-                          {format(new Date(entry.date), "MMM d, yyyy")}
-                        </p>
-                      </TableCell>
-                      <TableCell>
-                        <p className="text-sm font-medium">{entry.student?.name ?? "—"}</p>
-                        <p className="text-xs text-muted-foreground">{entry.student?.idNumber ?? ""}</p>
-                      </TableCell>
-                      <TableCell>
-                        <p className="text-sm">{entry.rotation?.rotationName ?? "—"}</p>
-                        <p className="text-xs text-muted-foreground">{entry.rotation?.rotationUnit ?? ""}</p>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{dayCount(entry, "clinicDays")}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{dayCount(entry, "theatreDays")}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{dayCount(entry, "cwrDays")}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{dayCount(entry, "rwrDays")}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">{dayCount(entry, "callDuty")}</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">{entry.academicYear?.name ?? "—"}</TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openView(entry)}>
-                              <BookOpen className="h-3 w-3 mr-2" /> View Details
-                            </DropdownMenuItem>
-                            {(isAdmin || isTeacher || isConsultant || user?._id === entry.student?._id) && (
-                              <>
-                                <DropdownMenuItem onClick={() => openForm(entry)}>
-                                  <Pencil className="h-3 w-3 mr-2" /> Edit
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleDelete(entry._id)} className="text-red-600">
-                                  <Trash2 className="h-3 w-3 mr-2" /> Delete
-                                </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="space-y-4">
+              {filteredEntries.map((entry) => {
+                const status = normalizeStatus(entry.approvalStatus);
+                return (
+                  <Card key={entry._id} className="border border-border/70">
+                    <CardContent className="space-y-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">{format(new Date(entry.entryDate), "MMM d, yyyy")}</p>
+                          <h2 className="text-lg font-semibold">{entry.unit?.name || entry.umbrellaCategory || "Clinical activity"}</h2>
+                          <p className="text-sm text-muted-foreground">
+                            {entry.unit?.department || "No department"} • {entry.umbrellaCategory || "General"}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className={`${STATUS_CLASSES[status]} border px-2 py-1 text-xs`}>{STATUS_LABELS[status]}</Badge>
+                          <span className="text-xs text-muted-foreground">{entry.duration ?? 8} hrs</span>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl bg-muted/80 p-3 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Supervisor</p>
+                          <p className="mt-2 font-medium">{entry.approvedBy?.name || "Pending"}</p>
+                          <p className="text-xs text-muted-foreground">{entry.approvedBy?.designation || "No signature yet"}</p>
+                        </div>
+                        <div className="rounded-2xl bg-muted/80 p-3 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Approval date</p>
+                          <p className="mt-2 font-medium">
+                            {entry.approvedAt ? format(new Date(entry.approvedAt), "MMM d, yyyy") : "Not available"}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl bg-muted/80 p-3 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Ward rounds</p>
+                          <p className="mt-2 font-medium">{entry.wardRoundsAttended ? entry.wardRoundsAttended : "No data"}</p>
+                          <p className="text-xs text-muted-foreground">Clinic attended: {entry.clinicsAttended ? "Yes" : "No"}</p>
+                        </div>
+                      </div>
+
+                      {entry.notes && (
+                        <div className="rounded-2xl bg-muted/80 p-4 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Notes</p>
+                          <p className="mt-2 whitespace-pre-line">{entry.notes}</p>
+                        </div>
+                      )}
+                      {entry.umbrellaCategory === "SURGERY" && (entry as any).surgicalMetrics && (
+                        <div className="rounded-2xl bg-muted/80 p-4 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Surgery Metrics</p>
+                          <p className="mt-2"><strong>Theatre days:</strong> {(entry as any).surgicalMetrics.theatreDaysCount ?? 0}</p>
+                          <p className="mt-1"><strong>Cases observed:</strong> {Array.isArray((entry as any).surgicalMetrics.casesObserved) ? (entry as any).surgicalMetrics.casesObserved.join(', ') : (entry as any).surgicalMetrics.casesObserved || 'None'}</p>
+                          <p className="mt-1"><strong>Cases assisted:</strong> {Array.isArray((entry as any).surgicalMetrics.casesAssisted) ? (entry as any).surgicalMetrics.casesAssisted.join(', ') : (entry as any).surgicalMetrics.casesAssisted || 'None'}</p>
+                        </div>
+                      )}
+
+                      {entry.umbrellaCategory === "MEDICINE" && (entry as any).medicalMetrics && (
+                        <div className="rounded-2xl bg-muted/80 p-4 text-sm">
+                          <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Medicine Metrics</p>
+                          <p className="mt-2"><strong>Procedures:</strong> {Array.isArray((entry as any).medicalMetrics.proceduresWitnessedOrDone) ? (entry as any).medicalMetrics.proceduresWitnessedOrDone.join(', ') : (entry as any).medicalMetrics.proceduresWitnessedOrDone || 'None'}</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </CardContent>
-        {totalPages > 1 && (
-          <div className="border-t px-4 py-3">
-            <CustomPagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </div>
-        )}
       </Card>
-
-      {/* View Modal */}
-      <Dialog open={showViewModal} onOpenChange={(v) => !v && setShowViewModal(false)}>
-        <DialogContent className="max-w-[712px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Logbook Entry — {viewEntry?.student?.name}</DialogTitle>
-            <DialogDescription>View complete details of this logbook entry including all sections and activities.</DialogDescription>
-          </DialogHeader>
-          {viewEntry && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground text-xs">Date</p>
-                  <p className="font-medium">{format(new Date(viewEntry.date), "MMMM d, yyyy")}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Rotation</p>
-                  <p className="font-medium">{viewEntry.rotation?.rotationName ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Student</p>
-                  <p className="font-medium">{viewEntry.student?.name ?? "—"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs">Academic Year</p>
-                  <p className="font-medium">{viewEntry.academicYear?.name ?? "—"}</p>
-                </div>
-              </div>
-
-              {DAY_SECTIONS.map(({ key, label, icon: Icon }) => {
-                const items = (viewEntry as any)[key] as DayEntry[] | undefined;
-                if (!items?.length) return null;
-                return (
-                  <div key={key}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Icon className="h-4 w-4 text-muted-foreground" />
-                      <p className="text-sm font-semibold">{label}</p>
-                      <Badge variant="outline" className="text-xs ml-auto">{items.length} entries</Badge>
-                    </div>
-                    <div className="space-y-1 bg-muted/40 rounded-lg p-3 text-xs">
-                      {items.map((item, i) => (
-                        <div key={i} className="grid grid-cols-2 gap-x-4 gap-y-1">
-                          {item.time && <p><span className="text-muted-foreground">Time:</span> {item.time}</p>}
-                          {item.procedure && <p><span className="text-muted-foreground">Procedure:</span> {item.procedure}</p>}
-                          {item.diagnosis && <p><span className="text-muted-foreground">Diagnosis:</span> {item.diagnosis}</p>}
-                          {item.supervisor && <p><span className="text-muted-foreground">Supervisor:</span> {item.supervisor}</p>}
-                          {item.hours && <p><span className="text-muted-foreground">Hours:</span> {item.hours}</p>}
-                          {item.location && <p><span className="text-muted-foreground">Location:</span> {item.location}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {viewEntry.presentationTutorials?.length > 0 && (
-                <div>
-                  <p className="text-sm font-semibold mb-2">Presentation Tutorials</p>
-                  <div className="space-y-1 bg-muted/40 rounded-lg p-3 text-xs">
-                    {viewEntry.presentationTutorials.map((t, i) => (
-                      <div key={i} className="grid grid-cols-2 gap-x-4">
-                        {t.topic && <p><span className="text-muted-foreground">Topic:</span> {t.topic}</p>}
-                        {t.presenter && <p><span className="text-muted-foreground">Presenter:</span> {t.presenter}</p>}
-                        {t.date && <p><span className="text-muted-foreground">Date:</span> {format(new Date(t.date), "MMM d, yyyy")}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {viewEntry.personal?.length > 0 && (
-                <div>
-                  <p className="text-sm font-semibold mb-2">Personal Notes</p>
-                  <div className="space-y-1 bg-muted/40 rounded-lg p-3 text-xs">
-                    {viewEntry.personal.map((p, i) => (
-                      <div key={i} className="grid grid-cols-2 gap-x-4">
-                        {p.activity && <p><span className="text-muted-foreground">Activity:</span> {p.activity}</p>}
-                        {p.date && <p><span className="text-muted-foreground">Date:</span> {format(new Date(p.date), "MMM d, yyyy")}</p>}
-                        {p.notes && <p className="col-span-2"><span className="text-muted-foreground">Notes:</span> {p.notes}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {viewEntry.notes && (
-                <div>
-                  <p className="text-sm font-semibold mb-2">Notes</p>
-                  <div className="bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground whitespace-pre-wrap">
-                    {viewEntry.notes}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Create / Edit Modal */}
-      <Dialog open={showForm} onOpenChange={(v) => !v && setShowForm(false)}>
-        <DialogContent className="max-w-[712px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingEntry ? "Edit Entry" : "New Logbook Entry"}</DialogTitle>
-            <DialogDescription>{editingEntry ? "Update the details of this logbook entry." : "Fill in the details to create a new logbook entry."}</DialogDescription>
-          </DialogHeader>
-          <EntryForm
-            entry={editingEntry}
-            onSubmit={handleFormSubmit}
-            onClose={() => setShowForm(false)}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
-  );
-}
-
-// ── Entry Form ──────────────────────────────────────────────────────────────
-
-interface EntryFormProps {
-  entry: LogbookEntry | null;
-  onSubmit: (payload: Record<string, any>) => void;
-  onClose: () => void;
-}
-
-function EntryForm({ entry, onSubmit, onClose }: EntryFormProps) {
-  const { year: currentYear, user } = useAuth();
-  const isStudent = user?.role === "student";
-  const [form, setForm] = useState<EntryFormData>({
-    rotation: entry?.rotation?._id ?? "",
-    academicYear: entry?.academicYear?._id ?? currentYear?._id ?? "",
-    date: entry?.date?.split("T")[0] ?? "",
-    callDuty: entry?.callDuty ?? [],
-    clinicDays: entry?.clinicDays ?? [],
-    theatreDays: entry?.theatreDays ?? [],
-    cwrDays: entry?.cwrDays ?? [],
-    rwrDays: entry?.rwrDays ?? [],
-    other: entry?.other ?? [],
-    presentationTutorials: entry?.presentationTutorials ?? [],
-    personal: entry?.personal ?? [],
-    notes: entry?.notes ?? "",
-  });
-
-  const [activeSection, setActiveSection] = useState<string>("clinicDays");
-  const [submitting, setSubmitting] = useState(false);
-  const [rotations, setRotations] = useState<Array<{ _id: string; rotationName: string; rotationStatus?: string; student?: { _id?: string } }>>([]);
-  const [academicYears, setAcademicYears] = useState<Array<{ _id: string; name: string }>>([]);
-
-  useEffect(() => {
-    api.get("/clinical-rotations/list?limit=200").then(({ data }) => {
-      const rotationData = Array.isArray(data) ? data : (data?.rotations ?? []);
-      setRotations(rotationData.map((r: any) => ({ _id: r._id, rotationName: r.rotationName, rotationStatus: r.rotationStatus, student: r.student, students: r.students } as any)));
-    });
-    api.get("/academic-years").then(({ data }) => {
-      const years = Array.isArray(data) ? data : (data?.years ?? []);
-      setAcademicYears(years);
-    });
-  }, []);
-
-  const signupRotationFromForm = async (rotationId: string) => {
-    try {
-      const { data } = await api.post(`/clinical-rotations/${rotationId}/signup`);
-      toast.success("Signed up for rotation");
-      // update rotation list
-      setRotations((prev) => prev.map((r) => (r._id === data._id ? { ...r, student: data.student, students: data.students ?? [] } : r)));
-    } catch (e: any) {
-      console.error("Signup failed", e);
-      toast.error(e.response?.data?.message || "Failed to sign up");
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    await onSubmit({
-      ...form,
-      date: new Date(form.date).toISOString(),
-    });
-    setSubmitting(false);
-  };
-
-  const updateDayEntry = (key: keyof EntryFormData, idx: number, field: string, value: string | number) => {
-    setForm((prev) => {
-      const updated = [...(prev[key] as DayEntry[])];
-      updated[idx] = { ...updated[idx], [field]: value };
-      return { ...prev, [key]: updated };
-    });
-  };
-
-  const addDayEntry = (key: keyof EntryFormData) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: [...(prev[key] as DayEntry[]), { time: "", procedures: [], diagnosis: "", supervisor: "" }],
-    }));
-  };
-
-  const removeDayEntry = (key: keyof EntryFormData, idx: number) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: (prev[key] as DayEntry[]).filter((_, i) => i !== idx),
-    }));
-  };
-
-  const updateProcedure = (key: keyof EntryFormData, idx: number, pIdx: number, value: string) => {
-    setForm((prev) => {
-      const updated = [...(prev[key] as any[])];
-      const entry = { ...(updated[idx] || {}) };
-      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
-      procs[pIdx] = value;
-      entry.procedures = procs;
-      // remove legacy single procedure field to keep shape consistent
-      delete entry.procedure;
-      updated[idx] = entry;
-      return { ...prev, [key]: updated };
-    });
-  };
-
-  const addProcedure = (key: keyof EntryFormData, idx: number) => {
-    setForm((prev) => {
-      const updated = [...(prev[key] as any[])];
-      const entry = { ...(updated[idx] || {}) };
-      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
-      procs.push("");
-      entry.procedures = procs;
-      delete entry.procedure;
-      updated[idx] = entry;
-      return { ...prev, [key]: updated };
-    });
-  };
-
-  const removeProcedure = (key: keyof EntryFormData, idx: number, pIdx: number) => {
-    setForm((prev) => {
-      const updated = [...(prev[key] as any[])];
-      const entry = { ...(updated[idx] || {}) };
-      const procs = Array.isArray(entry.procedures) ? [...entry.procedures] : (entry.procedure ? [entry.procedure] : []);
-      procs.splice(pIdx, 1);
-      entry.procedures = procs;
-      delete entry.procedure;
-      updated[idx] = entry;
-      return { ...prev, [key]: updated };
-    });
-  };
-
-  const updateTutorial = (idx: number, field: string, value: string) => {
-    setForm((prev) => {
-      const updated = [...prev.presentationTutorials];
-      updated[idx] = { ...updated[idx], [field]: value };
-      return { ...prev, presentationTutorials: updated };
-    });
-  };
-
-  const addTutorial = () => {
-    setForm((prev) => ({
-      ...prev,
-      presentationTutorials: [...prev.presentationTutorials, { topic: "", presenter: "", date: "" }],
-    }));
-  };
-
-  const removeTutorial = (idx: number) => {
-    setForm((prev) => ({
-      ...prev,
-      presentationTutorials: prev.presentationTutorials.filter((_, i) => i !== idx),
-    }));
-  };
-
-  const updatePersonal = (idx: number, field: string, value: string) => {
-    setForm((prev) => {
-      const updated = [...prev.personal];
-      updated[idx] = { ...updated[idx], [field]: value };
-      return { ...prev, personal: updated };
-    });
-  };
-
-  const addPersonal = () => {
-    setForm((prev) => ({
-      ...prev,
-      personal: [...prev.personal, { activity: "", date: "", notes: "" }],
-    }));
-  };
-
-  const removePersonal = (idx: number) => {
-    setForm((prev) => ({
-      ...prev,
-      personal: prev.personal.filter((_, i) => i !== idx),
-    }));
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Core fields */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className="text-xs font-medium mb-1 block">Rotation *</label>
-          <Select value={form.rotation} onValueChange={(v) => setForm({ ...form, rotation: v })}>
-            <SelectTrigger><SelectValue placeholder="Select rotation" /></SelectTrigger>
-            <SelectContent>
-              {rotations.map((r) => (
-                <SelectItem key={r._id} value={r._id}>{r.rotationName}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* Signup helper for students */}
-          {isStudent && form.rotation && (
-            (() => {
-              const sel = rotations.find((x) => x._id === form.rotation);
-              if (!sel) return null;
-              const userIsParticipant = (sel as any).students?.some?.((s: any) => s._id === user?._id) || sel.student?._id === user?._id;
-              if (userIsParticipant) return <p className="text-xs text-muted-foreground mt-1">You are signed up for this rotation.</p>;
-              if (sel.rotationStatus !== "active") return <p className="text-xs text-muted-foreground mt-1">Rotation not open for signup.</p>;
-              return <div className="mt-2"><Button size="sm" onClick={() => signupRotationFromForm(sel._id)}>Sign up for this rotation</Button></div>;
-            })()
-          )}
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Academic Year *</label>
-          <Select value={form.academicYear} onValueChange={(v) => setForm({ ...form, academicYear: v })}>
-            <SelectTrigger><SelectValue placeholder="Select year" /></SelectTrigger>
-            <SelectContent>
-              {academicYears.map((y) => (
-                <SelectItem key={y._id} value={y._id}>{y.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Date *</label>
-          <Input type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-        </div>
-      </div>
-
-      {/* Section tabs */}
-      <div className="flex flex-wrap gap-2 border-b pb-2">
-        {DAY_SECTIONS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setActiveSection(key)}
-            className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
-              activeSection === key
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted hover:bg-muted/70"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setActiveSection("tutorials")}
-          className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
-            activeSection === "tutorials"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted hover:bg-muted/70"
-          }`}
-        >
-          Tutorials
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveSection("personal")}
-          className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
-            activeSection === "personal"
-              ? "bg-primary text-primary-foreground"
-              : "bg-muted hover:bg-muted/70"
-          }`}
-        >
-          Personal
-        </button>
-      </div>
-
-      {/* Day entry sections */}
-      {DAY_SECTIONS.map(({ key, label, icon: Icon }) => {
-        if (activeSection !== key) return null;
-        const items = (form[key] as DayEntry[]) ?? [];
-        return (
-          <div key={key} className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4 text-muted-foreground" />
-                <p className="text-sm font-medium">{label}</p>
-                <Badge variant="outline" className="text-xs">{items.length}</Badge>
-              </div>
-              <Button type="button" size="sm" variant="outline" onClick={() => addDayEntry(key)}>
-                <Plus className="h-3 w-3 mr-1" /> Add
-              </Button>
-            </div>
-            {items.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-4 text-center">No entries yet.</p>
-            ) : (
-              items.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-muted/40 rounded-lg p-3">
-                  <Input placeholder="Time (e.g., 08:00-12:00)" value={item.time ?? ""} onChange={(e) => updateDayEntry(key, idx, "time", e.target.value)} className="text-xs h-8" />
-                  <div>
-                    <div className="flex flex-col gap-2 max-h-36 overflow-auto pr-1">
-                      {( (item.procedures ?? (item.procedure ? [item.procedure] : [])) as string[] ).map((p, pIdx) => (
-                        <div key={pIdx} className="flex gap-1 items-center">
-                          <Input placeholder={`Procedure ${pIdx + 1}`} value={p ?? ""} onChange={(e) => updateProcedure(key, idx, pIdx, e.target.value)} className="text-xs h-8 flex-1" />
-                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removeProcedure(key, idx, pIdx)}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ))}
-                      <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" onClick={() => addProcedure(key, idx)}>
-                        <Plus className="h-3 w-3 mr-1" /> Add Procedure
-                      </Button>
-                    </div>
-                  </div>
-                  <Input placeholder="Diagnosis" value={item.diagnosis ?? ""} onChange={(e) => updateDayEntry(key, idx, "diagnosis", e.target.value)} className="text-xs h-8" />
-                  <div className="flex gap-1">
-                    <Input placeholder="Supervisor" value={item.supervisor ?? ""} onChange={(e) => updateDayEntry(key, idx, "supervisor", e.target.value)} className="text-xs h-8 flex-1" />
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeDayEntry(key, idx)}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        );
-      })}
-
-      {/* Presentation Tutorials */}
-      {activeSection === "tutorials" && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Presentation Tutorials</p>
-            <Button type="button" size="sm" variant="outline" onClick={addTutorial}>
-              <Plus className="h-3 w-3 mr-1" /> Add
-            </Button>
-          </div>
-          {(form.presentationTutorials ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">No tutorials yet.</p>
-          ) : (
-            (form.presentationTutorials ?? []).map((t, idx) => (
-              <div key={idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-muted/40 rounded-lg p-3">
-                <Input placeholder="Topic" value={t.topic} onChange={(e) => updateTutorial(idx, "topic", e.target.value)} className="text-xs h-8" />
-                <Input placeholder="Presenter" value={t.presenter ?? ""} onChange={(e) => updateTutorial(idx, "presenter", e.target.value)} className="text-xs h-8" />
-                <div className="flex gap-1">
-                  <Input type="date" placeholder="Date" value={t.date ?? ""} onChange={(e) => updateTutorial(idx, "date", e.target.value)} className="text-xs h-8 flex-1" />
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeTutorial(idx)}>
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Personal */}
-      {activeSection === "personal" && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Personal Notes</p>
-            <Button type="button" size="sm" variant="outline" onClick={addPersonal}>
-              <Plus className="h-3 w-3 mr-1" /> Add
-            </Button>
-          </div>
-          {(form.personal ?? []).length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">No personal entries yet.</p>
-          ) : (
-            (form.personal ?? []).map((p, idx) => (
-              <div key={idx} className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-muted/40 rounded-lg p-3">
-                <Input placeholder="Activity" value={p.activity} onChange={(e) => updatePersonal(idx, "activity", e.target.value)} className="text-xs h-8" />
-                <Input placeholder="Date" type="date" value={p.date ?? ""} onChange={(e) => updatePersonal(idx, "date", e.target.value)} className="text-xs h-8" />
-                <div className="flex gap-1">
-                  <Input placeholder="Notes" value={p.notes ?? ""} onChange={(e) => updatePersonal(idx, "notes", e.target.value)} className="text-xs h-8 flex-1" />
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removePersonal(idx)}>
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Notes */}
-      <div>
-        <label className="text-xs font-medium mb-1 block">General Notes</label>
-        <Textarea
-          placeholder="Additional notes..."
-          value={form.notes}
-          onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          rows={3}
-          className="text-sm"
-        />
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving..." : entry ? "Update" : "Create"}
-        </Button>
-      </DialogFooter>
-    </form>
   );
 }

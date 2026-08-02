@@ -28,7 +28,7 @@ import {
   Mail,
 } from "lucide-react";
 import { W11Icon, type W11Glyph } from "@/components/icons/W11Icon";
-import type { user } from "@/types";
+import type { user, Class } from "@/types";
 import { cn } from "@/lib/utils";
 import { useInstitution } from "@/lib/useInstitution";
 import { getClassLevelPhasePlan } from "@/lib/academicClock";
@@ -118,6 +118,8 @@ const Account = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [studentCourses, setStudentCourses] = useState<any[]>([]);
   const [studentClassInfo, setStudentClassInfo] = useState<{ name: string; teacher: { name: string; email: string } | null } | null>(null);
+  const [studentClassDetails, setStudentClassDetails] = useState<Class | null>(null);
+  const [studentClassDetailsLoading, setStudentClassDetailsLoading] = useState(false);
 
   // ─── Effects ──────────────────────────────────────────────────
   useEffect(() => {
@@ -295,6 +297,61 @@ const Account = () => {
     void loadStudentAtAGlance();
   }, [user?._id, user?.role, user?.studentClasses]);
 
+  useEffect(() => {
+    if (!user || user.role !== "student") {
+      setStudentClassDetails(null);
+      setStudentClassDetailsLoading(false);
+      return;
+    }
+
+    const rawClass = user.studentClass ?? user.studentClasses;
+    const classId = typeof rawClass === "string"
+      ? rawClass
+      : rawClass && typeof rawClass === "object" && "_id" in rawClass
+        ? (rawClass as Class)._id
+        : null;
+
+    if (!classId) {
+      setStudentClassDetails(null);
+      setStudentClassDetailsLoading(false);
+      return;
+    }
+
+    const shouldFetch = typeof rawClass === "string" || !rawClass || (
+      typeof rawClass === "object" &&
+      rawClass !== null &&
+      (
+        typeof (rawClass as any).academicYear === "string" ||
+        !Array.isArray((rawClass as any).students)
+      )
+    );
+    if (!shouldFetch) {
+      setStudentClassDetails(null);
+      setStudentClassDetailsLoading(false);
+      return;
+    }
+
+    let active = true;
+    const loadClass = async () => {
+      setStudentClassDetailsLoading(true);
+      try {
+        const { data } = await api.get(`/classes/${classId}`);
+        const cls = data.class ?? data;
+        if (active && cls && typeof cls === "object" && "_id" in cls) {
+          setStudentClassDetails(cls as Class);
+        }
+      } catch (err) {
+        console.error("Failed to load student class details", err);
+        if (active) setStudentClassDetails(null);
+      } finally {
+        if (active) setStudentClassDetailsLoading(false);
+      }
+    };
+
+    void loadClass();
+    return () => { active = false; };
+  }, [user]);
+
   // ─── Helpers ─────────────────────────────────────────────────
   const getInitials = (name?: string) => {
     if (!name) return "?";
@@ -307,21 +364,64 @@ const Account = () => {
   const institutionDisplayName = institution?.name || institution?.shortName || "Institution";
   const institutionLogoUrl = institution?.logoUrl || null;
 
+  const getStudentClassRecord = (): Class | null => {
+    if (!user || user.role !== "student") return null;
+
+    const rawClass = user.studentClass ?? user.studentClasses;
+    if (!rawClass) return null;
+
+    if (Array.isArray(rawClass)) {
+      const classObject = rawClass.find((entry) => typeof entry === "object" && entry !== null && "_id" in entry) as Class | undefined;
+      return classObject ?? null;
+    }
+
+    if (typeof rawClass === "object" && rawClass !== null && "_id" in rawClass) {
+      return rawClass as Class;
+    }
+
+    return null;
+  };
+
   const getDisplayClasses = () => {
     if (user?.role === "student") {
       if (user?.studentClass)
         return typeof user.studentClass === "object" ? user.studentClass.name : user.studentClass;
-      if (user?.studentClasses?.length)
-        return user.studentClasses.map((c: any) => (typeof c === "object" ? c.name : c)).join(", ");
+      const studentClasses = user?.studentClasses;
+      if (Array.isArray(studentClasses) && studentClasses.length)
+        return studentClasses.map((c) => (typeof c === "object" ? c.name : String(c))).join(", ");
+      if (typeof studentClasses === "object" && studentClasses !== null)
+        return studentClasses.name ?? "N/A";
+      if (typeof studentClasses === "string")
+        return studentClasses;
     }
     if (user?.role === "teacher") {
       if (user?.teacherSubjects?.length)
-        return user.teacherSubjects.map((s: any) => (typeof s === "object" ? s.name : s)).join(", ");
+        return user.teacherSubjects.map((s) => (typeof s === "object" ? s.name : String(s))).join(", ");
       if (user?.teacherSubject?.length)
-        return user.teacherSubject.map((s: any) => (typeof s === "object" ? s.name : s)).join(", ");
+        return user.teacherSubject.map((s) => (typeof s === "object" ? s.name : String(s))).join(", ");
     }
     return "N/A";
   };
+
+  const studentClassRecord = getStudentClassRecord();
+  const resolvedStudentClass = studentClassDetails ?? studentClassRecord;
+  const studentClassName = resolvedStudentClass?.name ?? getDisplayClasses();
+  const studentClassAcademicYear = typeof resolvedStudentClass?.academicYear === "object"
+    ? resolvedStudentClass.academicYear.name
+    : typeof resolvedStudentClass?.academicYear === "string"
+      ? resolvedStudentClass.academicYear
+      : undefined;
+  const studentClassTeacherName = typeof resolvedStudentClass?.classTeacher === "object"
+    ? resolvedStudentClass.classTeacher.name
+    : undefined;
+  const studentClassSubjectsCount = Array.isArray(resolvedStudentClass?.subjects)
+    ? resolvedStudentClass.subjects.length
+    : Array.isArray(resolvedStudentClass?.courses)
+      ? resolvedStudentClass.courses.length
+      : undefined;
+  const studentClassStudentCount = Array.isArray(resolvedStudentClass?.students)
+    ? resolvedStudentClass.students.length
+    : undefined;
 
   const getAttendanceStats = () => {
     if (!studentAttendance?.stats) return null;
@@ -553,14 +653,17 @@ const Account = () => {
                       <p className="mt-1 text-sm font-semibold capitalize">{user?.role || "user"}</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">ID Number</p>
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Mat. Number</p>
                       <p className="mt-1 text-sm font-semibold">{user?.idNumber || "N/A"}</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">{user?.role === "student" ? "Class" : "Department"}</p>
-                      <p className="mt-1 text-sm font-semibold">{getDisplayClasses() === "N/A" ? "Not assigned" : getDisplayClasses()}</p>
-                    </div>
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Class</p>
+                      <p className="mt-1 text-sm font-semibold">{studentClassName === "N/A" ? "Not assigned" : studentClassName}</p>
+                    {studentClassAcademicYear ? (
+                      <p className="text-xs text-muted-foreground mt-1">{studentClassAcademicYear}</p>
+                    ) : null}
                   </div>
+                </div>
                 </div>
 
                 <div className="rounded-[24px] border border-border/70 bg-background/70 p-5 backdrop-blur-md">
@@ -572,11 +675,11 @@ const Account = () => {
                     </div>
                     <div className="flex items-center justify-between border-b border-white/10 pb-2">
                       <span className="text-muted-foreground">Issued</span>
-                      <span className="font-semibold">Today</span>
+                      <span className="font-semibold">{studentClassAcademicYear}</span>
                     </div>
                     <div className="flex items-center justify-between border-b border-white/10 pb-2">
                       <span className="text-muted-foreground">Valid</span>
-                      <span className="font-semibold">Academic year</span>
+                      <span className="font-semibold text-accent">{studentClassAcademicYear}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Access</span>
@@ -747,11 +850,54 @@ const Account = () => {
       <div><h2 className="text-xl font-semibold">{user?.role === "student" ? "Class Information" : "Teaching Subjects"}</h2><p className="text-sm text-muted-foreground mt-1">{user?.role === "student" ? "Your assigned class and academic details" : "Subjects you teach"}</p></div>
       <div className="rounded-xl border bg-card">
         <div className="px-6 py-5">
-          <div className="flex flex-wrap gap-2">
-            {getDisplayClasses().split(", ").map((item, index) => (
-              <span key={index} className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-secondary text-secondary-foreground">{item}</span>
-            ))}
-          </div>
+          {user?.role === "student" && resolvedStudentClass ? (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Class</p>
+                  <p className="mt-1 text-xl font-semibold text-foreground">{studentClassName}</p>
+                </div>
+                {studentClassAcademicYear ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Academic year</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{studentClassAcademicYear}</p>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {studentClassTeacherName ? (
+                  <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Class Teacher</p>
+                    <p className="mt-2 text-sm font-semibold text-foreground">{studentClassTeacherName}</p>
+                  </div>
+                ) : null}
+                {typeof studentClassSubjectsCount === "number" ? (
+                  <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Subjects</p>
+                    <p className="mt-2 text-sm font-semibold text-foreground">{studentClassSubjectsCount} subject{studentClassSubjectsCount === 1 ? "" : "s"}</p>
+                  </div>
+                ) : null}
+                {typeof studentClassStudentCount === "number" ? (
+                  <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Students</p>
+                    <p className="mt-2 text-sm font-semibold text-foreground">{studentClassStudentCount} student{studentClassStudentCount === 1 ? "" : "s"}</p>
+                  </div>
+                ) : studentClassDetailsLoading ? (
+                  <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Students</p>
+                    <p className="mt-2 text-sm font-semibold text-foreground">Loading…</p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {getDisplayClasses().split(", ").map((item: string, index: number) => (
+                <span key={index} className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-secondary text-secondary-foreground">{item}</span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

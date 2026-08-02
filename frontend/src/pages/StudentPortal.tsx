@@ -250,10 +250,13 @@ export default function StudentPortal() {
           : null;
         const scheduleWindow = currentScheduleEntry?.window ?? null;
         const usesUnits = Boolean(scheduleWindow?.unitName || scheduleWindow?.unitId);
+        const departmentGroupLabel =
+          scheduleWindow?.departmentName ||
+          `Department Group ${Number(scheduleWindow?.departmentGroupIndex ?? 0) + 1}`;
         const activeLocationTitle = usesUnits ? "Active Unit" : "Department Group";
         const activeLocationValue = usesUnits
           ? (scheduleWindow?.unitName || `Unit ${Number(scheduleWindow?.unitGroupIndex ?? 0) + 1}`)
-          : (scheduleWindow?.departmentName || `Department Group ${Number(scheduleWindow?.departmentGroupIndex ?? 0) + 1}`);
+          : departmentGroupLabel;
 
         const posting = currentScheduleEntry
           ? {
