@@ -26,6 +26,8 @@ export interface user {
   teacherSubjects?: courses[];
   teacherSubject?: courses[] | string[];
   parentStudents?: user[] | string[];
+  departmentId?: string;
+  facultyId?: string;
   // Academic status tags for teachers/lecturers
   academicStatus?:
     | "professor"
@@ -99,6 +101,14 @@ export interface department {
   name: string;
   code: string;
   departmentID: string;
+  head?: { _id: string; name?: string } | string | null;
+}
+
+export interface faculty {
+  _id: string;
+  name: string;
+  code: string;
+  facultyID: string;
   head?: { _id: string; name?: string } | string | null;
 }
 

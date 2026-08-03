@@ -8,7 +8,8 @@ export interface IDepartment extends Document {
   name: string; // e.g "Department of Medicine"
   code: string; // e.g "MED"
   departmentID: string; // Unique identifier string (ex: MED-2026-001)
-  head: mongoose.Types.ObjectId; // Reference to User (Teacher/Admin) � Department head
+  facultyId?: mongoose.Types.ObjectId | null; // Reference to Faculty
+  head: mongoose.Types.ObjectId; // Reference to User (Teacher/Admin) – Department head
   units: mongoose.Types.ObjectId[]; // List of Units under this department
   courses: mongoose.Types.ObjectId[]; // List of Courses offered by this department
 }
@@ -30,7 +31,12 @@ const DepartmentSchema = new Schema<IDepartment>(
       required: [true, "Department ID required"],
       trim: true,
     },
-    // Reference to the User model (Teacher/Admin role) � Department head
+    facultyId: {
+      type: Schema.Types.ObjectId,
+      ref: "Faculty",
+      default: null,
+    },
+    // Reference to the User model (Teacher/Admin role) – Department head
     head: {
       type: Schema.Types.ObjectId,
       ref: "User",

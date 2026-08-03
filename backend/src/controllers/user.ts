@@ -1,10 +1,13 @@
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
-import User from "../models/user";
+import User, { type userRoles } from "../models/user";
 import Department from "../models/departments";
 import Institution from "../models/institution";
+import FacultyModel from "../models/faculty";
 import { getAllDepartments } from "../constants/departments";
 import { Notification } from "../models/notification";
+
+const Faculty = FacultyModel as any;
 import { sendSSE } from "../utils/sse";
 import { generateToken } from "../utils/generateToken";
 import { logActivity } from "../utils/activitieslog";
@@ -123,6 +126,23 @@ const findDepartment = async (departmentInput?: string) => {
     return doc;
 };
 
+const findFaculty = async (facultyInput?: string) => {
+    if (!facultyInput) return null;
+    const identifier = String(facultyInput).trim();
+    if (!identifier) return null;
+
+    if (mongoose.isValidObjectId(identifier)) {
+        const doc = await Faculty.findById(identifier);
+        if (doc) return doc;
+    }
+
+    const doc = await Faculty.findOne({
+        $or: [{ code: identifier }, { facultyID: identifier }, { name: identifier }],
+    });
+
+    return doc;
+};
+
 const resolveInstitutionName = async (fallback?: string) => {
     if (fallback && String(fallback).trim()) return String(fallback).trim();
 
@@ -132,11 +152,12 @@ const resolveInstitutionName = async (fallback?: string) => {
 
 const ensureUniqueInn = async ({ userId, role, idNumber, institutionName }: { userId?: string; role?: string; idNumber?: string; institutionName?: string }) => {
     const normalizedRole = normalizeRole(role);
-    const safeRole = normalizedRole || "student";
+    const safeRole = (normalizedRole || "student") as userRoles;
     const candidateIdNumber = idNumber || "";
     const resolvedInstitutionName = await resolveInstitutionName(institutionName);
 
-    const roleUsers = await User.find({ role: safeRole })
+    const roleQuery: any = { role: safeRole };
+    const roleUsers = await User.find<any>(roleQuery)
         .select("_id createdAt inn")
         .sort({ createdAt: 1, _id: 1 })
         .lean();
@@ -153,11 +174,12 @@ const ensureUniqueInn = async ({ userId, role, idNumber, institutionName }: { us
             sequence: attempt,
         });
 
-        const duplicate = await User.findOne({
+        const duplicateQuery: any = {
             inn,
             role: safeRole,
             _id: { $ne: userId || undefined },
-        }).select("_id").lean();
+        };
+        const duplicate = await User.findOne<any>(duplicateQuery).select("_id").lean();
 
         if (!duplicate) {
             return inn;
@@ -257,6 +279,10 @@ export const registerUser = async (
         const departmentDoc = await findDepartment(
             (departmentId as string | undefined) || (department as string | undefined) ||
             (req.body?.departmentCode as string | undefined) || (req.body?.departmentID as string | undefined)
+        );
+
+        const facultyDoc = await findFaculty(
+            (req.body?.facultyId as string | undefined) || (req.body?.faculty as string | undefined)
         );
 
         const isStaffRole = ["teacher", "unitconsultant", "unitresident"].includes(normalizedRole);
@@ -394,6 +420,8 @@ export const registerUser = async (
             idNumber: newIDNumber, // Use the newIDNumber which is now the updated sequential ID number we've updated
             inn,
             role: normalizedRole as any,
+            faculty: facultyDoc ? facultyDoc.name : typeof req.body?.faculty === "string" ? req.body.faculty.trim() : undefined,
+            facultyId: facultyDoc ? facultyDoc._id : undefined,
             department: (departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : undefined) as any,
             departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: finalStudentClass,
@@ -504,6 +532,10 @@ export const registerPublic = async (
         const departmentDoc = await findDepartment(
             (departmentId as string | undefined) || (department as string | undefined) ||
             (req.body?.departmentCode as string | undefined) || (req.body?.departmentID as string | undefined)
+        );
+
+        const facultyDoc = await findFaculty(
+            (req.body?.facultyId as string | undefined) || (req.body?.faculty as string | undefined)
         );
 
         const isStaffUmbrella = ["teacher", "unitconsultant", "unitresident"].includes(normalizedRole);
@@ -628,12 +660,21 @@ export const registerPublic = async (
             }
         }
 
+        const facultyName = facultyDoc
+            ? facultyDoc.name
+            : typeof req.body?.faculty === "string"
+                ? req.body.faculty.trim()
+                : undefined;
+        const facultyIdValue = facultyDoc ? facultyDoc._id : undefined;
+
         const newUser = await User.create({
             name,
             email,
             password,
             idNumber: newIDNumber,
             role: normalizedRole as any,
+            faculty: facultyName,
+            facultyId: facultyIdValue,
             department: (departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : undefined) as any,
             departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: studentClassId,
@@ -1049,14 +1090,34 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                         : [];
                 user.parentStudents = normalizedParentStudents.filter((student: any) => typeof student !== "string" || student.trim() !== "") as any;
             }
+            if (req.body.faculty !== undefined || req.body.facultyId !== undefined) {
+                const facultyInput = req.body.facultyId ?? req.body.faculty;
+                if (facultyInput === null || (typeof facultyInput === "string" && String(facultyInput).trim() === "")) {
+                    user.facultyId = null;
+                    user.faculty = null as any;
+                } else {
+                    const facultyDoc = await findFaculty(facultyInput);
+                    if (facultyDoc) {
+                        user.facultyId = facultyDoc._id;
+                        user.faculty = facultyDoc.name as any;
+                    } else if (req.body.faculty !== undefined) {
+                        user.faculty = String(req.body.faculty).trim() as any;
+                    }
+                }
+            }
             if (req.body.department !== undefined || req.body.departmentId !== undefined) {
                 const deptInput = req.body.departmentId ?? req.body.department;
-                const deptDoc = await findDepartment(deptInput);
-                if (deptDoc) {
-                    user.departmentId = deptDoc._id;
-                    user.department = deptDoc.name as any;
-                } else if (req.body.department !== undefined) {
-                    user.department = String(req.body.department).trim() as any;
+                if (deptInput === null || (typeof deptInput === "string" && String(deptInput).trim() === "")) {
+                    user.departmentId = null;
+                    user.department = null as any;
+                } else {
+                    const deptDoc = await findDepartment(deptInput);
+                    if (deptDoc) {
+                        user.departmentId = deptDoc._id;
+                        user.department = deptDoc.name as any;
+                    } else if (req.body.department !== undefined) {
+                        user.department = String(req.body.department).trim() as any;
+                    }
                 }
             }
             if (req.body.academicStatus !== undefined) user.academicStatus = req.body.academicStatus;

@@ -108,10 +108,34 @@ export const UserAcademicStatus = {
     lecturerII: "lecturer ii",
     assistantLecturer: "assistant lecturer",
     resident: "resident",
+    intern: "intern",
+    juniorResident: "junior resident",
+    seniorResident: "senior resident",
+    chiefResident: "chief resident",
+    fellow: "fellow",
+    attendingPhysician: "attending physician",
+    consultant: "consultant",
+    medicalDirector: "medical director",
     student: "student",
 } as const;
 
-export type userAcademicStatus = "professor" | "associate professor" | "lecturer i" | "lecturer ii" | "assistant lecturer" | "resident" | "student" | null;
+export type userAcademicStatus =
+  | "professor"
+  | "associate professor"
+  | "lecturer i"
+  | "lecturer ii"
+  | "assistant lecturer"
+  | "resident"
+  | "intern"
+  | "junior resident"
+  | "senior resident"
+  | "chief resident"
+  | "fellow"
+  | "attending physician"
+  | "consultant"
+  | "medical director"
+  | "student"
+  | null;
 
 export const UserDepartmentRole = {
     headOfDepartment: "head of department",
@@ -119,9 +143,17 @@ export const UserDepartmentRole = {
     examOfficer: "exam officer",
     financeOfficer: "finance officer",
     levelCordinator: "level coordinator",
+    member: "member",
 } as const;
 
-export type userDepartmentRole = "head of department" | "dean of faculty" | "exam officer" | "finance officer" | "level coordinator" | null;
+export type userDepartmentRole =
+  | "head of department"
+  | "dean of faculty"
+  | "exam officer"
+  | "finance officer"
+  | "level coordinator"
+  | "member"
+  | null;
 
 export interface IUser extends Document {
     name: string;
@@ -133,6 +165,8 @@ export interface IUser extends Document {
     passwordResetExpiresAt?: Date | null;
     lastPasswordResetRequestedAt?: Date | null;
     role: userRoles;
+    faculty?: string | null; // Faculty name or ID
+    facultyId: mongoose.Types.ObjectId | null; // Faculty ID
     department?: string | null; // Department name or ID
     departmentId: mongoose.Types.ObjectId | null; // Department ID
     isActive: boolean;
@@ -219,6 +253,15 @@ const UserSchema: Schema<IUser> = new Schema({
         enum: Object.values(UserRole),
         required: true,
         default: UserRole.STUDENT
+    },
+    faculty: {
+        type: String,
+        default: null,
+    },
+    facultyId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Faculty",
+        default: null,
     },
     department: {
         type: String,

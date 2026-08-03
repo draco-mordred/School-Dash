@@ -363,6 +363,8 @@ const Account = () => {
   const institutionBackgroundUrl = institution?.backgroundImageUrl || institution?.logoUrl || null;
   const institutionDisplayName = institution?.name || institution?.shortName || "Institution";
   const institutionLogoUrl = institution?.logoUrl || null;
+  const [currentAcademicYear, setCurrentAcademicYear] = useState<any | null>(null);
+  const [studentClassClockStart, setStudentClassClockStart] = useState<string | null>(null);
 
   const getStudentClassRecord = (): Class | null => {
     if (!user || user.role !== "student") return null;
@@ -423,6 +425,43 @@ const Account = () => {
     ? resolvedStudentClass.students.length
     : undefined;
 
+  useEffect(() => {
+    const loadAcademicContext = async () => {
+      try {
+        if (user?.role === "student") {
+          const rawClass = user.studentClass ?? user.studentClasses;
+          const classId = typeof rawClass === "object" ? (rawClass as any)?._id : rawClass;
+          if (classId) {
+            try {
+              const { data } = await api.get(`/academic-clocks?classId=${classId}`);
+              const clocks = Array.isArray(data?.clocks) ? data.clocks : [];
+              const active = clocks[0] ?? null;
+              const start = active?.clockStartDate ?? active?.startDate ?? null;
+              if (start) {
+                const locale = institution?.locale || institution?.dateLocale || "en-GB";
+                setStudentClassClockStart(new Date(start).toLocaleDateString(locale));
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+        } else {
+          // staff/admin: load current academic year
+          try {
+            const { data } = await api.get("/academic-years/current");
+            const year = data?.year ?? data;
+            setCurrentAcademicYear(year ?? null);
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    void loadAcademicContext();
+  }, [user?.role, user?.studentClass, user?.studentClasses, institution]);
+
   const getAttendanceStats = () => {
     if (!studentAttendance?.stats) return null;
     const stats: Record<string, number> = {};
@@ -435,6 +474,55 @@ const Account = () => {
       excused: stats.excused ?? 0,
       percentage: Math.round(((stats.present ?? 0) + (stats.late ?? 0)) / total * 100),
     };
+  };
+
+  const formatValidRange = () => {
+    // Prefer currentAcademicYear when available
+    if (currentAcademicYear) {
+      const from = currentAcademicYear.fromYear ?? currentAcademicYear.from ?? currentAcademicYear.startDate ?? currentAcademicYear.start;
+      const to = currentAcademicYear.toYear ?? currentAcademicYear.to ?? currentAcademicYear.endDate ?? currentAcademicYear.end;
+      const parseYear = (v: any) => {
+        if (v == null) return null;
+        if (typeof v === "number" && Number.isFinite(v) && String(v).length === 4) return String(v);
+        if (typeof v === "string") {
+          const m = v.match(/(\d{4})/);
+          if (m) return m[1];
+          const d = new Date(v);
+          if (!Number.isNaN(d.getFullYear())) return String(d.getFullYear());
+        }
+        if (v instanceof Date && !Number.isNaN(v.getFullYear())) return String(v.getFullYear());
+        return null;
+      };
+      const fy = parseYear(from);
+      const ty = parseYear(to);
+      if (fy && ty) return `${fy} to ${ty}`;
+    }
+
+    if (studentClassAcademicYear) {
+      const s = String(studentClassAcademicYear);
+      const m = s.match(/(\d{4})\D+(\d{4})/);
+      if (m) return `${m[1]} to ${m[2]}`;
+      // try extracting any two years
+      const years = s.match(/(\d{4})/g);
+      if (years && years.length >= 2) return `${years[0]} to ${years[1]}`;
+    }
+
+    return "N/A";
+  };
+
+  const getIssuedDateLabel = () => {
+    if (user?.role === "student") {
+      return studentClassClockStart ?? "Not issued";
+    }
+    // staff/admin
+    if (currentAcademicYear) {
+      const from = currentAcademicYear.fromYear ?? currentAcademicYear.from ?? currentAcademicYear.startDate ?? currentAcademicYear.start;
+      if (from) {
+        const date = typeof from === "number" ? new Date(String(from)) : new Date(from);
+        if (!Number.isNaN(date.getTime())) return date.toLocaleDateString(institution?.locale || "en-GB");
+      }
+    }
+    return "Not issued";
   };
 
   const loadStudentDetails = async (student: user) => {
@@ -653,39 +741,60 @@ const Account = () => {
                       <p className="mt-1 text-sm font-semibold capitalize">{user?.role || "user"}</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Mat. Number</p>
+                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">
+                        {user?.role === "student" ? "Mat. Number" : user?.role === "admin" ? "Admin ID" : "Staff ID"}
+                        </p>
                       <p className="mt-1 text-sm font-semibold">{user?.idNumber || "N/A"}</p>
                     </div>
                     <div className="rounded-2xl border border-border/70 bg-background/70 p-3 backdrop-blur-sm">
-                      <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Class</p>
-                      <p className="mt-1 text-sm font-semibold">{studentClassName === "N/A" ? "Not assigned" : studentClassName}</p>
-                    {studentClassAcademicYear ? (
-                      <p className="text-xs text-muted-foreground mt-1">{studentClassAcademicYear}</p>
-                    ) : null}
-                  </div>
+                      {user?.role === "teacher" ? (
+                        <>
+                          <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Class</p>
+                          <p className="mt-1 text-sm font-semibold">{getDisplayClasses() === "N/A" ? "Not assigned" : getDisplayClasses()}</p>
+                        </>
+                      ) : user && user.role !== "student" ? (
+                        <>
+                          <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Department</p>
+                          <p className="mt-1 text-sm font-semibold">{user.department ?? "Not assigned"}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground">Class</p>
+                          <p className="mt-1 text-sm font-semibold">{studentClassName === "N/A" ? "Not assigned" : studentClassName}</p>
+                          {studentClassAcademicYear ? (
+                            <p className="text-xs text-muted-foreground mt-1">{studentClassAcademicYear}</p>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
                 </div>
                 </div>
 
                 <div className="rounded-[24px] border border-border/70 bg-background/70 p-5 backdrop-blur-md">
                   <p className="text-[10px] uppercase tracking-[0.35em] text-muted-foreground">Official details</p>
-                  <div className="mt-4 space-y-3 text-sm">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Status</span>
-                      <span className="font-semibold text-primary">Active</span>
+                    <div className="mt-4 space-y-3 text-sm">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="text-muted-foreground">Status</span>
+                        <span className="font-semibold text-primary">Active</span>
+                      </div>
+
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="text-muted-foreground">Access</span>
+                        <span className="font-semibold">
+                          {user?.role === "student" ? "Learning" : user?.role === "admin" ? "System" : "Supervision"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                        <span className="text-muted-foreground">Issued</span>
+                        <span className="font-semibold">{getIssuedDateLabel()}</span>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-muted-foreground">Valid</span>
+                        <span className="font-semibold text--foreground">{formatValidRange()}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Issued</span>
-                      <span className="font-semibold">{studentClassAcademicYear}</span>
-                    </div>
-                    <div className="flex items-center justify-between border-b border-white/10 pb-2">
-                      <span className="text-muted-foreground">Valid</span>
-                      <span className="font-semibold text-accent">{studentClassAcademicYear}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Access</span>
-                      <span className="font-semibold text-foreground">Clinical & learning</span>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>

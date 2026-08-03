@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Pencil, Plus, Trash, Upload, ChevronDown, ChevronUp } from "lucide-react";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
-import type { department } from "@/types";
+import type { department, user } from "@/types";
 
 type DepartmentUnitMeta = {
   id: string;
@@ -252,8 +252,13 @@ export const DepartmentUnitsSection = ({ search }: { search: string }) => {
 
 const AdminDepartments = () => {
   const [departments, setDepartments] = useState<department[]>([]);
-  const [departmentUnitsByCode, setDepartmentUnitsByCode] = useState<Record<string, DepartmentUnitsData>>({});
   const [expandedDepartments, setExpandedDepartments] = useState<Record<string, boolean>>({});
+  const [departmentUsers, setDepartmentUsers] = useState<Record<string, user[]>>({});
+  const [loadingDepartmentUsers, setLoadingDepartmentUsers] = useState<Record<string, boolean>>({});
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<user[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [activeDepartmentForUserSearch, setActiveDepartmentForUserSearch] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -271,30 +276,106 @@ const AdminDepartments = () => {
   const fetchDepartments = useCallback(async () => {
     setLoading(true);
     try {
-      const [deptResponse, constantsResponse] = await Promise.all([
-        api.get("/courses/departments"),
-        api.get<DepartmentConstantsResponse>("/courses/department-constants"),
-      ]);
-
-      setDepartments(deptResponse.data.departments ?? []);
-      setDepartmentUnitsByCode(
-        Object.values(constantsResponse.data.departmentUnits ?? {}).reduce(
-          (acc: Record<string, DepartmentUnitsData>, entry) => {
-            if (entry?.id) {
-              acc[String(entry.id).toUpperCase()] = entry;
-            }
-            return acc;
-          },
-          {}
-        )
-      );
+      const { data } = await api.get("/courses/departments");
+      setDepartments(data.departments ?? []);
     } catch (error) {
       console.error(error);
-      toast.error("Failed to load departments or unit metadata.");
+      toast.error("Failed to load departments.");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const fetchDepartmentUsers = useCallback(async (departmentId: string) => {
+    setLoadingDepartmentUsers((prev) => ({ ...prev, [departmentId]: true }));
+    try {
+      const { data } = await api.get(`/users?department=${departmentId}&limit=100`);
+      setDepartmentUsers((prev) => ({ ...prev, [departmentId]: data.users ?? [] }));
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load department users.");
+    } finally {
+      setLoadingDepartmentUsers((prev) => ({ ...prev, [departmentId]: false }));
+    }
+  }, []);
+
+  const handleToggleDepartment = (departmentId: string) => {
+    setExpandedDepartments((prev) => {
+      const opened = !prev[departmentId];
+      if (opened && departmentUsers[departmentId] === undefined) {
+        void fetchDepartmentUsers(departmentId);
+      }
+      return { ...prev, [departmentId]: opened };
+    });
+  };
+
+  const searchUsersForDepartment = async (departmentId: string) => {
+    if (!userSearchTerm.trim()) {
+      setUserSearchResults([]);
+      setActiveDepartmentForUserSearch(departmentId);
+      return;
+    }
+
+    setSearchingUsers(true);
+    setActiveDepartmentForUserSearch(departmentId);
+    try {
+      const { data } = await api.get(`/users?search=${encodeURIComponent(userSearchTerm.trim())}&limit=50`);
+      setUserSearchResults(data.users ?? []);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to search users.");
+      setUserSearchResults([]);
+    } finally {
+      setSearchingUsers(false);
+    }
+  };
+
+  const handleAssignUser = async (userId: string, departmentId: string) => {
+    try {
+      await api.patch(`/users/update/${userId}`, { departmentId });
+      toast.success("User assigned to department.");
+      void fetchDepartmentUsers(departmentId);
+      setUserSearchResults((prev) => prev.filter((user) => user._id !== userId));
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to assign user.");
+    }
+  };
+
+  const handleRemoveUser = async (userId: string, departmentId: string) => {
+    try {
+      await api.patch(`/users/update/${userId}`, { departmentId: null });
+      toast.success("User removed from department.");
+      void fetchDepartmentUsers(departmentId);
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to remove user.");
+    }
+  };
+
+  const handleUpdateUserAttribute = async (
+    userId: string,
+    departmentId: string,
+    attribute: "academicStatus" | "departmentRole",
+    value: string | null
+  ) => {
+    try {
+      await api.patch(`/users/update/${userId}`, { [attribute]: value || null });
+      toast.success("User updated.");
+      setDepartmentUsers((prev) => {
+        const current = prev[departmentId] ?? [];
+        return {
+          ...prev,
+          [departmentId]: current.map((user) =>
+            user._id === userId ? { ...user, [attribute]: value } : user
+          ),
+        };
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to update user.");
+    }
+  };
 
   useEffect(() => {
     void fetchDepartments();
@@ -467,7 +548,7 @@ const AdminDepartments = () => {
           <CardHeader>
             <div className="flex flex-col gap-2">
               <CardTitle className="text-card-foreground">Departments</CardTitle>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Click a department card to expand its details and view active and reserve units.</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Manage clinical departments for the institution. Edit, delete, or create new departments here.</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -482,30 +563,27 @@ const AdminDepartments = () => {
             ) : (
               <div className="space-y-4">
                 {filteredDepartments.map((department) => {
-                  const unitMeta = departmentUnitsByCode[department.code.toUpperCase()];
-                  const activeUnits = unitMeta
-                    ? unitMeta.units.active.map(normalizeUnitName).filter(Boolean)
-                    : [];
-                  const reserveUnits = unitMeta
-                    ? unitMeta.units.reserve.map(normalizeUnitName).filter(Boolean)
-                    : [];
                   const isOpen = expandedDepartments[department._id] ?? false;
+                  const departmentAssignedUsers = departmentUsers[department._id] ?? [];
+                  const isSearchingThisDepartment = activeDepartmentForUserSearch === department._id;
 
                   return (
                     <div key={department._id} className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition duration-200 hover:shadow-lg hover:scale-101 hover:-translate-y-1">
                       <button
                         type="button"
-                        onClick={() => setExpandedDepartments((prev) => ({ ...prev, [department._id]: !prev[department._id] }))}
+                        onClick={() => handleToggleDepartment(department._id)}
                         className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
                       >
                         <div>
                           <p className="text-lg font-semibold text-card-foreground">{department.name}</p>
                           <p className="text-sm text-slate-600 dark:text-slate-400">{department.code} · {department.departmentID}</p>
+                          {department.head && (
+                            <p className="text-sm text-slate-500 dark:text-slate-400">
+                              Head: {typeof department.head === "string" ? department.head : department.head.name}
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-muted px-3 py-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                            {activeUnits.length} units
-                          </span>
                           {isOpen ? <ChevronUp className="h-4 w-4 text-slate-600" /> : <ChevronDown className="h-4 w-4 text-slate-600" />}
                         </div>
                       </button>
@@ -515,7 +593,7 @@ const AdminDepartments = () => {
                           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <p className="text-sm font-medium text-card-foreground">Department details</p>
-                              <p className="text-sm text-slate-600 dark:text-slate-400">Use the buttons below to edit or delete.</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">Use the buttons below to edit or delete, or manage users assigned to this department.</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <Button variant="outline" size="sm" onClick={() => openEditForm(department)}>
@@ -529,33 +607,133 @@ const AdminDepartments = () => {
 
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Active units</p>
-                              {activeUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {activeUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No unit metadata available.</p>
+                              <p className="text-sm font-semibold text-card-foreground">Department reference</p>
+                              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">Code: {department.code}</p>
+                              <p className="text-sm text-slate-600 dark:text-slate-400">Department ID: {department.departmentID}</p>
+                              {department.head && (
+                                <p className="text-sm text-slate-600 dark:text-slate-400">
+                                  Head: {typeof department.head === "string" ? department.head : department.head.name}
+                                </p>
                               )}
                             </div>
-                            <div className="rounded-2xl border border-border bg-card p-4">
-                              <p className="text-sm font-semibold text-card-foreground">Reserve units</p>
-                              {reserveUnits.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                                  {reserveUnits.map((unit) => (
-                                    <li key={unit} className="rounded-lg bg-muted px-3 py-2">
-                                      {unit}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-3 text-sm text-slate-500">No reserve units defined.</p>
-                              )}
+                          </div>
+
+                          <div className="mt-6 rounded-3xl border border-border bg-card p-4">
+                            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-card-foreground">Assigned Users</p>
+                                <p className="text-sm text-slate-600 dark:text-slate-400">Manage staff assigned to this department.</p>
+                              </div>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <Input
+                                  value={userSearchTerm}
+                                  onChange={(event) => setUserSearchTerm(event.target.value)}
+                                  placeholder="Search users by name, email, or ID"
+                                  className="max-w-md"
+                                />
+                                <Button
+                                  size="sm"
+                                  onClick={() => void searchUsersForDepartment(department._id)}
+                                  disabled={searchingUsers}
+                                >
+                                  {searchingUsers && isSearchingThisDepartment ? "Searching…" : "Search Users"}
+                                </Button>
+                              </div>
                             </div>
+
+                            {isSearchingThisDepartment && userSearchResults.length > 0 && (
+                              <div className="mt-4 space-y-3">
+                                <p className="text-sm font-semibold text-card-foreground">Search Results</p>
+                                {userSearchResults.map((user) => (
+                                  <div key={user._id} className="flex flex-col gap-2 rounded-2xl border border-border bg-muted p-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                      <p className="font-medium text-card-foreground">{user.name}</p>
+                                      <p className="text-sm text-slate-600 dark:text-slate-400">{user.role} • {user.email}</p>
+                                    </div>
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => void handleAssignUser(user._id, department._id)}
+                                    >
+                                      Assign to Department
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {loadingDepartmentUsers[department._id] ? (
+                              <div className="mt-4 rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">Loading assigned users…</div>
+                            ) : departmentAssignedUsers.length === 0 ? (
+                              <div className="mt-4 rounded-2xl border border-border bg-muted p-4 text-sm text-muted-foreground">No users assigned to this department.</div>
+                            ) : (
+                              <div className="mt-4 space-y-3">
+                                {departmentAssignedUsers.map((user) => (
+                                  <div key={user._id} className="rounded-2xl border border-border bg-muted p-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="font-semibold text-card-foreground">{user.name}</p>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">{user.role} • {user.email}</p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          className="rounded-md border border-border px-3 py-2 text-sm"
+                                          onClick={() => void handleRemoveUser(user._id, department._id)}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                      <div className="space-y-2">
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Academic Status</label>
+                                        <select
+                                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                          value={user.academicStatus ?? ""}
+                                          onChange={(event) =>
+                                            void handleUpdateUserAttribute(
+                                              user._id,
+                                              department._id,
+                                              "academicStatus",
+                                              event.target.value || null
+                                            )
+                                          }
+                                        >
+                                          <option value="">None</option>
+                                          <option value="professor">Professor</option>
+                                          <option value="associate professor">Associate Professor</option>
+                                          <option value="lecturer i">Lecturer I</option>
+                                          <option value="lecturer ii">Lecturer II</option>
+                                          <option value="assistant lecturer">Assistant Lecturer</option>
+                                          <option value="resident">Resident</option>
+                                        </select>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Department Role</label>
+                                        <select
+                                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                                          value={user.departmentRole ?? ""}
+                                          onChange={(event) =>
+                                            void handleUpdateUserAttribute(
+                                              user._id,
+                                              department._id,
+                                              "departmentRole",
+                                              event.target.value || null
+                                            )
+                                          }
+                                        >
+                                          <option value="">None</option>
+                                          <option value="head of department">Head of Department</option>
+                                          <option value="dean of faculty">Dean of Faculty</option>
+                                          <option value="exam officer">Exam Officer</option>
+                                        </select>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -582,8 +760,6 @@ const AdminDepartments = () => {
           onCancel={resetForm}
         />
       </div>
-
-      <DepartmentUnitsSection search={search} />
 
       <CustomAlert
         handleDelete={handleDelete}

@@ -7,6 +7,7 @@ import User, { UserIDs, UserRole } from "../models/user";
 import ClassModel from "../models/classes";
 import AcademicYear from "../models/academicYear";
 import Department from "../models/departments";
+import Faculty from "../models/faculty";
 import Unit from "../models/units";
 import Subjects from "../services/subjects";
 import Exam from "../models/exam";
@@ -78,6 +79,32 @@ const findOrCreateDepartment = async (identifier: string) => {
   }
 
   return departmentDoc;
+};
+
+const findFaculty = async (identifier?: string) => {
+  if (!identifier) return null;
+
+  let facultyDoc = null;
+  const trimmed = String(identifier).trim();
+  if (!trimmed) return null;
+
+  if (isObjectId(trimmed)) {
+    facultyDoc = await Faculty.findById(trimmed);
+  }
+
+  if (!facultyDoc) {
+    facultyDoc = await Faculty.findOne({ code: trimmed });
+  }
+
+  if (!facultyDoc) {
+    facultyDoc = await Faculty.findOne({ facultyID: trimmed });
+  }
+
+  if (!facultyDoc) {
+    facultyDoc = await Faculty.findOne({ name: trimmed });
+  }
+
+  return facultyDoc;
 };
 
 const normalizeCourseCode = (departmentCode: string, code: string) => {
@@ -2107,16 +2134,24 @@ const normalizeDepartmentPayload = (raw: any) => {
       "",
   ).trim();
   const head = String(raw?.head || raw?.departmentHead || "").trim();
-  return { name, code, departmentID, head: head || undefined };
+  const facultyId = String(
+    raw?.facultyId ||
+      raw?.facultyID ||
+      raw?.["Faculty ID"] ||
+      raw?.["faculty id"] ||
+      "",
+  ).trim();
+  return { name, code, departmentID, head: head || undefined, facultyId: facultyId || undefined };
 };
 
 export const createDepartment = async (req: Request, res: Response) => {
   try {
-    const { name, code, departmentID, head } = req.body as {
+    const { name, code, departmentID, head, facultyId } = req.body as {
       name?: string;
       code?: string;
       departmentID?: string;
       head?: string;
+      facultyId?: string;
     };
 
     if (!name || !code || !departmentID) {
@@ -2147,11 +2182,21 @@ export const createDepartment = async (req: Request, res: Response) => {
         });
     }
 
+    let resolvedFacultyId: string | undefined;
+    if (facultyId !== undefined && facultyId !== null && String(facultyId).trim()) {
+      const facultyDoc = await findFaculty(String(facultyId));
+      if (!facultyDoc) {
+        return res.status(400).json({ message: "Faculty not found." });
+      }
+      resolvedFacultyId = facultyDoc._id.toString();
+    }
+
     const department = await Department.create({
       name: normalizedName,
       code: normalizedCode,
       departmentID: normalizedDepartmentID,
       head: head && mongoose.isValidObjectId(head) ? head : undefined,
+      facultyId: resolvedFacultyId,
     } as any);
 
     const userId = (req as any).user?._id;
@@ -2176,11 +2221,12 @@ export const updateDepartment = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Department not found" });
     }
 
-    const { name, code, departmentID, head } = req.body as {
+    const { name, code, departmentID, head, facultyId } = req.body as {
       name?: string;
       code?: string;
       departmentID?: string;
       head?: string;
+      facultyId?: string;
     };
 
     const updateData: any = {};
@@ -2190,6 +2236,17 @@ export const updateDepartment = async (req: Request, res: Response) => {
       updateData.departmentID = String(departmentID).trim();
     if (head !== undefined)
       updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
+    if (facultyId !== undefined) {
+      if (facultyId === null || String(facultyId).trim() === "") {
+        updateData.facultyId = null;
+      } else {
+        const facultyDoc = await findFaculty(String(facultyId));
+        if (!facultyDoc) {
+          return res.status(400).json({ message: "Faculty not found." });
+        }
+        updateData.facultyId = facultyDoc._id;
+      }
+    }
 
     if (updateData.name || updateData.code || updateData.departmentID) {
       const duplicate = await Department.findOne({
@@ -2238,6 +2295,8 @@ export const deleteDepartment = async (req: Request, res: Response) => {
       return res.status(404).json({ message: "Department not found" });
     }
 
+    await Department.updateMany({ facultyId: deleted._id }, { $unset: { facultyId: "" } });
+
     const userId = (req as any).user?._id;
     if (userId) {
       await logActivity({
@@ -2263,6 +2322,7 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
         code?: string;
         departmentID?: string;
         head?: string;
+        facultyId?: string;
       }>;
     };
 
@@ -2295,6 +2355,20 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
         continue;
       }
 
+      let resolvedFacultyId: string | undefined;
+      if (row.facultyId) {
+        const facultyDoc = await findFaculty(row.facultyId);
+        if (!facultyDoc) {
+          results.errors.push({
+            row: rowNumber,
+            message: "Faculty not found for row.",
+          });
+          results.skipped += 1;
+          continue;
+        }
+        resolvedFacultyId = facultyDoc._id.toString();
+      }
+
       const filter = {
         $or: [{ code: row.code }, { departmentID: row.departmentID }],
       };
@@ -2309,6 +2383,7 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
             row.head && mongoose.isValidObjectId(row.head)
               ? row.head
               : existing.head,
+          ...(resolvedFacultyId !== undefined ? { facultyId: resolvedFacultyId } : {}),
         });
         results.updated += 1;
         continue;
@@ -2320,6 +2395,7 @@ export const bulkUploadDepartments = async (req: Request, res: Response) => {
         departmentID: row.departmentID,
         head:
           row.head && mongoose.isValidObjectId(row.head) ? row.head : undefined,
+        facultyId: resolvedFacultyId,
       } as any);
       results.created += 1;
     }
@@ -2346,6 +2422,258 @@ export const getDepartmentConstants = async (req: Request, res: Response) => {
       departmentUnits: DEPARTMENT_UNITS,
       departmentCourses: DEPARTMENT_COURSES,
     });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const getFaculties = async (req: Request, res: Response) => {
+  try {
+    const faculties = await Faculty.find({}).sort({ name: 1 });
+    return res.json({ faculties });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const getFacultyDepartments = async (req: Request, res: Response) => {
+  try {
+    const facultyId = req.params.id;
+    if (!mongoose.isValidObjectId(facultyId)) {
+      return res.status(400).json({ message: "Invalid faculty id." });
+    }
+
+    const faculty = await Faculty.findById(facultyId);
+    if (!faculty) {
+      return res.status(404).json({ message: "Faculty not found." });
+    }
+
+    const departments = await Department.find({ facultyId: faculty._id }).sort({ name: 1 });
+    return res.json({ faculty, departments });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const createDepartmentUnderFaculty = async (req: Request, res: Response) => {
+  try {
+    const facultyId = req.params.id;
+    if (!mongoose.isValidObjectId(facultyId)) {
+      return res.status(400).json({ message: "Invalid faculty id." });
+    }
+
+    const faculty = await Faculty.findById(facultyId);
+    if (!faculty) {
+      return res.status(404).json({ message: "Faculty not found." });
+    }
+
+    const { name, code, departmentID, head } = req.body as {
+      name?: string;
+      code?: string;
+      departmentID?: string;
+      head?: string;
+    };
+
+    if (!name || !code || !departmentID) {
+      return res.status(400).json({ message: "Department name, code, and departmentID are required." });
+    }
+
+    const normalizedName = String(name).trim();
+    const normalizedCode = String(code).trim().toUpperCase();
+    const normalizedDepartmentID = String(departmentID).trim();
+
+    const existing = await Department.findOne({
+      $or: [
+        { code: normalizedCode },
+        { departmentID: normalizedDepartmentID },
+        { name: normalizedName },
+      ],
+    });
+
+    if (existing) {
+      return res.status(409).json({ message: "A department with that code, ID, or name already exists." });
+    }
+
+    const department = await Department.create({
+      name: normalizedName,
+      code: normalizedCode,
+      departmentID: normalizedDepartmentID,
+      head: head && mongoose.isValidObjectId(head) ? head : undefined,
+      facultyId: faculty._id,
+    } as any);
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Created department ${department.name} (${department.code}) under faculty ${faculty.name}`,
+      });
+    }
+
+    return res.status(201).json(department);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const deleteDepartmentUnderFaculty = async (req: Request, res: Response) => {
+  try {
+    const { facultyId, id } = req.params;
+    if (!mongoose.isValidObjectId(facultyId) || !mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid faculty or department id." });
+    }
+
+    const faculty = await Faculty.findById(facultyId);
+    if (!faculty) {
+      return res.status(404).json({ message: "Faculty not found." });
+    }
+
+    const deleted = await Department.findOneAndDelete({ _id: id, facultyId: faculty._id });
+    if (!deleted) {
+      return res.status(404).json({ message: "Department not found under this faculty." });
+    }
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Deleted department ${deleted.name} (${deleted.code}) under faculty ${faculty.name}`,
+      });
+    }
+
+    return res.json({ message: `Department ${deleted.name} deleted successfully.` });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const createFaculty = async (req: Request, res: Response) => {
+  try {
+    const { name, code, facultyID, head } = req.body as {
+      name?: string;
+      code?: string;
+      facultyID?: string;
+      head?: string;
+    };
+
+    if (!name || !code || !facultyID) {
+      return res.status(400).json({ message: "Faculty name, code, and facultyID are required." });
+    }
+
+    const normalizedName = String(name).trim();
+    const normalizedCode = String(code).trim().toUpperCase();
+    const normalizedFacultyID = String(facultyID).trim();
+
+    const existing = await Faculty.findOne({
+      $or: [
+        { code: normalizedCode },
+        { facultyID: normalizedFacultyID },
+        { name: normalizedName },
+      ],
+    });
+
+    if (existing) {
+      return res.status(409).json({ message: "A faculty with that code, facultyID, or name already exists." });
+    }
+
+    const faculty = await Faculty.create({
+      name: normalizedName,
+      code: normalizedCode,
+      facultyID: normalizedFacultyID,
+      head: head && mongoose.isValidObjectId(head) ? head : undefined,
+    } as any);
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Created faculty ${faculty.name} (${faculty.code})`,
+      });
+    }
+
+    return res.status(201).json(faculty);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const updateFaculty = async (req: Request, res: Response) => {
+  try {
+    const faculty = await Faculty.findById(req.params.id);
+    if (!faculty) {
+      return res.status(404).json({ message: "Faculty not found" });
+    }
+
+    const { name, code, facultyID, head } = req.body as {
+      name?: string;
+      code?: string;
+      facultyID?: string;
+      head?: string;
+    };
+
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = String(name).trim();
+    if (code !== undefined) updateData.code = String(code).trim().toUpperCase();
+    if (facultyID !== undefined) updateData.facultyID = String(facultyID).trim();
+    if (head !== undefined) updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
+
+    if (updateData.name || updateData.code || updateData.facultyID) {
+      const duplicate = await Faculty.findOne({
+        _id: { $ne: faculty._id },
+        $or: [
+          ...(updateData.code ? [{ code: updateData.code }] : []),
+          ...(updateData.facultyID ? [{ facultyID: updateData.facultyID }] : []),
+          ...(updateData.name ? [{ name: updateData.name }] : []),
+        ],
+      });
+
+      if (duplicate) {
+        return res.status(409).json({ message: "Another faculty with the same name, code, or facultyID already exists." });
+      }
+    }
+
+    Object.assign(faculty, updateData);
+    const updated = await faculty.save();
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Updated faculty ${updated.name} (${updated.code})`,
+      });
+    }
+
+    return res.json(updated);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const deleteFaculty = async (req: Request, res: Response) => {
+  try {
+    const deleted = await Faculty.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Faculty not found" });
+    }
+
+    await Department.updateMany({ facultyId: deleted._id }, { $unset: { facultyId: "" } });
+
+    const userId = (req as any).user?._id;
+    if (userId) {
+      await logActivity({
+        userId,
+        action: `Deleted faculty ${deleted.name} (${deleted.code})`,
+      });
+    }
+
+    return res.json({ message: `Faculty ${deleted.name} deleted successfully.` });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error", error });

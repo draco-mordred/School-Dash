@@ -41,6 +41,7 @@ import Approvals from "@/pages/Approvals";
 import Reflections from "@/pages/Reflections";
 import ClinicalActivities from "@/pages/ClinicalActivities";
 import AdminDepartments from "@/pages/admin/AdminDepartments";
+import AdminFaculties from "@/pages/admin/AdminFaculties";
 import AdminUnits from "@/pages/admin/AdminUnits";
 import StaffApprovals from "@/pages/StaffApprovals";
 import SupervisorQrAttendancePage from "@/pages/SupervisorQrAttendancePage";
@@ -288,6 +289,10 @@ export const router = createBrowserRouter([
           {
             path: "rotation-teams",
             element: <ClinicalRotations />,
+          },
+          {
+            path: "faculties",
+            element: <AdminFaculties />,
           },
           {
             path: "departments",

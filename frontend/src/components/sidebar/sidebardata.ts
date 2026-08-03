@@ -6,7 +6,6 @@ import {
   BookOpen,
   CalendarDays,
   ClipboardList,
-  Bell,
   Users,
   Banknote,
   Settings2,
@@ -14,8 +13,7 @@ import {
   Stethoscope,
   BarChart3,
   MessageSquare,
-  CheckSquare,
-  Building2,
+  CheckCircle2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -56,10 +54,10 @@ export const sidebardata = {
       items: [
         { title: "User Management", url: "/users", roles: ["admin"] },
         { title: "Students", url: "/users/students", roles: ["admin"] },
-        { title: "Parents", url: "/users/parents", roles: ["admin"] },
+        // { title: "Parents", url: "/users/parents", roles: ["admin"] },
         { title: "Teachers", url: "/users/teachers", roles: ["admin"] },
-        { title: "Unit Consultants", url: "/users/unit-consultants", roles: ["admin"] },
-        { title: "Unit Residents", url: "/users/unit-residents", roles: ["admin"] },
+        // { title: "Unit Consultants", url: "/users/unit-consultants", roles: ["admin"] },
+        // { title: "Unit Residents", url: "/users/unit-residents", roles: ["admin"] },
         { title: "Staff", url: "/users/staff", roles: ["admin"] },
         { title: "Administrators", url: "/users/admins", roles: ["admin"] },
       ],
@@ -70,11 +68,11 @@ export const sidebardata = {
       icon: GraduationCap,
       roles: ["admin"],
       items: [
-        { title: "Sessions", url: "/settings/academic-years", roles: ["admin"] },
-        { title: "Semesters", url: "/semesters", roles: ["admin"] },
         { title: "Classes", url: "/classes", roles: ["admin"] },
         { title: "Courses", url: "/courses", roles: ["admin"] },
         { title: "Subjects", url: "/subjects", roles: ["admin"] },
+        // { title: "Sessions", url: "/settings/academic-years", roles: ["admin"] },
+        // { title: "Semesters", url: "/semesters", roles: ["admin"] },
         { title: "Academic Calendar", url: "/academic-calendar", roles: ["admin"] },
       ],
     },
@@ -85,8 +83,6 @@ export const sidebardata = {
       roles: ["admin"],
       items: [
         { title: "Postings", url: "/clinical-rotations", roles: ["admin"] },
-        { title: "Departments", url: "/departments", roles: ["admin"] },
-        { title: "Units", url: "/units", roles: ["admin"] },
         { title: "Rotation Teams", url: "/rotation-teams", roles: ["admin"] },
         { title: "Clinical Calendar", url: "/rotation-schedules", roles: ["admin"] },
       ],
@@ -116,7 +112,7 @@ export const sidebardata = {
     {
       title: "Attendance",
       url: "#",
-      icon: CheckSquare,
+      icon: CheckCircle2,
       roles: ["admin"],
       items: [
         { title: "Lecture Attendance", url: "/attendance", roles: ["admin"] },
@@ -167,6 +163,9 @@ export const sidebardata = {
       icon: Settings2,
       roles: ["admin"],
       items: [
+        { title: "Faculties", url: "/faculties", roles: ["admin"] },
+        { title: "Departments", url: "/departments", roles: ["admin"] },
+        { title: "Units", url: "/units", roles: ["admin"] },
         { title: "School Settings", url: "/settings/general", roles: ["admin"] },
         { title: "Academic Year Settings", url: "/settings/academic-years", roles: ["admin"] },
         { title: "Roles & Permissions", url: "/settings/roles", roles: ["admin"] },
