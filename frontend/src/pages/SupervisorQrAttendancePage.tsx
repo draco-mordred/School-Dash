@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { resolveActiveAcademicClockPhase } from "@/lib/academicClock";
+import { loadSupervisorAttendanceSupportOptions } from "@/lib/supervisorAttendanceSupportOptions";
 
 interface ClinicalSessionSummary {
   _id: string;
@@ -240,31 +241,8 @@ export default function SupervisorQrAttendancePage() {
 
     const loadClassesAndAcademicYear = async () => {
       try {
-        const [classesResponse, academicYearResponse] = await Promise.all([
-          api.get("/classes?limit=200"),
-          api.get("/academic-years/current"),
-        ]);
-
-        const classList = Array.isArray(classesResponse.data)
-          ? classesResponse.data
-          : Array.isArray(classesResponse.data?.classes)
-            ? classesResponse.data.classes
-            : Array.isArray(classesResponse.data?.data)
-              ? classesResponse.data.data
-              : [];
-
-        const nextClasses = classList
-          .filter((cls: any) => cls?._id)
-          .map((cls: any) => ({
-            _id: cls._id,
-            name: cls.name ?? "Untitled class",
-            academicYearId: typeof cls.academicYear === "string" ? cls.academicYear : cls.academicYear?._id,
-          }));
-
-        const nextAcademicYearId = academicYearResponse.data?.year?._id
-          ?? academicYearResponse.data?._id
-          ?? academicYearResponse.data?.data?._id
-          ?? "";
+        const { classes: nextClasses, currentAcademicYearId: nextAcademicYearId } =
+          await loadSupervisorAttendanceSupportOptions();
 
         setClasses(nextClasses);
         setCurrentAcademicYearId(nextAcademicYearId);

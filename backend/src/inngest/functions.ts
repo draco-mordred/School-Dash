@@ -563,6 +563,98 @@ export const generateAttendance = inngest.createFunction(
 
 // ─── Bulk User Upload ─────────────────────────────────────────────────────────
 
+export const createUsersForBulkUpload = async ({
+  users,
+  classId,
+  courseIds,
+  userId,
+}: {
+  users: Array<{ name: string; email: string; idNumber?: string; role: userRoles }>;
+  classId?: string;
+  courseIds?: string[];
+  userId?: string;
+}) => {
+  if (!users || users.length === 0) {
+    throw new Error("No users provided.");
+  }
+
+  const created: string[] = [];
+  const skipped: string[] = [];
+  const errors: string[] = [];
+
+  // Pre-compute a fallback idNumber for each role that might need one
+  const rolePrefixes: Record<string, string> = {
+    teacher: "UJ0000TE",
+    parent: "UJ0000PA",
+    admin: "UJ0000AD",
+    student: "UJ0000ST",
+  };
+  const fallbackIdNumbers: Record<string, string> = {};
+  for (const [r, prefix] of Object.entries(rolePrefixes)) {
+    const lastUser = await User.findOne({ idNumber: { $regex: `^${prefix}` } })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (lastUser && lastUser.idNumber) {
+      const num = parseInt(lastUser.idNumber.slice(-4)) + 1;
+      fallbackIdNumbers[r] = `${prefix}${num.toString().padStart(4, "0")}`;
+    } else {
+      fallbackIdNumbers[r] = `${prefix}0001`;
+    }
+  }
+
+  for (const u of users) {
+    try {
+      const idNumber = u.idNumber?.trim() || (() => {
+        const prefixMap: Record<string, string> = { student: "UJ0000ST", teacher: "UJ0000TE", parent: "UJ0000PA", admin: "UJ0000AD" };
+        const prefix = prefixMap[u.role] ?? "UJ0000ST";
+        const currentNum = parseInt(fallbackIdNumbers[u.role]?.slice(-4) || "0");
+        const nextNum = (currentNum + 1).toString().padStart(4, "0");
+        fallbackIdNumbers[u.role] = `${prefix}${nextNum}`;
+        return fallbackIdNumbers[u.role];
+      })();
+
+      const email = u.email?.trim() || u.name.toLowerCase().replace(/\s+/g, ".") + "@school.edu";
+      const studentClasses = u.role === "student" && classId ? classId : undefined;
+      const teacherSubject = u.role === "teacher" && courseIds ? courseIds : undefined;
+
+      if (u.idNumber?.trim()) {
+        await User.findOneAndDelete({ idNumber: u.idNumber.trim() });
+      }
+      await User.findOneAndDelete({ email });
+
+      const newUser = await User.create({
+        name: u.name,
+        email,
+        idNumber,
+        role: u.role,
+        password: "password",
+        studentClasses,
+        teacherSubject,
+      });
+
+      if (!newUser) {
+        throw new Error("Failed to create user");
+      }
+
+      if (u.role === "student" && classId) {
+        await ClassModel.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose.Types.ObjectId(newUser._id) } }, { returnDocument: 'after' });
+      }
+
+      created.push(newUser.email);
+    } catch (err) {
+      errors.push(`'${u.name}': ${(err as Error).message}`);
+    }
+  }
+
+  await logActivity({
+    userId: userId ?? "system",
+    action: "Bulk uploaded users",
+    details: `Bulk upload: ${created.length} created, ${skipped.length} skipped, ${errors.length} errors.`,
+  });
+
+  return { created, skipped, errors };
+};
+
 export const bulkCreateUsers = inngest.createFunction(
   { id: "Bulk-Create-Users", triggers: { event: "users/bulk-create" } },
   async ({ event, step }) => {
@@ -573,98 +665,7 @@ export const bulkCreateUsers = inngest.createFunction(
       userId?: string;
     };
 
-    if (!users || users.length === 0) {
-      throw new NonRetriableError("No users provided.");
-    }
-
-    const results = await step.run("bulk-create-users", async () => {
-      const created: string[] = [];
-      const skipped: string[] = [];
-      const errors: string[] = [];
-
-      // Pre-compute a fallback idNumber for each role that might need one
-      const rolePrefixes: Record<string, string> = {
-        teacher: "UJ0000TE",
-        parent: "UJ0000PA",
-        admin: "UJ0000AD",
-        student: "UJ0000ST",
-      };
-      const fallbackIdNumbers: Record<string, string> = {};
-      for (const [r, prefix] of Object.entries(rolePrefixes)) {
-        const lastUser = await User.findOne({ idNumber: { $regex: `^${prefix}` } })
-          .sort({ createdAt: -1 })
-          .lean();
-        if (lastUser && lastUser.idNumber) {
-          const num = parseInt(lastUser.idNumber.slice(-4)) + 1;
-          fallbackIdNumbers[r] = `${prefix}${num.toString().padStart(4, "0")}`;
-        } else {
-          fallbackIdNumbers[r] = `${prefix}0001`;
-        }
-      }
-
-      for (const u of users) {
-        try {
-          // Use the provided idNumber as-is (any format), or fall back to auto-generated
-          const idNumber = u.idNumber?.trim() || (() => {
-            // Increment and rebuild a unique fallback idNumber for this user
-            const prefixMap: Record<string, string> = { student: "UJ0000ST", teacher: "UJ0000TE", parent: "UJ0000PA", admin: "UJ0000AD" };
-            const prefix = prefixMap[u.role] ?? "UJ0000ST";
-            const currentNum = parseInt(fallbackIdNumbers[u.role]?.slice(-4) || "0");
-            const nextNum = (currentNum + 1).toString().padStart(4, "0");
-            fallbackIdNumbers[u.role] = `${prefix}${nextNum}`;
-            return fallbackIdNumbers[u.role];
-          })();
-
-          // Generate email from name if not provided: "John Doe" → "john.doe@school.edu"
-          const email = u.email?.trim() || u.name.toLowerCase().replace(/\s+/g, ".") + "@school.edu";
-
-          // Build role-specific fields
-          const studentClasses = u.role === "student" && classId ? classId : undefined;
-          const teacherSubject = u.role === "teacher" && courseIds ? courseIds : undefined;
-
-          // Delete existing user if duplicate exists (by idNumber first, then by email)
-          if (u.idNumber?.trim()) {
-            await User.findOneAndDelete({ idNumber: u.idNumber.trim() });
-          }
-          await User.findOneAndDelete({ email });
-
-          // Create the new user
-          const newUser = await User.create({
-            name: u.name,
-            email,
-            idNumber,
-            role: u.role,
-            password: "password",
-            studentClasses,
-            teacherSubject,
-          });
-
-          if (!newUser) {
-            throw new Error("Failed to create user");
-          }
-
-          // If student, also add to class students array
-          if (u.role === "student" && classId) {
-            await ClassModel.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose.Types.ObjectId(newUser._id) } }, { returnDocument: 'after' });
-          }
-
-          created.push(newUser.email);
-        } catch (err) {
-          errors.push(`'${u.name}': ${(err as Error).message}`);
-        }
-      }
-
-      return { created, skipped, errors };
-    });
-
-    // Log activity
-    await step.run("log-activity", async () => {
-      await logActivity({
-        userId: userId ?? "system",
-        action: "Bulk uploaded users",
-        details: `Bulk upload: ${results.created.length} created, ${results.skipped.length} skipped, ${results.errors.length} errors.`,
-      });
-    });
+    const results = await step.run("bulk-create-users", async () => createUsersForBulkUpload({ users, classId, courseIds, userId }));
 
     return {
       success: true,

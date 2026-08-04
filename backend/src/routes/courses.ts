@@ -141,6 +141,25 @@ courseRouter
   .post(protect, authorize(["admin"]), seedDepartments);
 
 courseRouter
+  .route("/faculties")
+  .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), getFaculties)
+  .post(protect, authorize(["admin"]), createFaculty);
+
+courseRouter
+  .route("/faculties/:id/departments")
+  .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), getFacultyDepartments)
+  .post(protect, authorize(["admin"]), createDepartmentUnderFaculty);
+
+courseRouter
+  .route("/faculties/:facultyId/departments/:id")
+  .delete(protect, authorize(["admin"]), deleteDepartmentUnderFaculty);
+
+courseRouter
+  .route("/faculties/:id")
+  .patch(protect, authorize(["admin"]), updateFaculty)
+  .delete(protect, authorize(["admin"]), deleteFaculty);
+
+courseRouter
   .route("/department-constants")
   .get(protect, getDepartmentConstants);
 

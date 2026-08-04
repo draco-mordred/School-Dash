@@ -1496,20 +1496,70 @@ export const bulkUploadUsers = async (req: Request, res: Response): Promise<void
 
         // Trigger async Inngest function
         const { inngest } = require("../inngest");
-        await inngest.send({
-            name: "users/bulk-create",
-            data: {
+        const localDevNoInngest = process.env.NODE_ENV !== "production" && !process.env.INNGEST_EVENT_KEY;
+
+        if (localDevNoInngest) {
+            console.warn("Skipping Inngest in local development because INNGEST_EVENT_KEY is not set.");
+            const { createUsersForBulkUpload } = require("../inngest/functions");
+            const results = await createUsersForBulkUpload({
                 users,
                 classId: classId || undefined,
                 courseIds: courseIds || undefined,
                 userId: (req as any).user?._id?.toString(),
-            },
-        });
+            });
 
-        res.status(202).json({
-            status: "Accepted",
-            message: `Bulk upload started. Processing ${users.length} user(s) in the background.`,
-        });
+            res.status(200).json({
+                status: "Success",
+                message: `Bulk upload completed locally. ${results.created.length} user(s) processed.`,
+                results,
+            });
+            return;
+        }
+
+        try {
+            await inngest.send({
+                name: "users/bulk-create",
+                data: {
+                    users,
+                    classId: classId || undefined,
+                    courseIds: courseIds || undefined,
+                    userId: (req as any).user?._id?.toString(),
+                },
+            });
+
+            res.status(202).json({
+                status: "Accepted",
+                message: `Bulk upload started. Processing ${users.length} user(s) in the background.`,
+            });
+        } catch (error: any) {
+            const errorString = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+            const shouldFallback =
+                process.env.NODE_ENV !== "production" &&
+                (!process.env.INNGEST_EVENT_KEY ||
+                    error?.code === "ConnectionRefused" ||
+                    String(error?.path || "").includes("8288") ||
+                    /NO_EVENT_KEY_SET|ECONNREFUSED|ConnectionRefused|connect.*8288/i.test(errorString));
+
+            if (shouldFallback) {
+                console.warn("Inngest unavailable, falling back to direct bulk upload.", error);
+                const { createUsersForBulkUpload } = require("../inngest/functions");
+                const results = await createUsersForBulkUpload({
+                    users,
+                    classId: classId || undefined,
+                    courseIds: courseIds || undefined,
+                    userId: (req as any).user?._id?.toString(),
+                });
+
+                res.status(200).json({
+                    status: "Success",
+                    message: `Bulk upload completed locally after Inngest fallback. ${results.created.length} user(s) processed.`,
+                    results,
+                });
+                return;
+            }
+
+            res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
+        }
     } catch (error) {
         res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
     }

@@ -303,108 +303,112 @@ const DesktopGrid = ({
   currentPostingDepartmentGroup?: string | null;
   timeSlots: string[];
   getRowLabel: (startTime: string) => string;
-}) => (
-  <ScrollArea className="w-full rounded-md border">
-    <div className="flex min-w-[1028px] flex-col">
-      <div className="flex border-b bg-muted/50">
-        <div className="w-32 shrink-0 border-r p-4 font-medium text-muted-foreground flex items-center justify-center">
-          Time
-        </div>
-        {DAYS.map((day) => (
-          <div
-            key={day}
-            className="w-44 shrink-0 border-r p-4 font-semibold text-center last:border-r-0"
-          >
-            {day}
-          </div>
-        ))}
-      </div>
-      {timeSlots.map((time) => (
-        <div className="flex border-b last:border-b-0 min-h-[110px]" key={time}>
-          <div className="w-32 shrink-0 border-r p-2 text-xs font-medium text-muted-foreground flex items-center justify-center text-center bg-muted/50">
-            {getRowLabel(time)}
-          </div>
-          {DAYS.map((day) => {
-            const dayData = schedule.find((d) => d.day === day);
-            const period = dayData?.periods.find((p) => p.startTime === time);
-            return (
+}) => {
+  return (
+    <div className="w-full rounded-md border overflow-visible">
+      <ScrollArea className="w-full">
+        <div className="flex min-w-[1028px] flex-col overflow-visible">
+          <div className="flex border-b bg-muted/50">
+            <div className="w-32 shrink-0 border-r p-4 font-medium text-muted-foreground flex items-center justify-center">
+              Time
+            </div>
+            {DAYS.map((day) => (
               <div
-                key={`${day}-${time}`}
-                className="w-44 shrink-0 border-r p-2 last:border-r-0 overflow-visible"
+                key={day}
+                className="w-[calc(var(--spacing)*58)] shrink-0 border-r p-4 font-semibold text-center last:border-r-0"
               >
-                {period ? (() => {
-                  const detailItems = getPeriodDetailItems(
-                    period,
-                    currentPostingTitle,
-                    postingScheduleAvailable,
-                    currentPostingDepartmentGroup,
-                  );
+                {day}
+              </div>
+            ))}
+          </div>
+          {timeSlots.map((time) => (
+            <div className="flex border-b last:border-b-0 min-h-[110px]" key={time}>
+              <div className="w-32 shrink-0 border-r p-2 text-xs font-medium text-muted-foreground flex items-center justify-center text-center bg-muted/50">
+                {getRowLabel(time)}
+              </div>
+              {DAYS.map((day) => {
+                const dayData = schedule.find((d) => d.day === day);
+                const period = dayData?.periods.find((p) => p.startTime === time);
+                return (
+                  <div
+                    key={`${day}-${time}`}
+                    className="w-[calc(var(--spacing)*58)] shrink-0 border-r p-2 last:border-r-0 overflow-visible"
+                  >
+                    {period ? (() => {
+                      const detailItems = getPeriodDetailItems(
+                        period,
+                        currentPostingTitle,
+                        postingScheduleAvailable,
+                        currentPostingDepartmentGroup,
+                      );
 
-                  return (
-                    <div className="group/period relative h-full w-full">
-                      <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
-                              {getPeriodBadgeText(period)}
-                            </Badge>
-                          </div>
-                          <div>
-                            <div className={`font-semibold text-sm leading-tight ${getPeriodHeadingClassName(period)}`}>
-                              <TextMarquee>{getPeriodTitle(period, currentPostingTitle)}</TextMarquee>
-                            </div>
-                            {period.isClinical && postingScheduleAvailable && currentPostingDepartmentGroup ? (
-                              <div className="mt-1 text-[11px] text-accent-foreground">
-                                Department group: {currentPostingDepartmentGroup}
+                      return (
+                        <div className="group/period relative h-full w-full">
+                          <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
+                                  {getPeriodBadgeText(period)}
+                                </Badge>
                               </div>
-                            ) : null}
+                              <div>
+                                <div className={`font-semibold text-sm leading-tight ${getPeriodHeadingClassName(period)}`}>
+                                  <TextMarquee>{getPeriodTitle(period, currentPostingTitle)}</TextMarquee>
+                                </div>
+                                {period.isClinical && postingScheduleAvailable && currentPostingDepartmentGroup ? (
+                                  <div className="mt-1 text-[11px] text-accent-foreground">
+                                    Department group: {currentPostingDepartmentGroup}
+                                  </div>
+                                ) : null}
+                                {!period.isClinical && !period.isOptional && (
+                                  <div className="mt-1 text-[11px] text-muted-foreground">
+                                    {getPeriodDateText(period)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
                             {!period.isClinical && !period.isOptional && (
-                              <div className="mt-1 text-[11px] text-muted-foreground">
-                                {getPeriodDateText(period)}
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
+                                <UserIcon className="h-3 w-3 shrink-0" />
+                                <span className="truncate max-w-35" title={getAssignedLecturerName(period)}>
+                                  {getAssignedLecturerName(period)}
+                                </span>
                               </div>
                             )}
                           </div>
-                        </div>
 
-                        {!period.isClinical && !period.isOptional && (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-auto pt-2 border-t border-dashed">
-                            <UserIcon className="h-3 w-3 shrink-0" />
-                            <span className="truncate max-w-35" title={getAssignedLecturerName(period)}>
-                              {getAssignedLecturerName(period)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-64 -translate-x-1/2 origin-top scale-95 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm opacity-0 invisible transition-all duration-200 group-hover/period:visible group-hover/period:opacity-100 group-hover/period:translate-y-0 group-hover/period:scale-100">
-                        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                          Period details
-                        </p>
-                        <div className="space-y-1.5 text-sm">
-                          {detailItems.map((item) => (
-                            <div key={item.label} className="flex items-start justify-between gap-3">
-                              <span className="text-muted-foreground">{item.label}</span>
-                              <span className="text-right font-medium text-foreground">{item.value}</span>
+                          <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 origin-top scale-95 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm opacity-0 invisible transition-all duration-200 group-hover/period:visible group-hover/period:opacity-100 group-hover/period:translate-y-0 group-hover/period:scale-100">
+                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                              Period details
+                            </p>
+                            <div className="space-y-1.5 text-sm">
+                              {detailItems.map((item) => (
+                                <div key={item.label} className="flex items-start justify-between gap-3">
+                                  <span className="text-muted-foreground">{item.label}</span>
+                                  <span className="text-right font-medium text-foreground">{item.value}</span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          </div>
                         </div>
+                      );
+                    })() : (
+                      <div className="h-full w-full rounded-md border border-dashed border-primary bg-primary/30 flex items-center justify-center">
+                        <span className="text-xs text-primary font-medium">Free Period</span>
                       </div>
-                    </div>
-                  );
-                })() : (
-                  <div className="h-full w-full rounded-md border border-dashed border-primary bg-primary/30 flex items-center justify-center">
-                    <span className="text-xs text-primary font-medium">Free Period</span>
+                    )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          ))}
         </div>
-      ))}
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </div>
-    <ScrollBar orientation="horizontal" />
-  </ScrollArea>
-);
+  );
+};
 
 const TimetableGrid = ({
   schedule,

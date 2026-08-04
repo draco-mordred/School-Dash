@@ -1,4 +1,5 @@
 import { type Request, type Response } from "express";
+import mongoose from "mongoose";
 import Attendance from "../models/attendance";
 import Course from "../models/courses";
 import User from "../models/user";
@@ -7,6 +8,7 @@ import { inngest } from "../inngest";
 import { validateClinicalPresence } from "../services/attendanceValidation";
 import HospitalUnit from "../models/hospitalUnit";
 import Class from "../models/classes";
+import { createNotificationIfUnique } from "../utils/notificationUtils";
 
 //Fisrt we need to generate an Attendance for a class so that the teacher can record attendance for that class session, then we can update the attendance records for each student in that class session. We also need to implement a way to approve excused absences, and to get attendance records for a specific student, with pagination and filtering by date range and status (present, absent, late, excused). This should be consistent wtth the getMyAttendanceSummary controller, but with more detailed records and pagination support. The endpoint should be GET /api/attendance/student/:studentId?startDate=&endDate=&status=&page=&limit=
 // Request should be sent to inngest to biuld the attendance sheet
@@ -98,6 +100,23 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
       action: "Generated attendance for class session",
       details: `Generated attendance for course ID: ${courseId}, subject ID: ${String(matchingSubject._id)}, class ID: ${classId} on ${new Date(date).toDateString()}`,
     });
+
+    if (lecturer) {
+      try {
+        await createNotificationIfUnique({
+          userId: typeof lecturer === "string" ? new mongoose.Types.ObjectId(lecturer) : lecturer,
+          role: "teacher",
+          title: "Attendance session prepared",
+          message: `Attendance for ${matchingSubject.name ?? matchingSubject.code ?? "the selected subject"} on ${dateObj.toDateString()} for ${classDoc.name} has been generated and is ready for review.`,
+          type: "attendance",
+          link: "/attendance",
+          actorRole: "admin",
+        });
+      } catch (err) {
+        console.warn("Failed to send attendance notification to lecturer", err);
+      }
+    }
+
     res.status(201).json({ message: "Attendance generated for class session", attendanceRecords });
   } catch (error) {
     console.error(error);
@@ -555,6 +574,7 @@ export const getClassSessionAttendance = async (req: Request, res: Response) => 
     const records = await Attendance.find(filter)
       .populate("student", "name email idNumber")
       .populate("course", "name code subjects.subjectID")
+      .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
       .populate("lecturer", "name email")
       .sort({ "student.name": 1 });
@@ -675,6 +695,72 @@ export const checkTimetableExists = async (req: Request, res: Response) => {
   }
 };
 
+// @desc    Delete attendance records for a class session
+// @route   DELETE /api/attendance/session?classId=&courseId=&date=&subjectId=
+// @access  Private (Admin/Teacher)
+export const deleteAttendanceSession = async (req: Request, res: Response) => {
+  try {
+    const { classId, courseId, date, subjectId } = req.query;
+    if (!classId || !courseId || !date) {
+      res.status(400).json({ message: "classId, courseId, and date are required." });
+      return;
+    }
+    const dateObj = new Date(date as string);
+    dateObj.setHours(0, 0, 0, 0);
+    const nextDay = new Date(dateObj);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const filter: any = {
+      class: classId,
+      course: courseId,
+      date: { $gte: dateObj, $lt: nextDay },
+    };
+    if (subjectId) {
+      filter.subject = subjectId;
+    }
+
+    const result = await Attendance.deleteMany(filter);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "No attendance records found for the requested session." });
+    }
+
+    await logActivity({
+      userId: (req as any).user._id,
+      action: "Deleted attendance session",
+      details: `Deleted ${result.deletedCount} attendance record(s) for class ${classId}, course ${courseId}, date ${new Date(date as string).toDateString()}${subjectId ? `, subject ${subjectId}` : ""}`,
+    });
+
+    res.json({ message: "Attendance session deleted", deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// @desc    Delete individual attendance records by id list
+// @route   DELETE /api/attendance/records
+// @access  Private (Admin/Teacher)
+export const deleteAttendanceRecords = async (req: Request, res: Response) => {
+  try {
+    const { attendanceIds } = req.body;
+    if (!Array.isArray(attendanceIds) || attendanceIds.length === 0) {
+      return res.status(400).json({ message: "attendanceIds array is required." });
+    }
+
+    const result = await Attendance.deleteMany({ _id: { $in: attendanceIds } });
+    await logActivity({
+      userId: (req as any).user._id,
+      action: "Deleted attendance records",
+      details: `Deleted ${result.deletedCount} attendance record(s).`,
+    });
+    res.json({ message: "Attendance records deleted", deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
 // @desc    Get all attendance records (admin/teacher can see all sessions for any class)
 // @route   GET /api/attendance/lists
 // @access  Private (Admin/Teacher)
@@ -703,6 +789,7 @@ export const getAllAttendanceLists = async (req: Request, res: Response) => {
 
     const records = await Attendance.find(filter)
       .populate("course", "name code courseID subjects")
+      .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
       .populate("student", "name idNumber email")
       .populate("lecturer", "name email")

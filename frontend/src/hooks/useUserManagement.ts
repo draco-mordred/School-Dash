@@ -86,39 +86,54 @@ export function useUserManagement() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
+      setError(null);
+
       try {
-        const [studentsRes, parentsRes, staffRes, adminsRes] = await Promise.all([
+        const requests = [
           api.get("/users?page=1&limit=50&role=student"),
           api.get("/users?page=1&limit=50&role=parent"),
           api.get("/users?page=1&limit=50&role=teacher"),
           api.get("/users?page=1&limit=50&role=admin"),
-        ]);
+        ];
 
-        const students = Array.isArray(studentsRes.data.users)
-          ? studentsRes.data.users.map(mapStudent)
+        const settled = await Promise.allSettled(requests);
+
+        const studentsResponse = settled[0].status === "fulfilled" ? settled[0].value : null;
+        const parentsResponse = settled[1].status === "fulfilled" ? settled[1].value : null;
+        const staffResponse = settled[2].status === "fulfilled" ? settled[2].value : null;
+        const adminsResponse = settled[3].status === "fulfilled" ? settled[3].value : null;
+
+        const students = Array.isArray(studentsResponse?.data?.users)
+          ? studentsResponse.data.users.map(mapStudent)
           : [];
-        const parents = Array.isArray(parentsRes.data.users)
-          ? parentsRes.data.users.map(mapParent)
+        const parents = Array.isArray(parentsResponse?.data?.users)
+          ? parentsResponse.data.users.map(mapParent)
           : [];
-        const staff = Array.isArray(staffRes.data.users)
-          ? staffRes.data.users.map(mapStaff)
+        const staff = Array.isArray(staffResponse?.data?.users)
+          ? staffResponse.data.users.map(mapStaff)
           : [];
-        const administrators = Array.isArray(adminsRes.data.users)
-          ? adminsRes.data.users.map(mapAdmin)
+        const administrators = Array.isArray(adminsResponse?.data?.users)
+          ? adminsResponse.data.users.map(mapAdmin)
           : [];
+
+        const hasAnyData = students.length || parents.length || staff.length || administrators.length;
 
         setData({
           stats: {
-            students: studentsRes.data.pagination?.total ?? students.length,
-            parents: parentsRes.data.pagination?.total ?? parents.length,
-            staff: staffRes.data.pagination?.total ?? staff.length,
-            administrators: adminsRes.data.pagination?.total ?? administrators.length,
+            students: studentsResponse?.data?.pagination?.total ?? students.length,
+            parents: parentsResponse?.data?.pagination?.total ?? parents.length,
+            staff: staffResponse?.data?.pagination?.total ?? staff.length,
+            administrators: adminsResponse?.data?.pagination?.total ?? administrators.length,
           },
           students,
           parents,
           staff,
           administrators,
         });
+
+        if (!hasAnyData) {
+          setError("Some user data could not be loaded. Please try again.");
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch user data");
       } finally {

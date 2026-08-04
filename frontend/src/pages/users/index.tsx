@@ -22,6 +22,7 @@ import UserDialog from "@/components/users/UserDialog";
 import UserDetailsDialog from "@/components/users/UserDetailsDialog";
 import BulkUploadDialog from "@/components/users/BulkUploadDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { loadStudentMetrics } from "@/lib/studentListMetrics";
 
 interface Props {
   role: UserRole;
@@ -58,6 +59,7 @@ export default function UserManagementPage({
   const [editingUser, setEditingUser] = useState<user | null>(null);
   const [viewingUser, setViewingUser] = useState<user | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
 
   // Delete States
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -88,13 +90,13 @@ export default function UserManagementPage({
         return;
       }
 
-      // Construct Query
+      const limit = role === "student" ? 30 : 50;
       const searchParam = debouncedSearch ? `&search=${debouncedSearch}` : "";
       const roleParam = `&role=${role}`;
       const { data } = (await api.get(
-         `/users?page=${page}&limit=50${roleParam}${searchParam}`
+        `/users?page=${page}&limit=${limit}${roleParam}${searchParam}`,
+        { timeout: 30000 }
       )) as { data: { users: user[]; pagination: pagination } };
-      // Handle response based on your new controller structure
       if (data.users) {
         setUsers(data.users);
         setTotalPages(data.pagination?.pages || 1);
@@ -103,12 +105,32 @@ export default function UserManagementPage({
         setTotalPages(1);
       }
     } catch (error) {
+      const message = String((error as any)?.message ?? "").toLowerCase();
+      if (role === "student" && adminData?.students?.length) {
+        const fallbackUsers = (adminData.students as Array<{ id: string; name: string; matricNumber: string; class: string; email: string; profileImage?: string }>).map((student) => ({
+          _id: student.id,
+          name: student.name,
+          idNumber: student.matricNumber,
+          email: student.email,
+          role: "student" as const,
+          profileImage: student.profileImage,
+          studentClasses: { name: student.class },
+        }));
+        setUsers(fallbackUsers as user[]);
+        setTotalPages(1);
+        return;
+      }
+
       console.log(error);
-      toast.error(`Failed to load ${role}s`);
+      if (message.includes("timeout")) {
+        toast.error(`The ${role} list is taking longer than expected. Please try again.`);
+      } else {
+        toast.error(`Failed to load ${role}s`);
+      }
     } finally {
       setLoading(false);
     }
-  }, [role, page, debouncedSearch, authUser]);
+  }, [role, page, debouncedSearch, authUser, adminData]);
 
   useEffect(() => {
     fetchUsers();
@@ -221,11 +243,43 @@ export default function UserManagementPage({
     );
   };
 
-  const handleViewUser = (userId: string) => {
+  const handleViewUser = async (userId: string) => {
     const match = resolveUserMatch(userId);
     if (!match) return;
-    setViewingUser(match);
+
+    const studentId = (match as user & { _id?: string; id?: string })._id ?? (match as user & { _id?: string; id?: string }).id;
+    const baseUser = {
+      ...match,
+      currentPosting: "Loading…",
+      attendancePercentage: 0,
+    };
+
+    setViewingUser(baseUser);
     setIsDetailsOpen(true);
+    setIsDetailsLoading(true);
+
+    if (studentId && (match.role === "student" || match.matricNumber)) {
+      try {
+        const nextMetrics = await loadStudentMetrics([studentId]);
+        const metrics = nextMetrics[studentId];
+        setViewingUser({
+          ...match,
+          currentPosting: metrics?.currentPosting ?? "Not assigned",
+          attendancePercentage: metrics?.attendancePercentage ?? 0,
+        });
+      } catch {
+        setViewingUser({
+          ...match,
+          currentPosting: "Not assigned",
+          attendancePercentage: 0,
+        });
+      } finally {
+        setIsDetailsLoading(false);
+      }
+      return;
+    }
+
+    setIsDetailsLoading(false);
   };
 
   const handleEditUser = (userId: string) => {
@@ -324,9 +378,13 @@ export default function UserManagementPage({
             open={isDetailsOpen}
             setOpen={(open) => {
               setIsDetailsOpen(open);
-              if (!open) setViewingUser(null);
+              if (!open) {
+                setViewingUser(null);
+                setIsDetailsLoading(false);
+              }
             }}
             user={viewingUser}
+            loading={isDetailsLoading}
           />
 
           <CustomAlert
@@ -651,9 +709,13 @@ export default function UserManagementPage({
         open={isDetailsOpen}
         setOpen={(open) => {
           setIsDetailsOpen(open);
-          if (!open) setViewingUser(null);
+          if (!open) {
+            setViewingUser(null);
+            setIsDetailsLoading(false);
+          }
         }}
         user={viewingUser}
+        loading={isDetailsLoading}
       />
 
       {/* alert */}

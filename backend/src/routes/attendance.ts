@@ -10,6 +10,8 @@ import {
   generateAttendanceForClassSession,
   getClassSessionAttendance,
   bulkUpdateAttendance,
+  deleteAttendanceSession,
+  deleteAttendanceRecords,
   checkTimetableExists,
   getSubjectsAttendance,
   getAllAttendanceLists,
@@ -70,6 +72,20 @@ attendanceRouter.get(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getClassSessionAttendance
+);
+
+attendanceRouter.delete(
+  "/session",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  deleteAttendanceSession
+);
+
+attendanceRouter.delete(
+  "/records",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  deleteAttendanceRecords
 );
 
 attendanceRouter.patch(

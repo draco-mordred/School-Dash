@@ -812,7 +812,7 @@ const Timetable = () => {
               <div
                 key={cls.classId}
                 id={`timetable-${cls.classId}`}
-                className="border rounded-lg overflow-hidden"
+                className="border rounded-lg overflow-visible"
               >
                 <div className="bg-muted/50 px-4 py-3 border-b flex items-center justify-between">
                   <div>
@@ -832,7 +832,7 @@ const Timetable = () => {
                     </Button>
                   </div>
                 </div>
-                <div id={`timetable-printable-${cls.classId}`} className="p-3">
+                <div id={`timetable-printable-${cls.classId}`}>
                   <TimetableGrid schedule={cls.schedule} isLoading={false} />
                 </div>
               </div>

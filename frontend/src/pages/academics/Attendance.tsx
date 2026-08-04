@@ -45,11 +45,6 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 type AttendanceStatus = "present" | "absent" | "late" | "excused";
 
-type AttendanceStat = {
-  _id: AttendanceStatus;
-  count: number;
-};
-
 type SessionRecord = {
   _id: string;
   status: AttendanceStatus;
@@ -82,32 +77,23 @@ type AttendanceRecord = {
   approvedBy?: { _id: string; name: string; email?: string } | null;
 };
 
-type SubjectAttendanceSummaryRow = {
+type AcademicYear = {
   _id: string;
-  subject?: Array<{ name: string; code?: string }>;
-  present: number;
-  absent: number;
-  late: number;
-  excused: number;
+  name: string;
+  isCurrent?: boolean;
 };
 
-type ChartRow =
-  | { kind: "status"; label: string; value: number }
-  | {
-      kind: "subject";
-      key: string;
-      label: string;
-      present: number;
-      absent: number;
-      late: number;
-      excused: number;
-    };
+type CourseSubject = {
+  _id?: string;
+  subjectUID?: string;
+  subjectID?: string;
+  code?: string;
+  name?: string;
+};
 
-type WeeklyCourseRow = {
-  courseId: string;
-  courseName: string;
-  courseCode?: string;
-  dayOfWeek: string;
+type AttendanceClassStatus = {
+  classId: string;
+  className: string;
   present: number;
   absent: number;
   late: number;
@@ -131,17 +117,12 @@ export default function Attendance() {
   const isTeacherOrAdmin = user?.role === "admin" || user?.role === "teacher";
 
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<AttendanceStat[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [subjectSummary, setSubjectSummary] = useState<
-    SubjectAttendanceSummaryRow[]
-  >([]);
   const [chartMode, setChartMode] = useState<"byStatus" | "bySubject">(
     "bySubject",
   );
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
-  const [weeklyData, setWeeklyData] = useState<WeeklyCourseRow[]>([]);
-  const [classAttendanceData, setClassAttendanceData] = useState<any[]>([]);
+  const [classAttendanceData, setClassAttendanceData] = useState<AttendanceClassStatus[]>([]);
 
   // Deduplicated latest records (one per course+lecturer pair)
   const latestRecordsDeduplicated = useMemo(() => {
@@ -162,9 +143,7 @@ export default function Attendance() {
 
   // Session management state
   const [classes, setClasses] = useState<Class[]>([]);
-  const [academicYears, setAcademicYears] = useState<
-    { _id: string; name: string }[]
-  >([]);
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedCourseId, setSelectedCourseId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
@@ -173,13 +152,8 @@ export default function Attendance() {
   const [isSessionOpen, setIsSessionOpen] = useState(false);
   const [isManageOpen, setIsManageOpen] = useState(false);
   const [sessionRecords, setSessionRecords] = useState<SessionRecord[]>([]);
+  const [selectedAttendanceIds, setSelectedAttendanceIds] = useState<Set<string>>(new Set());
   const [loadingSession, setLoadingSession] = useState(false);
-  const [lecturerApproval, setLecturerApproval] = useState<
-    "approved" | "not-approved" | ""
-  >("");
-  const [hodApproval, setHodApproval] = useState<
-    "approved" | "not-approved" | ""
-  >("");
   const [saving, setSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showNoTimetableModal, setShowNoTimetableModal] = useState(false);
@@ -193,36 +167,25 @@ export default function Attendance() {
   const fetchAttendance = async () => {
     try {
       setLoading(true);
-      setStats([]);
       setRecords([]);
-      setSubjectSummary([]);
       setClassAttendanceData([]);
 
       if (isStudent) {
         const { data } = await api.get("/attendance/me");
-        setStats((data.stats ?? []) as AttendanceStat[]);
         setRecords((data.records ?? []) as AttendanceRecord[]);
       } else {
-        const [meRes, subjRes, listsRes, weeklyRes, statusRes] =
-          await Promise.all([
-            api.get("/attendance/me"),
-            api.get("/attendance/subjects"),
-            api.get("/attendance/lists"),
-            api.get("/attendance/weekly"),
-            api.get("/attendance/status"),
-          ]);
+        const [meRes, listsRes, statusRes] = await Promise.all([
+          api.get("/attendance/me"),
+          api.get("/attendance/lists"),
+          api.get("/attendance/status"),
+        ]);
 
-        setStats((meRes.data?.stats ?? []) as AttendanceStat[]);
         setRecords((meRes.data?.records ?? []) as AttendanceRecord[]);
-        setSubjectSummary(
-          (subjRes.data?.summary ?? []) as SubjectAttendanceSummaryRow[],
-        );
         setAllLists((listsRes.data?.records ?? []) as SessionRecord[]);
-        setWeeklyData((weeklyRes.data?.records ?? []) as WeeklyCourseRow[]);
         setClassAttendanceData(statusRes.data?.classes ?? []);
       }
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error(error);
       toast.error("Failed to load attendance");
     } finally {
       setLoading(false);
@@ -237,10 +200,10 @@ export default function Attendance() {
       ]);
       setClasses((clsRes.data.classes ?? []) as Class[]);
       const years = Array.isArray(yearRes.data.years)
-        ? yearRes.data.years
-        : yearRes.data;
+        ? (yearRes.data.years as AcademicYear[])
+        : (yearRes.data as AcademicYear[]);
       setAcademicYears(years);
-      const current = years.find((y: any) => y.isCurrent);
+      const current = years.find((y) => y.isCurrent);
       if (current?._id) setSelectedAcademicYearId(current._id);
     } catch {
       toast.error("Failed to load classes");
@@ -251,26 +214,35 @@ export default function Attendance() {
     classId: string,
     courseId: string,
     date: string,
-  ) => {
+    subjectId?: string,
+  ): Promise<SessionRecord[]> => {
     try {
       setLoadingSession(true);
       const params = new URLSearchParams({ classId, courseId, date });
+      if (subjectId) params.set("subjectId", subjectId);
       const { data } = await api.get(
         `/attendance/session?${params.toString()}`,
       );
-      setSessionRecords((data.records ?? []) as SessionRecord[]);
+      const records = (data.records ?? []) as SessionRecord[];
+      setSessionRecords(records);
+      setSelectedAttendanceIds(new Set());
+      return records;
     } catch {
       toast.error("Failed to load session records");
+      return [];
     } finally {
       setLoadingSession(false);
     }
   };
 
   useEffect(() => {
-    void fetchAttendance();
-    if (isTeacherOrAdmin) {
-      void fetchClassesAndYears();
-    }
+    const loadData = async () => {
+      await fetchAttendance();
+      if (isTeacherOrAdmin) {
+        await fetchClassesAndYears();
+      }
+    };
+    void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.role]);
 
@@ -292,21 +264,27 @@ export default function Attendance() {
   }, [selectedClassCourses, selectedCourseId]);
 
   const selectedCourseSubjects = useMemo(() => {
-    const subjectList = (selectedCourse as any)?.subjects ?? [];
-    const normalizedSubjects = Array.isArray(subjectList) && subjectList.length > 0
-      ? subjectList
-      : Array.isArray((selectedCourse as any)?.courseSubjects)
-        ? (selectedCourse as any).courseSubjects
+    const courseWithSubjects = selectedCourse as
+      | { subjects?: CourseSubject[]; courseSubjects?: CourseSubject[] }
+      | null;
+    const subjectList = courseWithSubjects?.subjects ?? [];
+    const normalizedSubjects =
+      Array.isArray(subjectList) && subjectList.length > 0
+        ? subjectList
+        : Array.isArray(courseWithSubjects?.courseSubjects)
+        ? courseWithSubjects.courseSubjects
         : [];
 
     return normalizedSubjects
-      .filter((subject: any) => {
+      .filter((subject): subject is CourseSubject => {
         if (!subject) return false;
-        return Boolean(subject.name || subject.code || subject.subjectID || subject._id || subject.subjectUID);
+        return Boolean(
+          subject.name || subject.code || subject.subjectID || subject._id || subject.subjectUID,
+        );
       })
-      .map((subject: any, index: number) => {
+      .map((subject, index) => {
         const optionValue = String(
-          subject?._id ?? subject?.subjectUID ?? subject?.subjectID ?? subject?.code ?? `${subject?.name ?? "subject"}-${index}`,
+          subject._id ?? subject.subjectUID ?? subject.subjectID ?? subject.code ?? `${subject.name ?? "subject"}-${index}`,
         );
 
         return {
@@ -317,10 +295,51 @@ export default function Attendance() {
   }, [selectedCourse]);
 
   const selectedSubject = useMemo(() => {
-    return selectedCourseSubjects.find((subject: any) => {
-      return String(subject.optionValue) === String(selectedSubjectId);
-    }) ?? null;
+    return (
+      selectedCourseSubjects.find((subject) => {
+        return String(subject.optionValue) === String(selectedSubjectId);
+      }) ?? null
+    );
   }, [selectedCourseSubjects, selectedSubjectId]);
+
+  const teacherSessionSummary = useMemo(() => {
+    const sessionKeys = new Set<string>();
+    const classNames = new Set<string>();
+    const courseNames = new Set<string>();
+
+    allLists.forEach((record) => {
+      const className =
+        record.class && typeof record.class === "object"
+          ? record.class.name
+          : typeof record.class === "string"
+            ? record.class
+            : undefined;
+      const courseName =
+        record.course && typeof record.course === "object"
+          ? record.course.name
+          : typeof record.course === "string"
+            ? record.course
+            : undefined;
+      const subjectName =
+        record.subject && typeof record.subject === "object"
+          ? record.subject.name ?? record.subject.code
+          : typeof record.subject === "string"
+            ? record.subject
+            : undefined;
+      const date = String(record.date);
+      const key = `${className ?? "unknown"}|${courseName ?? "unknown"}|${subjectName ?? "unknown"}|${date}`;
+      sessionKeys.add(key);
+      if (className) classNames.add(className);
+      if (courseName) courseNames.add(courseName);
+    });
+
+    return {
+      sessionCount: sessionKeys.size,
+      recordCount: allLists.length,
+      classCount: classNames.size,
+      courseCount: courseNames.size,
+    };
+  }, [allLists]);
 
   const handleGenerateClick = async () => {
     if (
@@ -381,18 +400,13 @@ export default function Attendance() {
       const poll = async (): Promise<boolean> => {
         attempts++;
         try {
-          const params = new URLSearchParams({
-            classId: selectedClassId,
-            courseId: selectedCourseId,
-            subjectId: selectedSubjectId,
-            date: sessionDate,
-          });
-          const { data: sessionData } = await api.get(
-            `/attendance/session?${params.toString()}`,
+          const records = await fetchSessionRecords(
+            selectedClassId,
+            selectedCourseId,
+            sessionDate,
+            selectedSubjectId,
           );
-          const records = sessionData.records ?? [];
           if (records.length > 0) {
-            setSessionRecords(records as SessionRecord[]);
             setIsManageOpen(true);
             return true;
           }
@@ -413,13 +427,18 @@ export default function Attendance() {
           "Timed out waiting for attendance records. They may still be generating — check back shortly or refresh.",
         );
       }
-    } catch (e: any) {
-      const msg = e.response?.data?.message || "Generation failed";
-      if (msg.includes("NO_TIMETABLE")) {
+    } catch (error: unknown) {
+      const msg =
+        typeof error === "object" && error !== null && "response" in error
+          ? (error as { response?: { data?: { message?: unknown } } })
+              .response?.data?.message
+          : undefined;
+      const message = typeof msg === "string" ? msg : "Generation failed";
+      if (message.includes("NO_TIMETABLE")) {
         setIsGenerating(false);
         setShowNoTimetableModal(true);
       } else {
-        toast.error(msg);
+        toast.error(message);
       }
     } finally {
       setIsGenerating(false);
@@ -445,16 +464,12 @@ export default function Attendance() {
       setSessionHodApproval(null);
       void fetchAttendance();
       // Refresh session records to reflect saved approvals
-      const params = new URLSearchParams({
-        classId: selectedClassId,
-        courseId: selectedCourseId,
-        subjectId: selectedSubjectId,
-        date: sessionDate,
-      });
-      const { data: sessionData } = await api.get(
-        `/attendance/session?${params.toString()}`,
+      await fetchSessionRecords(
+        selectedClassId,
+        selectedCourseId,
+        sessionDate,
+        selectedSubjectId,
       );
-      setSessionRecords((sessionData.records ?? []) as SessionRecord[]);
     } catch {
       toast.error("Failed to save attendance");
     } finally {
@@ -462,81 +477,11 @@ export default function Attendance() {
     }
   };
 
-  const chartRows = useMemo<ChartRow[]>(() => {
-    if (chartMode === "bySubject" && !isStudent) {
-      // If we have weekly data, aggregate per course across all days
-      if (weeklyData.length > 0) {
-        const courseMap = new Map<
-          string,
-          ChartRow["kind" extends "subject" ? "subject" : never] & {
-            label: string;
-            present: number;
-            absent: number;
-            late: number;
-            excused: number;
-          }
-        >();
-        weeklyData.forEach((row) => {
-          const existing = courseMap.get(row.courseId);
-          if (existing) {
-            existing.present += row.present;
-            existing.absent += row.absent;
-            existing.late += row.late;
-            existing.excused += row.excused;
-          } else {
-            courseMap.set(row.courseId, {
-              kind: "subject",
-              key: row.courseId,
-              label: row.courseName,
-              present: row.present,
-              absent: row.absent,
-              late: row.late,
-              excused: row.excused,
-            });
-          }
-        });
-        return Array.from(courseMap.values()).slice(0, 8);
-      }
-      // Fallback to subject summary
-      return subjectSummary.slice(0, 8).map((r) => {
-        const label =
-          r.subject?.[0]?.name ?? r.subject?.[0]?.code ?? r._id ?? "Unknown";
-        return {
-          kind: "subject",
-          key: r._id,
-          label,
-          present: r.present ?? 0,
-          absent: r.absent ?? 0,
-          late: r.late ?? 0,
-          excused: r.excused ?? 0,
-        };
-      });
-    }
-
-    return stats
-      .map((s) => ({
-        kind: "status" as const,
-        label: String(s._id ?? ""),
-        value: Number(s.count ?? 0),
-      }))
-      .filter((r) => r.label);
-  }, [chartMode, isStudent, stats, subjectSummary, weeklyData]);
-
-  const maxStatusValue = useMemo(() => {
-    if (chartMode !== "byStatus" || isStudent) return 0;
-    const values = chartRows
-      .filter(
-        (r): r is Extract<ChartRow, { kind: "status" }> => r.kind === "status",
-      )
-      .map((r) => r.value);
-    return values.reduce((m, v) => Math.max(m, v), 0);
-  }, [chartMode, isStudent, chartRows]);
-
   // Per-class pie chart data
   const classChartData = useMemo(() => {
     // Use classAttendanceData when records is empty (admin fallback from /attendance/status)
     if (records.length === 0 && classAttendanceData.length > 0) {
-      return classAttendanceData.map((cls: any) => {
+      return classAttendanceData.map((cls) => {
         const total = cls.present + cls.absent + cls.late + cls.excused;
         const chartSegments = [
           { name: "Present", value: cls.present, color: "#22c55e" },
@@ -699,79 +644,116 @@ export default function Attendance() {
         </div>
       </div>
 
-      {/* Timetable Status Card — for admin/teacher */}
-      {!isStudent && <TimetableStatusCard />}
+      {!isStudent ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Saved Sessions</CardTitle>
+                <CardDescription className="text-xs">
+                  Active teacher attendance sessions
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Sessions</span>
+                    <span className="font-semibold">{teacherSessionSummary.sessionCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Classes</span>
+                    <span className="font-semibold">{teacherSessionSummary.classCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Courses</span>
+                    <span className="font-semibold">{teacherSessionSummary.courseCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Records</span>
+                    <span className="font-semibold">{teacherSessionSummary.recordCount}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">Session Actions</CardTitle>
+                <CardDescription className="text-xs">
+                  Generate or manage attendance sessions
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    void fetchClassesAndYears();
+                    setIsSessionOpen(true);
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" /> Generate Session
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => void fetchAttendance()}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" /> Refresh data
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">View Options</CardTitle>
+                <CardDescription className="text-xs">
+                  Chart mode for attendance summaries
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={chartMode}
+                  onValueChange={(v) =>
+                    setChartMode(v as "byStatus" | "bySubject")
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Chart mode" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="byStatus">By Status</SelectItem>
+                    <SelectItem value="bySubject">By Subject</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Saved Attendance Lists Table — admin/teacher */}
-      {!isStudent && (
-        <SavedListsTable
-          allLists={allLists}
-          loading={loading}
-          onEditSession={({ records, course, class: cls }) => {
-            setSessionRecords(records as SessionRecord[]);
-            const classId = cls?._id ?? "";
-            const courseId = course?._id ?? "";
-            setSelectedClassId(classId);
-            setSelectedCourseId(courseId);
-            setSessionDate((records[0] as any)?.date ?? "");
-            setSessionLecturerApproval(null);
-            setSessionHodApproval(null);
-            // Ensure the class and course are in their lookup arrays so the modal header renders correctly
-            setClasses((prev) => {
-              if (prev.some((c) => c._id === classId)) {
-                // If class exists but missing this course, merge the course in
-                return prev.map((c) =>
-                  c._id === classId && course
-                    ? {
-                        ...c,
-                        courses: [
-                          ...(c.courses ?? []),
-                          {
-                            _id: courseId,
-                            name: course.name ?? "",
-                            code: course.code ?? "",
-                          },
-                        ],
-                      }
-                    : c,
-                );
-              }
-              return cls && course
-                ? [
-                    ...prev,
-                    {
-                      _id: classId,
-                      name: cls.name ?? "",
-                      courses: [
-                        {
-                          _id: courseId,
-                          name: course.name ?? "",
-                          code: course.code ?? "",
-                        },
-                      ],
-                    } as Class,
-                  ]
-                : cls
-                  ? [
-                      ...prev,
-                      {
-                        _id: classId,
-                        name: cls.name ?? "",
-                        courses: [],
-                      } as Class,
-                    ]
-                  : prev;
-            });
-            setIsManageOpen(true);
-          }}
-        />
-      )}
-
-      {/* Latest Week Mon–Fri Table */}
-      {!isStudent && <LatestWeekTable />}
-
-      {/* Student: class-grouped attendance records */}
-      {isStudent && (
+          <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+            <div className="space-y-4">
+              <SavedListsTable
+                allLists={allLists}
+                loading={loading}
+                onEditSession={({ records, course, class: cls }) => {
+                  setSessionRecords(records as SessionRecord[]);
+                  const classId = cls?._id ?? "";
+                  const courseId = course?._id ?? "";
+                  setSelectedClassId(classId);
+                  setSelectedCourseId(courseId);
+                  setSessionDate(String(records?.[0]?.date ?? ""));
+                  setSessionLecturerApproval(null);
+                  setSessionHodApproval(null);
+                  setClasses((prev) => prev);
+                  setIsManageOpen(true);
+                }}
+              />
+            </div>
+            <div className="space-y-4">
+              <TimetableStatusCard />
+              <LatestWeekTable />
+            </div>
+          </div>
+        </div>
+      ) : (
         <StudentRecordsByClass records={records} loading={loading} />
       )}
 
@@ -1002,7 +984,7 @@ export default function Attendance() {
                 <SelectValue placeholder="Select a subject" />
               </SelectTrigger>
               <SelectContent>
-                {selectedCourseSubjects.map((subject: any) => (
+                {selectedCourseSubjects.map((subject) => (
                   <SelectItem key={subject.optionValue} value={subject.optionValue}>
                     {subject.name ?? subject.subjectID ?? subject.code ?? "Subject"}
                     {subject.code || subject.subjectID
@@ -1308,34 +1290,53 @@ export default function Attendance() {
                           {r.student?.idNumber ?? "—"}
                         </td>
                         <td className="px-3 py-1.5">
-                          <Select
-                            value={r.status}
-                            onValueChange={(v) => {
-                              setSessionRecords((prev) =>
-                                prev.map((rec) =>
-                                  rec._id === r._id
-                                    ? { ...rec, status: v as AttendanceStatus }
-                                    : rec,
-                                ),
-                              );
-                            }}
-                          >
-                            <SelectTrigger className="w-28 mx-auto">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {STATUS_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className={`h-2 w-2 rounded-full ${opt.color}`}
-                                    />
-                                    {opt.label}
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="flex items-center justify-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-muted"
+                              checked={selectedAttendanceIds.has(r._id)}
+                              onChange={(event) => {
+                                setSelectedAttendanceIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (event.target.checked) {
+                                    next.add(r._id);
+                                  } else {
+                                    next.delete(r._id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                              aria-label="Select attendance record"
+                            />
+                            <Select
+                              value={r.status}
+                              onValueChange={(v) => {
+                                setSessionRecords((prev) =>
+                                  prev.map((rec) =>
+                                    rec._id === r._id
+                                      ? { ...rec, status: v as AttendanceStatus }
+                                      : rec,
+                                  ),
+                                );
+                              }}
+                            >
+                              <SelectTrigger className="w-28 mx-auto">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {STATUS_OPTIONS.map((opt) => (
+                                  <SelectItem key={opt.value} value={opt.value}>
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className={`h-2 w-2 rounded-full ${opt.color}`}
+                                      />
+                                      {opt.label}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         </td>
                         <td className="px-3 py-1.5">
                           <Select
@@ -1442,14 +1443,45 @@ export default function Attendance() {
                 ))}
               </div>
 
-              <Button
-                className="w-full"
-                onClick={() => void handleSaveSession()}
-                disabled={saving}
-              >
-                <Save className="mr-2 h-4 w-4" />
-                {saving ? "Saving…" : "Save Attendance"}
-              </Button>
+              <div className="flex flex-col gap-3">
+                {selectedAttendanceIds.size > 0 && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={async () => {
+                      if (!window.confirm("Delete selected attendance records? This action cannot be undone.")) {
+                        return;
+                      }
+                      try {
+                        setSaving(true);
+                        const ids = Array.from(selectedAttendanceIds);
+                        await api.delete("/attendance/records", {
+                          data: { attendanceIds: ids },
+                        });
+                        setSessionRecords((prev) => prev.filter((r) => !selectedAttendanceIds.has(r._id)));
+                        setSelectedAttendanceIds(new Set());
+                        toast.success(`${ids.length} attendance record(s) deleted`);
+                      } catch {
+                        toast.error("Failed to delete selected records");
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Delete Selected Records
+                  </Button>
+                )}
+
+                <Button
+                  className="w-full"
+                  onClick={() => void handleSaveSession()}
+                  disabled={saving}
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  {saving ? "Saving…" : "Save Attendance"}
+                </Button>
+              </div>
             </>
           )}
         </div>
@@ -1460,6 +1492,7 @@ export default function Attendance() {
 
 // ─── Timetable Status Card ──────────────────────────────────────────
 function TimetableStatusCard() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [classStatuses, setClassStatuses] = useState<
     { _id: string; name: string; hasTimetable: boolean }[]
@@ -1475,16 +1508,76 @@ function TimetableStatusCard() {
         ]);
         const clsData = (clsRes.data.classes ?? []) as Class[];
         const years = Array.isArray(yearRes.data.years)
-          ? yearRes.data.years
-          : yearRes.data;
-        const current = years.find((y: any) => y.isCurrent);
+          ? (yearRes.data.years as AcademicYear[])
+          : (yearRes.data as AcademicYear[]);
+        const current = years.find((y) => y.isCurrent);
         if (!current?._id || clsData.length === 0) {
           setLoading(false);
           return;
         }
 
+        const getEntityId = (value: unknown) => {
+          if (typeof value === "string") return value;
+          if (value && typeof value === "object" && "_id" in value) {
+            return String((value as { _id?: string })._id ?? "");
+          }
+          return "";
+        };
+
+        const teacherMatchesClass = (cls: Class) => {
+          if (!user?._id) return false;
+          const teacherId = user._id;
+
+          const classTeacherId = getEntityId(cls.classTeacher);
+          if (classTeacherId === teacherId) return true;
+
+          const classCourses = Array.isArray(cls.courses)
+            ? cls.courses
+            : Array.isArray(cls.subjects)
+            ? cls.subjects
+            : [];
+
+          return classCourses.some((course) => {
+            const courseLecturers = Array.isArray(
+              (course as { lecturer?: unknown }).lecturer,
+            )
+              ? ((course as { lecturer?: unknown }).lecturer as unknown[])
+              : [];
+
+            if (
+              courseLecturers.some(
+                (lect) => getEntityId(lect) === teacherId,
+              )
+            ) {
+              return true;
+            }
+
+            const courseSubjects = Array.isArray(
+              (course as { subjects?: unknown }).subjects,
+            )
+              ? ((course as { subjects?: unknown }).subjects as unknown[])
+              : [];
+
+            return courseSubjects.some((subject) => {
+              const subjectLecturers = Array.isArray(
+                (subject as { lecturer?: unknown }).lecturer,
+              )
+                ? ((subject as { lecturer?: unknown }).lecturer as unknown[])
+                : [];
+              return subjectLecturers.some(
+                (lect) => getEntityId(lect) === teacherId,
+              );
+            });
+          });
+        };
+
+        const filteredClasses =
+          user?.role === "teacher"
+            ? clsData.filter(teacherMatchesClass)
+            : clsData;
+
         const checks = await Promise.all(
-          clsData.map(async (cls) => {
+          filteredClasses.map(async (cls) => {
             try {
               const { data } = await api.get("/attendance/timetable-check", {
                 params: { classId: cls._id, academicYearId: current._id },
@@ -1507,7 +1600,7 @@ function TimetableStatusCard() {
       }
     };
     void fetchStatuses();
-  }, []);
+  }, [user?.role, user?._id]);
 
   const withTimetable = classStatuses.filter((c) => c.hasTimetable);
   const withoutTimetable = classStatuses.filter((c) => !c.hasTimetable);
@@ -1955,6 +2048,38 @@ function SavedListsTable({
                                               >
                                                 Edit
                                               </Button>
+                                              <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                className="ml-2 h-6 text-xs"
+                                                onClick={async () => {
+                                                  if (!window.confirm("Delete this session and all its attendance records?")) {
+                                                    return;
+                                                  }
+                                                  try {
+                                                    const params = new URLSearchParams({
+                                                      classId: cls.classId,
+                                                      courseId: course.courseId,
+                                                      date: session.date,
+                                                    });
+                                                    const subjectId =
+                                                      session.records[0]?.subject &&
+                                                      typeof session.records[0].subject === "object"
+                                                        ? session.records[0].subject._id
+                                                        : session.records[0]?.subject;
+                                                    if (subjectId) {
+                                                      params.set("subjectId", String(subjectId));
+                                                    }
+                                                    await api.delete(`/attendance/session?${params.toString()}`);
+                                                    toast.success("Attendance session deleted");
+                                                    window.location.reload();
+                                                  } catch {
+                                                    toast.error("Failed to delete attendance session");
+                                                  }
+                                                }}
+                                              >
+                                                Delete
+                                              </Button>
                                             </span>
                                           </div>
 
@@ -2016,19 +2141,19 @@ function StudentRecordsByClass({
         date: string;
         dayOfWeek?: string;
         subject?: { name: string; code?: string };
+        course?: { name: string; code?: string };
         class?: { name: string; _id?: string };
         lecturer?: { name: string };
         records: AttendanceRecord[];
       }
     >();
-
     records.forEach((r) => {
       const classId =
         typeof r.class === "string" ? r.class : (r.class?._id ?? "unknown");
       const dateKey = `${new Date(r.date).toDateString()}__${classId}`;
       if (!map.has(dateKey)) {
         map.set(dateKey, {
-          date: r.date,
+          date: String(r.date),
           dayOfWeek: r.dayOfWeek,
           course:
             typeof r.course === "object" && r.course !== null
@@ -2213,7 +2338,9 @@ function StudentRecordsByClass({
                               {i + 1}
                             </td>
                             <td className="px-3 py-1.5 font-medium text-xs">
-                              {r.course?.name ?? r.course?.code ?? "—"}
+                              {typeof r.course === "object"
+                                ? r.course?.name ?? r.course?.code ?? "—"
+                                : r.course ?? "—"}
                             </td>
                             <td className="px-3 py-1.5 text-center">
                               {statusBadge(r.status)}
@@ -2282,7 +2409,7 @@ function LatestWeekTable() {
     const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
     return days.map((day) => ({
       day,
-      records: records.filter((r) => (r as any).dayOfWeek === day),
+      records: records.filter((r) => r.dayOfWeek === day),
     }));
   }, [records]);
 

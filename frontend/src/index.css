@@ -668,6 +668,14 @@ header.fixed {
   overflow: scroll;
 }
 
+.space-y-2 .rounded-md.border.p-3{
+  background: var(--card);
+}
+
+.space-y-2 .rounded-md.border.p-3:hover{
+  background: var(--border);
+}
+
 [data-slot="card-content"].px-6 .mt-3 .space-y-3.mt-2 .border.rounded-md {
   padding: 0px 10px !important;
   border-radius: 15px;
@@ -861,6 +869,36 @@ header.fixed {
   to {
     transform: translateX(0);
     opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.02) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes pop-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  70% {
+    opacity: 0.8;
+    transform: scale(0.98) translateY(3px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.94) translateY(8px);
   }
 }
 */ .animate-rollout-left {

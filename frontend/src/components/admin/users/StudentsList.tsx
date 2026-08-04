@@ -26,6 +26,7 @@ export interface Student {
   class: string;
   currentPosting?: string;
   attendancePercentage: number;
+  postingLabel?: string;
   status: "active" | "inactive" | "graduated";
   email: string;
   profileImage?: string;
@@ -539,7 +540,9 @@ export function StudentsList({
                   return (
                     <div
                       key={studentIdentity}
-                      onClick={() => setFocusedStudentId(isFocused ? null : studentIdentity)}
+                      onClick={() => {
+                        setFocusedStudentId((current) => (current === studentIdentity ? null : studentIdentity));
+                      }}
                       onBlur={() => setFocusedStudentId(null)}
                       role="button"
                       tabIndex={0}
@@ -611,31 +614,8 @@ export function StudentsList({
 
                       {!isFocused && (
                         <>
-                          <div className="mt-4 grid gap-2 text-sm text-muted-foreground">
-                            <div className="rounded-2xl bg-background p-3">
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                                Current Posting
-                              </p>
-                              <p className="text-sm text-foreground">
-                                {student.currentPosting || "Not assigned"}
-                              </p>
-                            </div>
-                            <div className="rounded-2xl bg-background p-3">
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                                Attendance
-                              </p>
-                              <p
-                                className={
-                                  student.attendancePercentage >= 80
-                                    ? "text-emerald-600"
-                                    : student.attendancePercentage >= 70
-                                    ? "text-amber-600"
-                                    : "text-rose-600"
-                                }
-                              >
-                                {student.attendancePercentage}%
-                              </p>
-                            </div>
+                          <div className="mt-4 rounded-2xl border border-dashed border-border/70 bg-background/60 p-3 text-sm text-muted-foreground">
+                            Click View to see attendance and current posting details.
                           </div>
 
                           <div className="user-card-action-row mt-4 flex flex-wrap gap-2 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
@@ -694,22 +674,6 @@ export function StudentsList({
                               <Badge className={getStatusClass(student.status)}>
                                 {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
                               </Badge>
-                            </div>
-                            <div className="rounded-2xl bg-background p-3">
-                              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                                Attendance
-                              </p>
-                              <p
-                                className={
-                                  student.attendancePercentage >= 80
-                                    ? "text-emerald-600 font-semibold"
-                                    : student.attendancePercentage >= 70
-                                    ? "text-amber-600 font-semibold"
-                                    : "text-rose-600 font-semibold"
-                                }
-                              >
-                                {student.attendancePercentage}%
-                              </p>
                             </div>
                           </div>
 
