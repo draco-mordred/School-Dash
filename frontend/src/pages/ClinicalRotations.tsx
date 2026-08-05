@@ -1334,15 +1334,14 @@ export default function ClinicalRotations() {
         };
       });
 
-      const generatedPostingName = [
-        selectedClass.name,
-        selectedPostingPhaseOption.label,
-        new Date(startDate).toISOString().slice(0, 10),
-      ].join(" - ");
+      const basePostingName = postingGenerateName.trim()
+        ? postingGenerateName.trim()
+        : selectedPostingPhaseOption.label;
+      const generatedPostingName = `${basePostingName} - ${format(new Date(startDate), 'ddMMyy')}`;
 
       const payload = {
         class: selectedClassId,
-        name: postingGenerateName.trim() || generatedPostingName,
+        name: generatedPostingName,
         phaseId: postingGeneratePhaseId,
         phaseName: selectedPostingPhaseOption.label,
         postingScheduleId: `${selectedClassId}-${postingGeneratePhaseId}-${Date.now()}`,
