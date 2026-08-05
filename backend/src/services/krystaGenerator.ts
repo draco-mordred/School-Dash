@@ -40,7 +40,9 @@ type TimelineWindow = {
   startDate: string;
   endDate: string;
   supervisorId: string | null;
+  supervisorName?: string | null;
   departmentSupervisorId: string | null;
+  departmentSupervisorName?: string | null;
 };
 
 type DepartmentGroup = {
@@ -94,7 +96,7 @@ const resolveDepartmentDocument = async (identifier: string) => {
     if (byId) return byId;
   }
 
-  // fallback to direct match
+  // fallback to direct match by department code, departmentID, or name
   return Department.findOne({
     $or: [
       { code: identifier },
@@ -163,6 +165,17 @@ const rankSupervisorCandidates = (users: SupervisorUser[]) => {
       if (a.departmentRole && b.departmentRole) return String(a.departmentRole).localeCompare(String(b.departmentRole));
       return String(a.name || '').localeCompare(String(b.name || ''));
     });
+};
+
+const getSupervisorName = async (supervisorId: string | null) => {
+  if (!supervisorId) return null;
+  try {
+    const supervisor = await User.findById(supervisorId).select('name').lean();
+    return supervisor?.name || null;
+  } catch (err) {
+    console.warn('Failed to resolve supervisor name for id', supervisorId, err);
+    return null;
+  }
 };
 
 const findDepartmentSupervisors = async (departmentDoc: any) => {
@@ -264,6 +277,7 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   const unvisitedUnits: { departmentIndex: number; unitIds: string[] }[] = [];
   const unvisitedUnitGroups: { departmentIndex: number; unitGroupIndex: number; usedUnitIds: string[]; unusedUnitIds: string[] }[] = [];
   const unassignedWindows: any[] = [];
+  const groupSupervisorMap = new Map<number, { supervisorId: string | null; supervisorName: string | null }>();
   const phases: any[] = [];
 
   const phaseDurationDays = Math.max(
@@ -287,6 +301,7 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
 
       const departmentDoc = await resolveDepartmentDocument(dept.departmentId);
       const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc);
+      const departmentSupervisorName = await getSupervisorName(departmentSupervisorId);
       const unitMap = useUnits ? await resolveUnitMap(activeUnits) : new Map<string, any>();
       // Determine number of unit groups per department group (S / u)
       const studentCount = Array.isArray(departmentGroup.studentIds) ? departmentGroup.studentIds.length : 0;
@@ -322,6 +337,15 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
             const unitDoc = assignedUnitId ? unitMap.get(assignedUnitId) || null : null;
             const unitSupervisorId = await findUnitSupervisor(unitDoc, departmentDoc);
             const supervisorId = unitSupervisorId || departmentSupervisorId;
+            const supervisorName = supervisorId ? (await getSupervisorName(supervisorId)) || departmentSupervisorName : departmentSupervisorName;
+
+            const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
+            if (!existingSupervisor || (!existingSupervisor.supervisorName && supervisorName)) {
+              groupSupervisorMap.set(assignedGroupIndex, {
+                supervisorId: supervisorId || null,
+                supervisorName,
+              });
+            }
 
             // rotate student ordering per unit window so captain rotates
             const orderedStudents = rotateLeft(unitGroup.studentIds, windowIndex);
@@ -341,7 +365,9 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
               startDate: windowStart.toISOString(),
               endDate: windowEnd.toISOString(),
               supervisorId,
+              supervisorName,
               departmentSupervisorId,
+              departmentSupervisorName,
             });
             if (!supervisorId) {
               unassignedWindows.push({
@@ -370,6 +396,15 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       } else {
         const windowStart = new Date(phaseStart);
         const windowEnd = addDays(phaseStart, departmentDurationDays);
+        const supervisorName = departmentSupervisorName;
+
+        const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
+        if (!existingSupervisor || (!existingSupervisor.supervisorName && supervisorName)) {
+          groupSupervisorMap.set(assignedGroupIndex, {
+            supervisorId: departmentSupervisorId || null,
+            supervisorName,
+          });
+        }
 
         timeline.push({
           phaseIndex,
@@ -383,7 +418,9 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
           startDate: windowStart.toISOString(),
           endDate: windowEnd.toISOString(),
           supervisorId: departmentSupervisorId,
+          supervisorName,
           departmentSupervisorId,
+          departmentSupervisorName,
         });
         if (!departmentSupervisorId) {
           unassignedWindows.push({
@@ -434,11 +471,20 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         name,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
-        groups: deptGroups.map((g) => ({ groupId: null, group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` } })),
+        groups: deptGroups.map((g) => {
+          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null };
+          return {
+            groupId: null,
+            group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` },
+            supervisor: supervisorInfo.supervisorId,
+            supervisorName: supervisorInfo.supervisorName || undefined,
+          };
+        }),
         meta: {
           krysta: true,
           departments,
           timelineCount: timeline.length,
+          timeline,
           phaseId,
           phaseName,
           postingScheduleId,

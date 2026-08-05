@@ -1,5 +1,6 @@
 import { type Request, type Response } from 'express';
 import RotationPlan from '../models/rotationPlan';
+import User from '../models/user';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
 
@@ -94,6 +95,12 @@ export const deleteRotationSchedule = async (req: Request, res: Response) => {
   }
 };
 
+const getSupervisorNameById = async (supervisorId: string | null) => {
+  if (!supervisorId) return null;
+  const supervisor = await User.findById(supervisorId).select('name').lean();
+  return supervisor?.name || null;
+};
+
 // POST /api/rotation-schedules/:id/assign-supervisor
 export const assignSupervisorToWindow = async (req: Request, res: Response) => {
   try {
@@ -105,10 +112,12 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
     if (!plan) return res.status(404).json({ message: 'Schedule not found' });
 
     const timeline = (plan.meta && plan.meta.timeline) || [];
+    const supervisorName = await getSupervisorNameById(supervisorId || null);
 
     if (typeof windowIndex === 'number') {
       if (!timeline[windowIndex]) return res.status(400).json({ message: 'Invalid windowIndex' });
       timeline[windowIndex].supervisorId = supervisorId;
+      timeline[windowIndex].supervisorName = supervisorName;
     } else if (req.body.matching) {
       // allow matching criteria to set multiple windows: { matching: { departmentIndex, departmentGroupIndex, unitGroupIndex } }
       const m = req.body.matching || {};
@@ -118,29 +127,35 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
         if (m.departmentIndex !== undefined) ok = ok && t.departmentIndex === m.departmentIndex;
         if (m.departmentGroupIndex !== undefined) ok = ok && t.departmentGroupIndex === m.departmentGroupIndex;
         if (m.unitGroupIndex !== undefined) ok = ok && t.unitGroupIndex === m.unitGroupIndex;
-        if (ok) timeline[i].supervisorId = supervisorId;
+        if (ok) {
+          t.supervisorId = supervisorId;
+          t.supervisorName = supervisorName;
+        }
       }
     }
 
     plan.meta = { ...(plan.meta || {}), timeline };
 
-    // Also persist supervisor in postings.groups for easier lookup
+    // Also persist supervisor in postings.groups for easier lookup and keep posting timeline copy in sync
     const postings = plan.postings || [];
     for (const p of postings) {
+      p.meta = { ...(p.meta || {}), timeline };
       const groups = p.groups || [];
       for (let i = 0; i < groups.length; i++) {
         const g = groups[i];
         // Match this group with windows that have matching departmentGroupIndex
         let supervisorForGroup: any = null;
+        let supervisorNameForGroup: string | null = null;
         for (const t of timeline) {
           if (t.departmentGroupIndex === i && t.supervisorId) {
             supervisorForGroup = t.supervisorId;
+            supervisorNameForGroup = t.supervisorName || null;
             break;
           }
         }
         if (supervisorForGroup) {
           g.supervisor = supervisorForGroup;
-          g.supervisorName = supervisorForGroup; // will be replaced on client with actual name
+          g.supervisorName = supervisorNameForGroup || undefined;
         }
       }
     }
@@ -321,6 +336,7 @@ export const listScheduleSupervisors = async (req: Request, res: Response) => {
             departmentIndex: t.departmentIndex,
             departmentGroupIndex: t.departmentGroupIndex,
             supervisorId: t.supervisorId,
+            supervisorName: t.supervisorName || null,
           };
         }
       }
@@ -364,6 +380,7 @@ export const listScheduleEvents = async (req: Request, res: Response) => {
           startDate: t.startDate,
           endDate: t.endDate,
           supervisorId: t.supervisorId || null,
+          supervisorName: t.supervisorName || null,
           status: t.supervisorId ? 'assigned' : 'upcoming',
         });
       }
@@ -392,7 +409,23 @@ export const updateWindowInSchedule = async (req: Request, res: Response) => {
     const window = timeline[idx];
     if (payload.startDate !== undefined) window.startDate = payload.startDate;
     if (payload.endDate !== undefined) window.endDate = payload.endDate;
-    if (payload.supervisorId !== undefined) window.supervisorId = payload.supervisorId;
+    if (payload.supervisorId !== undefined) {
+      window.supervisorId = payload.supervisorId;
+      window.supervisorName = await getSupervisorNameById(payload.supervisorId || null);
+
+      const groupIndex = typeof window.departmentGroupIndex === 'number' ? window.departmentGroupIndex : null;
+      if (groupIndex !== null) {
+        const postings = plan.postings || [];
+        for (const p of postings) {
+          p.meta = { ...(p.meta || {}), timeline };
+          const groups = p.groups || [];
+          if (groups[groupIndex]) {
+            groups[groupIndex].supervisor = payload.supervisorId;
+            groups[groupIndex].supervisorName = window.supervisorName || undefined;
+          }
+        }
+      }
+    }
     if (payload.markComplete) window.completed = true;
     if (payload.status !== undefined) window.status = payload.status;
 

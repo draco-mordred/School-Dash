@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Department from '../../models/departments';
 
 const STOP_WORDS = new Set(['department', 'dept', 'unit', 'of', 'the', 'and', '&', 'a', 'an']);
@@ -67,7 +68,15 @@ export async function resolveDepartmentByIdentifier(identifier: string) {
   if (!identifier) return null;
   const normalized = normalizeString(identifier);
 
-  const byId = await Department.findOne({ $or: [ { _id: identifier }, { departmentID: identifier }, { code: identifier } ] }).lean();
+  const query: any[] = [
+    { departmentID: identifier },
+    { code: identifier },
+  ];
+  if (mongoose.Types.ObjectId.isValid(identifier)) {
+    query.unshift({ _id: identifier });
+  }
+
+  const byId = await Department.findOne({ $or: query }).lean();
   if (byId) return byId;
 
   const all = await Department.find({}).lean();

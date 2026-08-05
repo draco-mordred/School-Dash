@@ -7,6 +7,9 @@ async function bundleBackend() {
   await build({
     root: path.resolve('backend'),
     base: './',
+    resolve: {
+      extensions: ['.ts', '.tsx', '.mjs', '.js', '.json'],
+    },
     build: {
       ssr: true,
       lib: {

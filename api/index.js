@@ -12,11 +12,14 @@ import * as dns from "node:dns";
 import mongoose, { Schema } from "mongoose";
 import * as bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Inngest, NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject, generateText } from "ai";
 import { serve } from "inngest/express";
+import { EventEmitter } from "events";
 import { z } from "zod";
+import crypto from "crypto";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -47,17 +50,52 @@ const connectDB = async () => {
 		const link = process.env.MONGODB_URI || process.env.MONGO_URI;
 		if (!link) throw new Error("Missing MongoDB connection string. Set MONGODB_URI or MONGO_URI.");
 		const conn = await mongoose.connect(link, {
-			serverSelectionTimeoutMS: 1e4,
-			socketTimeoutMS: 45e3
+			serverSelectionTimeoutMS: 5e3,
+			socketTimeoutMS: 2e4,
+			connectTimeoutMS: 5e3,
+			retryWrites: true,
+			maxPoolSize: 10,
+			minPoolSize: 2
 		});
 		console.log(`MongoDB Connected ONLINE @: ${conn.connection.host}`);
+		return conn;
 	} catch (error) {
 		console.error(`MongoDB connection failed: ${error.message}`);
-		process.exit(1);
+		throw error;
 	}
 };
+var normalizeInstitutionName, normalizeRoleCode, normalizeIdNumber, buildInnNumber;
+var init_innGenerator = __esmMin((() => {
+	normalizeInstitutionName = (value) => {
+		const cleaned = (value ?? "").toString().trim();
+		if (!cleaned) return "00";
+		const compact = cleaned.replace(/[^A-Za-z]/g, "").toUpperCase();
+		if (!compact) return "00";
+		const prefix = compact.slice(0, 2);
+		return prefix.length === 2 ? prefix : `${prefix}0`;
+	};
+	normalizeRoleCode = (role) => {
+		switch ((role ?? "student").toString().trim().toLowerCase()) {
+			case "admin": return "01";
+			case "teacher": return "02";
+			case "student": return "03";
+			case "parent": return "04";
+			case "unitconsultant": return "05";
+			case "unitresident": return "06";
+			default: return "03";
+		}
+	};
+	normalizeIdNumber = (value) => {
+		const digits = (value ?? "").toString().trim().replace(/\D/g, "");
+		return digits.length >= 4 ? digits.slice(-4) : digits.padStart(4, "0");
+	};
+	buildInnNumber = ({ institutionName, idNumber, role, sequence }) => {
+		return `${normalizeInstitutionName(institutionName)}${normalizeRoleCode(role)}${normalizeIdNumber(idNumber)}${String(Math.max(0, sequence)).padStart(3, "0")}`.replace(/\D/g, "").slice(0, 10).padStart(10, "0");
+	};
+}));
 var UserRole, UserIDs, UserAcademicStatus, UserDepartmentRole, UserSchema, User, user_default$1;
 var init_user = __esmMin((() => {
+	init_innGenerator();
 	UserRole = {
 		ADMIN: "admin",
 		TEACHER: "teacher",
@@ -81,6 +119,14 @@ var init_user = __esmMin((() => {
 		lecturerII: "lecturer ii",
 		assistantLecturer: "assistant lecturer",
 		resident: "resident",
+		intern: "intern",
+		juniorResident: "junior resident",
+		seniorResident: "senior resident",
+		chiefResident: "chief resident",
+		fellow: "fellow",
+		attendingPhysician: "attending physician",
+		consultant: "consultant",
+		medicalDirector: "medical director",
 		student: "student"
 	};
 	UserDepartmentRole = {
@@ -88,7 +134,8 @@ var init_user = __esmMin((() => {
 		deanOfFaculty: "dean of faculty",
 		examOfficer: "exam officer",
 		financeOfficer: "finance officer",
-		levelCordinator: "level coordinator"
+		levelCordinator: "level coordinator",
+		member: "member"
 	};
 	UserSchema = new Schema({
 		name: {
@@ -104,15 +151,41 @@ var init_user = __esmMin((() => {
 			type: String,
 			default: UserIDs.STUDENTID
 		},
+		inn: {
+			type: String,
+			default: null,
+			sparse: true
+		},
 		password: {
 			type: String,
 			required: true
+		},
+		passwordResetToken: {
+			type: String,
+			default: null
+		},
+		passwordResetExpiresAt: {
+			type: Date,
+			default: null
+		},
+		lastPasswordResetRequestedAt: {
+			type: Date,
+			default: null
 		},
 		role: {
 			type: String,
 			enum: Object.values(UserRole),
 			required: true,
 			default: UserRole.STUDENT
+		},
+		faculty: {
+			type: String,
+			default: null
+		},
+		facultyId: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Faculty",
+			default: null
 		},
 		department: {
 			type: String,
@@ -230,9 +303,24 @@ var init_user = __esmMin((() => {
 		}]
 	}, { timestamps: true });
 	UserSchema.pre("save", async function() {
-		if (!this.isModified("password")) return;
-		const salt = await bcrypt.genSalt(10);
-		this.password = await bcrypt.hash(this.password, salt);
+		if (this.isModified("password")) {
+			const salt = await bcrypt.genSalt(10);
+			this.password = await bcrypt.hash(this.password, salt);
+		}
+		if (!this.inn || this.isModified("inn") || this.isNew) {
+			const institutionName = this.institutionName || process.env.INSTITUTION_NAME || "University";
+			const role = this.role || UserRole.STUDENT;
+			const idNumber = this.idNumber || "";
+			if (!this.inn) this.inn = buildInnNumber({
+				institutionName,
+				idNumber,
+				role,
+				sequence: (await mongoose.model("User").find({ role }).select("_id inn").sort({
+					createdAt: 1,
+					_id: 1
+				}).lean()).length + 1
+			});
+		}
 	});
 	UserSchema.methods.matchPassword = async function(enteredPassword) {
 		return await bcrypt.compare(enteredPassword, this.password);
@@ -257,6 +345,11 @@ var DepartmentSchema = new Schema({
 		required: [true, "Department ID required"],
 		trim: true
 	},
+	facultyId: {
+		type: Schema.Types.ObjectId,
+		ref: "Faculty",
+		default: null
+	},
 	head: {
 		type: Schema.Types.ObjectId,
 		ref: "User",
@@ -276,8 +369,151 @@ DepartmentSchema.index({
 	departmentID: 1
 }, { unique: true });
 var departments_default = mongoose.model("Department", DepartmentSchema);
-var DepartmentName;
-(function(DepartmentName$1) {
+var InstitutionSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Institution name is required"]
+	},
+	shortName: {
+		type: String,
+		required: [true, "Institution short name is required"]
+	},
+	type: {
+		type: String,
+		required: [true, "Institution type is required"]
+	},
+	country: {
+		type: String,
+		required: [true, "Country is required"]
+	},
+	state: {
+		type: String,
+		required: [true, "State is required"]
+	},
+	city: {
+		type: String,
+		required: [true, "City is required"]
+	},
+	addressLine1: {
+		type: String,
+		default: ""
+	},
+	addressLine2: {
+		type: String,
+		default: ""
+	},
+	contactEmail: {
+		type: String,
+		default: ""
+	},
+	phone: {
+		type: String,
+		default: ""
+	},
+	website: {
+		type: String,
+		default: ""
+	},
+	description: {
+		type: String,
+		default: ""
+	},
+	academicCalendarType: {
+		type: String,
+		required: [true, "Academic calendar type is required"]
+	},
+	timezone: {
+		type: String,
+		required: [true, "Timezone is required"]
+	},
+	logoUrl: {
+		type: String,
+		default: ""
+	},
+	backgroundImageUrl: {
+		type: String,
+		default: ""
+	},
+	academicSession: {
+		type: Schema.Types.ObjectId,
+		ref: "AcademicSession",
+		required: true
+	},
+	semesters: [{
+		type: Schema.Types.ObjectId,
+		ref: "Semester"
+	}],
+	defaultDepartments: [{
+		type: Schema.Types.ObjectId,
+		ref: "Department"
+	}],
+	defaultUnits: [{
+		type: Schema.Types.ObjectId,
+		ref: "Unit"
+	}],
+	attendanceSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "AttendanceSettings",
+		required: true
+	},
+	assessmentSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "AssessmentSettings",
+		required: true
+	},
+	brandingSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "BrandingSettings",
+		required: true
+	},
+	administratorUser: {
+		type: Schema.Types.ObjectId,
+		ref: "User",
+		required: true
+	},
+	applicationSettings: {
+		type: Schema.Types.ObjectId,
+		ref: "ApplicationSettings",
+		required: true
+	}
+}, { timestamps: true });
+var institution_default = mongoose.model("Institution", InstitutionSchema);
+var FacultySchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Faculty name required"],
+		trim: true
+	},
+	code: {
+		type: String,
+		required: [true, "Faculty code required"],
+		trim: true
+	},
+	facultyID: {
+		type: String,
+		required: [true, "Faculty ID required"],
+		trim: true
+	},
+	head: {
+		type: Schema.Types.ObjectId,
+		ref: "User",
+		default: null
+	},
+	departments: [{
+		type: Schema.Types.ObjectId,
+		ref: "Department"
+	}],
+	units: [{
+		type: Schema.Types.ObjectId,
+		ref: "Unit"
+	}]
+}, { timestamps: true });
+FacultySchema.index({
+	name: 1,
+	facultyID: 1
+}, { unique: true });
+var faculty_default = mongoose.model("Faculty", FacultySchema);
+let DepartmentName = /* @__PURE__ */ function(DepartmentName$1) {
 	DepartmentName$1["medicine"] = "Medicine";
 	DepartmentName$1["pediatrics"] = "Pediatrics";
 	DepartmentName$1["obstetricsAndGynecology"] = "Obstetrics and Gynecology";
@@ -297,9 +533,9 @@ var DepartmentName;
 	DepartmentName$1["familyMedicine"] = "Family Medicine";
 	DepartmentName$1["orthopaedics"] = "Orthopaedics";
 	DepartmentName$1["forensicMedicine"] = "Forensic Medicine";
-})(DepartmentName || (DepartmentName = {}));
-var DepartmentCode;
-(function(DepartmentCode$1) {
+	return DepartmentName$1;
+}({});
+let DepartmentCode = /* @__PURE__ */ function(DepartmentCode$1) {
 	DepartmentCode$1["medicine"] = "MED";
 	DepartmentCode$1["pediatrics"] = "PAE";
 	DepartmentCode$1["obstetricsAndGynecology"] = "OBG";
@@ -319,7 +555,8 @@ var DepartmentCode;
 	DepartmentCode$1["familyMedicine"] = "FAM";
 	DepartmentCode$1["orthopaedics"] = "ORT";
 	DepartmentCode$1["forensicMedicine"] = "FOR";
-})(DepartmentCode || (DepartmentCode = {}));
+	return DepartmentCode$1;
+}({});
 const DEPARTMENTS_METADATA = {
 	[DepartmentName.medicine]: {
 		name: "Department of Medicine",
@@ -874,6 +1111,66 @@ const DEPARTMENT_UNITS = {
 			}],
 			history: []
 		}
+	},
+	[DepartmentName.communityMedicine]: {
+		id: DEPARTMENTS_METADATA[DepartmentName.communityMedicine].code,
+		name: DEPARTMENTS_METADATA[DepartmentName.communityMedicine].name,
+		postingType: "COM&RURAL",
+		rotationDurationWeeks: 2,
+		currentUnit: [],
+		units: {
+			active: [
+				{
+					id: "COM01",
+					name: "Epidemiology Unit"
+				},
+				{
+					id: "COM02",
+					name: "Health Promotion Unit"
+				},
+				{
+					id: "COM03",
+					name: "Environmental Health Unit"
+				},
+				{
+					id: "COM04",
+					name: "Occupational Health Unit"
+				}
+			],
+			reserve: [{
+				id: "COMR01",
+				name: "Public Health Research Unit"
+			}],
+			history: []
+		}
+	},
+	[DepartmentName.hematologyAndBloodTransfusion]: {
+		id: DEPARTMENTS_METADATA[DepartmentName.hematologyAndBloodTransfusion].code,
+		name: DEPARTMENTS_METADATA[DepartmentName.hematologyAndBloodTransfusion].name,
+		postingType: "BLOCK",
+		rotationDurationWeeks: 2,
+		currentUnit: [],
+		units: {
+			active: [
+				{
+					id: "HEM01",
+					name: "General Hematology"
+				},
+				{
+					id: "HEM02",
+					name: "Blood Transfusion Unit"
+				},
+				{
+					id: "HEM03",
+					name: "Hematopathology"
+				}
+			],
+			reserve: [{
+				id: "HEMR01",
+				name: "Coagulation & Hemostasis Unit"
+			}],
+			history: []
+		}
 	}
 };
 const DEPARTMENT_NAMES = Object.values(DepartmentName);
@@ -883,50 +1180,11 @@ const getDepartmentUnitsByCode = (code) => {
 	return departmentName ? DEPARTMENT_UNITS[departmentName] ?? null : null;
 };
 const DEPARTMENT_COURSES = {
-	[DepartmentName.pediatrics]: [{
-		title: "Paediatric Cardiology",
-		units: 5,
-		courseID: DepartmentCode.pediatrics,
-		code: "PAE 501",
-		departmentName: DEPARTMENTS_METADATA[DepartmentName.pediatrics].name,
-		departmentCode: DepartmentCode.pediatrics,
-		semester: "First"
-	}, {
-		title: "Emergency Paediatrics",
-		units: 4,
-		courseID: DepartmentCode.pediatrics,
-		code: "PAE 502",
-		departmentName: DEPARTMENTS_METADATA[DepartmentName.pediatrics].name,
-		departmentCode: DepartmentCode.pediatrics,
-		semester: "Second"
-	}],
-	[DepartmentName.obstetricsAndGynecology]: [{
-		title: "Antenatal Care",
-		units: 4,
-		courseID: DepartmentCode.obstetricsAndGynecology,
-		code: "OBG 501",
-		departmentName: DEPARTMENTS_METADATA[DepartmentName.obstetricsAndGynecology].name,
-		departmentCode: DepartmentCode.obstetricsAndGynecology,
-		semester: "First"
-	}, {
-		title: "Family Planning",
-		units: 3,
-		courseID: DepartmentCode.obstetricsAndGynecology,
-		code: "OBG 502",
-		departmentName: DEPARTMENTS_METADATA[DepartmentName.obstetricsAndGynecology].name,
-		departmentCode: DepartmentCode.obstetricsAndGynecology,
-		semester: "Second"
-	}],
-	[DepartmentName.medicine]: [{
-		title: "Internal Medicine I",
-		units: 5,
-		courseID: DepartmentCode.medicine,
-		code: "MED 501",
-		departmentName: DEPARTMENTS_METADATA[DepartmentName.medicine].name,
-		departmentCode: DepartmentCode.medicine,
-		semester: "First"
-	}]
+	[DepartmentName.pediatrics]: [],
+	[DepartmentName.obstetricsAndGynecology]: [],
+	[DepartmentName.medicine]: []
 };
+const getAllDepartmentUnits = () => Object.values(DEPARTMENT_UNITS);
 const getAllDepartments = () => DEPARTMENT_NAMES.map((name) => ({ ...DEPARTMENTS_METADATA[name] }));
 var NotificationSchema, Notification;
 var init_notification = __esmMin((() => {
@@ -1144,6 +1402,23 @@ const sendAccountApprovalEmail = async ({ to, name, loginUrl, message: message$1
 		recipient
 	};
 };
+const generatePasswordResetToken = (byteLength = 24) => {
+	return randomBytes(byteLength).toString("hex");
+};
+const hashPasswordResetToken = async (token) => {
+	const salt = randomBytes(16).toString("hex");
+	return `${salt}:${createHash("sha256").update(`${salt}:${token}`).digest("hex")}`;
+};
+const verifyPasswordResetToken = async (token, storedToken) => {
+	if (!token || !storedToken) return false;
+	const [salt, hash] = storedToken.split(":");
+	if (!salt || !hash) return false;
+	const expectedHash = createHash("sha256").update(`${salt}:${token}`).digest("hex");
+	const actualBuffer = Buffer.from(hash, "hex");
+	const expectedBuffer = Buffer.from(expectedHash, "hex");
+	if (actualBuffer.length !== expectedBuffer.length) return false;
+	return timingSafeEqual(actualBuffer, expectedBuffer);
+};
 var classes_exports = /* @__PURE__ */ __export({ default: () => classes_default$1 });
 var classSchema, classes_default$1;
 var init_classes = __esmMin((() => {
@@ -1260,7 +1535,9 @@ var inngest;
 var init_client = __esmMin((() => {
 	inngest = new Inngest({
 		id: "medlog-lms",
-		isDev: true
+		isDev: true,
+		eventKey: process.env.INNGEST_EVENT_KEY ?? "dev",
+		devServerUrl: process.env.INNGEST_DEVSERVER_URL ?? "http://localhost:8288"
 	});
 }));
 var timetableSchema, timetable_default$1;
@@ -1397,6 +1674,10 @@ var init_attendance = __esmMin((() => {
 			type: mongoose.Schema.Types.ObjectId,
 			ref: "Course",
 			required: true
+		},
+		subject: {
+			type: mongoose.Schema.Types.ObjectId,
+			default: null
 		},
 		class: {
 			type: mongoose.Schema.Types.ObjectId,
@@ -1637,7 +1918,20 @@ async function routeTaskToStaff(departmentName, taskType, referenceId) {
 		throw error;
 	}
 }
-var init_mordredEngine = __esmMin((() => {})), generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify, automaticPostingNotification, mordredTicketSentry;
+var init_mordredEngine = __esmMin((() => {}));
+var functions_exports = /* @__PURE__ */ __export({
+	automaticPostingNotification: () => automaticPostingNotification,
+	bulkCreateUsers: () => bulkCreateUsers,
+	createUsersForBulkUpload: () => createUsersForBulkUpload,
+	generateAttendance: () => generateAttendance,
+	generateExam: () => generateExam,
+	generateTimeTable: () => generateTimeTable,
+	mordredTicketSentry: () => mordredTicketSentry,
+	rotationNotify: () => rotationNotify,
+	rotationSnapshotScheduler: () => rotationSnapshotScheduler,
+	whatsappLectureAlert: () => whatsappLectureAlert
+});
+var generateTimeTable, generateExam, generateAttendance, createUsersForBulkUpload, bulkCreateUsers, rotationNotify, automaticPostingNotification, mordredTicketSentry, whatsappLectureAlert, rotationSnapshotScheduler;
 var init_functions = __esmMin((() => {
 	init_client();
 	init_classes();
@@ -1667,8 +1961,8 @@ var init_functions = __esmMin((() => {
 				lecturerIds: Array.isArray(s?.lecturer) ? s.lecturer.map((x) => String(x)) : []
 			})));
 			const qualifiedTeachers = allTeachersAndLecturers.filter((lecturer) => {
-				if (!lecturer.teacherSubject) return false;
-				return topLevelCourses.some((tc) => lecturer.teacherSubject.some((subId) => String(subId) === String(tc._id)));
+				if (!lecturer?.teacherSubject) return false;
+				return topLevelCourses.some((tc) => lecturer?.teacherSubject.some((subId) => String(subId) === String(tc._id)));
 			}).map((tea) => ({
 				id: String(tea._id),
 				idNumber: tea.idNumber,
@@ -1832,10 +2126,10 @@ var init_functions = __esmMin((() => {
 						endTime: period.endTime,
 						isClinical: true
 					};
-					const isValidObjectId = (v) => typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v);
-					if (!isValidObjectId(String(courseIdRaw))) throw new NonRetriableError(`Invalid subject id returned by AI: ${String(courseIdRaw)}`);
+					const isValidObjectId$1 = (v) => typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v);
+					if (!isValidObjectId$1(String(courseIdRaw))) throw new NonRetriableError(`Invalid subject id returned by AI: ${String(courseIdRaw)}`);
 					const lecturerRaw = period?.lecturer;
-					const lecturerObjId = isValidObjectId(lecturerRaw) ? new mongoose.Types.ObjectId(String(lecturerRaw)) : null;
+					const lecturerObjId = isValidObjectId$1(lecturerRaw) ? new mongoose.Types.ObjectId(String(lecturerRaw)) : null;
 					return {
 						subject: new mongoose.Types.ObjectId(String(courseIdRaw)),
 						lecturer: lecturerObjId,
@@ -1931,6 +2225,7 @@ var init_functions = __esmMin((() => {
 			6: "Saturday"
 		};
 		const dateObj = new Date(date);
+		if (Number.isNaN(dateObj.getTime())) throw new NonRetriableError("Invalid date format");
 		const dayName = dayMap[dateObj.getDay()];
 		if (dayName === "Saturday" || dayName === "Sunday") throw new NonRetriableError("Attendance cannot be generated on weekends (Saturday/Sunday)");
 		const classData = await step.run("fetch-class-students", async () => {
@@ -1939,7 +2234,7 @@ var init_functions = __esmMin((() => {
 			return cls;
 		});
 		const studentIds = classData.students.map((s) => s._id);
-		const timetableData = await step.run("fetch-timetable-schedule", async () => {
+		const { matchingPeriods } = await step.run("fetch-timetable-schedule", async () => {
 			const timetable = await timetable_default$1.findOne({
 				class: classId,
 				academicYear: academicYearId
@@ -1948,14 +2243,14 @@ var init_functions = __esmMin((() => {
 			const daySchedule = timetable.schedule.find((d) => d.day?.toLowerCase() === dayName?.toLowerCase());
 			if (!daySchedule) throw new NonRetriableError(`NO_SCHEDULE: No schedule found for ${dayName}. The timetable exists but has no periods on this day.`);
 			const courseStr = courseId.toString();
-			const matchingPeriods = daySchedule.periods.filter((p) => p.subject?._id?.toString() === courseStr);
-			if (matchingPeriods.length === 0) {
+			const matchingPeriods$1 = daySchedule.periods.filter((p) => p.subject?._id?.toString() === courseStr);
+			if (matchingPeriods$1.length === 0) {
 				const availableSubjects = daySchedule.periods.map((p) => p.subject?.name ?? p.subject?.code ?? "Unknown").filter(Boolean);
 				throw new NonRetriableError(`NO_PERIOD: No period found for the selected course on ${dayName}. Please verify the course was added to the ${dayName} schedule in the timetable.${availableSubjects.length > 0 ? ` Available courses on ${dayName}: ${[...new Set(availableSubjects)].join(", ")}.` : ""}`);
 			}
 			return {
 				daySchedule,
-				matchingPeriods
+				matchingPeriods: matchingPeriods$1
 			};
 		});
 		await step.run("check-duplicate", async () => {
@@ -1973,7 +2268,6 @@ var init_functions = __esmMin((() => {
 			})).deletedCount };
 		});
 		await step.run("create-attendance-records", async () => {
-			const { matchingPeriods } = timetableData;
 			const lecturer = matchingPeriods[0]?.lecturer?._id ?? null;
 			return await Promise.all(studentIds.map((studentId) => attendance_default$1.create({
 				student: studentId,
@@ -1999,72 +2293,77 @@ var init_functions = __esmMin((() => {
 			count: studentIds.length
 		};
 	});
+	createUsersForBulkUpload = async ({ users, classId, courseIds, userId }) => {
+		if (!users || users.length === 0) throw new Error("No users provided.");
+		const created = [];
+		const skipped = [];
+		const errors = [];
+		const rolePrefixes = {
+			teacher: "UJ0000TE",
+			parent: "UJ0000PA",
+			admin: "UJ0000AD",
+			student: "UJ0000ST"
+		};
+		const fallbackIdNumbers = {};
+		for (const [r, prefix] of Object.entries(rolePrefixes)) {
+			const lastUser = await user_default$1.findOne({ idNumber: { $regex: `^${prefix}` } }).sort({ createdAt: -1 }).lean();
+			if (lastUser && lastUser.idNumber) fallbackIdNumbers[r] = `${prefix}${(parseInt(lastUser.idNumber.slice(-4)) + 1).toString().padStart(4, "0")}`;
+			else fallbackIdNumbers[r] = `${prefix}0001`;
+		}
+		for (const u of users) try {
+			const idNumber = u.idNumber?.trim() || (() => {
+				const prefix = {
+					student: "UJ0000ST",
+					teacher: "UJ0000TE",
+					parent: "UJ0000PA",
+					admin: "UJ0000AD"
+				}[u.role] ?? "UJ0000ST";
+				const nextNum = (parseInt(fallbackIdNumbers[u.role]?.slice(-4) || "0") + 1).toString().padStart(4, "0");
+				fallbackIdNumbers[u.role] = `${prefix}${nextNum}`;
+				return fallbackIdNumbers[u.role];
+			})();
+			const email = u.email?.trim() || u.name.toLowerCase().replace(/\s+/g, ".") + "@school.edu";
+			const studentClasses = u.role === "student" && classId ? classId : void 0;
+			const teacherSubject = u.role === "teacher" && courseIds ? courseIds : void 0;
+			if (u.idNumber?.trim()) await user_default$1.findOneAndDelete({ idNumber: u.idNumber.trim() });
+			await user_default$1.findOneAndDelete({ email });
+			const newUser = await user_default$1.create({
+				name: u.name,
+				email,
+				idNumber,
+				role: u.role,
+				password: "password",
+				studentClasses,
+				teacherSubject
+			});
+			if (!newUser) throw new Error("Failed to create user");
+			if (u.role === "student" && classId) await classes_default$1.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose.Types.ObjectId(newUser._id) } }, { returnDocument: "after" });
+			created.push(newUser.email);
+		} catch (err) {
+			errors.push(`'${u.name}': ${err.message}`);
+		}
+		await logActivity({
+			userId: userId ?? "system",
+			action: "Bulk uploaded users",
+			details: `Bulk upload: ${created.length} created, ${skipped.length} skipped, ${errors.length} errors.`
+		});
+		return {
+			created,
+			skipped,
+			errors
+		};
+	};
 	bulkCreateUsers = inngest.createFunction({
 		id: "Bulk-Create-Users",
 		triggers: { event: "users/bulk-create" }
 	}, async ({ event, step }) => {
 		const { users, classId, courseIds, userId } = event.data;
-		if (!users || users.length === 0) throw new NonRetriableError("No users provided.");
-		const results = await step.run("bulk-create-users", async () => {
-			const created = [];
-			const skipped = [];
-			const errors = [];
-			const rolePrefixes = {
-				teacher: "UJ0000TE",
-				parent: "UJ0000PA",
-				admin: "UJ0000AD",
-				student: "UJ0000ST"
-			};
-			const fallbackIdNumbers = {};
-			for (const [r, prefix] of Object.entries(rolePrefixes)) {
-				const lastUser = await user_default$1.findOne({ idNumber: { $regex: `^${prefix}` } }).sort({ createdAt: -1 }).lean();
-				if (lastUser && lastUser.idNumber) fallbackIdNumbers[r] = `${prefix}${(parseInt(lastUser.idNumber.slice(-4)) + 1).toString().padStart(4, "0")}`;
-				else fallbackIdNumbers[r] = `${prefix}0001`;
-			}
-			for (const u of users) try {
-				const idNumber = u.idNumber?.trim() || (() => {
-					const prefix = {
-						student: "UJ0000ST",
-						teacher: "UJ0000TE",
-						parent: "UJ0000PA",
-						admin: "UJ0000AD"
-					}[u.role] ?? "UJ0000ST";
-					const nextNum = (parseInt(fallbackIdNumbers[u.role]?.slice(-4) || "0") + 1).toString().padStart(4, "0");
-					fallbackIdNumbers[u.role] = `${prefix}${nextNum}`;
-					return fallbackIdNumbers[u.role];
-				})();
-				const email = u.email?.trim() || u.name.toLowerCase().replace(/\s+/g, ".") + "@school.edu";
-				const studentClasses = u.role === "student" && classId ? classId : void 0;
-				const teacherSubject = u.role === "teacher" && courseIds ? courseIds : void 0;
-				if (u.idNumber?.trim()) await user_default$1.findOneAndDelete({ idNumber: u.idNumber.trim() });
-				await user_default$1.findOneAndDelete({ email });
-				const newUser = await user_default$1.create({
-					name: u.name,
-					email,
-					idNumber,
-					role: u.role,
-					password: "password",
-					studentClasses,
-					teacherSubject
-				});
-				if (u.role === "student" && classId) await (init_classes(), __toCommonJS(classes_exports)).default.findByIdAndUpdate(classId, { $addToSet: { students: new mongoose.Types.ObjectId(newUser._id) } }, { returnDocument: "after" });
-				created.push(newUser.email);
-			} catch (err) {
-				errors.push(`'${u.name}': ${err.message}`);
-			}
-			return {
-				created,
-				skipped,
-				errors
-			};
-		});
-		await step.run("log-activity", async () => {
-			await logActivity({
-				userId: userId ?? "system",
-				action: "Bulk uploaded users",
-				details: `Bulk upload: ${results.created.length} created, ${results.skipped.length} skipped, ${results.errors.length} errors.`
-			});
-		});
+		const results = await step.run("bulk-create-users", async () => createUsersForBulkUpload({
+			users,
+			classId,
+			courseIds,
+			userId
+		}));
 		return {
 			success: true,
 			created: results.created.length,
@@ -2079,7 +2378,7 @@ var init_functions = __esmMin((() => {
 		const payload = event.data;
 		if (!payload?.userId || !payload?.title || !payload?.message) throw new NonRetriableError("Invalid notification payload");
 		await step.run("create-notification", async () => {
-			const { Notification: Notification$1 } = await import("./notification-WqRLsBJ_.js");
+			const { Notification: Notification$1 } = await import("./notification-DrupIu0s.js");
 			await Notification$1.create({
 				userId: new mongoose.Types.ObjectId(payload.userId),
 				role: "student",
@@ -2135,7 +2434,7 @@ var init_functions = __esmMin((() => {
 			escalated: structuralAlertNeeded
 		};
 	});
-	inngest.createFunction({
+	whatsappLectureAlert = inngest.createFunction({
 		id: "mordred-whatsapp-lecture-alert",
 		triggers: { event: "medlog/lecture.updated" }
 	}, async ({ event, step }) => {
@@ -2145,6 +2444,47 @@ var init_functions = __esmMin((() => {
 			console.log(`📡 MORDRED broadcasted update directly to WhatsApp Group: ${whatsappGroupId}`);
 		});
 		return { dispatched: true };
+	});
+	rotationSnapshotScheduler = inngest.createFunction({
+		id: "rotation-snapshot-scheduler",
+		triggers: { cron: "0 */6 * * *" }
+	}, async ({ step }) => {
+		const RotationPlan$1 = (await import("./rotationPlan-B0YTYqyS.js")).default;
+		const runRotationSnapshot$1 = (await import("./rotationRunner-BGFrmedx.js")).default;
+		await step.run("process-rotation-snapshots", async () => {
+			const now = /* @__PURE__ */ new Date();
+			const plans = await RotationPlan$1.find({}).lean();
+			const results = [];
+			for (const plan of plans) try {
+				const planDoc = await RotationPlan$1.findById(plan._id);
+				if (!planDoc) continue;
+				const timeline = planDoc.meta && planDoc.meta.timeline || [];
+				let anyActive = false;
+				for (let i = 0; i < timeline.length; i++) {
+					const t = timeline[i];
+					const start = new Date(t.startDate);
+					const end = new Date(t.endDate);
+					if (start <= now && now < end) {
+						anyActive = true;
+						break;
+					}
+				}
+				if (anyActive) {
+					const snap = await runRotationSnapshot$1(String(plan._id), { snapshotTime: now.toISOString() });
+					results.push({
+						planId: plan._id,
+						snapshot: snap
+					});
+				}
+			} catch (err) {
+				console.error("Error processing rotation snapshot for plan", plan._id, err);
+			}
+			return {
+				processed: results.length,
+				results
+			};
+		});
+		return { success: true };
 	});
 }));
 var inngest_exports = /* @__PURE__ */ __export({
@@ -2162,7 +2502,9 @@ var init_inngest = __esmMin((() => {
 }));
 init_user();
 init_activitieslog();
-var normalizeRole = (role) => {
+init_innGenerator();
+var Faculty = faculty_default;
+var normalizeRole$1 = (role) => {
 	if (!role) return void 0;
 	const value = String(role).trim().toLowerCase();
 	if (value === "unitconsultant" || value === "unitconsultant") return "unitconsultant";
@@ -2174,10 +2516,10 @@ var normalizeRole = (role) => {
 };
 const resolveLoginIdentifier = (payload) => {
 	const candidates = [
-		payload?.credential,
-		payload?.idNumber,
-		payload?.matricNumber,
-		payload?.email
+		payload.credential,
+		payload.idNumber,
+		payload.matricNumber,
+		payload.email
 	];
 	for (const candidate of candidates) if (typeof candidate === "string") {
 		const trimmed = candidate.trim();
@@ -2193,6 +2535,40 @@ const identifierMatches = (candidate, target) => {
 	const normalizedCandidate = normalizeLoginIdentifier(candidate);
 	const normalizedTarget = normalizeLoginIdentifier(target);
 	return Boolean(normalizedCandidate && normalizedTarget && normalizedCandidate === normalizedTarget);
+};
+var findUserByIdentifier = async (identifier) => {
+	const trimmedIdentifier = identifier.trim();
+	const lookupCandidates = [
+		trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
+		trimmedIdentifier ? { email: trimmedIdentifier } : null,
+		trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
+		trimmedIdentifier ? { studentId: trimmedIdentifier } : null
+	].filter(Boolean);
+	let user = null;
+	for (const criteria of lookupCandidates) {
+		user = await user_default$1.findOne(criteria);
+		if (user) return user;
+	}
+	if (!trimmedIdentifier) return null;
+	normalizeLoginIdentifier(trimmedIdentifier);
+	return (await user_default$1.find({ $or: [
+		{ idNumber: {
+			$exists: true,
+			$ne: ""
+		} },
+		{ email: {
+			$exists: true,
+			$ne: ""
+		} },
+		{ matricNumber: {
+			$exists: true,
+			$ne: ""
+		} },
+		{ studentId: {
+			$exists: true,
+			$ne: ""
+		} }
+	] }).limit(200)).find((candidate) => identifierMatches(candidate.idNumber, trimmedIdentifier) || identifierMatches(candidate.matricNumber, trimmedIdentifier) || identifierMatches(candidate.studentId, trimmedIdentifier) || identifierMatches(candidate.email, trimmedIdentifier)) || null;
 };
 var findDepartment = async (departmentInput) => {
 	if (!departmentInput) return null;
@@ -2219,10 +2595,92 @@ var findDepartment = async (departmentInput) => {
 	});
 	return doc;
 };
+var findFaculty$1 = async (facultyInput) => {
+	if (!facultyInput) return null;
+	const identifier = String(facultyInput).trim();
+	if (!identifier) return null;
+	if (mongoose.isValidObjectId(identifier)) {
+		const doc = await Faculty.findById(identifier);
+		if (doc) return doc;
+	}
+	return await Faculty.findOne({ $or: [
+		{ code: identifier },
+		{ facultyID: identifier },
+		{ name: identifier }
+	] });
+};
+var resolveInstitutionName = async (fallback) => {
+	if (fallback && String(fallback).trim()) return String(fallback).trim();
+	const institution = await institution_default.findOne().select("name shortName").lean().exec();
+	return institution?.name || institution?.shortName || process.env.INSTITUTION_NAME || "University";
+};
+var ensureUniqueInn = async ({ userId, role, idNumber, institutionName }) => {
+	const safeRole = normalizeRole$1(role) || "student";
+	const candidateIdNumber = idNumber || "";
+	const resolvedInstitutionName = await resolveInstitutionName(institutionName);
+	const roleQuery = { role: safeRole };
+	const roleUsers = await user_default$1.find(roleQuery).select("_id createdAt inn").sort({
+		createdAt: 1,
+		_id: 1
+	}).lean();
+	const userOrder = roleUsers.findIndex((entry) => String(entry._id) === String(userId));
+	const sequence = userOrder >= 0 ? userOrder + 1 : roleUsers.length + 1;
+	let attempt = Math.max(1, sequence);
+	while (true) {
+		const inn = buildInnNumber({
+			institutionName: resolvedInstitutionName,
+			idNumber: candidateIdNumber,
+			role: safeRole,
+			sequence: attempt
+		});
+		const duplicateQuery = {
+			inn,
+			role: safeRole,
+			_id: { $ne: userId || void 0 }
+		};
+		if (!await user_default$1.findOne(duplicateQuery).select("_id").lean()) return inn;
+		attempt += 1;
+	}
+};
+const backfillMissingInns = async () => {
+	try {
+		const users = await user_default$1.find({ $or: [
+			{ inn: { $exists: false } },
+			{ inn: null },
+			{ inn: "" }
+		] }).select("_id role idNumber createdAt").sort({
+			createdAt: 1,
+			_id: 1
+		}).lean();
+		if (!users.length) return { updated: 0 };
+		const results = [];
+		for (const user of users) {
+			const roleUsers = await user_default$1.find({ role: user.role }).select("_id createdAt").sort({
+				createdAt: 1,
+				_id: 1
+			}).lean();
+			const position = roleUsers.findIndex((entry) => String(entry._id) === String(user._id));
+			position >= 0 ? position + 1 : roleUsers.length + 1;
+			const institutionName = await resolveInstitutionName();
+			const inn = await ensureUniqueInn({
+				userId: String(user._id),
+				role: user.role,
+				idNumber: String(user.idNumber ?? ""),
+				institutionName
+			});
+			const updated = await user_default$1.findByIdAndUpdate(user._id, { $set: { inn } }, { returnDocument: "after" });
+			if (updated) results.push(String(updated._id));
+		}
+		return { updated: results.length };
+	} catch (error) {
+		console.error("backfillMissingInns failed:", error);
+		return { updated: 0 };
+	}
+};
 const registerUser = async (req, res) => {
 	try {
 		const { name, email, password, idNumber, role, departmentId, department, studentClasses, teacherSubject, parentStudents, isActive, isSupervisor, supervisorRank, specialties } = req.body;
-		const normalizedRole = normalizeRole(role);
+		const normalizedRole = normalizeRole$1(role);
 		if (!normalizedRole) {
 			res.status(400).json({
 				status: "Error!",
@@ -2231,6 +2689,7 @@ const registerUser = async (req, res) => {
 			return;
 		}
 		const departmentDoc = await findDepartment(departmentId || department || req.body?.departmentCode || req.body?.departmentID);
+		const facultyDoc = await findFaculty$1(req.body?.facultyId || req.body?.faculty);
 		if ([
 			"teacher",
 			"unitconsultant",
@@ -2274,12 +2733,21 @@ const registerUser = async (req, res) => {
 		};
 		await updateUserIdIfExists();
 		if (existingID) {}
+		const institutionName = req.body?.institutionName || req.body?.institution?.name;
+		const inn = await ensureUniqueInn({
+			role: normalizedRole,
+			idNumber: newIDNumber,
+			institutionName
+		});
 		const newUser = await user_default$1.create({
 			name,
 			email,
 			password,
 			idNumber: newIDNumber,
+			inn,
 			role: normalizedRole,
+			faculty: facultyDoc ? facultyDoc.name : typeof req.body?.faculty === "string" ? req.body.faculty.trim() : void 0,
+			facultyId: facultyDoc ? facultyDoc._id : void 0,
 			department: departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : void 0,
 			departmentId: departmentDoc ? departmentDoc._id : void 0,
 			studentClasses: finalStudentClass,
@@ -2330,7 +2798,7 @@ const registerUser = async (req, res) => {
 const registerPublic = async (req, res) => {
 	try {
 		const { name, email, password, idNumber, role, departmentId, department, studentClasses, teacherSubject, parentStudents, isActive } = req.body;
-		const normalizedRole = normalizeRole(role);
+		const normalizedRole = normalizeRole$1(role);
 		const allowedRoles = await user_default$1.countDocuments() === 0 ? [
 			"admin",
 			"teacher",
@@ -2348,6 +2816,7 @@ const registerPublic = async (req, res) => {
 			return;
 		}
 		const departmentDoc = await findDepartment(departmentId || department || req.body?.departmentCode || req.body?.departmentID);
+		const facultyDoc = await findFaculty$1(req.body?.facultyId || req.body?.faculty);
 		const isStaffUmbrella = [
 			"teacher",
 			"unitconsultant",
@@ -2416,12 +2885,16 @@ const registerPublic = async (req, res) => {
 				newIDNumber = `${lastIDNumber.slice(0, -4)}${(parseInt(lastIDNumber.slice(-4)) + 1).toString().padStart(4, "0")}`;
 			} else newIDNumber = `${rolePrefix}0001`;
 		}
+		const facultyName = facultyDoc ? facultyDoc.name : typeof req.body?.faculty === "string" ? req.body.faculty.trim() : void 0;
+		const facultyIdValue = facultyDoc ? facultyDoc._id : void 0;
 		const newUser = await user_default$1.create({
 			name,
 			email,
 			password,
 			idNumber: newIDNumber,
 			role: normalizedRole,
+			faculty: facultyName,
+			facultyId: facultyIdValue,
 			department: departmentDoc ? departmentDoc.name : typeof department === "string" ? department.trim() : void 0,
 			departmentId: departmentDoc ? departmentDoc._id : void 0,
 			studentClasses: studentClassId,
@@ -2513,6 +2986,81 @@ const registerPublic = async (req, res) => {
 		});
 	}
 };
+const requestPasswordReset = async (req, res) => {
+	try {
+		const { identifier } = req.body;
+		const trimmedIdentifier = resolveLoginIdentifier({
+			credential: identifier,
+			idNumber: identifier,
+			matricNumber: identifier,
+			email: identifier
+		}).trim();
+		if (!trimmedIdentifier) {
+			res.status(400).json({ message: "Enter an email, matriculation number, or staff ID." });
+			return;
+		}
+		const user = await findUserByIdentifier(trimmedIdentifier);
+		if (!user) {
+			res.status(200).json({ message: "If an account exists for that identifier, a recovery code has been prepared." });
+			return;
+		}
+		const token = generatePasswordResetToken();
+		user.passwordResetToken = await hashPasswordResetToken(token);
+		user.passwordResetExpiresAt = new Date(Date.now() + 1e3 * 60 * 30);
+		user.lastPasswordResetRequestedAt = /* @__PURE__ */ new Date();
+		await user.save();
+		const responsePayload = {
+			message: "A recovery code has been prepared. Continue below to set a new password.",
+			resetToken: process.env.NODE_ENV !== "production" ? token : void 0,
+			expiresAt: user.passwordResetExpiresAt.toISOString()
+		};
+		res.status(200).json(responsePayload);
+	} catch (error) {
+		console.error("requestPasswordReset error:", error);
+		res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const resetPassword = async (req, res) => {
+	try {
+		const { token, newPassword } = req.body;
+		if (!token || !newPassword) {
+			res.status(400).json({ message: "Recovery code and a new password are required." });
+			return;
+		}
+		if (String(newPassword).trim().length < 6) {
+			res.status(400).json({ message: "Password must be at least 6 characters long." });
+			return;
+		}
+		const usersWithResetToken = await user_default$1.find({
+			passwordResetToken: { $ne: null },
+			passwordResetExpiresAt: { $gt: /* @__PURE__ */ new Date() }
+		});
+		let matchedUser = null;
+		for (const candidate of usersWithResetToken) if (await verifyPasswordResetToken(String(token), candidate.passwordResetToken)) {
+			matchedUser = candidate;
+			break;
+		}
+		if (!matchedUser) {
+			res.status(400).json({ message: "The recovery code is invalid or has expired." });
+			return;
+		}
+		matchedUser.password = String(newPassword);
+		matchedUser.passwordResetToken = null;
+		matchedUser.passwordResetExpiresAt = null;
+		matchedUser.lastPasswordResetRequestedAt = null;
+		await matchedUser.save();
+		res.status(200).json({ message: "Password reset successful. You can sign in with your new password." });
+	} catch (error) {
+		console.error("resetPassword error:", error);
+		res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
 const isFirstUser = async (req, res) => {
 	try {
 		const count = await user_default$1.countDocuments();
@@ -2527,94 +3075,50 @@ const isFirstUser = async (req, res) => {
 const login = async (req, res) => {
 	try {
 		const { password } = req.body;
-		const resolvedIdentifier = resolveLoginIdentifier(req.body);
-		console.log(`[AUTH] login attempt, resolvedIdentifier='${resolvedIdentifier}' from payload:`, req.body);
-		const trimmedIdentifier = resolvedIdentifier.trim();
-		const lookupCandidates = [
-			trimmedIdentifier && !trimmedIdentifier.includes("@") ? { idNumber: trimmedIdentifier } : null,
-			trimmedIdentifier ? { email: trimmedIdentifier } : null,
-			trimmedIdentifier ? { matricNumber: trimmedIdentifier } : null,
-			trimmedIdentifier ? { studentId: trimmedIdentifier } : null
-		].filter(Boolean);
-		let user = null;
-		for (const criteria of lookupCandidates) {
-			console.log(`[AUTH] trying lookup criteria:`, criteria);
-			user = await user_default$1.findOne(criteria);
-			if (user) {
-				console.log(`[AUTH] found user by criteria:`, criteria, `userId=${user._id}, email=${user.email}, idNumber=${user.idNumber}`);
-				break;
-			}
-		}
-		if (!user && trimmedIdentifier) {
-			normalizeLoginIdentifier(trimmedIdentifier);
-			const possibleMatches = await user_default$1.find({ $or: [
-				{ idNumber: {
-					$exists: true,
-					$ne: ""
-				} },
-				{ email: {
-					$exists: true,
-					$ne: ""
-				} },
-				{ matricNumber: {
-					$exists: true,
-					$ne: ""
-				} },
-				{ studentId: {
-					$exists: true,
-					$ne: ""
-				} }
-			] }).limit(200);
-			user = possibleMatches.find((candidate) => identifierMatches(candidate.idNumber, trimmedIdentifier) || identifierMatches(candidate.matricNumber, trimmedIdentifier) || identifierMatches(candidate.studentId, trimmedIdentifier) || identifierMatches(candidate.email, trimmedIdentifier)) || null;
-			console.log(`[AUTH] possibleMatches length=${possibleMatches.length}, selectedUser=${user ? user._id : null}`);
-		}
-		if (!user && normalizeLoginIdentifier(trimmedIdentifier)) user = await user_default$1.findOne({ email: trimmedIdentifier });
-		if (user) {
-			const pwMatch = await user.matchPassword(password);
-			console.log(`[AUTH] password match for user ${user._id}: ${pwMatch}`);
-			if (pwMatch) {
-				if (user.approvalStatus !== "approved") {
-					const message$1 = user.approvalStatus === "pending" ? "Your account is pending admin approval." : user.approvalStatus === "rejected" ? "Your account has been rejected." : "Your account is not approved.";
-					res.status(403).json({ message: message$1 });
-					return;
-				}
-				if (!user.isActive) if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
-					user.isActive = true;
-					await user.save();
-				} else {
-					res.status(403).json({ message: "Your account is inactive." });
-					return;
-				}
-				const token = generateToken(user.id.toString(), res);
-				const responsePayload = {
-					user: {
-						_id: user._id,
-						name: user.name,
-						email: user.email,
-						role: user.role,
-						idNumber: user.idNumber,
-						profileImage: user.profileImage,
-						studentClasses: user.studentClasses,
-						studentClass: user.studentClasses,
-						teacherSubject: user.teacherSubject,
-						parentStudents: user.parentStudents,
-						isActive: user.isActive,
-						academicStatus: user.academicStatus,
-						departmentRole: user.departmentRole
-					},
-					token
-				};
-				if (req.user) await logActivity({
-					userId: user._id.toString(),
-					action: "Login User",
-					details: `${user.name} logged in successfully.`
-				});
-				res.status(201).json(responsePayload);
+		const user = await findUserByIdentifier(resolveLoginIdentifier(req.body).trim());
+		if (user && await user.matchPassword(password)) {
+			if (user.approvalStatus !== "approved") {
+				const message$1 = user.approvalStatus === "pending" ? "Your account is pending admin approval." : user.approvalStatus === "rejected" ? "Your account has been rejected." : "Your account is not approved.";
+				res.status(403).json({ message: message$1 });
 				return;
 			}
+			if (!user.isActive) if (user.approvalStatus === "approved" && (user.approvedAt || user.approvedBy)) {
+				user.isActive = true;
+				await user.save();
+			} else {
+				res.status(403).json({ message: "Your account is inactive." });
+				return;
+			}
+			const token = generateToken(user.id.toString(), res);
+			const responsePayload = {
+				user: {
+					_id: user._id,
+					name: user.name,
+					email: user.email,
+					role: user.role,
+					idNumber: user.idNumber,
+					profileImage: user.profileImage,
+					studentClasses: user.studentClasses,
+					studentClass: user.studentClasses,
+					teacherSubject: user.teacherSubject,
+					parentStudents: user.parentStudents,
+					isActive: user.isActive,
+					academicStatus: user.academicStatus,
+					departmentRole: user.departmentRole
+				},
+				token
+			};
+			if (req.user) await logActivity({
+				userId: user._id.toString(),
+				action: "Login User",
+				details: `${user.name} logged in successfully.`
+			});
+			res.status(201).json(responsePayload);
+			return;
+		} else {
+			res.status(401).json({ message: "Invalid matriculation number, email, or password" });
+			return;
 		}
-		res.status(401).json({ message: "Invalid matriculation number, email, or password" });
-		return;
 	} catch (error) {
 		res.status(500).json({
 			message: "Server error",
@@ -2704,8 +3208,18 @@ const updateUser = async (req, res) => {
 			user.name = req.body.name || user.name;
 			user.email = req.body.email || user.email;
 			user.idNumber = req.body.idNumber || user.idNumber;
+			if (req.body.inn !== void 0) user.inn = req.body.inn ? String(req.body.inn).trim() : null;
+			else if (!user.inn) {
+				const institutionName = req.body?.institutionName || req.body?.institution?.name;
+				user.inn = await ensureUniqueInn({
+					userId: user._id.toString(),
+					role: user.role,
+					idNumber: user.idNumber,
+					institutionName
+				});
+			}
 			if (req.body.role !== void 0) {
-				const normalizedRole = normalizeRole(req.body.role);
+				const normalizedRole = normalizeRole$1(req.body.role);
 				if (normalizedRole) user.role = normalizedRole;
 			}
 			user.isActive = req.body.isActive !== void 0 ? req.body.isActive : user.isActive;
@@ -2715,12 +3229,31 @@ const updateUser = async (req, res) => {
 			}
 			if (req.body.teacherSubject !== void 0) user.teacherSubject = (Array.isArray(req.body.teacherSubject) ? req.body.teacherSubject : req.body.teacherSubject ? [req.body.teacherSubject] : []).filter((subject) => typeof subject !== "string" || subject.trim() !== "");
 			if (req.body.parentStudents !== void 0) user.parentStudents = (Array.isArray(req.body.parentStudents) ? req.body.parentStudents : req.body.parentStudents ? [req.body.parentStudents] : []).filter((student) => typeof student !== "string" || student.trim() !== "");
+			if (req.body.faculty !== void 0 || req.body.facultyId !== void 0) {
+				const facultyInput = req.body.facultyId ?? req.body.faculty;
+				if (facultyInput === null || typeof facultyInput === "string" && String(facultyInput).trim() === "") {
+					user.facultyId = null;
+					user.faculty = null;
+				} else {
+					const facultyDoc = await findFaculty$1(facultyInput);
+					if (facultyDoc) {
+						user.facultyId = facultyDoc._id;
+						user.faculty = facultyDoc.name;
+					} else if (req.body.faculty !== void 0) user.faculty = String(req.body.faculty).trim();
+				}
+			}
 			if (req.body.department !== void 0 || req.body.departmentId !== void 0) {
-				const deptDoc = await findDepartment(req.body.departmentId ?? req.body.department);
-				if (deptDoc) {
-					user.departmentId = deptDoc._id;
-					user.department = deptDoc.name;
-				} else if (req.body.department !== void 0) user.department = String(req.body.department).trim();
+				const deptInput = req.body.departmentId ?? req.body.department;
+				if (deptInput === null || typeof deptInput === "string" && String(deptInput).trim() === "") {
+					user.departmentId = null;
+					user.department = null;
+				} else {
+					const deptDoc = await findDepartment(deptInput);
+					if (deptDoc) {
+						user.departmentId = deptDoc._id;
+						user.department = deptDoc.name;
+					} else if (req.body.department !== void 0) user.department = String(req.body.department).trim();
+				}
 			}
 			if (req.body.academicStatus !== void 0) user.academicStatus = req.body.academicStatus;
 			if (req.body.departmentRole !== void 0) user.departmentRole = req.body.departmentRole;
@@ -2838,6 +3371,7 @@ const updateUser = async (req, res) => {
 				isActive: updatedUser.isActive,
 				studentClasses: updatedUser.studentClasses,
 				idNumber: updatedUser.idNumber,
+				inn: updatedUser.inn,
 				profileImage: updatedUser.profileImage,
 				parentStudents: updatedUser.parentStudents,
 				teacherSubject: updatedUser.teacherSubject,
@@ -2866,7 +3400,7 @@ const getUsers = async (req, res) => {
 	try {
 		const page = parseInt(req.query.page) || 1;
 		const limit = parseInt(req.query.limit) || 100;
-		const role = normalizeRole(req.query.role);
+		const role = normalizeRole$1(req.query.role);
 		const departmentQuery = req.query.department;
 		const search = req.query.search;
 		const skip = (page - 1) * limit;
@@ -2962,6 +3496,7 @@ const getUserProfile = async (req, res) => {
 			email: user.email,
 			role: user.role,
 			idNumber: user.idNumber,
+			inn: user.inn,
 			profileImage: user.profileImage,
 			studentClasses: user.studentClasses,
 			teacherSubject: user.teacherSubject,
@@ -3038,19 +3573,59 @@ const bulkUploadUsers = async (req, res) => {
 			}
 		}
 		const { inngest: inngest$1 } = (init_inngest(), __toCommonJS(inngest_exports));
-		await inngest$1.send({
-			name: "users/bulk-create",
-			data: {
+		if (process.env.NODE_ENV !== "production" && !process.env.INNGEST_EVENT_KEY) {
+			console.warn("Skipping Inngest in local development because INNGEST_EVENT_KEY is not set.");
+			const { createUsersForBulkUpload: createUsersForBulkUpload$1 } = (init_functions(), __toCommonJS(functions_exports));
+			const results = await createUsersForBulkUpload$1({
 				users,
 				classId: classId || void 0,
 				courseIds: courseIds || void 0,
 				userId: req.user?._id?.toString()
+			});
+			res.status(200).json({
+				status: "Success",
+				message: `Bulk upload completed locally. ${results.created.length} user(s) processed.`,
+				results
+			});
+			return;
+		}
+		try {
+			await inngest$1.send({
+				name: "users/bulk-create",
+				data: {
+					users,
+					classId: classId || void 0,
+					courseIds: courseIds || void 0,
+					userId: req.user?._id?.toString()
+				}
+			});
+			res.status(202).json({
+				status: "Accepted",
+				message: `Bulk upload started. Processing ${users.length} user(s) in the background.`
+			});
+		} catch (error) {
+			const errorString = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+			if (process.env.NODE_ENV !== "production" && (!process.env.INNGEST_EVENT_KEY || error?.code === "ConnectionRefused" || String(error?.path || "").includes("8288") || /NO_EVENT_KEY_SET|ECONNREFUSED|ConnectionRefused|connect.*8288/i.test(errorString))) {
+				console.warn("Inngest unavailable, falling back to direct bulk upload.", error);
+				const { createUsersForBulkUpload: createUsersForBulkUpload$1 } = (init_functions(), __toCommonJS(functions_exports));
+				const results = await createUsersForBulkUpload$1({
+					users,
+					classId: classId || void 0,
+					courseIds: courseIds || void 0,
+					userId: req.user?._id?.toString()
+				});
+				res.status(200).json({
+					status: "Success",
+					message: `Bulk upload completed locally after Inngest fallback. ${results.created.length} user(s) processed.`,
+					results
+				});
+				return;
 			}
-		});
-		res.status(202).json({
-			status: "Accepted",
-			message: `Bulk upload started. Processing ${users.length} user(s) in the background.`
-		});
+			res.status(500).json({
+				status: "Error!",
+				message: `Server error: ${error}`
+			});
+		}
 	} catch (error) {
 		res.status(500).json({
 			status: "Error!",
@@ -3132,10 +3707,13 @@ const protect = async (req, res, next) => {
 	}
 	else return res.status(401).json({ message: "Not authorized, no token" });
 };
+const normalizeRole = (role) => String(role ?? "").trim().toLowerCase().replace(/[\s._-]+/g, "");
 const authorize = (roles) => {
+	const allowedRoles = roles.map((role) => normalizeRole(role));
 	return (req, res, next) => {
 		if (!req.user) return res.status(401).json({ message: `Not authorized, no user found!` });
-		if (!roles.includes(req.user.role)) return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed to acces this route. Allowed roles: ${roles.join(", ")}` });
+		const userRole$1 = normalizeRole(req.user.role);
+		if (!allowedRoles.includes(userRole$1)) return res.status(403).json({ message: `Access denied. User role '${req.user.role}' not allowed to acces this route. Allowed roles: ${roles.join(", ")}` });
 		next();
 	};
 };
@@ -3143,6 +3721,8 @@ var userRoutes = express.Router();
 userRoutes.post("/register", protect, authorize(["admin"]), registerUser);
 userRoutes.get("/public/is-first", isFirstUser);
 userRoutes.post("/public/register", registerPublic);
+userRoutes.post("/forgot-password", requestPasswordReset);
+userRoutes.post("/reset-password", resetPassword);
 userRoutes.post("/login", login);
 userRoutes.post("/logout", logoutUser);
 userRoutes.get("/profile", protect, getUserProfile);
@@ -3390,12 +3970,6 @@ var academicYearSchema = new Schema({
 academicYearSchema.index({ name: 1 }, { unique: true });
 var academicYear_default$1 = mongoose.model("AcademicYear", academicYearSchema);
 init_activitieslog();
-var ensureHas_Id = (obj) => {
-	if (!obj) return obj;
-	if (Array.isArray(obj)) return obj.map((o) => ensureHas_Id(o));
-	if (typeof obj === "object" && !obj._id && obj.id) obj._id = obj.id;
-	return obj;
-};
 const createAcademicYear = async (req, res) => {
 	try {
 		const { name, fromYear, toYear, isCurrent, clockPhase } = req.body;
@@ -3421,7 +3995,7 @@ const createAcademicYear = async (req, res) => {
 			userId: req.user._id,
 			action: `Created academic year ${name}, with ID: ${academicYear._id} and it's ${isCurrent ? "current" : "not current"}`
 		});
-		res.status(201).json(ensureHas_Id(academicYear));
+		res.status(201).json(academicYear);
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
@@ -3441,7 +4015,7 @@ const getAllAcademicYears = async (req, res) => {
 		};
 		const [total, years] = await Promise.all([academicYear_default$1.countDocuments(query), academicYear_default$1.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)]);
 		res.json({
-			years: ensureHas_Id(years),
+			years,
 			pagination: {
 				total,
 				page,
@@ -3459,9 +4033,13 @@ const getCurrentAcademicYear = async (req, res) => {
 	try {
 		const currentYear = await academicYear_default$1.findOne({ isCurrent: true });
 		if (!currentYear) {
-			res.status(404).json({ message: "No current academic year found!" });
+			res.status(200).json({
+				year: null,
+				message: "No current academic year set"
+			});
 			return;
-		} else res.status(200).json(ensureHas_Id(currentYear));
+		}
+		res.status(200).json({ year: currentYear });
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
@@ -3482,7 +4060,7 @@ const updateAcademicYear = async (req, res) => {
 			action: `Updated academic year ${updatedYear?.name} with ID: ${updatedYear?._id} and it's ${isCurrent ? "current" : "not current"}`
 		});
 		if (!updatedYear) res.status(404).json({ message: "Academic Year not found!" });
-		res.status(200).json(ensureHas_Id(updatedYear));
+		res.status(200).json(updatedYear);
 	} catch (error) {
 		res.status(500).json({
 			message: "Server Error",
@@ -3527,103 +4105,7 @@ academicYearRouter.route("/current").get(getCurrentAcademicYear);
 academicYearRouter.route("/update/:id").patch(protect, authorize(["admin"]), updateAcademicYear);
 academicYearRouter.route("/delete/:id").delete(protect, authorize(["admin"]), deleteAcedemicYear);
 var academicYear_default = academicYearRouter;
-const LevelPhaseData = {
-	final: {},
-	sixth: {
-		classNameID: "600 Level",
-		phase1: {
-			name: "Medicine and Surgery Final Postings",
-			duration: 4,
-			postingType: "MED&SURG3",
-			postingId: null
-		},
-		phase2: {
-			name: "Other Specialty Postings",
-			duration: 6,
-			postingType: "SPECIALTY",
-			postingId: null
-		},
-		phase3: {
-			name: "Community Medicine & Rural Postings",
-			duration: 4,
-			postingType: "COM&RURAL",
-			postingId: null
-		},
-		phase4: {
-			name: "Acccident & Emergency Postings",
-			duration: 2,
-			postingType: "ACCIDENT&EMERGENCY",
-			postingId: null
-		},
-		numberOfPhases: 4
-	},
-	fifth: {
-		phase1: {
-			name: "O&G/Pediatrics Junior Postings",
-			duration: 4,
-			postingType: "OG_PEDS",
-			postingId: null
-		},
-		phase2: {
-			name: "Specialty Postings",
-			duration: 6,
-			postingType: "SPECIALTY",
-			postingId: null
-		},
-		phase3: {
-			name: "O&G/Pediatrics Senior Postings",
-			duration: 4,
-			postingType: "OG_PEDS",
-			postingId: null
-		},
-		phase4: {
-			name: "4th MBBS Exams/Elective Posting",
-			duration: 2,
-			postingType: null,
-			postingId: null
-		},
-		classNameID: "500 Level",
-		numberOfPhases: 4
-	},
-	fourth: {
-		classNameID: "400 Level",
-		phase1: {
-			name: "Medicine and Surgery Initial Clinical Postings",
-			duration: 10,
-			postingType: "MED&SURG0&1&2",
-			postingId: null
-		},
-		phase2: {
-			name: "Pathology Block Postings",
-			duration: 4,
-			postingType: "PATHOLOGY",
-			postingId: null
-		},
-		phase3: {
-			name: "3rd MBBS Exams",
-			duration: 2,
-			postingType: null,
-			postingId: null
-		},
-		numberOfPhases: 3
-	},
-	third: {
-		classNameID: "300 Level",
-		phase1: {
-			name: "Preclinical Postings",
-			duration: 12,
-			postingType: "PRECLINICAL",
-			postingId: null
-		},
-		phase2: {
-			name: "2nd MBBS Exams",
-			duration: 2,
-			postingType: null,
-			postingId: null
-		},
-		numberOfPhases: 2
-	}
-};
+const LevelPhaseData = {};
 const resolveClassLevelFromName = (className) => {
 	const normalized = (className ?? "").toLowerCase();
 	if (normalized.includes("500") || normalized.includes("fifth")) return "fifth";
@@ -3683,12 +4165,6 @@ var AcademicClockSchema = new Schema({
 	},
 	clockPhase: {
 		type: String,
-		enum: [
-			"phase1",
-			"phase2",
-			"phase3",
-			"phase4"
-		],
 		default: null
 	},
 	phaseConfig: {
@@ -3724,11 +4200,13 @@ const createAcademicClock = async (req, res) => {
 			return;
 		}
 		const resolvedClassLevel = classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
-		const resolvedPhaseConfig = phaseConfig ?? buildPhaseConfigForClassLevel(resolvedClassLevel);
+		const useTemplatePhaseConfig = Boolean(req.body?.useTemplatePhaseConfig);
+		const resolvedPhaseConfig = phaseConfig ?? (useTemplatePhaseConfig ? buildPhaseConfigForClassLevel(resolvedClassLevel) : {});
+		const fallbackStartDate = clockStartDate ?? academicYear?.fromYear ?? null;
 		const academicClock = await academicClock_default$1.create({
 			academicYear: academicYearId,
 			classId,
-			clockStartDate: clockStartDate ?? null,
+			clockStartDate: fallbackStartDate,
 			clockIsPaused: clockIsPaused ?? false,
 			clockPausedAt: clockPausedAt ?? null,
 			clockPhase: clockPhase ?? null,
@@ -3801,6 +4279,8 @@ const updateAcademicClock = async (req, res) => {
 		allowedUpdates.forEach((field) => {
 			if (field in req.body) updateData[field] = req.body[field];
 		});
+		if (Object.prototype.hasOwnProperty.call(req.body, "clockStartDate") && req.body.clockStartDate == null) updateData.clockStartDate = null;
+		if (Object.prototype.hasOwnProperty.call(req.body, "clockPausedAt") && req.body.clockPausedAt == null) updateData.clockPausedAt = null;
 		const academicClock = await academicClock_default$1.findById(req.params.id);
 		if (!academicClock) {
 			res.status(404).json({ message: "Academic clock not found" });
@@ -3808,8 +4288,9 @@ const updateAcademicClock = async (req, res) => {
 		}
 		const classDoc = await classes_default$1.findById(academicClock.classId);
 		const resolvedClassLevel = typeof req.body.classLevel === "string" && req.body.classLevel ? req.body.classLevel : academicClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
-		if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) updateData.phaseConfig = buildPhaseConfigForClassLevel(resolvedClassLevel);
+		if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) updateData.phaseConfig = req.body?.useTemplatePhaseConfig ? buildPhaseConfigForClassLevel(resolvedClassLevel) : {};
 		if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "classLevel")) updateData.classLevel = resolvedClassLevel;
+		if (updateData.clockIsPaused === false && !Object.prototype.hasOwnProperty.call(req.body, "clockPausedAt")) updateData.clockPausedAt = null;
 		const updatedClock = await academicClock_default$1.findByIdAndUpdate(req.params.id, updateData, {
 			returnDocument: "after",
 			runValidators: true
@@ -3891,10 +4372,50 @@ const deleteAcademicClockByClass = async (req, res) => {
 	}
 };
 init_notification();
-var DUPLICATE_WINDOW_MS = 300 * 1e3;
+var DUPLICATE_WINDOW_MS$1 = 300 * 1e3;
+const formatNotificationForRole = (notification, role) => {
+	const baseNotification = {
+		...notification ?? {},
+		title: notification?.title ?? "A new update is ready for you",
+		message: notification?.message ?? "A new update is available for your student account.",
+		type: notification?.type ?? "info"
+	};
+	if (role !== "student") return baseNotification;
+	const combinedText = `${baseNotification.title} ${baseNotification.message}`.toLowerCase();
+	if (baseNotification.type === "attendance" || combinedText.includes("attendance")) return {
+		...baseNotification,
+		title: "Your attendance update is ready",
+		message: baseNotification.message?.trim() ? `Your attendance record has been updated: ${baseNotification.message}` : "Your attendance record has been updated. Please review it in your student portal.",
+		type: "info"
+	};
+	if (baseNotification.type === "timetable" || combinedText.includes("timetable")) return {
+		...baseNotification,
+		title: "Your timetable has been updated",
+		message: baseNotification.message?.trim() ? `Your timetable has been updated: ${baseNotification.message}` : "Your timetable has been updated. Please review it in your student portal.",
+		type: "info"
+	};
+	if (combinedText.includes("class") || combinedText.includes("academic year") || combinedText.includes("academic-year")) return {
+		...baseNotification,
+		title: "Your class details have been updated",
+		message: baseNotification.message?.trim() ? `Your class information has changed: ${baseNotification.message}` : "Your class information has changed. Please review the latest details.",
+		type: "info"
+	};
+	if (combinedText.includes("assignment") || combinedText.includes("posting") || combinedText.includes("rotation")) return {
+		...baseNotification,
+		title: "A new update is ready for you",
+		message: baseNotification.message?.trim() ? `There is a new update for your studies: ${baseNotification.message}` : "There is a new update for your studies. Please check your student portal.",
+		type: "info"
+	};
+	return {
+		...baseNotification,
+		title: baseNotification.title?.trim() ? baseNotification.title : "A new update is ready for you",
+		message: baseNotification.message?.trim() ? baseNotification.message : "A new update is available for your student account.",
+		type: "info"
+	};
+};
 const createNotificationIfUnique = async (payload) => {
 	const now = /* @__PURE__ */ new Date();
-	const duplicateSince = new Date(now.getTime() - DUPLICATE_WINDOW_MS);
+	const duplicateSince = new Date(now.getTime() - DUPLICATE_WINDOW_MS$1);
 	const search = {
 		userId: payload.userId,
 		title: payload.title,
@@ -3926,13 +4447,6 @@ const completeAcademicClockByClass = async (req, res) => {
 			res.status(400).json({ message: "academicYearId and classId are required" });
 			return;
 		}
-		const clock = await academicClock_default$1.findOne({
-			academicYear: academicYearId,
-			classId
-		});
-		if (!clock) return res.status(404).json({ message: "Academic clock not found" });
-		clock.clockIsPaused = true;
-		await clock.save();
 		const year = await academicYear_default$1.findById(academicYearId);
 		const className = (await classes_default$1.findById(classId).select("name"))?.name ?? classId;
 		const executor = req.user;
@@ -3942,6 +4456,34 @@ const completeAcademicClockByClass = async (req, res) => {
 			role: "admin",
 			isActive: true
 		}).select("_id").lean();
+		const clock = await academicClock_default$1.findOne({
+			academicYear: academicYearId,
+			classId
+		});
+		const isConfigured = Boolean(clock?.phaseConfig && (Array.isArray(clock.phaseConfig) ? clock.phaseConfig.length > 0 : Object.keys(clock.phaseConfig).length > 0));
+		if (!clock || !isConfigured) {
+			if (adminUsers.length > 0) await Promise.all(adminUsers.map((user) => createNotificationIfUnique({
+				userId: user._id,
+				role: "admin",
+				title: "Academic Clock Not Configured",
+				message: `${actorName} attempted to complete the academic clock for ${className} in ${year?.name ?? academicYearId}, but it has not been configured yet.`,
+				type: "system",
+				actorName,
+				actorRole,
+				metadata: {
+					academicYearId,
+					classId,
+					reason: "not_configured"
+				}
+			})));
+			return res.json({
+				success: true,
+				message: "Academic clock not configured"
+			});
+		}
+		clock.clockIsPaused = true;
+		if (!clock.clockPausedAt) clock.clockPausedAt = /* @__PURE__ */ new Date();
+		await clock.save();
 		if (adminUsers.length > 0) await Promise.all(adminUsers.map((user) => createNotificationIfUnique({
 			userId: user._id,
 			role: "admin",
@@ -3989,7 +4531,7 @@ init_user();
 init_activitieslog();
 const getClassById = async (req, res) => {
 	try {
-		const cls = await classes_default$1.findById(req.params.id).populate("academicYear", "name").populate("classTeacher", "name email").populate("courses", "name code subjects.subjectID").select("name academicYear classTeacher courses");
+		const cls = await classes_default$1.findById(req.params.id).populate("academicYear", "name").populate("classTeacher", "name email").populate("courses", "name code subjects.name subjects.code subjects.subjectID subjects.lecturer").select("name academicYear classTeacher courses");
 		if (!cls) return res.status(404).json({ message: "Class not found" });
 		res.json(cls);
 	} catch (error) {
@@ -4056,7 +4598,7 @@ const getAllClasses = async (req, res) => {
 			$regex: search,
 			$options: "i"
 		};
-		const [total, classes] = await Promise.all([classes_default$1.countDocuments(query), classes_default$1.find(query).populate("academicYear", "name").populate("classTeacher", "name email").populate("courses", "name code subjects.subjectID lecturer").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)]);
+		const [total, classes] = await Promise.all([classes_default$1.countDocuments(query), classes_default$1.find(query).populate("academicYear", "name").populate("classTeacher", "name email").populate("courses", "name code subjects._id subjects.subjectUID subjects._id subjects.subjectUID subjects.name subjects.code subjects.subjectID subjects.lecturer").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit)]);
 		res.json({
 			classes,
 			pagination: {
@@ -4164,7 +4706,10 @@ classRouter.post("/create", protect, authorize(["admin"]), createClass);
 classRouter.get("/", protect, authorize([
 	"admin",
 	"teacher",
-	"parent"
+	"parent",
+	"student",
+	"unitconsultant",
+	"unitresident"
 ]), getAllClasses);
 classRouter.get("/:id", protect, authorize([
 	"admin",
@@ -4229,6 +4774,20 @@ var CourseSubjectSchema = new Schema({
 		type: String,
 		required: true,
 		trim: true
+	},
+	date: {
+		type: Date,
+		default: null
+	},
+	startTime: {
+		type: String,
+		trim: true,
+		default: null
+	},
+	endTime: {
+		type: String,
+		trim: true,
+		default: null
 	},
 	unit: {
 		type: Schema.Types.ObjectId,
@@ -4416,6 +4975,17 @@ var findOrCreateDepartment = async (identifier) => {
 	}
 	return departmentDoc;
 };
+var findFaculty = async (identifier) => {
+	if (!identifier) return null;
+	let facultyDoc = null;
+	const trimmed = String(identifier).trim();
+	if (!trimmed) return null;
+	if (isObjectId(trimmed)) facultyDoc = await faculty_default.findById(trimmed);
+	if (!facultyDoc) facultyDoc = await faculty_default.findOne({ code: trimmed });
+	if (!facultyDoc) facultyDoc = await faculty_default.findOne({ facultyID: trimmed });
+	if (!facultyDoc) facultyDoc = await faculty_default.findOne({ name: trimmed });
+	return facultyDoc;
+};
 var normalizeCourseCode = (departmentCode, code) => {
 	const raw = String(code ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 	const numberPart = raw.replace(/^[A-Z]{3}\s*/i, "").trim();
@@ -4428,6 +4998,58 @@ var isValidCourseCode = (departmentCode, code) => {
 	return (/* @__PURE__ */ new RegExp(`^${departmentCode}\\s\\d{3}$`)).test(raw);
 };
 var deriveUnitCode = (name) => String(name).trim().split(/\s+/).map((segment) => segment.charAt(0)).join("").slice(0, 4).toUpperCase() || "UNIT";
+var normalizeSubjectDateValue = (value) => {
+	if (value === null || value === void 0 || String(value).trim() === "") return null;
+	if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+	const raw = String(value).trim();
+	if (!raw) return null;
+	const slashMatch = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+	if (slashMatch) {
+		const [, part1, part2, part3] = slashMatch;
+		const day = Number(part1);
+		const month = Number(part2);
+		let year = Number(part3);
+		if (year < 100) year += year > 50 ? 1900 : 2e3;
+		const candidate = new Date(year, month - 1, day);
+		if (!Number.isNaN(candidate.getTime()) && candidate.getDate() === day) return candidate;
+	}
+	const parsed = new Date(raw);
+	return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+var normalizeSubjectTimeValue = (value) => {
+	if (value === null || value === void 0) return null;
+	const raw = String(value).trim();
+	if (!raw) return null;
+	const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
+	if (!match) return null;
+	let hour = Number(match[1]);
+	const minutes = Number(match[2] ?? "0");
+	const period = String(match[3] ?? "").toLowerCase();
+	if (hour < 0 || hour > 23 || minutes < 0 || minutes > 59) return null;
+	if (period === "pm" && hour < 12) hour += 12;
+	if (period === "am" && hour === 12) hour = 0;
+	return `${String(hour).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+};
+var normalizeSubjectTimeWindow = (startTime, endTime) => {
+	const normalizedStart = normalizeSubjectTimeValue(startTime);
+	const normalizedEnd = normalizeSubjectTimeValue(endTime);
+	if (normalizedStart && normalizedEnd) return {
+		startTime: normalizedStart,
+		endTime: normalizedEnd
+	};
+	if (normalizedStart) return {
+		startTime: normalizedStart,
+		endTime: null
+	};
+	if (normalizedEnd) return {
+		startTime: null,
+		endTime: normalizedEnd
+	};
+	return {
+		startTime: null,
+		endTime: null
+	};
+};
 var getNormalizedDepartmentValue = (value) => {
 	if (!value) return "";
 	if (typeof value === "string") return value.trim().toLowerCase();
@@ -4447,9 +5069,29 @@ var isUserInDepartment = (user, departmentDoc) => {
 		String(departmentDoc.name).trim().toLowerCase()
 	]).has(userDept);
 };
+var normalizeLecturerName = (value) => {
+	return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+};
 var generateSubjectUID = (subject) => {
 	if (subject && typeof subject.subjectUID === "string" && subject.subjectUID.trim() !== "") return String(subject.subjectUID).trim();
 	return new mongoose.Types.ObjectId().toHexString();
+};
+var normalizeSubjectNameValue = (value) => {
+	return String(value ?? "").trim().normalize("NFC").replace(/\u00A0/g, " ").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|–|—/g, "-").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|“|”/g, "\"").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|‘|’/g, "'").replace(/\s+/g, " ").toLowerCase();
+};
+var normalizeSubjectText = (value) => {
+	return String(value ?? "").normalize("NFC").replace(/\u00A0/g, " ").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|–|—/g, "-").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|“|”/g, "\"").replace(/â|â|Ã¢ÂÂ|Ã¢ÂÂ|‘|’/g, "'").replace(/\s+/g, " ").trim();
+};
+var normalizeSubjectCodeValue = (value) => String(value ?? "").trim().toLowerCase();
+var generateSubjectCodeFromCourse = (courseCode, index) => {
+	const courseCodeText = String(courseCode ?? "").trim().replace(/\s+/g, " ");
+	const match = courseCodeText.match(/^(.*?)(\d+)$/);
+	if (match) {
+		const prefix = match[1].trim();
+		const baseNumber = Number(match[2]);
+		return `${prefix} ${String(baseNumber + index + 1).padStart(3, "0")}`.trim();
+	}
+	return `${courseCodeText} ${String(index + 1).padStart(3, "0")}`;
 };
 var normalizeClassIdValue = (value) => {
 	if (!value) return void 0;
@@ -4494,6 +5136,91 @@ var validateDepartmentLecturers = async (lecturerIds, departmentDoc) => {
 	const invalid = users.find((user) => !isUserInDepartment(user, departmentDoc));
 	if (invalid) return `Lecturer ${invalid.name ?? invalid.email ?? invalid._id} is not assigned to department ${departmentDoc.name}.`;
 	return null;
+};
+var normalizeName = (input) => {
+	if (!input) return "";
+	return String(input).trim().toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/(^\.|\.$)/g, "");
+};
+var getRoleIdPrefix = (role) => {
+	if (role === UserRole.ADMIN) return UserIDs.ADMINID.slice(0, -4);
+	if (role === UserRole.TEACHER) return UserIDs.TEACHERID.slice(0, -4);
+	if (role === UserRole.STUDENT) return UserIDs.STUDENTID.slice(0, -4);
+	if (role === UserRole.PARENT) return UserIDs.PARENTID.slice(0, -4);
+	if (role === UserRole.UNITCONSULTANT) return UserIDs.UNITCONSULTANTID.slice(0, -4);
+	if (role === UserRole.UNITRESIDENT) return UserIDs.UNITRESIDENTID.slice(0, -4);
+	return UserIDs.STUDENTID.slice(0, -4);
+};
+var roleIdCounterCache = {};
+var generateUniqueUserIdNumber = async (role) => {
+	const prefix = getRoleIdPrefix(role);
+	if (roleIdCounterCache[role] == null) {
+		const lastUser = await user_default$1.findOne({ idNumber: { $regex: `^${prefix}` } }).sort({ idNumber: -1 }).select("idNumber").lean();
+		let nextNumber$1 = 1;
+		if (lastUser?.idNumber) {
+			const suffix = lastUser.idNumber.slice(-4);
+			const parsed = Number.parseInt(suffix, 10);
+			if (!Number.isNaN(parsed)) nextNumber$1 = parsed + 1;
+		}
+		roleIdCounterCache[role] = nextNumber$1;
+	}
+	const nextNumber = roleIdCounterCache[role] ?? 1;
+	roleIdCounterCache[role] = nextNumber + 1;
+	return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+};
+var findExistingTeacherByName = async (name, departmentDoc) => {
+	if (!name) return null;
+	const normalized = String(name).trim();
+	return await user_default$1.findOne({
+		role: "teacher",
+		name: {
+			$regex: `^${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`,
+			$options: "i"
+		},
+		department: departmentDoc?.name ? {
+			$regex: `^${String(departmentDoc.name).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$$`,
+			$options: "i"
+		} : { $exists: true }
+	});
+};
+var generateTeacherEmail = async (name) => {
+	const base = normalizeName(name) || `teacher${Date.now()}`;
+	const domain = process.env.EMAIL_DOMAIN || "school.edu";
+	let candidate = `${base}@${domain}`;
+	let suffix = 1;
+	while (await user_default$1.exists({ email: candidate })) {
+		candidate = `${base}${suffix}@${domain}`;
+		suffix += 1;
+	}
+	return candidate;
+};
+var findOrCreateTeacherAccount = async (lecturerName, departmentDoc, courseId) => {
+	if (!lecturerName || !departmentDoc) return null;
+	const sanitizedName = String(lecturerName).trim();
+	if (!sanitizedName) return null;
+	const existingTeacher = await findExistingTeacherByName(sanitizedName, departmentDoc);
+	if (existingTeacher) {
+		await user_default$1.findByIdAndUpdate(existingTeacher._id, { $addToSet: {
+			teacherCourses: courseId,
+			teacherSubject: courseId
+		} }, { returnDocument: "after" });
+		return String(existingTeacher._id);
+	}
+	const email = await generateTeacherEmail(sanitizedName);
+	const password = `Teach${Math.random().toString(36).slice(2, 8)}`;
+	const idNumber = await generateUniqueUserIdNumber(UserRole.TEACHER);
+	const newTeacher = await user_default$1.create({
+		name: sanitizedName,
+		email,
+		password,
+		role: "teacher",
+		department: departmentDoc.name,
+		departmentId: departmentDoc._id,
+		teacherCourses: [courseId],
+		teacherSubject: [courseId],
+		isActive: true,
+		idNumber
+	});
+	return String(newTeacher._id);
 };
 var findOrCreateUnit = async (departmentDoc, unitIdentifier) => {
 	if (!unitIdentifier) return null;
@@ -4609,6 +5336,8 @@ const addCourseSubject = async (req, res) => {
 		const subjectLecturerError = await validateDepartmentLecturers(lecturerIds, departmentDoc);
 		if (subjectLecturerError) return res.status(400).json({ message: subjectLecturerError });
 		const studentIds = Array.isArray(subject?.students) ? subject.students : [];
+		const subjectDate = normalizeSubjectDateValue(subject?.date);
+		const subjectTimeWindow = normalizeSubjectTimeWindow(subject?.startTime, subject?.endTime);
 		const subjectUID = generateSubjectUID(subject);
 		if ((topLevelCourse.subjects ?? []).some((s) => String(s.subjectUID) === String(subjectUID) || String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() && String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())) return res.status(400).json({ message: `A subject with this identifier or matching name/code already exists for this course.` });
 		topLevelCourse.subjects.push({
@@ -4620,6 +5349,9 @@ const addCourseSubject = async (req, res) => {
 			lecturer: lecturerIds,
 			isActive: Boolean(subject.isActive ?? true),
 			semester: subject.semester ?? null,
+			date: subjectDate,
+			startTime: subjectTimeWindow.startTime,
+			endTime: subjectTimeWindow.endTime,
 			students: studentIds
 		});
 		await topLevelCourse.save();
@@ -4629,6 +5361,257 @@ const addCourseSubject = async (req, res) => {
 			action: `Added subject ${subject.subjectID} to course ${topLevelCourse.name} (${topLevelCourse.courseID}).`
 		});
 		return res.status(200).json(topLevelCourse);
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const bulkUploadCourseSubjects = async (req, res) => {
+	try {
+		const { courseId } = req.params;
+		const { subjects } = req.body;
+		if (!Array.isArray(subjects) || subjects.length === 0) return res.status(400).json({ message: "Subject rows are required for bulk upload." });
+		const topLevelCourse = await courses_default$1.findById(courseId);
+		if (!topLevelCourse) return res.status(404).json({ message: `Course ${courseId} not found` });
+		const departmentDoc = await departments_default.findById(topLevelCourse.department);
+		if (!departmentDoc) return res.status(404).json({ message: `Parent course department not found.` });
+		const departmentTeacherDocs = await user_default$1.find({
+			role: "teacher",
+			$or: [{ departmentId: departmentDoc._id }, { department: departmentDoc.name }]
+		}).select("_id name email").lean();
+		const existingDepartmentTeacherNameLookup = /* @__PURE__ */ new Map();
+		const existingDepartmentTeacherEmailLookup = /* @__PURE__ */ new Map();
+		for (const teacher of departmentTeacherDocs) {
+			const normalizedName = normalizeLecturerName(String(teacher.name ?? ""));
+			if (normalizedName) existingDepartmentTeacherNameLookup.set(normalizedName, String(teacher._id));
+			if (typeof teacher.email === "string" && teacher.email.trim()) existingDepartmentTeacherEmailLookup.set(teacher.email.trim().toLowerCase(), String(teacher._id));
+		}
+		const payloadLecturerIds = /* @__PURE__ */ new Set();
+		for (const row of subjects) if (Array.isArray(row?.lecturer)) for (const rawId of row.lecturer) {
+			const candidateId = String(rawId ?? "").trim();
+			if (candidateId) payloadLecturerIds.add(candidateId);
+		}
+		const initialValidLecturerUsers = payloadLecturerIds.size > 0 ? await user_default$1.find({
+			_id: { $in: Array.from(payloadLecturerIds) },
+			role: { $in: ["teacher", "admin"] },
+			$or: [{ departmentId: departmentDoc._id }, { department: departmentDoc.name }]
+		}).select("_id") : [];
+		const teacherLookupCache = /* @__PURE__ */ new Map();
+		const initialValidLecturerIds = new Set(initialValidLecturerUsers.map((userDoc) => String(userDoc._id)));
+		for (const id of payloadLecturerIds) teacherLookupCache.set(id, initialValidLecturerIds.has(id) ? id : null);
+		const teacherLookup = async (lecturerIds) => {
+			const normalized = (Array.isArray(lecturerIds) ? lecturerIds : []).map((id) => String(id).trim()).filter(Boolean);
+			const missingIds = normalized.filter((id) => !teacherLookupCache.has(id));
+			if (missingIds.length > 0) {
+				const validUsers = await user_default$1.find({
+					_id: { $in: missingIds },
+					role: { $in: ["teacher", "admin"] },
+					$or: [{ departmentId: departmentDoc._id }, { department: departmentDoc.name }]
+				}).select("_id");
+				const foundIds = new Set(validUsers.map((userDoc) => String(userDoc._id)));
+				missingIds.forEach((id) => {
+					teacherLookupCache.set(id, foundIds.has(id) ? id : null);
+				});
+			}
+			return normalized.filter((id) => teacherLookupCache.get(id));
+		};
+		const teacherCache = /* @__PURE__ */ new Map();
+		const buildTeacherCacheKey = (lecturerName) => {
+			const normalizedName = normalizeLecturerName(lecturerName);
+			return `${String(departmentDoc?.name ?? "").trim().toLowerCase()}::${normalizedName}`;
+		};
+		const resolveSubjectLecturers = async (row) => {
+			const lecturerIds = Array.isArray(row.lecturer) ? row.lecturer : [];
+			if (lecturerIds.some((value) => String(value ?? "").trim() !== "")) return await teacherLookup(lecturerIds);
+			if (row.createTeacher) {
+				const lecturerName = String(row.lecturerName ?? "").trim();
+				if (!lecturerName) return null;
+				const cacheKey = buildTeacherCacheKey(lecturerName);
+				if (teacherCache.has(cacheKey)) return [teacherCache.get(cacheKey)];
+				const normalizedName = normalizeLecturerName(lecturerName);
+				const existingTeacherId = existingDepartmentTeacherNameLookup.get(normalizedName);
+				if (existingTeacherId) {
+					teacherCache.set(cacheKey, existingTeacherId);
+					return [existingTeacherId];
+				}
+				const createdTeacherId = await findOrCreateTeacherAccount(lecturerName, departmentDoc, topLevelCourse._id);
+				if (createdTeacherId) teacherCache.set(cacheKey, createdTeacherId);
+				return createdTeacherId ? [createdTeacherId] : [];
+			}
+			return [];
+		};
+		const normalizeSubjectName = (value) => normalizeSubjectNameValue(value);
+		const normalizeSubjectCode = (value) => normalizeSubjectCodeValue(value);
+		const existingSubjects = Array.isArray(topLevelCourse.subjects) ? topLevelCourse.subjects : [];
+		const existingNameSet = /* @__PURE__ */ new Set();
+		const existingCodeSet = /* @__PURE__ */ new Set();
+		for (const subject of existingSubjects) {
+			const normalizedName = normalizeSubjectName(subject.name);
+			const normalizedCode = normalizeSubjectCode(subject.code ?? null);
+			if (normalizedName) existingNameSet.add(normalizedName);
+			if (normalizedCode) existingCodeSet.add(normalizedCode);
+		}
+		const pendingSubjects = [];
+		const uploadNameMap = /* @__PURE__ */ new Map();
+		const uploadCodeMap = /* @__PURE__ */ new Map();
+		const getExistingSubjectCodeSuffixes = () => {
+			const match = String(topLevelCourse.code ?? "").trim().replace(/\s+/g, " ").match(/^(.*?)(\d+)$/);
+			if (!match) return 0;
+			const baseNumber = Number(match[2]);
+			const suffixes = existingSubjects.map((subject) => String(subject.code ?? "").trim()).map((subjectCode) => {
+				const codeMatch = subjectCode.match(/^(.*?)(\d+)$/);
+				if (!codeMatch) return null;
+				const prefix = codeMatch[1].trim();
+				const number = Number(codeMatch[2]);
+				return prefix === match[1].trim() ? number - baseNumber : null;
+			}).filter((suffix) => typeof suffix === "number" && suffix >= 1);
+			return suffixes.length === 0 ? 0 : Math.max(...suffixes);
+		};
+		let nextGeneratedSubjectIndex = getExistingSubjectCodeSuffixes();
+		const results = {
+			created: 0,
+			skipped: 0,
+			replaced: 0,
+			errors: []
+		};
+		for (let index = 0; index < subjects.length; index += 1) {
+			const row = subjects[index];
+			const rowNumber = index + 1;
+			if (!row || typeof row !== "object") {
+				results.errors.push({
+					row: rowNumber,
+					message: "Invalid row payload."
+				});
+				results.skipped += 1;
+				continue;
+			}
+			const rawName = String(row.name ?? "");
+			const normalizedName = normalizeSubjectName(rawName);
+			const normalizedCode = normalizeSubjectCode(row.code ? String(row.code) : null);
+			const trimmedID = String(row.subjectID ?? departmentDoc.departmentID ?? "").trim();
+			if (!rawName.trim() || !trimmedID) {
+				results.errors.push({
+					row: rowNumber,
+					message: "Missing required subject name or subject ID."
+				});
+				results.skipped += 1;
+				continue;
+			}
+			if (trimmedID !== String(departmentDoc.departmentID).trim()) {
+				results.errors.push({
+					row: rowNumber,
+					message: `Subject ID must match the course department identifier (${departmentDoc.departmentID}).`
+				});
+				results.skipped += 1;
+				continue;
+			}
+			const subjectDate = normalizeSubjectDateValue(row.date);
+			const subjectTimeWindow = normalizeSubjectTimeWindow(row.startTime, row.endTime);
+			const subjectLecturerIds = await resolveSubjectLecturers(row);
+			if (subjectLecturerIds === null) {
+				results.errors.push({
+					row: rowNumber,
+					message: "Lecturer name is required to create a new teacher account."
+				});
+				results.skipped += 1;
+				continue;
+			}
+			const subjectLecturerError = await validateDepartmentLecturers(subjectLecturerIds, departmentDoc);
+			if (subjectLecturerError) {
+				results.errors.push({
+					row: rowNumber,
+					message: subjectLecturerError
+				});
+				results.skipped += 1;
+				continue;
+			}
+			if (normalizedName && uploadNameMap.has(normalizedName)) {
+				const previousIndex = uploadNameMap.get(normalizedName);
+				pendingSubjects[previousIndex].keep = false;
+				results.replaced += 1;
+			}
+			if (normalizedCode && uploadCodeMap.has(normalizedCode)) {
+				const previousIndex = uploadCodeMap.get(normalizedCode);
+				if (pendingSubjects[previousIndex]?.keep) {
+					pendingSubjects[previousIndex].keep = false;
+					results.replaced += 1;
+				}
+			}
+			pendingSubjects.push({
+				row,
+				rowNumber,
+				keep: true,
+				normalizedName,
+				normalizedCode,
+				subjectLecturerIds,
+				subjectDate,
+				subjectTimeWindow
+			});
+			if (normalizedName) uploadNameMap.set(normalizedName, pendingSubjects.length - 1);
+			if (normalizedCode) uploadCodeMap.set(normalizedCode, pendingSubjects.length - 1);
+		}
+		const newSubjects = pendingSubjects.filter((entry) => entry.keep).map((entry) => {
+			const row = entry.row;
+			const name = normalizeSubjectText(String(row.name ?? ""));
+			const rawCode = row.code ? String(row.code) : null;
+			let code = rawCode ? normalizeSubjectText(rawCode) : null;
+			const subjectID = normalizeSubjectText(String(row.subjectID ?? departmentDoc.departmentID ?? "")).trim();
+			const isActive = row.isActive === false ? false : true;
+			if (!code && topLevelCourse.code) {
+				code = generateSubjectCodeFromCourse(topLevelCourse.code, nextGeneratedSubjectIndex);
+				nextGeneratedSubjectIndex += 1;
+			}
+			return {
+				subjectUID: generateSubjectUID({
+					subjectID,
+					name,
+					code
+				}),
+				name,
+				code: code || null,
+				subjectID,
+				unit: row.unit ?? null,
+				lecturer: Array.isArray(entry.subjectLecturerIds) ? entry.subjectLecturerIds : [],
+				isActive,
+				semester: row.semester ?? null,
+				date: entry.subjectDate,
+				startTime: entry.subjectTimeWindow.startTime,
+				endTime: entry.subjectTimeWindow.endTime,
+				students: Array.isArray(row.students) ? row.students : []
+			};
+		});
+		const combinedSubjects = [...existingSubjects, ...newSubjects];
+		const keptByName = /* @__PURE__ */ new Set();
+		const keptByCode = /* @__PURE__ */ new Set();
+		const dedupedSubjects = [];
+		for (let index = combinedSubjects.length - 1; index >= 0; index -= 1) {
+			const subject = combinedSubjects[index];
+			const normalizedName = normalizeSubjectName(subject.name);
+			const normalizedCode = normalizeSubjectCode(subject.code ?? null);
+			const duplicateByName = normalizedName && keptByName.has(normalizedName);
+			const duplicateByCode = normalizedCode && keptByCode.has(normalizedCode);
+			if (duplicateByName || duplicateByCode) {
+				if (subject._id) results.replaced += 1;
+				continue;
+			}
+			if (normalizedName) keptByName.add(normalizedName);
+			if (normalizedCode) keptByCode.add(normalizedCode);
+			dedupedSubjects.push(subject);
+		}
+		topLevelCourse.subjects = dedupedSubjects.reverse();
+		await topLevelCourse.save();
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Bulk uploaded ${results.created} subjects into course ${topLevelCourse.name} (${topLevelCourse.courseID}).`
+		});
+		return res.json({
+			message: "Bulk subject upload processed",
+			results
+		});
 	} catch (error) {
 		console.error(error);
 		return res.status(500).json({
@@ -4651,8 +5634,10 @@ const deleteEmbeddedSubject = async (req, res) => {
 			code: subdoc.code ?? null,
 			subjectID: subdoc.subjectID ?? null
 		};
-		topLevelCourse.subjects = (topLevelCourse.subjects ?? []).filter((s) => String(s._id) !== String(removed._id));
-		await topLevelCourse.save();
+		if (!await courses_default$1.findOneAndUpdate({
+			_id: topLevelCourse._id,
+			"subjects._id": removed._id
+		}, { $pull: { subjects: { _id: removed._id } } }, { new: true })) return res.status(404).json({ message: `Subject ${subjectId} not found in course ${courseId}` });
 		try {
 			await subjects_default.deleteMany({
 				courseID: topLevelCourse.courseID,
@@ -4670,6 +5655,45 @@ const deleteEmbeddedSubject = async (req, res) => {
 			message: "Subject removed",
 			subject: removed,
 			course: topLevelCourse
+		});
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const bulkDeleteCourseSubjects = async (req, res) => {
+	try {
+		const { courseId } = req.params;
+		const { subjectIds } = req.body;
+		if (!Array.isArray(subjectIds) || subjectIds.length === 0) return res.status(400).json({ message: "subjectIds array is required." });
+		const validIds = subjectIds.map((id) => String(id).trim()).filter(Boolean);
+		if (validIds.length === 0) return res.status(400).json({ message: "subjectIds cannot be empty." });
+		const course = await courses_default$1.findById(courseId).select("courseID name");
+		if (!course) return res.status(404).json({ message: `Course ${courseId} not found` });
+		const oldCourse = await courses_default$1.findById(courseId).select("subjects").lean();
+		const removedSubjects = Array.isArray(oldCourse?.subjects) ? oldCourse.subjects.filter((subject) => validIds.includes(String(subject._id))) : [];
+		await courses_default$1.updateOne({ _id: courseId }, { $pull: { subjects: { _id: { $in: validIds } } } });
+		if (removedSubjects.length > 0) {
+			const deleteConditions = removedSubjects.map((removed) => ({
+				courseID: course.courseID,
+				$or: [{ name: removed.name }, { code: removed.code ?? "" }]
+			}));
+			await subjects_default.deleteMany({ $or: deleteConditions });
+		}
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Bulk deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"} from course ${course.name} (${course.courseID}).`
+		});
+		return res.json({
+			courseId,
+			courseName: course.name,
+			courseCode: course.courseID,
+			message: `Deleted ${removedSubjects.length} subject${removedSubjects.length === 1 ? "" : "s"}.`,
+			deleted: removedSubjects.length
 		});
 	} catch (error) {
 		console.error(error);
@@ -4704,6 +5728,7 @@ const createCourseSubject = async (req, res) => {
 		const subjectLecturerIds = Array.isArray(subject?.lecturer) ? subject.lecturer : [];
 		const subjectLecturerValidationError = await validateDepartmentLecturers(subjectLecturerIds, departmentDoc);
 		if (subjectLecturerValidationError) return res.status(400).json({ message: subjectLecturerValidationError });
+		const subjectUID = generateSubjectUID(subject);
 		const studentIds = Array.isArray(subject?.students) ? subject.students : [];
 		if (!topLevelCourse) {
 			const created = await courses_default$1.create({
@@ -4737,7 +5762,6 @@ const createCourseSubject = async (req, res) => {
 			});
 			return res.status(201).json(created);
 		}
-		const subjectUID = generateSubjectUID(subject);
 		if ((topLevelCourse.subjects ?? []).some((s) => String(s.subjectUID) === String(subjectUID) || String(s.name).trim().toLowerCase() === String(subject.name).trim().toLowerCase() && String(s.code ?? "").trim().toLowerCase() === String(subject.code ?? "").trim().toLowerCase())) return res.status(400).json({ message: `A subject with this identifier or matching name/code already exists for this course.` });
 		topLevelCourse.name = name;
 		topLevelCourse.code = code;
@@ -4960,7 +5984,8 @@ const updateCourseSubjects = async (req, res) => {
 			lecturer: Array.isArray(subject.lecturer) ? subject.lecturer : [],
 			students: Array.isArray(subject.students) ? subject.students : [],
 			isActive: Boolean(subject.isActive ?? true),
-			semester: subject.semester ?? null
+			semester: subject.semester ?? null,
+			date: normalizeSubjectDateValue(subject.date)
 		}));
 		const updated = await courses_default$1.findByIdAndUpdate(req.params.id, updateData, {
 			returnDocument: "after",
@@ -5200,16 +6225,22 @@ const getAvailableDepartments = async (req, res) => {
 	}
 };
 var normalizeDepartmentPayload = (raw) => {
+	const name = String(raw?.name || raw?.departmentName || raw?.["Department Name"] || "").trim();
+	const code = String(raw?.code || raw?.departmentCode || raw?.["Department Code"] || "").trim().toUpperCase();
+	const departmentID = String(raw?.departmentID || raw?.departmentId || raw?.["Department ID"] || raw?.["department id"] || "").trim();
+	const head = String(raw?.head || raw?.departmentHead || "").trim();
+	const facultyId = String(raw?.facultyId || raw?.facultyID || raw?.["Faculty ID"] || raw?.["faculty id"] || "").trim();
 	return {
-		name: String(raw?.name || raw?.departmentName || raw?.["Department Name"] || "").trim(),
-		code: String(raw?.code || raw?.departmentCode || raw?.["Department Code"] || "").trim().toUpperCase(),
-		departmentID: String(raw?.departmentID || raw?.departmentId || raw?.["Department ID"] || raw?.["department id"] || "").trim(),
-		head: String(raw?.head || raw?.departmentHead || "").trim() || void 0
+		name,
+		code,
+		departmentID,
+		head: head || void 0,
+		facultyId: facultyId || void 0
 	};
 };
 const createDepartment = async (req, res) => {
 	try {
-		const { name, code, departmentID, head } = req.body;
+		const { name, code, departmentID, head, facultyId } = req.body;
 		if (!name || !code || !departmentID) return res.status(400).json({ message: "Department name, code, and departmentID are required." });
 		const normalizedName = String(name).trim();
 		const normalizedCode = String(code).trim().toUpperCase();
@@ -5219,11 +6250,18 @@ const createDepartment = async (req, res) => {
 			{ departmentID: normalizedDepartmentID },
 			{ name: normalizedName }
 		] })) return res.status(409).json({ message: "A department with that code, ID, or name already exists." });
+		let resolvedFacultyId;
+		if (facultyId !== void 0 && facultyId !== null && String(facultyId).trim()) {
+			const facultyDoc = await findFaculty(String(facultyId));
+			if (!facultyDoc) return res.status(400).json({ message: "Faculty not found." });
+			resolvedFacultyId = facultyDoc._id.toString();
+		}
 		const department = await departments_default.create({
 			name: normalizedName,
 			code: normalizedCode,
 			departmentID: normalizedDepartmentID,
-			head: head && mongoose.isValidObjectId(head) ? head : void 0
+			head: head && mongoose.isValidObjectId(head) ? head : void 0,
+			facultyId: resolvedFacultyId
 		});
 		const userId = req.user?._id;
 		if (userId) await logActivity({
@@ -5243,12 +6281,18 @@ const updateDepartment = async (req, res) => {
 	try {
 		const department = await departments_default.findById(req.params.id);
 		if (!department) return res.status(404).json({ message: "Department not found" });
-		const { name, code, departmentID, head } = req.body;
+		const { name, code, departmentID, head, facultyId } = req.body;
 		const updateData = {};
 		if (name !== void 0) updateData.name = String(name).trim();
 		if (code !== void 0) updateData.code = String(code).trim().toUpperCase();
 		if (departmentID !== void 0) updateData.departmentID = String(departmentID).trim();
 		if (head !== void 0) updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
+		if (facultyId !== void 0) if (facultyId === null || String(facultyId).trim() === "") updateData.facultyId = null;
+		else {
+			const facultyDoc = await findFaculty(String(facultyId));
+			if (!facultyDoc) return res.status(400).json({ message: "Faculty not found." });
+			updateData.facultyId = facultyDoc._id;
+		}
 		if (updateData.name || updateData.code || updateData.departmentID) {
 			if (await departments_default.findOne({
 				_id: { $ne: department._id },
@@ -5279,6 +6323,7 @@ const deleteDepartment = async (req, res) => {
 	try {
 		const deleted = await departments_default.findByIdAndDelete(req.params.id);
 		if (!deleted) return res.status(404).json({ message: "Department not found" });
+		await departments_default.updateMany({ facultyId: deleted._id }, { $unset: { facultyId: "" } });
 		const userId = req.user?._id;
 		if (userId) await logActivity({
 			userId,
@@ -5314,6 +6359,19 @@ const bulkUploadDepartments = async (req, res) => {
 				results.skipped += 1;
 				continue;
 			}
+			let resolvedFacultyId;
+			if (row.facultyId) {
+				const facultyDoc = await findFaculty(row.facultyId);
+				if (!facultyDoc) {
+					results.errors.push({
+						row: rowNumber,
+						message: "Faculty not found for row."
+					});
+					results.skipped += 1;
+					continue;
+				}
+				resolvedFacultyId = facultyDoc._id.toString();
+			}
 			const filter = { $or: [{ code: row.code }, { departmentID: row.departmentID }] };
 			const existing = await departments_default.findOne(filter);
 			if (existing) {
@@ -5321,7 +6379,8 @@ const bulkUploadDepartments = async (req, res) => {
 					name: row.name,
 					code: row.code,
 					departmentID: row.departmentID,
-					head: row.head && mongoose.isValidObjectId(row.head) ? row.head : existing.head
+					head: row.head && mongoose.isValidObjectId(row.head) ? row.head : existing.head,
+					...resolvedFacultyId !== void 0 ? { facultyId: resolvedFacultyId } : {}
 				});
 				results.updated += 1;
 				continue;
@@ -5330,7 +6389,8 @@ const bulkUploadDepartments = async (req, res) => {
 				name: row.name,
 				code: row.code,
 				departmentID: row.departmentID,
-				head: row.head && mongoose.isValidObjectId(row.head) ? row.head : void 0
+				head: row.head && mongoose.isValidObjectId(row.head) ? row.head : void 0,
+				facultyId: resolvedFacultyId
 			});
 			results.created += 1;
 		}
@@ -5366,6 +6426,186 @@ const getDepartmentConstants = async (req, res) => {
 		});
 	}
 };
+const getFaculties = async (req, res) => {
+	try {
+		const faculties = await faculty_default.find({}).sort({ name: 1 });
+		return res.json({ faculties });
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const getFacultyDepartments = async (req, res) => {
+	try {
+		const facultyId = req.params.id;
+		if (!mongoose.isValidObjectId(facultyId)) return res.status(400).json({ message: "Invalid faculty id." });
+		const faculty = await faculty_default.findById(facultyId);
+		if (!faculty) return res.status(404).json({ message: "Faculty not found." });
+		const departments = await departments_default.find({ facultyId: faculty._id }).sort({ name: 1 });
+		return res.json({
+			faculty,
+			departments
+		});
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const createDepartmentUnderFaculty = async (req, res) => {
+	try {
+		const facultyId = req.params.id;
+		if (!mongoose.isValidObjectId(facultyId)) return res.status(400).json({ message: "Invalid faculty id." });
+		const faculty = await faculty_default.findById(facultyId);
+		if (!faculty) return res.status(404).json({ message: "Faculty not found." });
+		const { name, code, departmentID, head } = req.body;
+		if (!name || !code || !departmentID) return res.status(400).json({ message: "Department name, code, and departmentID are required." });
+		const normalizedName = String(name).trim();
+		const normalizedCode = String(code).trim().toUpperCase();
+		const normalizedDepartmentID = String(departmentID).trim();
+		if (await departments_default.findOne({ $or: [
+			{ code: normalizedCode },
+			{ departmentID: normalizedDepartmentID },
+			{ name: normalizedName }
+		] })) return res.status(409).json({ message: "A department with that code, ID, or name already exists." });
+		const department = await departments_default.create({
+			name: normalizedName,
+			code: normalizedCode,
+			departmentID: normalizedDepartmentID,
+			head: head && mongoose.isValidObjectId(head) ? head : void 0,
+			facultyId: faculty._id
+		});
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Created department ${department.name} (${department.code}) under faculty ${faculty.name}`
+		});
+		return res.status(201).json(department);
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const deleteDepartmentUnderFaculty = async (req, res) => {
+	try {
+		const { facultyId, id } = req.params;
+		if (!mongoose.isValidObjectId(facultyId) || !mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid faculty or department id." });
+		const faculty = await faculty_default.findById(facultyId);
+		if (!faculty) return res.status(404).json({ message: "Faculty not found." });
+		const deleted = await departments_default.findOneAndDelete({
+			_id: id,
+			facultyId: faculty._id
+		});
+		if (!deleted) return res.status(404).json({ message: "Department not found under this faculty." });
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Deleted department ${deleted.name} (${deleted.code}) under faculty ${faculty.name}`
+		});
+		return res.json({ message: `Department ${deleted.name} deleted successfully.` });
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const createFaculty = async (req, res) => {
+	try {
+		const { name, code, facultyID, head } = req.body;
+		if (!name || !code || !facultyID) return res.status(400).json({ message: "Faculty name, code, and facultyID are required." });
+		const normalizedName = String(name).trim();
+		const normalizedCode = String(code).trim().toUpperCase();
+		const normalizedFacultyID = String(facultyID).trim();
+		if (await faculty_default.findOne({ $or: [
+			{ code: normalizedCode },
+			{ facultyID: normalizedFacultyID },
+			{ name: normalizedName }
+		] })) return res.status(409).json({ message: "A faculty with that code, facultyID, or name already exists." });
+		const faculty = await faculty_default.create({
+			name: normalizedName,
+			code: normalizedCode,
+			facultyID: normalizedFacultyID,
+			head: head && mongoose.isValidObjectId(head) ? head : void 0
+		});
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Created faculty ${faculty.name} (${faculty.code})`
+		});
+		return res.status(201).json(faculty);
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const updateFaculty = async (req, res) => {
+	try {
+		const faculty = await faculty_default.findById(req.params.id);
+		if (!faculty) return res.status(404).json({ message: "Faculty not found" });
+		const { name, code, facultyID, head } = req.body;
+		const updateData = {};
+		if (name !== void 0) updateData.name = String(name).trim();
+		if (code !== void 0) updateData.code = String(code).trim().toUpperCase();
+		if (facultyID !== void 0) updateData.facultyID = String(facultyID).trim();
+		if (head !== void 0) updateData.head = head && mongoose.isValidObjectId(head) ? head : null;
+		if (updateData.name || updateData.code || updateData.facultyID) {
+			if (await faculty_default.findOne({
+				_id: { $ne: faculty._id },
+				$or: [
+					...updateData.code ? [{ code: updateData.code }] : [],
+					...updateData.facultyID ? [{ facultyID: updateData.facultyID }] : [],
+					...updateData.name ? [{ name: updateData.name }] : []
+				]
+			})) return res.status(409).json({ message: "Another faculty with the same name, code, or facultyID already exists." });
+		}
+		Object.assign(faculty, updateData);
+		const updated = await faculty.save();
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Updated faculty ${updated.name} (${updated.code})`
+		});
+		return res.json(updated);
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const deleteFaculty = async (req, res) => {
+	try {
+		const deleted = await faculty_default.findByIdAndDelete(req.params.id);
+		if (!deleted) return res.status(404).json({ message: "Faculty not found" });
+		await departments_default.updateMany({ facultyId: deleted._id }, { $unset: { facultyId: "" } });
+		const userId = req.user?._id;
+		if (userId) await logActivity({
+			userId,
+			action: `Deleted faculty ${deleted.name} (${deleted.code})`
+		});
+		return res.json({ message: `Faculty ${deleted.name} deleted successfully.` });
+	} catch (error) {
+		console.error(error);
+		return res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
 var courseRouter = express.Router();
 courseRouter.route("/").post(protect, authorize([
 	"admin",
@@ -5393,12 +6633,38 @@ courseRouter.route("/:courseId/subjects").post(protect, authorize([
 	"unitconsultant",
 	"unitresident"
 ]), addCourseSubject);
+courseRouter.route("/:courseId/subjects/bulk-upload").post(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), bulkUploadCourseSubjects);
+courseRouter.route("/:courseId/subjects/bulk-delete").delete(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), bulkDeleteCourseSubjects);
 courseRouter.route("/:courseId/subjects/:subjectId").delete(protect, authorize([
 	"admin",
 	"teacher",
 	"unitconsultant",
 	"unitresident"
 ]), deleteEmbeddedSubject);
+courseRouter.route("/faculties").get(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), getFaculties).post(protect, authorize(["admin"]), createFaculty);
+courseRouter.route("/faculties/:id/departments").get(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), getFacultyDepartments).post(protect, authorize(["admin"]), createDepartmentUnderFaculty);
+courseRouter.route("/faculties/:facultyId/departments/:id").delete(protect, authorize(["admin"]), deleteDepartmentUnderFaculty);
+courseRouter.route("/faculties/:id").patch(protect, authorize(["admin"]), updateFaculty).delete(protect, authorize(["admin"]), deleteFaculty);
 courseRouter.route("/:courseId").get(protect, authorize([
 	"admin",
 	"teacher",
@@ -5410,6 +6676,20 @@ courseRouter.route("/deduplicate-classes").post(protect, authorize(["admin"]), d
 courseRouter.route("/departments/bulk-upload").post(protect, authorize(["admin"]), bulkUploadDepartments);
 courseRouter.route("/departments/:id").patch(protect, authorize(["admin"]), updateDepartment).delete(protect, authorize(["admin"]), deleteDepartment);
 courseRouter.route("/seed/departments").post(protect, authorize(["admin"]), seedDepartments);
+courseRouter.route("/faculties").get(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), getFaculties).post(protect, authorize(["admin"]), createFaculty);
+courseRouter.route("/faculties/:id/departments").get(protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), getFacultyDepartments).post(protect, authorize(["admin"]), createDepartmentUnderFaculty);
+courseRouter.route("/faculties/:facultyId/departments/:id").delete(protect, authorize(["admin"]), deleteDepartmentUnderFaculty);
+courseRouter.route("/faculties/:id").patch(protect, authorize(["admin"]), updateFaculty).delete(protect, authorize(["admin"]), deleteFaculty);
 courseRouter.route("/department-constants").get(protect, getDepartmentConstants);
 courseRouter.route("/bulk-upload").post(protect, authorize([
 	"admin",
@@ -5601,7 +6881,7 @@ var ClinicalRotationsSchema = new Schema({
 		required: true
 	}
 });
-mongoose.model("ClinicalRotations", ClinicalRotationsSchema);
+var clinicalRotation_default = mongoose.model("ClinicalRotations", ClinicalRotationsSchema);
 var DayEntrySchema = new Schema({
 	time: {
 		type: String,
@@ -5742,13 +7022,13 @@ const StudentLogbookEntryType = {
 	clinicalProcedures: "clinicalProcedures",
 	clinicalPatientPresentations: "clinicalPatientPresentations"
 };
-var studentLogbookEntryType_;
-(function(studentLogbookEntryType_$1) {
+let studentLogbookEntryType_ = /* @__PURE__ */ function(studentLogbookEntryType_$1) {
 	studentLogbookEntryType_$1["tutorialAndDemonstrations"] = "tutorialAndDemonstrations";
 	studentLogbookEntryType_$1["clinicalActivities"] = "clinicalActivities";
 	studentLogbookEntryType_$1["clinicalProcedures"] = "clinicalProcedures";
 	studentLogbookEntryType_$1["clinicalPatientPresentations"] = "clinicalPatientPresentations";
-})(studentLogbookEntryType_ || (studentLogbookEntryType_ = {}));
+	return studentLogbookEntryType_$1;
+}({});
 mongoose.Types.ObjectId, String, Date, mongoose.Types.ObjectId, Boolean, mongoose.Types.ObjectId, mongoose.Types.ObjectId, mongoose.Types.ObjectId, String, Date, mongoose.Types.ObjectId, Boolean, mongoose.Types.ObjectId, mongoose.Types.ObjectId, String, Date, mongoose.Types.ObjectId, Boolean, mongoose.Types.ObjectId, String, mongoose.Types.ObjectId, String, String, mongoose.Types.ObjectId, String, mongoose.Types.ObjectId, String, String, Date, mongoose.Types.ObjectId, Boolean, mongoose.Types.ObjectId, mongoose.Types.ObjectId;
 var StudentLogBookSchema = new Schema({
 	rotationId: {
@@ -5848,7 +7128,14 @@ const generateTimeTable$1 = async (req, res) => {
 };
 const getTimetable = async (req, res) => {
 	try {
-		const timetable = await timetable_default$1.findOne({ class: req.params.classId }).populate("schedule.periods.subject", "name code courseID subjects.subjectID").populate("schedule.periods.lecturer", "name email");
+		const timetable = await timetable_default$1.findOne({ class: req.params.classId }).populate({
+			path: "schedule.periods.subject",
+			select: "name code courseID subjects.name subjects.code subjects.subjectID subjects.date subjects.startTime subjects.endTime subjects.lecturer",
+			populate: {
+				path: "subjects.lecturer",
+				select: "name email"
+			}
+		}).populate("schedule.periods.lecturer", "name email");
 		if (!timetable) return res.status(404).json({ message: "Timetable not found!" });
 		res.json({ schedule: timetable.schedule });
 	} catch (error) {
@@ -5904,12 +7191,12 @@ const updatePeriod = async (req, res) => {
 			return;
 		}
 		const daySchedule = timetable.schedule[dayIndex];
-		if (periodIndex < 0 || periodIndex >= daySchedule.periods.length) {
+		if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
 			res.status(400).json({ message: "Invalid periodIndex" });
 			return;
 		}
 		daySchedule.periods[periodIndex] = {
-			...daySchedule.periods[periodIndex],
+			...daySchedule?.periods[periodIndex],
 			...period
 		};
 		await timetable.save();
@@ -5942,11 +7229,11 @@ const deletePeriod = async (req, res) => {
 			return;
 		}
 		const daySchedule = timetable.schedule[dayIndex];
-		if (periodIndex < 0 || periodIndex >= daySchedule.periods.length) {
+		if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
 			res.status(400).json({ message: "Invalid periodIndex" });
 			return;
 		}
-		daySchedule.periods.splice(periodIndex, 1);
+		daySchedule?.periods.splice(periodIndex, 1);
 		await timetable.save();
 		const updated = await timetable_default$1.findById(timetable._id).populate("schedule.periods.subject", "name code subjects.subjectID").populate("schedule.periods.lecturer", "name email");
 		await logActivity({
@@ -6060,7 +7347,7 @@ async function fastGenerateAndSave(classId, academicYearId, settings) {
 async function generate500LevelSchedule(classId, academicYearId, settings) {
 	const cls = await classes_default$1.findById(classId).populate("courses");
 	if (!cls) throw new Error("Class not found");
-	const academicYearDoc = await (await import("./academicYear-jZByGatC.js")).default.findById(academicYearId);
+	const academicYearDoc = await (await import("./academicYear-32nr2z7x.js")).default.findById(academicYearId);
 	const clockPhase = academicYearDoc?.clockPhase ?? settings?.clockPhase ?? "phase1";
 	console.log(`[500-Level Timetable] Generating for class: ${cls.name}, phase: ${clockPhase}, from DB: ${academicYearDoc?.clockPhase ?? "N/A"}, from settings: ${settings?.clockPhase ?? "N/A"}`);
 	const teachers = await user_default$1.find({ role: "teacher" }).select("_id teacherSubject");
@@ -6119,9 +7406,13 @@ async function generate400LevelSchedule(classId, academicYearId, settings) {
 	const coursesByName = /* @__PURE__ */ new Map();
 	const courseMap = /* @__PURE__ */ new Map();
 	for (const course of cls.courses) {
-		const courseName = course.name.toLowerCase();
-		coursesByName.set(courseName, String(course._id));
-		courseMap.set(course.name, String(course._id));
+		const courseObj = course;
+		const courseName = courseObj.name?.toLowerCase() ?? "";
+		const courseId = String(courseObj._id ?? course);
+		if (courseName) {
+			coursesByName.set(courseName, courseId);
+			courseMap.set(courseObj.name, courseId);
+		}
 	}
 	const teachers = await user_default$1.find({ role: "teacher" }).select("_id name teacherSubject");
 	const teachersByCourse = {};
@@ -6589,11 +7880,146 @@ examRouter.get("/", protect, authorize([
 	"unitresident"
 ]), getExams);
 var exam_default = examRouter;
+var AcademicSessionSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Academic session name is required"]
+	},
+	startsAt: {
+		type: Date,
+		required: [true, "Session start date is required"]
+	},
+	endsAt: {
+		type: Date,
+		required: [true, "Session end date is required"]
+	},
+	isCurrent: {
+		type: Boolean,
+		default: false
+	}
+}, { timestamps: true });
+AcademicSessionSchema.index({ name: 1 }, { unique: true });
+var academicSession_default = mongoose.model("AcademicSession", AcademicSessionSchema);
+var SemesterSchema = new Schema({
+	name: {
+		type: String,
+		required: [true, "Semester name is required"]
+	},
+	academicSession: {
+		type: Schema.Types.ObjectId,
+		ref: "AcademicSession",
+		required: [true, "Academic session reference is required"]
+	},
+	order: {
+		type: Number,
+		required: true,
+		default: 1
+	},
+	isActive: {
+		type: Boolean,
+		default: true
+	},
+	startsAt: {
+		type: Date,
+		default: null
+	},
+	endsAt: {
+		type: Date,
+		default: null
+	}
+}, { timestamps: true });
+SemesterSchema.index({
+	academicSession: 1,
+	order: 1
+}, { unique: true });
+var semester_default = mongoose.model("Semester", SemesterSchema);
+var GroupSchema = new Schema({
+	groupId: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "Class"
+	},
+	group: { type: Schema.Types.Mixed },
+	assigned: {
+		type: [{
+			startDate: Date,
+			endDate: Date
+		}],
+		default: []
+	}
+}, { _id: false });
+var PostingSchema$1 = new Schema({
+	postingName: {
+		type: String,
+		required: true
+	},
+	startDate: { type: Date },
+	endDate: { type: Date },
+	meta: {
+		type: Schema.Types.Mixed,
+		default: {}
+	},
+	groups: {
+		type: [GroupSchema],
+		default: []
+	},
+	createdAt: {
+		type: Date,
+		default: () => /* @__PURE__ */ new Date()
+	}
+}, { collection: "postingsandrotations" });
+var postingsAndRotations_default = mongoose.model("PostingAndRotation", PostingSchema$1);
 init_activitieslog$1();
 init_exam();
 init_classes();
 init_user();
 var getTodayName = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-us", { weekday: "long" });
+var formatClockPhaseLabel = (clockPhase, phaseConfig) => {
+	if (!clockPhase) return null;
+	const phaseName = phaseConfig?.[clockPhase]?.name;
+	if (phaseName) return `${clockPhase.replace("phase", "Phase ")} · ${phaseName}`;
+	return `${clockPhase.replace("phase", "Phase ")}`;
+};
+const buildAcademicOverviewPayload = ({ sessionsCount, semestersCount, classesCount, coursesCount, assessmentsCount, activeAcademicYearName, currentSemesterLabel, isPostingCalendar, classSummaries }) => ({
+	sessions: sessionsCount,
+	semesters: semestersCount,
+	classes: classesCount,
+	courses: coursesCount,
+	assessments: assessmentsCount,
+	details: {
+		activeAcademicYear: activeAcademicYearName ?? null,
+		currentSemester: isPostingCalendar ? classSummaries?.find((summary) => summary.phaseLabel)?.phaseLabel ?? currentSemesterLabel ?? null : currentSemesterLabel ?? null,
+		classes: (classSummaries ?? []).map((summary) => ({
+			name: summary.name,
+			courseCount: summary.courseCount ?? 0,
+			assessmentCount: summary.assessmentCount ?? 0,
+			phaseLabel: summary.phaseLabel ?? null
+		}))
+	}
+});
+const buildClinicalOverviewPayload = ({ postingsCount, departmentsCount, unitsCount, teamsCount, rotationsCount, postingSummaries, rotationTeamSummaries, rotationSummaries }) => ({
+	postings: postingsCount,
+	departments: departmentsCount,
+	units: unitsCount,
+	teams: teamsCount,
+	rotations: rotationsCount,
+	details: {
+		postings: (postingSummaries ?? []).map((summary) => ({
+			className: summary.className,
+			phaseLabel: summary.phaseLabel ?? null,
+			hasSchedule: summary.hasSchedule ?? false
+		})),
+		rotationTeams: (rotationTeamSummaries ?? []).map((summary) => ({
+			className: summary.className,
+			teamCount: summary.teamCount ?? 0
+		})),
+		rotations: (rotationSummaries ?? []).map((summary) => ({
+			className: summary.className,
+			name: summary.name,
+			dateRange: summary.dateRange,
+			duration: summary.duration
+		}))
+	}
+});
 const getDashboradStats = async (req, res) => {
 	try {
 		const user = req.user;
@@ -6603,16 +8029,14 @@ const getDashboradStats = async (req, res) => {
 			hour: "2-digit",
 			minute: "2-digit"
 		})})`);
-		if (user.role === "admin") {
-			const totalStudents = await user_default$1.countDocuments({ role: "student" });
-			stats = {
-				totalLecturers: await user_default$1.countDocuments({ role: "teacher" }),
-				totalStudents,
-				activeExams: await user_default$1.countDocuments({ isActive: true }),
-				avgAttendance: "94.5%",
-				recentActivities: formattedActivity
-			};
-		} else if (user.role === "teacher") {
+		if (user.role === "admin") stats = {
+			totalStudents: await user_default$1.countDocuments({ role: "student" }),
+			totalParents: await user_default$1.countDocuments({ role: "parent" }),
+			totalStaff: await user_default$1.countDocuments({ role: "teacher" }),
+			activeSession: (await academicYear_default$1.findOne({ isCurrent: true }))?.name || "N/A",
+			recentActivities: formattedActivity
+		};
+		else if (user.role === "teacher") {
 			const myClassessCount = await classes_default$1.countDocuments({ classTeacher: user._id });
 			const myExamsIds = (await exam_default$1.find({ teacher: user._id }).select("_id")).map((exam) => exam._id);
 			const pendingGrading = await submission_default.countDocuments({
@@ -6649,60 +8073,325 @@ const getDashboradStats = async (req, res) => {
 		res.status(500).json({ message: `Server error: ${error}` });
 	}
 };
+const getAdminOverview = async (req, res) => {
+	try {
+		const now = /* @__PURE__ */ new Date();
+		const [sessionsCount, semestersCount, classesCount, coursesCount, assessmentsCount, departmentsCount, unitsCount, postings, rotations, currentAcademicYear, institution] = await Promise.all([
+			academicSession_default.countDocuments({ isCurrent: true }),
+			semester_default.countDocuments(),
+			classes_default$1.countDocuments(),
+			courses_default$1.countDocuments(),
+			exam_default$1.countDocuments({ isActive: true }),
+			departments_default.countDocuments(),
+			units_default.countDocuments(),
+			postingsAndRotations_default.find({}).lean(),
+			clinicalRotation_default.find({}).lean(),
+			academicYear_default$1.findOne({ isCurrent: true }).lean(),
+			institution_default.findOne({}).lean()
+		]);
+		postings.filter((posting) => {
+			const hasStart = posting.startDate;
+			const hasEnd = posting.endDate;
+			if (!hasStart && !hasEnd) return true;
+			const start = hasStart ? new Date(posting.startDate) : null;
+			const end = hasEnd ? new Date(posting.endDate) : null;
+			if (start && end) return now >= start && now <= end;
+			if (start) return now >= start;
+			if (end) return now <= end;
+			return true;
+		}).length;
+		rotations.filter((rotation) => {
+			if (rotation.isActive === false) return false;
+			const hasStart = rotation.startDate;
+			const hasEnd = rotation.endDate;
+			if (!hasStart && !hasEnd) return true;
+			const start = hasStart ? new Date(rotation.startDate) : null;
+			const end = hasEnd ? new Date(rotation.endDate) : null;
+			if (start && end) return now >= start && now <= end;
+			if (start) return now >= start;
+			if (end) return now <= end;
+			return true;
+		}).length;
+		const teamCount = postings.reduce((total, posting) => {
+			return total + (Array.isArray(posting.groups) ? posting.groups.length : 0);
+		}, 0);
+		const currentAcademicClasses = currentAcademicYear?._id ? await classes_default$1.find({ academicYear: currentAcademicYear._id }).lean() : [];
+		const academicClocks = currentAcademicYear?._id ? await academicClock_default$1.find({ academicYear: currentAcademicYear._id }).lean() : [];
+		const academicClockByClassId = new Map(academicClocks.map((clock) => [String(clock.classId), clock]));
+		const postingSummaries = currentAcademicClasses.filter((classDoc) => academicClockByClassId.has(String(classDoc._id))).map((classDoc) => {
+			const academicClock = academicClockByClassId.get(String(classDoc._id));
+			const phaseLabel = academicClock?.clockPhase ? formatClockPhaseLabel(academicClock.clockPhase, academicClock.phaseConfig) : null;
+			const hasSchedule = postings.some((posting) => {
+				return Array.isArray(posting.groups) && posting.groups.some((group) => String(group.groupId) === String(classDoc._id));
+			});
+			return {
+				className: classDoc.name,
+				phaseLabel,
+				hasSchedule
+			};
+		});
+		const rotationTeamSummaries = currentAcademicClasses.map((classDoc) => {
+			const teamCountForClass = postings.reduce((total, posting) => {
+				if (!Array.isArray(posting.groups)) return total;
+				return total + posting.groups.filter((group) => String(group.groupId) === String(classDoc._id)).length;
+			}, 0);
+			return {
+				className: classDoc.name,
+				teamCount: teamCountForClass
+			};
+		}).filter((summary) => summary.teamCount > 0);
+		const activeRotationsForClasses = rotations.filter((rotation) => {
+			if (rotation.isActive === false) return false;
+			const hasStart = rotation.startDate;
+			const hasEnd = rotation.endDate;
+			if (!hasStart && !hasEnd) return true;
+			const start = hasStart ? new Date(rotation.startDate) : null;
+			const end = hasEnd ? new Date(rotation.endDate) : null;
+			if (start && end) return now >= start && now <= end;
+			if (start) return now >= start;
+			if (end) return now <= end;
+			return true;
+		});
+		const rotationSummaries = currentAcademicClasses.flatMap((classDoc) => {
+			return activeRotationsForClasses.filter((rotation) => String(rotation.class) === String(classDoc._id)).map((rotation) => {
+				const start = rotation.startDate ? new Date(rotation.startDate) : null;
+				const end = rotation.endDate ? new Date(rotation.endDate) : null;
+				const duration = start && end ? `${Math.round((end.getTime() - start.getTime()) / (1e3 * 60 * 60 * 24 * 7))} weeks` : "Open-ended";
+				return {
+					className: classDoc.name,
+					name: rotation.name || "Clinical rotation",
+					dateRange: start && end ? `${start.toLocaleDateString()} → ${end.toLocaleDateString()}` : "Dates pending",
+					duration
+				};
+			});
+		});
+		const activeSemester = institution?.academicSession ? await semester_default.findOne({
+			academicSession: institution.academicSession,
+			isActive: true
+		}).sort({ order: 1 }).lean() : null;
+		const isPostingCalendar = String(institution?.academicCalendarType ?? "").toLowerCase().includes("posting") || String(institution?.academicCalendarType ?? "").toLowerCase().includes("clinical");
+		const classSummaries = currentAcademicYear?._id ? await Promise.all((await classes_default$1.find({ academicYear: currentAcademicYear._id }).lean()).map(async (classDoc) => {
+			const [courseCount, assessmentCount, academicClock] = await Promise.all([
+				courses_default$1.countDocuments({
+					academicYear: currentAcademicYear._id,
+					isActive: true,
+					studentClasses: { $elemMatch: { classID: classDoc._id } }
+				}),
+				exam_default$1.countDocuments({
+					class: classDoc._id,
+					isActive: true
+				}),
+				academicClock_default$1.findOne({
+					academicYear: currentAcademicYear._id,
+					classId: classDoc._id
+				}).lean()
+			]);
+			return {
+				name: classDoc.name,
+				courseCount,
+				assessmentCount,
+				phaseLabel: academicClock?.clockPhase ? formatClockPhaseLabel(academicClock.clockPhase, academicClock.phaseConfig) : null
+			};
+		})) : [];
+		const academicPayload = buildAcademicOverviewPayload({
+			sessionsCount,
+			semestersCount,
+			classesCount,
+			coursesCount,
+			assessmentsCount,
+			activeAcademicYearName: currentAcademicYear?.name ?? null,
+			currentSemesterLabel: activeSemester?.name ?? null,
+			isPostingCalendar,
+			classSummaries
+		});
+		const clinicalPayload = buildClinicalOverviewPayload({
+			postingsCount: postingSummaries.length,
+			departmentsCount,
+			unitsCount,
+			teamsCount: teamCount,
+			rotationsCount: activeRotationsForClasses.length,
+			postingSummaries,
+			rotationTeamSummaries,
+			rotationSummaries
+		});
+		res.json({
+			academic: academicPayload,
+			clinical: clinicalPayload
+		});
+	} catch (error) {
+		res.status(500).json({ message: `Server error: ${error}` });
+	}
+};
 var dashBoardRouter = express.Router();
 dashBoardRouter.get("/stats", protect, getDashboradStats);
+dashBoardRouter.get("/overview", protect, getAdminOverview);
 var dashboard_default = dashBoardRouter;
-var HospitalUnitSchema = new Schema({
-	name: {
-		type: String,
-		required: true,
-		trim: true
-	},
-	department: {
-		type: String,
-		required: true,
-		trim: true
-	},
-	category: {
-		type: String,
-		enum: [
-			"medicine",
-			"surgery",
-			"paediatrics",
-			"obstetrics",
-			"block",
-			"specialty"
-		],
-		required: true
-	},
-	umbrella: {
-		type: String,
-		enum: ["MEDICINE", "SURGERY"],
-		required: true
-	},
-	description: { type: String },
-	supervisors: [{
-		type: mongoose.Types.ObjectId,
-		ref: "HospitalStaff"
-	}],
-	isActive: {
-		type: Boolean,
-		default: true
-	}
-}, { timestamps: true });
-HospitalUnitSchema.index({
-	department: 1,
-	category: 1
-});
-HospitalUnitSchema.index({
-	umbrella: 1,
-	isActive: 1
-});
-var hospitalUnit_default = mongoose.model("HospitalUnit", HospitalUnitSchema, "hospital_units");
+var eventBus = new EventEmitter();
+function emitSystemEvent$1(eventName, data) {
+	const payload = {
+		source: "backend",
+		name: eventName,
+		timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+		data
+	};
+	eventBus.emit(eventName, payload);
+}
+init_notification();
+init_user();
+var DUPLICATE_WINDOW_MS = 300 * 1e3;
+const createNotificationIfUnique$1 = async (payload) => {
+	const now = /* @__PURE__ */ new Date();
+	const duplicateSince = new Date(now.getTime() - DUPLICATE_WINDOW_MS);
+	const search = {
+		userId: payload.userId,
+		title: payload.title,
+		message: payload.message,
+		type: payload.type ?? "system",
+		createdAt: { $gte: duplicateSince }
+	};
+	const existing = await Notification.findOne(search);
+	if (existing) return existing;
+	return Notification.create({
+		userId: payload.userId,
+		role: payload.role,
+		title: payload.title,
+		message: payload.message,
+		type: payload.type ?? "system",
+		isRead: false,
+		link: payload.link,
+		metadata: payload.metadata,
+		actorName: payload.actorName,
+		actorRole: payload.actorRole
+	});
+};
+const createNotificationAndEmitEvent = async (payload) => {
+	const notification = await createNotificationIfUnique$1(payload);
+	emitSystemEvent$1("notification.created", {
+		notificationId: notification._id.toString(),
+		userId: payload.userId.toString(),
+		role: payload.role,
+		type: payload.type ?? "system",
+		title: payload.title
+	});
+	return notification;
+};
+const createSystemAlertForAdmins = async (payload) => {
+	const roles = Array.isArray(payload.roles) && payload.roles.length > 0 ? payload.roles : ["admin"];
+	const users = await user_default$1.find({
+		role: { $in: roles },
+		isActive: true
+	}).select("_id role").lean();
+	if (!users || users.length === 0) return [];
+	return await Promise.all(users.map((user) => createNotificationAndEmitEvent({
+		userId: user._id,
+		role: user.role || "admin",
+		title: payload.title,
+		message: payload.message,
+		type: payload.type ?? "warning",
+		link: payload.link,
+		metadata: payload.metadata,
+		actorName: payload.actorName,
+		actorRole: payload.actorRole
+	})));
+};
 init_attendance();
 init_user();
 init_activitieslog();
 init_inngest();
+init_classes();
+const generateAttendanceForClassSession = async (req, res) => {
+	try {
+		const { courseId, classId, academicYearId, date, subjectId } = req.body;
+		const requester = req.user._id;
+		if (!courseId || !classId || !academicYearId || !date || !subjectId) return res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
+		const dateObj = new Date(date);
+		const dayName = {
+			0: "Sunday",
+			1: "Monday",
+			2: "Tuesday",
+			3: "Wednesday",
+			4: "Thursday",
+			5: "Friday",
+			6: "Saturday"
+		}[dateObj.getDay()];
+		if (dayName === "Saturday" || dayName === "Sunday") return res.status(400).json({ message: "Attendance cannot be generated on weekends." });
+		const course = await courses_default$1.findById(courseId).populate({
+			path: "subjects.lecturer",
+			select: "_id name email departmentRole"
+		});
+		if (!course) return res.status(404).json({ message: "Course not found." });
+		const matchingSubject = (course.subjects ?? []).find((subject) => {
+			return String(subject._id) === String(subjectId) || String(subject.subjectUID) === String(subjectId) || String(subject.subjectID) === String(subjectId) || String(subject.name) === String(subjectId) || String(subject.code ?? "") === String(subjectId);
+		});
+		if (!matchingSubject) return res.status(404).json({ message: "Subject not found in selected course." });
+		const classDoc = await classes_default$1.findById(classId).populate("students", "_id");
+		if (!classDoc) return res.status(404).json({ message: "Class not found." });
+		const lecturer = (Array.isArray(matchingSubject.lecturer) ? matchingSubject.lecturer[0]?._id ?? matchingSubject.lecturer[0] : null) ?? requester;
+		const startOfDay = new Date(dateObj);
+		startOfDay.setHours(0, 0, 0, 0);
+		const endOfDay = new Date(startOfDay);
+		endOfDay.setDate(endOfDay.getDate() + 1);
+		if (await attendance_default$1.findOne({
+			class: classId,
+			course: courseId,
+			subject: matchingSubject._id,
+			date: {
+				$gte: startOfDay,
+				$lt: endOfDay
+			}
+		})) return res.status(409).json({ message: "Attendance records already exist for this class, course, subject, and date." });
+		const studentIds = (classDoc.students ?? []).map((student) => student._id ?? student);
+		const attendanceRecords = await Promise.all(studentIds.map(async (studentId) => {
+			return await attendance_default$1.create({
+				student: studentId,
+				lecturer,
+				course: courseId,
+				subject: matchingSubject._id,
+				class: classId,
+				academicYear: academicYearId,
+				date: dateObj,
+				dayOfWeek: dayName,
+				status: "present"
+			});
+		}));
+		await logActivity({
+			userId: lecturer,
+			action: "Generated attendance for class session",
+			details: `Generated attendance for course ID: ${courseId}, subject ID: ${String(matchingSubject._id)}, class ID: ${classId} on ${new Date(date).toDateString()}`
+		});
+		if (lecturer) try {
+			await createNotificationAndEmitEvent({
+				userId: typeof lecturer === "string" ? new mongoose.Types.ObjectId(lecturer) : lecturer,
+				role: "teacher",
+				title: "Attendance session prepared",
+				message: `Attendance for ${matchingSubject.name ?? matchingSubject.code ?? "the selected subject"} on ${dateObj.toDateString()} for ${classDoc.name} has been generated and is ready for review.`,
+				type: "attendance",
+				link: "/attendance",
+				actorRole: "admin"
+			});
+		} catch (err) {
+			console.warn("Failed to send attendance notification to lecturer", err);
+		}
+		emitSystemEvent("attendance.session.generated", {
+			classId,
+			courseId,
+			subjectId: String(matchingSubject._id),
+			lecturer: String(lecturer),
+			date: dateObj.toISOString(),
+			studentCount: studentIds.length
+		});
+		res.status(201).json({
+			message: "Attendance generated for class session",
+			attendanceRecords
+		});
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
 const recordAttendance = async (req, res) => {
 	try {
 		const { student, course, class: classId, academicYear, status, notes } = req.body;
@@ -6722,6 +8411,13 @@ const recordAttendance = async (req, res) => {
 			action: "Recorded attendance",
 			details: `Attendance for student ${student} on ${new Date(record.date).toDateString()} set to ${status}`
 		});
+		emitSystemEvent("attendance.recorded", {
+			attendanceId: String(record._id),
+			student: String(student),
+			lecturer: String(lecturer),
+			status,
+			date: record.date.toISOString()
+		});
 		res.status(201).json(record);
 	} catch (error) {
 		console.error(error);
@@ -6739,7 +8435,7 @@ const getMyAttendanceSummary = async (req, res) => {
 				_id: "$status",
 				count: { $sum: 1 }
 			} }]);
-			const records$1 = await attendance_default$1.find({ student: userId }).populate("course", "name code courseID subjects.subjectID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).limit(50);
+			const records$1 = await attendance_default$1.find({ student: userId }).populate("course", "name code courseID subjects").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).limit(50);
 			res.json({
 				stats: stats$1,
 				records: records$1
@@ -6750,7 +8446,7 @@ const getMyAttendanceSummary = async (req, res) => {
 			_id: "$status",
 			count: { $sum: 1 }
 		} }]);
-		const records = await attendance_default$1.find({ lecturer: userId }).populate("course", "name code courseID subjects.subjectID").populate("class", "name").populate("student", "name idNumber email").populate("lecturer", "name email").populate("approvedBy", "name email").sort({ date: -1 }).limit(50);
+		const records = await attendance_default$1.find({ lecturer: userId }).populate("course", "name code courseID subjects").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("student", "name idNumber email").populate("lecturer", "name email").populate("approvedBy", "name email").sort({ date: -1 }).limit(50);
 		res.json({
 			stats,
 			records
@@ -6770,7 +8466,7 @@ const getStudentAttendanceSummary = async (req, res) => {
 			_id: "$status",
 			count: { $sum: 1 }
 		} }]);
-		const records = await attendance_default$1.find({ student: studentId }).populate("course", "name code courseID subjects.subjectID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).limit(50);
+		const records = await attendance_default$1.find({ student: studentId }).populate("course", "name code courseID subjects").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).limit(50);
 		res.json({
 			stats,
 			records
@@ -6786,7 +8482,7 @@ const getStudentAttendanceSummary = async (req, res) => {
 const getStudentNotificationsSummary = async (req, res) => {
 	try {
 		const userId = req.user._id;
-		const classId = (await import("./user-DrPfSF2Y.js").then((m) => m.default.findById(userId).select("studentClasses name")))?.studentClasses;
+		const classId = (await import("./user-C0j6eLOt.js").then((m) => m.default.findById(userId).select("studentClasses name")))?.studentClasses;
 		if (!classId) return res.json({
 			className: null,
 			academicYear: null,
@@ -6797,8 +8493,8 @@ const getStudentNotificationsSummary = async (req, res) => {
 			percentage: 0,
 			weeklyAlerts: []
 		});
-		const ClassModel = (await import("./classes-CkN9HvI9.js")).default;
-		const Timetable = (await import("./timetable-vpFVHPBl.js")).default;
+		const ClassModel = (await import("./classes-BOb_qIIH.js")).default;
+		const Timetable = (await import("./timetable-BEhE5mQp.js")).default;
 		const cls = await ClassModel.findById(classId).populate("academicYear", "name").select("name academicYear");
 		const timetable = await Timetable.findOne({ class: classId }).select("schedule");
 		const todayName = [
@@ -7023,7 +8719,7 @@ const getStudentAttendanceRecords = async (req, res) => {
 			if (endDate) filter.date.$lte = new Date(endDate);
 		}
 		if (status) filter.status = status;
-		const records = await attendance_default$1.find(filter).populate("course", "name code courseID subjects.subjectID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).skip((+page - 1) * +limit).limit(+limit);
+		const records = await attendance_default$1.find(filter).populate("course", "name code courseID subjects").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("lecturer", "name email").sort({ date: -1 }).skip((+page - 1) * +limit).limit(+limit);
 		const total = await attendance_default$1.countDocuments(filter);
 		res.json({
 			records,
@@ -7041,7 +8737,7 @@ const getStudentAttendanceRecords = async (req, res) => {
 };
 const getClassSessionAttendance = async (req, res) => {
 	try {
-		const { classId, courseId, date } = req.query;
+		const { classId, courseId, date, subjectId } = req.query;
 		if (!classId || !courseId || !date) {
 			res.status(400).json({ message: "classId, courseId, and date are required." });
 			return;
@@ -7050,14 +8746,16 @@ const getClassSessionAttendance = async (req, res) => {
 		dateObj.setHours(0, 0, 0, 0);
 		const nextDay = new Date(dateObj);
 		nextDay.setDate(nextDay.getDate() + 1);
-		const records = await attendance_default$1.find({
+		const filter = {
 			class: classId,
 			course: courseId,
 			date: {
 				$gte: dateObj,
 				$lt: nextDay
 			}
-		}).populate("student", "name email idNumber").populate("course", "name code subjects.subjectID").populate("class", "name").populate("lecturer", "name email").sort({ "student.name": 1 });
+		};
+		if (subjectId) filter.subject = subjectId;
+		const records = await attendance_default$1.find(filter).populate("student", "name email idNumber").populate("course", "name code subjects.subjectID").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("lecturer", "name email").sort({ "student.name": 1 });
 		res.json({ records });
 	} catch (error) {
 		res.status(500).json({
@@ -7110,10 +8808,14 @@ const bulkUpdateAttendance = async (req, res) => {
 };
 const triggerAttendanceGeneration = async (req, res) => {
 	try {
-		const { courseId, classId, academicYearId, date } = req.body;
-		if (!courseId || !classId || !academicYearId || !date) {
-			res.status(400).json({ message: "courseId, classId, academicYearId, and date are required." });
+		const { courseId, classId, academicYearId, date, subjectId } = req.body;
+		if (!courseId || !classId || !academicYearId || !date || !subjectId) {
+			res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
 			return;
+		}
+		if (process.env.NODE_ENV !== "production" && !process.env.INNGEST_EVENT_KEY) {
+			console.warn("Skipping Inngest in local development because INNGEST_EVENT_KEY is not set.");
+			return await generateAttendanceForClassSession(req, res);
 		}
 		const userId = req.user._id?.toString();
 		await inngest.send({
@@ -7123,6 +8825,7 @@ const triggerAttendanceGeneration = async (req, res) => {
 				classId,
 				academicYearId,
 				date,
+				subjectId,
 				userId
 			}
 		});
@@ -7131,6 +8834,12 @@ const triggerAttendanceGeneration = async (req, res) => {
 			status: "processing"
 		});
 	} catch (error) {
+		const errorString = typeof error?.message === "string" ? error.message : JSON.stringify(error);
+		if (process.env.NODE_ENV !== "production" && (!process.env.INNGEST_EVENT_KEY || error?.code === "ConnectionRefused" || String(error?.path || "").includes("8288") || /NO_EVENT_KEY_SET|ECONNREFUSED|ConnectionRefused|connect.*8288/i.test(errorString))) {
+			console.warn("Inngest unavailable, falling back to direct attendance generation.", error);
+			return await generateAttendanceForClassSession(req, res);
+		}
+		console.error("Attendance generation failed:", error);
 		res.status(500).json({
 			message: "Server error",
 			error
@@ -7144,12 +8853,73 @@ const checkTimetableExists = async (req, res) => {
 			res.status(400).json({ message: "classId and academicYearId are required." });
 			return;
 		}
-		const timetable = await (await import("./timetable-vpFVHPBl.js")).default.findOne({
+		const timetable = await (await import("./timetable-BEhE5mQp.js")).default.findOne({
 			class: classId,
 			academicYear: academicYearId
 		}).select("_id");
 		res.json({ exists: !!timetable });
 	} catch (error) {
+		res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const deleteAttendanceSession = async (req, res) => {
+	try {
+		const { classId, courseId, date, subjectId } = req.query;
+		if (!classId || !courseId || !date) {
+			res.status(400).json({ message: "classId, courseId, and date are required." });
+			return;
+		}
+		const dateObj = new Date(date);
+		dateObj.setHours(0, 0, 0, 0);
+		const nextDay = new Date(dateObj);
+		nextDay.setDate(nextDay.getDate() + 1);
+		const filter = {
+			class: classId,
+			course: courseId,
+			date: {
+				$gte: dateObj,
+				$lt: nextDay
+			}
+		};
+		if (subjectId) filter.subject = subjectId;
+		const result = await attendance_default$1.deleteMany(filter);
+		if (result.deletedCount === 0) return res.status(404).json({ message: "No attendance records found for the requested session." });
+		await logActivity({
+			userId: req.user._id,
+			action: "Deleted attendance session",
+			details: `Deleted ${result.deletedCount} attendance record(s) for class ${classId}, course ${courseId}, date ${new Date(date).toDateString()}${subjectId ? `, subject ${subjectId}` : ""}`
+		});
+		res.json({
+			message: "Attendance session deleted",
+			deletedCount: result.deletedCount
+		});
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({
+			message: "Server error",
+			error
+		});
+	}
+};
+const deleteAttendanceRecords = async (req, res) => {
+	try {
+		const { attendanceIds } = req.body;
+		if (!Array.isArray(attendanceIds) || attendanceIds.length === 0) return res.status(400).json({ message: "attendanceIds array is required." });
+		const result = await attendance_default$1.deleteMany({ _id: { $in: attendanceIds } });
+		await logActivity({
+			userId: req.user._id,
+			action: "Deleted attendance records",
+			details: `Deleted ${result.deletedCount} attendance record(s).`
+		});
+		res.json({
+			message: "Attendance records deleted",
+			deletedCount: result.deletedCount
+		});
+	} catch (error) {
+		console.error(error);
 		res.status(500).json({
 			message: "Server error",
 			error
@@ -7175,8 +8945,33 @@ const getAllAttendanceLists = async (req, res) => {
 			};
 		}
 		if (userRole$1 !== "admin") filter.lecturer = userId;
-		const records = await attendance_default$1.find(filter).populate("course", "name code courseID subjects.subjectID").populate("class", "name").populate("student", "name idNumber email").populate("lecturer", "name email").populate("approvedBy", "name email").sort({ date: -1 }).limit(100);
-		res.json({ records });
+		const enrichedRecords = (await attendance_default$1.find(filter).populate("course", "name code courseID subjects").populate("subject", "name code subjectID subjectUID").populate("class", "name").populate("student", "name idNumber email").populate("lecturer", "name email").populate("approvedBy", "name email").sort({ date: -1 })).map((record) => {
+			const courseDoc = record.course;
+			const subjectId = record.subject ? String(record.subject) : "";
+			const matchingSubject = courseDoc?.subjects?.find((subject) => {
+				return String(subject?._id) === subjectId || String(subject?.subjectUID) === subjectId || String(subject?.subjectID) === subjectId || String(subject?.code ?? "") === subjectId;
+			});
+			const resolvedSubject = matchingSubject ? {
+				_id: matchingSubject._id,
+				name: matchingSubject.name,
+				code: matchingSubject.code,
+				subjectID: matchingSubject.subjectID,
+				subjectUID: matchingSubject.subjectUID
+			} : null;
+			const subjectName = resolvedSubject?.name || (record.subject && typeof record.subject === "object" ? record.subject.name : null) || "Untitled subject";
+			const courseName = courseDoc?.name || "Attendance session";
+			const dateLabel = new Date(record.date).toLocaleDateString("en-US", {
+				year: "numeric",
+				month: "short",
+				day: "numeric"
+			});
+			return {
+				...record.toObject(),
+				subject: resolvedSubject || record.subject,
+				sessionName: `${courseName} • ${subjectName} • ${dateLabel}`
+			};
+		});
+		res.json({ records: enrichedRecords });
 	} catch (error) {
 		console.error(error);
 		res.status(500).json({
@@ -7242,8 +9037,8 @@ const getSubjectsAttendance = async (req, res) => {
 };
 const getClassesAttendanceStatus = async (req, res) => {
 	try {
-		const ClassModel = (await import("./classes-CkN9HvI9.js")).default;
-		const Timetable = (await import("./timetable-vpFVHPBl.js")).default;
+		const ClassModel = (await import("./classes-BOb_qIIH.js")).default;
+		const Timetable = (await import("./timetable-BEhE5mQp.js")).default;
 		const classes = await ClassModel.find().populate("academicYear", "name").select("name academicYear courses").sort({ name: 1 });
 		const classesWithStatus = await Promise.all(classes.map(async (cls) => {
 			const [timetable, attendanceStats] = await Promise.all([Timetable.findOne({ class: cls._id }).select("_id"), attendance_default$1.aggregate([{ $match: { class: cls._id } }, { $group: {
@@ -7398,6 +9193,18 @@ attendanceRouter.get("/session", protect, authorize([
 	"unitconsultant",
 	"unitresident"
 ]), getClassSessionAttendance);
+attendanceRouter.delete("/session", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), deleteAttendanceSession);
+attendanceRouter.delete("/records", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), deleteAttendanceRecords);
 attendanceRouter.patch("/bulk", protect, authorize([
 	"admin",
 	"teacher",
@@ -7436,8 +9243,8 @@ attendanceRouter.get("/weekly", protect, authorize([
 attendanceRouter.get("/student-notifications", protect, authorize(["student"]), getStudentNotificationsSummary);
 var attendance_default = attendanceRouter;
 init_notification();
-var router$3 = Router();
-router$3.get("/", protect, async (req, res) => {
+var router$4 = Router();
+router$4.get("/", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7445,8 +9252,9 @@ router$3.get("/", protect, async (req, res) => {
 		const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit)) || 20));
 		const skip = (page - 1) * limit;
 		const [notifications, total] = await Promise.all([Notification.find({ userId: user._id }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), Notification.countDocuments({ userId: user._id })]);
+		const formattedNotifications = notifications.map((notification) => formatNotificationForRole(notification, user.role));
 		res.json({
-			notifications,
+			notifications: formattedNotifications,
 			total,
 			page,
 			pages: Math.ceil(total / limit)
@@ -7456,7 +9264,7 @@ router$3.get("/", protect, async (req, res) => {
 		res.status(500).json({ error: "Failed to fetch notifications" });
 	}
 });
-router$3.get("/unread-count", protect, async (req, res) => {
+router$4.get("/unread-count", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7470,28 +9278,32 @@ router$3.get("/unread-count", protect, async (req, res) => {
 		res.status(500).json({ error: "Failed to fetch unread count" });
 	}
 });
-router$3.get("/system", protect, async (req, res) => {
+router$4.get("/system", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
 		const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit)) || 100));
-		const notifications = await Notification.find({}).sort({ createdAt: -1 }).limit(limit).lean();
+		const notifications = await Notification.find(user.role === "student" ? { userId: user._id } : {}).sort({ createdAt: -1 }).limit(limit).lean();
 		const seen = /* @__PURE__ */ new Map();
 		for (const n of notifications) {
 			const key = `${n.type}:${new Date(n.createdAt).toISOString()}`;
 			if (!seen.has(key)) seen.set(key, n);
 		}
-		const deduped = Array.from(seen.values()).map((n) => ({
-			...n,
-			unreadForUser: String(n.userId) === String(user._id) && n.isRead === false
-		}));
+		const deduped = Array.from(seen.values()).map((n) => {
+			const formatted = formatNotificationForRole(n, user.role);
+			return {
+				...n,
+				...formatted,
+				unreadForUser: String(n.userId) === String(user._id) && n.isRead === false
+			};
+		});
 		res.json({ notifications: deduped });
 	} catch (err) {
 		console.error("GET /notifications/system error:", err);
 		res.status(500).json({ error: "Failed to fetch system notifications" });
 	}
 });
-router$3.patch("/:id/read", protect, async (req, res) => {
+router$4.patch("/:id/read", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7506,7 +9318,7 @@ router$3.patch("/:id/read", protect, async (req, res) => {
 		res.status(500).json({ error: "Failed to mark notification as read" });
 	}
 });
-router$3.patch("/read-all", protect, async (req, res) => {
+router$4.patch("/read-all", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7520,7 +9332,7 @@ router$3.patch("/read-all", protect, async (req, res) => {
 		res.status(500).json({ error: "Failed to mark all as read" });
 	}
 });
-router$3.delete("/:id", protect, async (req, res) => {
+router$4.delete("/:id", protect, async (req, res) => {
 	try {
 		const user = req.user;
 		if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -7537,7 +9349,7 @@ router$3.delete("/:id", protect, async (req, res) => {
 		res.status(500).json({ error: "Failed to delete notification" });
 	}
 });
-router$3.get("/stream", protect, async (req, res) => {
+router$4.get("/stream", protect, async (req, res) => {
 	try {
 		addSSEClient(req, res);
 	} catch (err) {
@@ -7547,83 +9359,679 @@ router$3.get("/stream", protect, async (req, res) => {
 		} catch {}
 	}
 });
-var notification_default = router$3;
+var notification_default = router$4;
 var for500LevelPostings_default = express.Router();
-var GroupRefSchema = new Schema({
-	groupId: {
-		type: mongoose.Schema.Types.ObjectId,
-		ref: "Class"
-	},
-	group: { type: Schema.Types.Mixed },
-	assigned: {
-		type: [{
-			startDate: Date,
-			endDate: Date
-		}],
-		default: []
-	},
-	supervisorName: { type: String },
-	supervisor: {
-		type: mongoose.Schema.Types.ObjectId,
-		ref: "User"
+var rotationPlan_exports = /* @__PURE__ */ __export({ default: () => rotationPlan_default });
+var GroupRefSchema, PostingSchema, RotationPlanSchema, RotationPlan, rotationPlan_default;
+var init_rotationPlan = __esmMin((() => {
+	GroupRefSchema = new Schema({
+		groupId: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Class"
+		},
+		group: { type: Schema.Types.Mixed },
+		assigned: {
+			type: [{
+				startDate: Date,
+				endDate: Date
+			}],
+			default: []
+		},
+		supervisorName: { type: String },
+		supervisor: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "User"
+		}
+	}, { _id: false });
+	PostingSchema = new Schema({
+		name: {
+			type: String,
+			required: true
+		},
+		spinBase: { type: String },
+		spin: { type: String },
+		category: { type: String },
+		startDate: { type: Date },
+		endDate: { type: Date },
+		groups: {
+			type: [GroupRefSchema],
+			default: []
+		},
+		meta: {
+			type: Schema.Types.Mixed,
+			default: {}
+		}
+	}, { _id: false });
+	RotationPlanSchema = new Schema({
+		name: { type: String },
+		class: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "Class"
+		},
+		createdBy: {
+			type: mongoose.Schema.Types.ObjectId,
+			ref: "User"
+		},
+		postings: {
+			type: [PostingSchema],
+			default: []
+		},
+		groups: {
+			type: [Schema.Types.Mixed],
+			default: []
+		},
+		meta: {
+			type: Schema.Types.Mixed,
+			default: {}
+		},
+		createdAt: {
+			type: Date,
+			default: () => /* @__PURE__ */ new Date()
+		},
+		updatedAt: {
+			type: Date,
+			default: () => /* @__PURE__ */ new Date()
+		}
+	}, { collection: "rotationplans" });
+	RotationPlanSchema.pre("save", function() {
+		this.updatedAt = /* @__PURE__ */ new Date();
+	});
+	RotationPlan = mongoose.model("RotationPlan", RotationPlanSchema);
+	rotationPlan_default = RotationPlan;
+}));
+init_rotationPlan();
+var STOP_WORDS = new Set([
+	"department",
+	"dept",
+	"unit",
+	"of",
+	"the",
+	"and",
+	"&",
+	"a",
+	"an"
+]);
+function normalizeString(input) {
+	if (!input || typeof input !== "string") return "";
+	let s = input.toLowerCase().trim();
+	s = s.replace(/[^a-z0-9\s&]+/g, "");
+	s = s.replace(/\s+/g, " ");
+	return s.trim();
+}
+function buildVariants(input) {
+	const normalized = normalizeString(input);
+	if (!normalized) return [];
+	const variants = /* @__PURE__ */ new Set();
+	variants.add(normalized);
+	const withoutPrefix = normalized.replace(/^department\s+of\s+|^dept\.?\s+|^unit\s+/i, "").trim();
+	if (withoutPrefix) variants.add(withoutPrefix);
+	const compact = normalized.replace(/\s+/g, "");
+	if (compact) variants.add(compact);
+	const compactWithoutPrefix = withoutPrefix.replace(/\s+/g, "");
+	if (compactWithoutPrefix) variants.add(compactWithoutPrefix);
+	const commaClean = normalized.replace(/&/g, " ").replace(/\s+/g, " ").trim();
+	if (commaClean) {
+		variants.add(commaClean);
+		variants.add(commaClean.replace(/\s+/g, ""));
 	}
-}, { _id: false });
-var PostingSchema = new Schema({
-	name: {
+	const importantTokens = commaClean.split(/\s+/).filter(Boolean).filter((token) => !STOP_WORDS.has(token));
+	if (importantTokens.length) {
+		variants.add(importantTokens.join(" "));
+		variants.add(importantTokens.join(""));
+		variants.add(importantTokens.map((token) => token[0]).join(""));
+	}
+	return Array.from(variants);
+}
+function hasAliasMatch(identifier, department) {
+	const identifierVariants = buildVariants(identifier);
+	if (!identifierVariants.length) return false;
+	const docVariants = new Set([
+		...buildVariants(department.name || ""),
+		...buildVariants(department.code || ""),
+		...buildVariants(department.departmentID || "")
+	]);
+	for (const variant of identifierVariants) if (docVariants.has(variant)) return true;
+	return false;
+}
+async function resolveDepartmentByIdentifier(identifier) {
+	if (!identifier) return null;
+	normalizeString(identifier);
+	const query = [{ departmentID: identifier }, { code: identifier }];
+	if (mongoose.Types.ObjectId.isValid(identifier)) query.unshift({ _id: identifier });
+	const byId = await departments_default.findOne({ $or: query }).lean();
+	if (byId) return byId;
+	const all = await departments_default.find({}).lean();
+	for (const d of all) if (hasAliasMatch(identifier, d)) return d;
+	return null;
+}
+var SupervisorPoolSchema = new mongoose.Schema({
+	key: {
 		type: String,
-		required: true
+		required: true,
+		unique: true
 	},
-	category: { type: String },
-	startDate: { type: Date },
-	endDate: { type: Date },
-	groups: {
-		type: [GroupRefSchema],
-		default: []
-	},
-	meta: {
-		type: Schema.Types.Mixed,
-		default: {}
-	}
-}, { _id: false });
-var RotationPlanSchema = new Schema({
-	name: { type: String },
-	class: {
-		type: mongoose.Schema.Types.ObjectId,
-		ref: "Class"
-	},
-	createdBy: {
+	candidates: [{
 		type: mongoose.Schema.Types.ObjectId,
 		ref: "User"
-	},
-	postings: {
-		type: [PostingSchema],
-		default: []
-	},
-	groups: {
-		type: [Schema.Types.Mixed],
-		default: []
-	},
-	meta: {
-		type: Schema.Types.Mixed,
-		default: {}
-	},
-	createdAt: {
-		type: Date,
-		default: () => /* @__PURE__ */ new Date()
+	}],
+	pointer: {
+		type: Number,
+		default: 0
 	},
 	updatedAt: {
 		type: Date,
-		default: () => /* @__PURE__ */ new Date()
+		default: Date.now
 	}
-}, { collection: "rotationplans" });
-RotationPlanSchema.pre("save", function() {
-	this.updatedAt = /* @__PURE__ */ new Date();
 });
-var rotationPlan_default = mongoose.model("RotationPlan", RotationPlanSchema);
+var supervisorPool_default = mongoose.model("SupervisorPool", SupervisorPoolSchema);
+async function selectSupervisorRoundRobin(key, candidateIds) {
+	if (!key) return null;
+	if (!Array.isArray(candidateIds) || candidateIds.length === 0) return null;
+	const objIds = candidateIds.map((id) => new mongoose.Types.ObjectId(id));
+	let pool = await supervisorPool_default.findOne({ key });
+	if (!pool) pool = await supervisorPool_default.create({
+		key,
+		candidates: objIds,
+		pointer: 0
+	});
+	else {
+		const poolIds = (pool.candidates || []).map((c) => String(c));
+		const incomingIds = candidateIds.map(String);
+		if (poolIds.length !== incomingIds.length || poolIds.some((p, i) => p !== incomingIds[i])) {
+			pool.candidates = objIds;
+			pool.pointer = 0;
+		}
+	}
+	const idx = pool.pointer % pool.candidates.length;
+	const selected = String(pool.candidates[idx]);
+	pool.pointer = (pool.pointer + 1) % pool.candidates.length;
+	pool.updatedAt = /* @__PURE__ */ new Date();
+	await pool.save();
+	return selected;
+}
+init_classes();
+init_user();
+function addDays(d, days) {
+	const out = new Date(d);
+	out.setDate(out.getDate() + days);
+	return out;
+}
+function splitIntoBuckets(items, bucketCount) {
+	if (bucketCount <= 0) return [{
+		groupIndex: 0,
+		studentIds: items
+	}];
+	const buckets = [];
+	const base = Math.floor(items.length / bucketCount);
+	let cursor = 0;
+	for (let index = 0; index < bucketCount; index++) {
+		const size = index === bucketCount - 1 ? items.length - cursor : base;
+		buckets.push({
+			groupIndex: index,
+			studentIds: items.slice(cursor, cursor + size)
+		});
+		cursor += size;
+	}
+	return buckets;
+}
+var isValidObjectId = (value) => {
+	return mongoose.Types.ObjectId.isValid(value);
+};
+var resolveDepartmentDocument = async (identifier) => {
+	if (!identifier) return null;
+	const doc = await resolveDepartmentByIdentifier(identifier);
+	if (doc) return doc;
+	if (isValidObjectId(identifier)) {
+		const byId = await departments_default.findById(identifier).lean();
+		if (byId) return byId;
+	}
+	return departments_default.findOne({ $or: [
+		{ code: identifier },
+		{ departmentID: identifier },
+		{ name: identifier }
+	] }).lean();
+};
+var resolveUnitMap = async (identifiers) => {
+	if (!identifiers.length) return /* @__PURE__ */ new Map();
+	const query = [];
+	const objectIds = identifiers.filter(isValidObjectId).map((id) => new mongoose.Types.ObjectId(id));
+	if (objectIds.length) query.push({ _id: { $in: objectIds } });
+	query.push({ unitID: { $in: identifiers } });
+	query.push({ code: { $in: identifiers } });
+	query.push({ name: { $in: identifiers } });
+	const units = await units_default.find({ $or: query }).populate("supervisor", "name email role supervisorRank department departmentId departmentRole academicStatus isSupervisor").lean();
+	const map = /* @__PURE__ */ new Map();
+	units.forEach((unit) => {
+		map.set(String(unit._id), unit);
+		if (unit.unitID) map.set(String(unit.unitID), unit);
+		if (unit.code) map.set(String(unit.code), unit);
+		if (unit.name) map.set(String(unit.name), unit);
+	});
+	return map;
+};
+var normalizeUnitIds = (identifiers) => {
+	if (!Array.isArray(identifiers)) return [];
+	return identifiers.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim());
+};
+var rotateLeft = (items, n) => {
+	if (!Array.isArray(items) || items.length === 0) return items.slice();
+	const r = n % items.length;
+	return items.slice(r).concat(items.slice(0, r));
+};
+var getDepartmentDurationDays = (dept) => {
+	if (typeof dept.departmentDurationDays === "number") return Math.max(0, dept.departmentDurationDays);
+	return Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7;
+};
+var getUnitDurationDays = (dept) => {
+	if (typeof dept.unitDurationDays === "number") return Math.max(1, dept.unitDurationDays);
+	return Math.max(1, Number(dept.unitDurationWeeks) || 1) * 7;
+};
+var rankSupervisorCandidates = (users) => {
+	return users.slice().sort((a, b) => {
+		const rankA = typeof a.supervisorRank === "number" ? a.supervisorRank : -1;
+		const rankB = typeof b.supervisorRank === "number" ? b.supervisorRank : -1;
+		if (rankA !== rankB) return rankB - rankA;
+		if (a.departmentRole && b.departmentRole) return String(a.departmentRole).localeCompare(String(b.departmentRole));
+		return String(a.name || "").localeCompare(String(b.name || ""));
+	});
+};
+var getSupervisorName = async (supervisorId) => {
+	if (!supervisorId) return null;
+	try {
+		return (await user_default$1.findById(supervisorId).select("name").lean())?.name || null;
+	} catch (err) {
+		console.warn("Failed to resolve supervisor name for id", supervisorId, err);
+		return null;
+	}
+};
+var findDepartmentSupervisors = async (departmentDoc) => {
+	if (!departmentDoc) return [];
+	const q = {
+		isSupervisor: true,
+		role: { $in: [
+			"unitconsultant",
+			"unitresident",
+			"teacher",
+			"consultant",
+			"head",
+			"staff"
+		] },
+		$or: [
+			{ departmentId: departmentDoc._id },
+			{ department: departmentDoc.name },
+			{ department: departmentDoc.code },
+			{ department: departmentDoc.departmentID }
+		]
+	};
+	return user_default$1.find(q).lean();
+};
+var findUnitSupervisor = async (unit, departmentDoc) => {
+	if (!unit) return null;
+	if (unit.supervisor) {
+		const supervisor = await user_default$1.findById(unit.supervisor).lean();
+		if (supervisor) return String(supervisor._id);
+	}
+	const query = {
+		isSupervisor: true,
+		role: { $in: [
+			"unitconsultant",
+			"unitresident",
+			"teacher",
+			"consultant",
+			"head",
+			"staff"
+		] },
+		$or: []
+	};
+	if (unit.name) query.$or.push({ specialties: unit.name });
+	if (unit.code) query.$or.push({ specialties: unit.code });
+	if (unit.unitID) query.$or.push({ specialties: unit.unitID });
+	if (departmentDoc) {
+		query.$or.push({ departmentId: departmentDoc._id });
+		query.$or.push({ department: departmentDoc.name });
+		query.$or.push({ department: departmentDoc.code });
+		query.$or.push({ department: departmentDoc.departmentID });
+	}
+	if (!query.$or.length) delete query.$or;
+	const candidates = await user_default$1.find(query).lean();
+	const candidateIds = candidates.map((c) => String(c._id));
+	if (candidateIds.length === 0) return null;
+	const poolKey = unit && unit._id ? `unit:${String(unit._id)}` : departmentDoc && departmentDoc._id ? `department:${String(departmentDoc._id)}` : null;
+	if (poolKey) try {
+		const selected = await selectSupervisorRoundRobin(poolKey, candidateIds);
+		if (selected) return selected;
+	} catch (e) {
+		console.warn("Round-robin supervisor selection failed", e);
+	}
+	const ranked = rankSupervisorCandidates(candidates);
+	return ranked.length ? String(ranked[0]._id) : null;
+};
+var findBestDepartmentSupervisor = async (departmentDoc) => {
+	const candidates = await findDepartmentSupervisors(departmentDoc);
+	const candidateIds = candidates.map((c) => String(c._id));
+	if (candidateIds.length === 0) return null;
+	try {
+		const selected = await selectSupervisorRoundRobin(`department:${String(departmentDoc._id)}`, candidateIds);
+		if (selected) return selected;
+	} catch (e) {
+		console.warn("Round-robin department supervisor selection failed", e);
+	}
+	const ranked = rankSupervisorCandidates(candidates);
+	return ranked.length ? String(ranked[0]._id) : null;
+};
+async function generateKrystaSchedule(opts) {
+	const { classId, name, startDate, endDate, departments, createdBy, phaseId, phaseName, postingScheduleId } = opts;
+	const cls = await classes_default$1.findById(classId).lean();
+	if (!cls) throw new Error("Class not found");
+	const studentIds = Array.isArray(cls.students) ? cls.students.map((s) => String(s)) : [];
+	const numDepartments = departments.length;
+	if (numDepartments === 0) throw new Error("At least one department is required for schedule generation");
+	const deptGroups = splitIntoBuckets(studentIds, numDepartments);
+	const timeline = [];
+	const unvisitedUnits = [];
+	const unvisitedUnitGroups = [];
+	const unassignedWindows = [];
+	const groupSupervisorMap = /* @__PURE__ */ new Map();
+	const phases = [];
+	const phaseDurationDays = Math.max(...departments.map((dept) => Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7), 1);
+	let phaseStart = new Date(startDate);
+	for (let phaseIndex = 0; phaseIndex < numDepartments; phaseIndex++) {
+		const phaseDepartments = [];
+		for (let deptSlotIndex = 0; deptSlotIndex < numDepartments; deptSlotIndex++) {
+			const dept = departments[deptSlotIndex];
+			const useUnits = dept.useUnits !== false;
+			const activeUnits = normalizeUnitIds(dept.activeUnitIds);
+			const departmentDurationDays = getDepartmentDurationDays(dept);
+			const unitDurationDays = getUnitDurationDays(dept);
+			const assignedGroupIndex = (deptSlotIndex + phaseIndex) % numDepartments;
+			const departmentGroup = deptGroups[assignedGroupIndex];
+			const departmentDoc = await resolveDepartmentDocument(dept.departmentId);
+			const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc);
+			const departmentSupervisorName = await getSupervisorName(departmentSupervisorId);
+			const unitMap = useUnits ? await resolveUnitMap(activeUnits) : /* @__PURE__ */ new Map();
+			const studentCount = Array.isArray(departmentGroup.studentIds) ? departmentGroup.studentIds.length : 0;
+			const unitCount = Math.max(1, activeUnits.length);
+			const unitGroupCount = Math.max(1, Math.ceil(studentCount / unitCount));
+			const unitGroups = useUnits ? splitIntoBuckets(departmentGroup.studentIds, unitGroupCount) : [];
+			if (useUnits && activeUnits.length > 0) {
+				const numUnitWindows = Math.max(1, Math.floor(departmentDurationDays / unitDurationDays));
+				const groupAssignedUnits = [];
+				for (let g = 0; g < unitGroups.length; g++) {
+					const assigned = [];
+					for (let j = 0; j < numUnitWindows; j++) {
+						const idx = (g * numUnitWindows + j) % activeUnits.length;
+						assigned.push(activeUnits[idx]);
+					}
+					groupAssignedUnits.push(assigned);
+				}
+				for (let windowIndex = 0; windowIndex < numUnitWindows; windowIndex++) {
+					const windowStart = addDays(phaseStart, windowIndex * unitDurationDays);
+					const windowEnd = addDays(windowStart, unitDurationDays);
+					for (let unitGroupIndex = 0; unitGroupIndex < unitGroups.length; unitGroupIndex++) {
+						const unitGroup = unitGroups[unitGroupIndex];
+						const assignedUnitId = groupAssignedUnits[unitGroupIndex][windowIndex] ?? null;
+						const supervisorId = await findUnitSupervisor(assignedUnitId ? unitMap.get(assignedUnitId) || null : null, departmentDoc) || departmentSupervisorId;
+						const supervisorName = supervisorId ? await getSupervisorName(supervisorId) || departmentSupervisorName : departmentSupervisorName;
+						const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
+						if (!existingSupervisor || !existingSupervisor.supervisorName && supervisorName) groupSupervisorMap.set(assignedGroupIndex, {
+							supervisorId: supervisorId || null,
+							supervisorName
+						});
+						const orderedStudents = rotateLeft(unitGroup.studentIds, windowIndex);
+						const unitIndex = assignedUnitId ? activeUnits.indexOf(assignedUnitId) : 0;
+						timeline.push({
+							phaseIndex,
+							departmentIndex: deptSlotIndex,
+							departmentId: dept.departmentId,
+							departmentGroupIndex: assignedGroupIndex,
+							unitGroupIndex,
+							unitIndex,
+							unitId: assignedUnitId,
+							studentIds: orderedStudents,
+							startDate: windowStart.toISOString(),
+							endDate: windowEnd.toISOString(),
+							supervisorId,
+							supervisorName,
+							departmentSupervisorId,
+							departmentSupervisorName
+						});
+						if (!supervisorId) {
+							unassignedWindows.push({
+								phaseIndex,
+								departmentIndex: deptSlotIndex,
+								departmentId: dept.departmentId,
+								departmentGroupIndex: assignedGroupIndex,
+								unitGroupIndex,
+								unitId: assignedUnitId,
+								startDate: windowStart.toISOString(),
+								endDate: windowEnd.toISOString(),
+								studentIds: orderedStudents
+							});
+							console.warn("No supervisor found for unit window", {
+								departmentId: dept.departmentId,
+								unitId: assignedUnitId,
+								phaseIndex,
+								departmentIndex: deptSlotIndex,
+								unitGroupIndex
+							});
+						}
+					}
+				}
+				for (let g = 0; g < unitGroups.length; g++) {
+					const used = Array.from(new Set(groupAssignedUnits[g].filter(Boolean)));
+					const unused = activeUnits.filter((u) => !used.includes(u));
+					if (unused.length) unvisitedUnits.push({
+						departmentIndex: deptSlotIndex,
+						unitIds: unused
+					});
+					unvisitedUnitGroups.push({
+						departmentIndex: deptSlotIndex,
+						unitGroupIndex: g,
+						usedUnitIds: used,
+						unusedUnitIds: unused
+					});
+				}
+			} else {
+				const windowStart = new Date(phaseStart);
+				const windowEnd = addDays(phaseStart, departmentDurationDays);
+				const supervisorName = departmentSupervisorName;
+				const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
+				if (!existingSupervisor || !existingSupervisor.supervisorName && supervisorName) groupSupervisorMap.set(assignedGroupIndex, {
+					supervisorId: departmentSupervisorId || null,
+					supervisorName
+				});
+				timeline.push({
+					phaseIndex,
+					departmentIndex: deptSlotIndex,
+					departmentId: dept.departmentId,
+					departmentGroupIndex: assignedGroupIndex,
+					unitGroupIndex: 0,
+					unitIndex: 0,
+					unitId: null,
+					studentIds: departmentGroup.studentIds,
+					startDate: windowStart.toISOString(),
+					endDate: windowEnd.toISOString(),
+					supervisorId: departmentSupervisorId,
+					supervisorName,
+					departmentSupervisorId,
+					departmentSupervisorName
+				});
+				if (!departmentSupervisorId) {
+					unassignedWindows.push({
+						phaseIndex,
+						departmentIndex: deptSlotIndex,
+						departmentId: dept.departmentId,
+						departmentGroupIndex: assignedGroupIndex,
+						unitGroupIndex: 0,
+						unitId: null,
+						startDate: windowStart.toISOString(),
+						endDate: windowEnd.toISOString(),
+						studentIds: departmentGroup.studentIds
+					});
+					console.warn("No department supervisor found for department window", {
+						departmentId: dept.departmentId,
+						phaseIndex,
+						departmentIndex: deptSlotIndex
+					});
+				}
+			}
+			phaseDepartments.push({
+				departmentIndex: deptSlotIndex,
+				departmentId: dept.departmentId,
+				departmentGroupIndex: assignedGroupIndex,
+				studentIds: departmentGroup.studentIds,
+				departmentSupervisorId,
+				useUnits,
+				departmentDurationDays,
+				unitDurationDays,
+				activeUnitIds: activeUnits
+			});
+		}
+		phases.push({
+			phaseIndex,
+			phaseName: `Phase ${phaseIndex + 1}`,
+			startDate: phaseStart.toISOString(),
+			endDate: addDays(phaseStart, phaseDurationDays).toISOString(),
+			departments: phaseDepartments
+		});
+		phaseStart = addDays(phaseStart, phaseDurationDays);
+	}
+	const rotationPlan = {
+		name,
+		class: classId,
+		createdBy: createdBy ? new mongoose.Types.ObjectId(createdBy) : void 0,
+		postings: [{
+			name,
+			startDate: new Date(startDate),
+			endDate: new Date(endDate),
+			groups: deptGroups.map((g) => {
+				const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || {
+					supervisorId: null,
+					supervisorName: null
+				};
+				return {
+					groupId: null,
+					group: {
+						students: g.studentIds,
+						name: `Group ${g.groupIndex + 1}`
+					},
+					supervisor: supervisorInfo.supervisorId,
+					supervisorName: supervisorInfo.supervisorName || void 0
+				};
+			}),
+			meta: {
+				krysta: true,
+				departments,
+				timelineCount: timeline.length,
+				timeline,
+				phaseId,
+				phaseName,
+				postingScheduleId
+			}
+		}],
+		groups: deptGroups,
+		meta: {
+			krysta: true,
+			timeline,
+			phases,
+			unvisitedUnits,
+			unvisitedUnitGroups,
+			unassignedWindows,
+			phaseId,
+			phaseName,
+			postingScheduleId
+		}
+	};
+	if (unassignedWindows.length > 0) try {
+		await createSystemAlertForAdmins({
+			title: `KRYSTA schedule generated with ${unassignedWindows.length} unassigned supervisor window${unassignedWindows.length === 1 ? "" : "s"}`,
+			message: `The generated schedule "${name}" contains ${unassignedWindows.length} timeline window${unassignedWindows.length === 1 ? "" : "s"} without an assigned supervisor. Please review and assign supervisors before publishing the posting schedule.`,
+			type: "warning",
+			metadata: {
+				krysta: true,
+				scheduleName: name,
+				phaseId,
+				phaseName,
+				postingScheduleId,
+				missingWindowCount: unassignedWindows.length,
+				sampleWindows: unassignedWindows.slice(0, 10)
+			}
+		});
+	} catch (err) {
+		console.warn("Failed to send missing supervisor alert", err);
+	}
+	return rotationPlan;
+}
+var krystaGenerator_default = generateKrystaSchedule;
+async function runRotationSnapshot(planId, opts = {}) {
+	const plan = await rotationPlan_default.findById(planId);
+	if (!plan) throw new Error("RotationPlan not found");
+	const timeline = plan.meta && plan.meta.timeline || [];
+	const snapshotTime = opts.snapshotTime ? new Date(opts.snapshotTime) : /* @__PURE__ */ new Date();
+	let windowsToSnapshot = [];
+	if (typeof opts.windowIndex === "number") {
+		const w = timeline[opts.windowIndex];
+		if (!w) throw new Error("Invalid windowIndex");
+		windowsToSnapshot = [{
+			index: opts.windowIndex,
+			window: w
+		}];
+	} else for (let i = 0; i < timeline.length; i++) {
+		const t = timeline[i];
+		const start = new Date(t.startDate);
+		const end = new Date(t.endDate);
+		if (start <= snapshotTime && snapshotTime < end) windowsToSnapshot.push({
+			index: i,
+			window: t
+		});
+	}
+	const snapshot = {
+		createdAt: snapshotTime,
+		windows: windowsToSnapshot
+	};
+	const meta = plan.meta || {};
+	meta.snapshots = Array.isArray(meta.snapshots) ? meta.snapshots : [];
+	meta.snapshots.push(snapshot);
+	plan.meta = meta;
+	await plan.save();
+	return snapshot;
+}
+var rotationRunner_default;
+var init_rotationRunner = __esmMin((() => {
+	rotationRunner_default = runRotationSnapshot;
+}));
+init_rotationPlan();
+init_user();
+init_rotationRunner();
 const createRotationSchedule = async (req, res) => {
 	try {
 		const payload = req.body || {};
 		payload.createdBy = req.user?._id;
+		if (payload.generateWith === "krysta" || payload.krysta === true || Array.isArray(payload.departments)) {
+			if (!payload.class) return res.status(400).json({ message: "Missing class id for schedule generation" });
+			if (!Array.isArray(payload.departments) || payload.departments.length === 0) return res.status(400).json({ message: "At least one department is required for schedule generation" });
+			try {
+				const planObj = await krystaGenerator_default({
+					classId: payload.class,
+					name: payload.name || "Krysta Rotation",
+					startDate: payload.startDate || (/* @__PURE__ */ new Date()).toISOString(),
+					endDate: payload.endDate || (/* @__PURE__ */ new Date()).toISOString(),
+					departments: payload.departments || [],
+					createdBy: payload.createdBy,
+					phaseId: payload.phaseId,
+					phaseName: payload.phaseName,
+					postingScheduleId: payload.postingScheduleId
+				});
+				const doc$1 = await rotationPlan_default.create(planObj);
+				return res.status(201).json(doc$1);
+			} catch (gErr) {
+				console.error("Krysta generation failed", gErr);
+				return res.status(500).json({
+					message: gErr?.message || "Generation failed",
+					error: String(gErr)
+				});
+			}
+		}
 		const doc = await rotationPlan_default.create(payload);
 		res.status(201).json(doc);
 	} catch (err) {
@@ -7686,6 +10094,77 @@ const deleteRotationSchedule = async (req, res) => {
 		});
 	}
 };
+var getSupervisorNameById = async (supervisorId) => {
+	if (!supervisorId) return null;
+	return (await user_default$1.findById(supervisorId).select("name").lean())?.name || null;
+};
+const assignSupervisorToWindow = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { windowIndex, supervisorId } = req.body;
+		if (typeof windowIndex !== "number" && !req.body.matching) return res.status(400).json({ message: "Missing windowIndex or matching criteria" });
+		const plan = await rotationPlan_default.findById(id);
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		const timeline = plan.meta && plan.meta.timeline || [];
+		const supervisorName = await getSupervisorNameById(supervisorId || null);
+		if (typeof windowIndex === "number") {
+			if (!timeline[windowIndex]) return res.status(400).json({ message: "Invalid windowIndex" });
+			timeline[windowIndex].supervisorId = supervisorId;
+			timeline[windowIndex].supervisorName = supervisorName;
+		} else if (req.body.matching) {
+			const m = req.body.matching || {};
+			for (let i = 0; i < timeline.length; i++) {
+				const t = timeline[i];
+				let ok = true;
+				if (m.departmentIndex !== void 0) ok = ok && t.departmentIndex === m.departmentIndex;
+				if (m.departmentGroupIndex !== void 0) ok = ok && t.departmentGroupIndex === m.departmentGroupIndex;
+				if (m.unitGroupIndex !== void 0) ok = ok && t.unitGroupIndex === m.unitGroupIndex;
+				if (ok) {
+					t.supervisorId = supervisorId;
+					t.supervisorName = supervisorName;
+				}
+			}
+		}
+		plan.meta = {
+			...plan.meta || {},
+			timeline
+		};
+		const postings = plan.postings || [];
+		for (const p of postings) {
+			p.meta = {
+				...p.meta || {},
+				timeline
+			};
+			const groups = p.groups || [];
+			for (let i = 0; i < groups.length; i++) {
+				const g = groups[i];
+				let supervisorForGroup = null;
+				let supervisorNameForGroup = null;
+				for (const t of timeline) if (t.departmentGroupIndex === i && t.supervisorId) {
+					supervisorForGroup = t.supervisorId;
+					supervisorNameForGroup = t.supervisorName || null;
+					break;
+				}
+				if (supervisorForGroup) {
+					g.supervisor = supervisorForGroup;
+					g.supervisorName = supervisorNameForGroup || void 0;
+				}
+			}
+		}
+		await plan.save();
+		res.json({
+			message: "Supervisor assigned",
+			id,
+			timeline
+		});
+	} catch (err) {
+		console.error("assignSupervisorToWindow error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
 const getStudentAssignments = async (req, res) => {
 	try {
 		const { studentId } = req.query;
@@ -7714,14 +10193,376 @@ const getStudentAssignments = async (req, res) => {
 		});
 	}
 };
-var router$2 = express.Router();
-router$2.post("/", protect, authorize(["admin", "teacher"]), createRotationSchedule);
-router$2.get("/", protect, listRotationSchedules);
-router$2.get("/student-assignments", protect, getStudentAssignments);
-router$2.get("/:id", protect, getRotationScheduleById);
-router$2.delete("/:id", protect, authorize(["admin", "teacher"]), deleteRotationSchedule);
-var rotationSchedules_default = router$2;
+const getStudentCurrentSchedule = async (req, res) => {
+	try {
+		const { studentId } = req.params;
+		if (!studentId) return res.status(400).json({ message: "Missing studentId" });
+		const schedules = await rotationPlan_default.find({}).sort({ createdAt: -1 }).limit(200).lean();
+		const now = /* @__PURE__ */ new Date();
+		const current = [];
+		for (const s of schedules) {
+			const timeline = s.meta && s.meta.timeline || [];
+			for (let i = 0; i < timeline.length; i++) {
+				const t = timeline[i];
+				const start = new Date(t.startDate);
+				const end = new Date(t.endDate);
+				if ((Array.isArray(t.studentIds) ? t.studentIds : []).some((st) => String(st) === String(studentId))) {
+					if (start <= now && now < end) current.push({
+						scheduleId: s._id,
+						postingName: s.postings?.[0]?.name || s.name,
+						windowIndex: i,
+						window: t,
+						schedule: {
+							_id: s._id,
+							postings: s.postings || [],
+							meta: s.meta || {}
+						}
+					});
+				}
+			}
+		}
+		res.json({ current });
+	} catch (err) {
+		console.error("getStudentCurrentSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const getStudentUpcomingSchedule = async (req, res) => {
+	try {
+		const { studentId } = req.params;
+		const limit = Number(req.query.limit || 5);
+		if (!studentId) return res.status(400).json({ message: "Missing studentId" });
+		const schedules = await rotationPlan_default.find({}).sort({ createdAt: -1 }).limit(200).lean();
+		const now = /* @__PURE__ */ new Date();
+		const upcoming = [];
+		for (const s of schedules) {
+			const timeline = s.meta && s.meta.timeline || [];
+			for (let i = 0; i < timeline.length; i++) {
+				const t = timeline[i];
+				const start = new Date(t.startDate);
+				if ((Array.isArray(t.studentIds) ? t.studentIds : []).some((st) => String(st) === String(studentId))) {
+					if (start > now) upcoming.push({
+						scheduleId: s._id,
+						postingName: s.postings?.[0]?.name || s.name,
+						windowIndex: i,
+						window: t
+					});
+				}
+			}
+		}
+		upcoming.sort((a, b) => new Date(a.window.startDate).getTime() - new Date(b.window.startDate).getTime());
+		res.json({ upcoming: upcoming.slice(0, limit) });
+	} catch (err) {
+		console.error("getStudentUpcomingSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const getStudentScheduleHistory = async (req, res) => {
+	try {
+		const { studentId } = req.params;
+		const limit = Number(req.query.limit || 50);
+		if (!studentId) return res.status(400).json({ message: "Missing studentId" });
+		const schedules = await rotationPlan_default.find({}).sort({ createdAt: -1 }).limit(200).lean();
+		const now = /* @__PURE__ */ new Date();
+		const history = [];
+		for (const s of schedules) {
+			const timeline = s.meta && s.meta.timeline || [];
+			for (let i = 0; i < timeline.length; i++) {
+				const t = timeline[i];
+				const end = new Date(t.endDate);
+				if ((Array.isArray(t.studentIds) ? t.studentIds : []).some((st) => String(st) === String(studentId))) {
+					if (end <= now) history.push({
+						scheduleId: s._id,
+						postingName: s.postings?.[0]?.name || s.name,
+						windowIndex: i,
+						window: t
+					});
+				}
+			}
+		}
+		history.sort((a, b) => new Date(b.window.startDate).getTime() - new Date(a.window.startDate).getTime());
+		res.json({ history: history.slice(0, limit) });
+	} catch (err) {
+		console.error("getStudentScheduleHistory error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const runRotationRunner = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { snapshotTime, windowIndex } = req.body;
+		const snap = await rotationRunner_default(id, {
+			snapshotTime,
+			windowIndex
+		});
+		res.json({
+			message: "Snapshot persisted",
+			snapshot: snap
+		});
+	} catch (err) {
+		console.error("runRotationRunner error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const listScheduleSupervisors = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const plan = await rotationPlan_default.findById(id).lean();
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		const timeline = plan.meta && plan.meta.timeline || [];
+		const supervisors = {};
+		for (const t of timeline) if (t.supervisorId) {
+			const key = `dept_${t.departmentIndex}_group_${t.departmentGroupIndex}`;
+			if (!supervisors[key]) supervisors[key] = {
+				departmentIndex: t.departmentIndex,
+				departmentGroupIndex: t.departmentGroupIndex,
+				supervisorId: t.supervisorId,
+				supervisorName: t.supervisorName || null
+			};
+		}
+		res.json({
+			id,
+			supervisors: Object.values(supervisors)
+		});
+	} catch (err) {
+		console.error("listScheduleSupervisors error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const listScheduleEvents = async (req, res) => {
+	try {
+		const { classId, start, end } = req.query;
+		if (!classId) return res.status(400).json({ message: "Missing classId" });
+		const startDate = start ? new Date(start) : null;
+		const endDate = end ? new Date(end) : null;
+		const plans = await rotationPlan_default.find({ class: classId }).lean();
+		const events = [];
+		for (const p of plans) {
+			const timeline = p.meta && p.meta.timeline || [];
+			for (let i = 0; i < timeline.length; i++) {
+				const t = timeline[i];
+				const s = t.startDate ? new Date(t.startDate) : null;
+				const e = t.endDate ? new Date(t.endDate) : null;
+				if (startDate && endDate && s && e) {
+					if (!(e > startDate && s < endDate)) continue;
+				}
+				events.push({
+					id: `${p._id}-${i}`,
+					scheduleId: p._id,
+					postingId: p.postings?.[0]?.postingId || null,
+					postingName: p.postings?.[0]?.name || p.name,
+					startDate: t.startDate,
+					endDate: t.endDate,
+					supervisorId: t.supervisorId || null,
+					supervisorName: t.supervisorName || null,
+					status: t.supervisorId ? "assigned" : "upcoming"
+				});
+			}
+		}
+		res.json({ events });
+	} catch (err) {
+		console.error("listScheduleEvents error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const updateWindowInSchedule = async (req, res) => {
+	try {
+		const { id, index } = req.params;
+		const payload = req.body || {};
+		const plan = await rotationPlan_default.findById(id);
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		const idx = Number(index);
+		const timeline = plan.meta && plan.meta.timeline || [];
+		if (isNaN(idx) || idx < 0 || idx >= timeline.length) return res.status(400).json({ message: "Invalid window index" });
+		const window = timeline[idx];
+		if (payload.startDate !== void 0) window.startDate = payload.startDate;
+		if (payload.endDate !== void 0) window.endDate = payload.endDate;
+		if (payload.supervisorId !== void 0) {
+			window.supervisorId = payload.supervisorId;
+			window.supervisorName = await getSupervisorNameById(payload.supervisorId || null);
+			const groupIndex = typeof window.departmentGroupIndex === "number" ? window.departmentGroupIndex : null;
+			if (groupIndex !== null) {
+				const postings = plan.postings || [];
+				for (const p of postings) {
+					p.meta = {
+						...p.meta || {},
+						timeline
+					};
+					const groups = p.groups || [];
+					if (groups[groupIndex]) {
+						groups[groupIndex].supervisor = payload.supervisorId;
+						groups[groupIndex].supervisorName = window.supervisorName || void 0;
+					}
+				}
+			}
+		}
+		if (payload.markComplete) window.completed = true;
+		if (payload.status !== void 0) window.status = payload.status;
+		plan.meta = {
+			...plan.meta || {},
+			timeline
+		};
+		await plan.save();
+		return res.json({
+			message: "Window updated",
+			window
+		});
+	} catch (err) {
+		console.error("updateWindowInSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const updateRotationSchedule = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const updates = req.body || {};
+		const plan = await rotationPlan_default.findById(id);
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		Object.assign(plan, updates);
+		await plan.save();
+		res.json(plan);
+	} catch (err) {
+		console.error("updateRotationSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const updatePostingInSchedule = async (req, res) => {
+	try {
+		const { id, postingName } = req.params;
+		const updates = req.body || {};
+		const plan = await rotationPlan_default.findById(id);
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		const name = decodeURIComponent(postingName);
+		const postings = plan.postings || [];
+		const idx = postings.findIndex((p) => String(p.name) === String(name) || String(p.postingId) === String(name));
+		if (idx === -1) return res.status(404).json({ message: "Posting not found" });
+		Object.assign(postings[idx], updates);
+		plan.postings = postings;
+		await plan.save();
+		res.json({
+			message: "Posting updated",
+			posting: postings[idx]
+		});
+	} catch (err) {
+		console.error("updatePostingInSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+const deletePostingFromSchedule = async (req, res) => {
+	try {
+		const { id, postingName } = req.params;
+		const plan = await rotationPlan_default.findById(id);
+		if (!plan) return res.status(404).json({ message: "Schedule not found" });
+		const name = decodeURIComponent(postingName);
+		const postings = plan.postings || [];
+		const idx = postings.findIndex((p) => String(p.name) === String(name) || String(p.postingId) === String(name));
+		if (idx === -1) return res.status(404).json({ message: "Posting not found" });
+		postings.splice(idx, 1);
+		plan.postings = postings;
+		await plan.save();
+		res.json({
+			message: "Posting deleted",
+			id,
+			postingName: name
+		});
+	} catch (err) {
+		console.error("deletePostingFromSchedule error", err);
+		res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+};
+var router$3 = express.Router();
+router$3.post("/", protect, authorize(["admin", "teacher"]), createRotationSchedule);
+router$3.get("/", protect, listRotationSchedules);
+router$3.get("/events", protect, listScheduleEvents);
+router$3.patch("/:id/windows/:index", protect, authorize(["admin", "teacher"]), updateWindowInSchedule);
+router$3.patch("/:id", protect, authorize(["admin", "teacher"]), updateRotationSchedule);
+router$3.patch("/:id/postings/:postingName", protect, authorize(["admin", "teacher"]), updatePostingInSchedule);
+router$3.delete("/:id/postings/:postingName", protect, authorize(["admin", "teacher"]), deletePostingFromSchedule);
+if (process.env.NODE_ENV === "development") router$3.get("/debug/first", async (req, res) => {
+	try {
+		const doc = await (init_rotationPlan(), __toCommonJS(rotationPlan_exports)).default.findOne({}).lean();
+		if (!doc) return res.status(404).json({ message: "No rotation schedules found" });
+		return res.status(200).json({ schedule: doc });
+	} catch (err) {
+		console.error("debug schedule fetch error", err);
+		return res.status(500).json({
+			message: "Server error",
+			error: String(err)
+		});
+	}
+});
+router$3.get("/student-assignments", protect, getStudentAssignments);
+router$3.get("/student/:studentId/current", protect, getStudentCurrentSchedule);
+router$3.get("/student/:studentId/upcoming", protect, getStudentUpcomingSchedule);
+router$3.get("/student/:studentId/history", protect, getStudentScheduleHistory);
+router$3.get("/:id", protect, getRotationScheduleById);
+router$3.get("/:id/supervisors", protect, listScheduleSupervisors);
+router$3.delete("/:id", protect, authorize(["admin", "teacher"]), deleteRotationSchedule);
+router$3.post("/:id/assign-supervisor", protect, authorize(["admin", "teacher"]), assignSupervisorToWindow);
+router$3.post("/:id/run", protect, authorize(["admin", "teacher"]), runRotationRunner);
+var rotationSchedules_default = router$3;
 var logbookEntry_default = express.Router();
+var HospitalUnitSchema = new Schema({
+	name: {
+		type: String,
+		required: true,
+		trim: true
+	},
+	department: {
+		type: String,
+		required: true,
+		trim: true
+	},
+	category: {
+		type: String,
+		enum: ["academic", "clinical"],
+		required: true
+	},
+	description: { type: String },
+	supervisors: [{
+		type: mongoose.Types.ObjectId,
+		ref: "HospitalStaff"
+	}],
+	isActive: {
+		type: Boolean,
+		default: true
+	}
+}, { timestamps: true });
+HospitalUnitSchema.index({
+	department: 1,
+	category: 1
+});
+var hospitalUnit_default = mongoose.model("HospitalUnit", HospitalUnitSchema, "hospital_units");
 init_hospitalStaff();
 const createHospitalUnit = async (req, res) => {
 	try {
@@ -7755,16 +10596,49 @@ const listHospitalUnits = async (req, res) => {
 		if (department) filter.department = new RegExp(department, "i");
 		if (category) filter.category = category;
 		if (umbrella) filter.umbrella = umbrella;
-		const total = await hospitalUnit_default.countDocuments(filter);
-		const units = await hospitalUnit_default.find(filter).populate("supervisors", "name designation").sort({
+		const seededUnits = await hospitalUnit_default.find(filter).populate("supervisors", "name designation").sort({
 			department: 1,
 			name: 1
-		}).limit(limit).skip(skip);
+		}).limit(limit).skip(skip).lean();
+		const total = await hospitalUnit_default.countDocuments(filter);
+		const fallbackUnits = getAllDepartmentUnits().flatMap((departmentRecord) => {
+			const departmentName = departmentRecord?.name;
+			return [...Array.isArray(departmentRecord?.units?.active) ? departmentRecord.units.active : [], ...Array.isArray(departmentRecord?.units?.reserve) ? departmentRecord.units.reserve : []].map((entry) => {
+				const unitName = typeof entry === "string" ? entry : entry?.name ?? "Unnamed Unit";
+				const unitId = typeof entry === "string" ? entry : entry?.id ?? unitName;
+				return {
+					_id: String(unitId),
+					name: String(unitName),
+					department: String(departmentName ?? ""),
+					departmentName: String(departmentName ?? ""),
+					category: "clinical",
+					isActive: true,
+					supervisors: [],
+					description: `Synthetic unit from ${departmentName ?? "department"}`
+				};
+			});
+		});
+		const normalizedDepartment = department?.trim().toLowerCase();
+		const normalizedCategory = category?.trim().toLowerCase();
+		const filteredFallbackUnits = fallbackUnits.filter((unit) => {
+			const matchesDepartment = !normalizedDepartment || String(unit.department).toLowerCase().includes(normalizedDepartment);
+			const matchesCategory = !normalizedCategory || String(unit.category).toLowerCase() === normalizedCategory;
+			return matchesDepartment && matchesCategory;
+		});
+		if (seededUnits.length === 0) {
+			const pagedFallbackUnits = filteredFallbackUnits.slice(skip, skip + limit);
+			return res.status(200).json({
+				units: pagedFallbackUnits,
+				total: filteredFallbackUnits.length,
+				page: Math.floor(skip / limit) + 1,
+				pages: Math.max(1, Math.ceil(filteredFallbackUnits.length / limit))
+			});
+		}
 		return res.status(200).json({
-			units,
+			units: seededUnits,
 			total,
 			page: Math.floor(skip / limit) + 1,
-			pages: Math.ceil(total / limit)
+			pages: Math.max(1, Math.ceil(total / limit))
 		});
 	} catch (error) {
 		console.error("Error listing hospital units:", error);
@@ -7921,17 +10795,17 @@ const bulkImportStaff = async (req, res) => {
 		return res.status(500).json({ error: "Failed to bulk import staff." });
 	}
 };
-var router$1 = Router();
-router$1.post("/units", protect, authorize(["admin"]), createHospitalUnit);
-router$1.get("/units", protect, listHospitalUnits);
-router$1.get("/units/:unitId", protect, getHospitalUnit);
-router$1.patch("/units/:unitId", protect, authorize(["admin"]), updateHospitalUnit);
-router$1.post("/staff", protect, authorize(["admin"]), createHospitalStaff);
-router$1.get("/staff", protect, listHospitalStaff);
-router$1.get("/staff/:staffId", protect, getHospitalStaff);
-router$1.patch("/staff/:staffId", protect, authorize(["admin"]), updateHospitalStaff);
-router$1.post("/staff/bulk-import", protect, authorize(["admin"]), bulkImportStaff);
-var hospitalData_default = router$1;
+var router$2 = Router();
+router$2.post("/units", protect, authorize(["admin"]), createHospitalUnit);
+router$2.get("/units", protect, listHospitalUnits);
+router$2.get("/units/:unitId", protect, getHospitalUnit);
+router$2.patch("/units/:unitId", protect, authorize(["admin"]), updateHospitalUnit);
+router$2.post("/staff", protect, authorize(["admin"]), createHospitalStaff);
+router$2.get("/staff", protect, listHospitalStaff);
+router$2.get("/staff/:staffId", protect, getHospitalStaff);
+router$2.patch("/staff/:staffId", protect, authorize(["admin"]), updateHospitalStaff);
+router$2.post("/staff/bulk-import", protect, authorize(["admin"]), bulkImportStaff);
+var hospitalData_default = router$2;
 var ActivityEntrySchema = new Schema({
 	student: {
 		type: mongoose.Types.ObjectId,
@@ -7945,8 +10819,7 @@ var ActivityEntrySchema = new Schema({
 	},
 	unit: {
 		type: mongoose.Types.ObjectId,
-		ref: "HospitalUnit",
-		required: true
+		ref: "HospitalUnit"
 	},
 	supervisor: {
 		type: mongoose.Types.ObjectId,
@@ -8039,6 +10912,7 @@ ActivityEntrySchema.index({
 });
 var activityEntry_default$1 = mongoose.model("ActivityEntry", ActivityEntrySchema, "activity_entries");
 init_hospitalStaff();
+init_rotationPlan();
 var ActivityLogbookService = class {
 	isWeekday(date) {
 		const day = date.getDay();
@@ -8082,20 +10956,33 @@ var ActivityLogbookService = class {
 				success: false,
 				error: "Student not found."
 			};
-			if (!await mongoose.connection.collection("clinical_rotations").findOne({ _id: new mongoose.Types.ObjectId(payload.rotation) })) return {
-				success: false,
-				error: "Clinical rotation not found."
-			};
-			if (!await hospitalUnit_default.findById(payload.unit)) return {
-				success: false,
-				error: "Hospital unit not found."
-			};
+			const rotationId = payload.rotation;
+			let rotationFound = null;
+			try {
+				rotationFound = await mongoose.connection.collection("clinical_rotations").findOne({ _id: new mongoose.Types.ObjectId(rotationId) });
+			} catch (err) {
+				rotationFound = null;
+			}
+			if (!rotationFound) {
+				if (!await rotationPlan_default.findOne({ _id: new mongoose.Types.ObjectId(rotationId) }).lean()) return {
+					success: false,
+					error: "Clinical rotation not found."
+				};
+			}
+			let unit = null;
+			if (payload.unit) {
+				unit = await hospitalUnit_default.findById(payload.unit);
+				if (!unit) return {
+					success: false,
+					error: "Hospital unit not found."
+				};
+			}
 			return {
 				success: true,
 				entryId: (await activityEntry_default$1.create({
 					student: payload.student,
 					rotation: payload.rotation,
-					unit: payload.unit,
+					...payload.unit ? { unit: payload.unit } : {},
 					supervisor: payload.supervisor,
 					umbrellaCategory: payload.umbrellaCategory,
 					entryDate,
@@ -8136,10 +11023,12 @@ var ActivityLogbookService = class {
 				success: false,
 				error: "This staff member does not have permission to approve logbook entries."
 			};
-			if (!staff.assignedUnits.some((unitId) => unitId.toString() === entry.unit.toString())) return {
-				success: false,
-				error: "This staff member is not assigned to the unit where this activity occurred."
-			};
+			if (entry.unit) {
+				if (!staff.assignedUnits.some((unitId) => unitId.toString() === entry.unit?.toString())) return {
+					success: false,
+					error: "This staff member is not assigned to the unit where this activity occurred."
+				};
+			}
 			entry.approvalStatus = "approved";
 			entry.approvedBy = new mongoose.Types.ObjectId(staffId);
 			entry.approvedByRole = role;
@@ -8212,16 +11101,33 @@ var ActivityLogbookService = class {
 	}
 	async getStudentRotationLogbook(studentId, rotationId) {
 		try {
+			const query = {
+				student: studentId,
+				approvalStatus: "approved"
+			};
+			if (rotationId) query.rotation = rotationId;
 			return {
 				success: true,
-				entries: await activityEntry_default$1.find({
-					student: studentId,
-					rotation: rotationId,
-					approvalStatus: "approved"
-				}).populate("unit", "name department umbrellaCategory").populate("approvedBy", "name designation").sort({ entryDate: 1 })
+				entries: await activityEntry_default$1.find(query).populate("unit", "name department umbrellaCategory").populate("approvedBy", "name designation").sort({ entryDate: 1 })
 			};
 		} catch (error) {
 			console.error("Error fetching logbook:", error);
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : "Failed to fetch logbook."
+			};
+		}
+	}
+	async getStudentLogbookAll(studentId, rotationId) {
+		try {
+			const query = { student: studentId };
+			if (rotationId) query.rotation = rotationId;
+			return {
+				success: true,
+				entries: await activityEntry_default$1.find(query).populate("unit", "name department umbrellaCategory").populate("approvedBy", "name designation").sort({ entryDate: 1 })
+			};
+		} catch (error) {
+			console.error("Error fetching student logbook (all statuses):", error);
 			return {
 				success: false,
 				error: error instanceof Error ? error.message : "Failed to fetch logbook."
@@ -8283,6 +11189,17 @@ const getStudentLogbook = async (req, res) => {
 		return res.status(200).json({ entries: result.entries });
 	} catch (error) {
 		console.error("Error fetching logbook:", error);
+		return res.status(500).json({ error: "Failed to fetch logbook." });
+	}
+};
+const getStudentLogbookAll = async (req, res) => {
+	try {
+		const { studentId, rotationId } = req.params;
+		const result = await activityLogbookService_default.getStudentLogbookAll(studentId, rotationId);
+		if (!result.success) return res.status(400).json({ error: result.error });
+		return res.status(200).json({ entries: result.entries });
+	} catch (error) {
+		console.error("Error fetching student logbook (all statuses):", error);
 		return res.status(500).json({ error: "Failed to fetch logbook." });
 	}
 };
@@ -8355,153 +11272,18 @@ const listActivityEntries = async (req, res) => {
 		return res.status(500).json({ error: "Failed to list activity entries." });
 	}
 };
-var router = Router();
-router.post("/", protect, createActivityEntry);
-router.get("/", protect, authorize(["admin", "teacher"]), listActivityEntries);
-router.get("/pending", protect, authorize(["unitconsultant", "unitresident"]), getPendingEntries);
-router.get("/:entryId", protect, getActivityEntry);
-router.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
-router.post("/:entryId/approve", protect, authorize(["unitconsultant", "unitresident"]), approveActivityEntry);
-router.post("/:entryId/reject", protect, authorize(["unitconsultant", "unitresident"]), rejectActivityEntry);
-var activityEntry_default = router;
-var InstitutionSchema = new Schema({
-	name: {
-		type: String,
-		required: [true, "Institution name is required"]
-	},
-	shortName: {
-		type: String,
-		required: [true, "Institution short name is required"]
-	},
-	type: {
-		type: String,
-		required: [true, "Institution type is required"]
-	},
-	country: {
-		type: String,
-		required: [true, "Country is required"]
-	},
-	state: {
-		type: String,
-		required: [true, "State is required"]
-	},
-	city: {
-		type: String,
-		required: [true, "City is required"]
-	},
-	academicCalendarType: {
-		type: String,
-		required: [true, "Academic calendar type is required"]
-	},
-	timezone: {
-		type: String,
-		required: [true, "Timezone is required"]
-	},
-	logoUrl: {
-		type: String,
-		default: ""
-	},
-	backgroundImageUrl: {
-		type: String,
-		default: ""
-	},
-	academicSession: {
-		type: Schema.Types.ObjectId,
-		ref: "AcademicSession",
-		required: true
-	},
-	semesters: [{
-		type: Schema.Types.ObjectId,
-		ref: "Semester"
-	}],
-	defaultDepartments: [{
-		type: Schema.Types.ObjectId,
-		ref: "Department"
-	}],
-	defaultUnits: [{
-		type: Schema.Types.ObjectId,
-		ref: "Unit"
-	}],
-	attendanceSettings: {
-		type: Schema.Types.ObjectId,
-		ref: "AttendanceSettings",
-		required: true
-	},
-	assessmentSettings: {
-		type: Schema.Types.ObjectId,
-		ref: "AssessmentSettings",
-		required: true
-	},
-	brandingSettings: {
-		type: Schema.Types.ObjectId,
-		ref: "BrandingSettings",
-		required: true
-	},
-	administratorUser: {
-		type: Schema.Types.ObjectId,
-		ref: "User",
-		required: true
-	},
-	applicationSettings: {
-		type: Schema.Types.ObjectId,
-		ref: "ApplicationSettings",
-		required: true
-	}
-}, { timestamps: true });
-var institution_default = mongoose.model("Institution", InstitutionSchema);
-var AcademicSessionSchema = new Schema({
-	name: {
-		type: String,
-		required: [true, "Academic session name is required"]
-	},
-	startsAt: {
-		type: Date,
-		required: [true, "Session start date is required"]
-	},
-	endsAt: {
-		type: Date,
-		required: [true, "Session end date is required"]
-	},
-	isCurrent: {
-		type: Boolean,
-		default: false
-	}
-}, { timestamps: true });
-AcademicSessionSchema.index({ name: 1 }, { unique: true });
-var academicSession_default = mongoose.model("AcademicSession", AcademicSessionSchema);
-var SemesterSchema = new Schema({
-	name: {
-		type: String,
-		required: [true, "Semester name is required"]
-	},
-	academicSession: {
-		type: Schema.Types.ObjectId,
-		ref: "AcademicSession",
-		required: [true, "Academic session reference is required"]
-	},
-	order: {
-		type: Number,
-		required: true,
-		default: 1
-	},
-	isActive: {
-		type: Boolean,
-		default: true
-	},
-	startsAt: {
-		type: Date,
-		default: null
-	},
-	endsAt: {
-		type: Date,
-		default: null
-	}
-}, { timestamps: true });
-SemesterSchema.index({
-	academicSession: 1,
-	order: 1
-}, { unique: true });
-var semester_default = mongoose.model("Semester", SemesterSchema);
+var router$1 = Router();
+router$1.post("/", protect, createActivityEntry);
+router$1.get("/", protect, authorize(["admin", "teacher"]), listActivityEntries);
+router$1.get("/pending", protect, authorize(["unitconsultant", "unitresident"]), getPendingEntries);
+router$1.get("/:entryId", protect, getActivityEntry);
+router$1.get("/logbook/:studentId", protect, getStudentLogbook);
+router$1.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
+router$1.get("/student/:studentId", protect, getStudentLogbookAll);
+router$1.get("/student/:studentId/:rotationId", protect, getStudentLogbookAll);
+router$1.post("/:entryId/approve", protect, authorize(["unitconsultant", "unitresident"]), approveActivityEntry);
+router$1.post("/:entryId/reject", protect, authorize(["unitconsultant", "unitresident"]), rejectActivityEntry);
+var activityEntry_default = router$1;
 var AttendanceSettingsSchema = new Schema({
 	lectureAttendance: {
 		type: Boolean,
@@ -8688,10 +11470,12 @@ var cachedInstitution = null;
 var lastCacheTime = 0;
 var CACHE_TTL = 300 * 1e3;
 const getSetupStatus = async (_req, res) => {
+	const requestLabel = `${_req.method} ${_req.originalUrl || "/api/setup/status"}`;
+	console.info(`[CONTROLLER] enter getSetupStatus for ${requestLabel}`);
 	try {
 		const now = Date.now();
 		if (cachedInstitution && now - lastCacheTime < CACHE_TTL) {
-			console.info("Request /api/setup/status: cache hit");
+			console.info(`[CONTROLLER] getSetupStatus cache hit for ${requestLabel}`);
 			return res.status(200).json({
 				configured: Boolean(cachedInstitution.data),
 				institution: cachedInstitution.data
@@ -8699,11 +11483,12 @@ const getSetupStatus = async (_req, res) => {
 		}
 		const start = Date.now();
 		console.info("Request /api/setup/status: received (cache miss)");
-		const institution = await Promise.race([institution_default.findOne().select("name shortName type country state city academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings").lean().exec().then((value) => value), new Promise((resolve) => setTimeout(() => resolve(null), 2e3))]);
+		const institution = await institution_default.findOne().select("name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings").lean().exec().then((value) => value);
 		let brandingSettings = {
 			primaryColor: "#2563eb",
 			accentColor: "#4f46e5"
 		};
+		let attendanceSettings = { minimumAttendancePercentage: 75 };
 		if (institution?.brandingSettings) {
 			const branding = await Promise.race([brandingSettings_default.findById(institution.brandingSettings).select("primaryColor accentColor").lean().exec(), new Promise((resolve) => setTimeout(() => resolve(null), 1e3))]);
 			if (branding && typeof branding === "object" && branding !== null) {
@@ -8714,8 +11499,16 @@ const getSetupStatus = async (_req, res) => {
 				};
 			}
 		}
+		if (institution?.attendanceSettings) {
+			const settings = await Promise.race([attendanceSettings_default.findById(institution.attendanceSettings).select("minimumAttendancePercentage").lean().exec(), new Promise((resolve) => setTimeout(() => resolve(null), 1e3))]);
+			if (settings && typeof settings === "object" && settings !== null) {
+				const settingsData = settings;
+				const numericThreshold = Number(settingsData.minimumAttendancePercentage ?? 75);
+				attendanceSettings = { minimumAttendancePercentage: Number.isFinite(numericThreshold) ? numericThreshold : 75 };
+			}
+		}
 		const duration = Date.now() - start;
-		console.info(`Request /api/setup/status: db query completed in ${duration}ms`);
+		console.info(`[CONTROLLER] getSetupStatus db query completed in ${duration}ms for ${requestLabel}`);
 		const response = {
 			configured: Boolean(institution),
 			institution: institution ? {
@@ -8725,30 +11518,140 @@ const getSetupStatus = async (_req, res) => {
 				country: institution.country,
 				state: institution.state,
 				city: institution.city,
+				addressLine1: institution.addressLine1 || "",
+				addressLine2: institution.addressLine2 || "",
+				contactEmail: institution.contactEmail || "",
+				phone: institution.phone || "",
+				website: institution.website || "",
+				description: institution.description || "",
 				academicCalendarType: institution.academicCalendarType,
 				timezone: institution.timezone,
 				logoUrl: institution.logoUrl || "",
 				backgroundImageUrl: institution.backgroundImageUrl || "",
-				brandingSettings
+				brandingSettings,
+				attendanceSettings
 			} : null
 		};
 		cachedInstitution = { data: response.institution };
 		lastCacheTime = now;
+		console.info(`[CONTROLLER] exit getSetupStatus configured=${Boolean(institution)} duration=${duration}ms for ${requestLabel}`);
 		res.status(200).json(response);
 	} catch (error) {
-		console.error("Setup status error:", error.message);
+		console.error(`[CONTROLLER] getSetupStatus error for ${requestLabel}:`, error.message);
 		res.status(500).json({
 			status: "Error",
 			message: "Unable to determine setup status."
 		});
 	}
 };
+var sanitizeSetupString = (value) => String(value ?? "").trim();
+const buildInstitutionUpdateOptions = () => ({
+	returnDocument: "after",
+	runValidators: true
+});
+const updateSetup = async (req, res) => {
+	const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
+	console.info(`[CONTROLLER] enter updateSetup for ${requestLabel}`);
+	try {
+		const { institutionProfile, brandingSettings } = req.body;
+		if (!institutionProfile && !brandingSettings) return res.status(400).json({
+			status: "Error",
+			message: "No setup data provided to update."
+		});
+		const existingInstitution = await institution_default.findOne().exec();
+		if (!existingInstitution) return res.status(404).json({
+			status: "Error",
+			message: "Institution has not been configured yet."
+		});
+		const institutionUpdates = {};
+		if (institutionProfile && typeof institutionProfile === "object") {
+			for (const field of [
+				"name",
+				"shortName",
+				"type",
+				"country",
+				"state",
+				"city",
+				"addressLine1",
+				"addressLine2",
+				"contactEmail",
+				"phone",
+				"website",
+				"description",
+				"academicCalendarType",
+				"timezone",
+				"logoUrl",
+				"backgroundImageUrl"
+			]) if (Object.prototype.hasOwnProperty.call(institutionProfile, field)) institutionUpdates[field] = sanitizeSetupString(institutionProfile[field]);
+		}
+		let brandingData = null;
+		if (brandingSettings && typeof brandingSettings === "object") {
+			const brandingUpdate = {};
+			if (brandingSettings.primaryColor !== void 0) brandingUpdate.primaryColor = sanitizeSetupString(brandingSettings.primaryColor);
+			if (brandingSettings.accentColor !== void 0) brandingUpdate.accentColor = sanitizeSetupString(brandingSettings.accentColor);
+			if (Object.keys(brandingUpdate).length > 0) if (existingInstitution.brandingSettings) brandingData = await brandingSettings_default.findByIdAndUpdate(existingInstitution.brandingSettings, brandingUpdate, buildInstitutionUpdateOptions()).lean().exec();
+			else {
+				const createdBranding = await brandingSettings_default.create([brandingUpdate]);
+				if (createdBranding?.[0]?._id) {
+					institutionUpdates.brandingSettings = createdBranding[0]._id;
+					brandingData = createdBranding[0];
+				}
+			}
+		}
+		if (Object.keys(institutionUpdates).length > 0) await institution_default.findByIdAndUpdate(existingInstitution._id, institutionUpdates, buildInstitutionUpdateOptions()).exec();
+		cachedInstitution = null;
+		lastCacheTime = 0;
+		const updatedInstitution = await institution_default.findById(existingInstitution._id).select("name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings").lean().exec();
+		if (!updatedInstitution) return res.status(500).json({
+			status: "Error",
+			message: "Unable to load updated institution."
+		});
+		if (!brandingData && updatedInstitution.brandingSettings) brandingData = await brandingSettings_default.findById(updatedInstitution.brandingSettings).select("primaryColor accentColor").lean().exec();
+		res.status(200).json({
+			status: "Success",
+			institution: {
+				name: updatedInstitution.name,
+				shortName: updatedInstitution.shortName,
+				type: updatedInstitution.type,
+				country: updatedInstitution.country,
+				state: updatedInstitution.state,
+				city: updatedInstitution.city,
+				addressLine1: updatedInstitution.addressLine1 || "",
+				addressLine2: updatedInstitution.addressLine2 || "",
+				contactEmail: updatedInstitution.contactEmail || "",
+				phone: updatedInstitution.phone || "",
+				website: updatedInstitution.website || "",
+				description: updatedInstitution.description || "",
+				academicCalendarType: updatedInstitution.academicCalendarType,
+				timezone: updatedInstitution.timezone,
+				logoUrl: updatedInstitution.logoUrl || "",
+				backgroundImageUrl: updatedInstitution.backgroundImageUrl || "",
+				brandingSettings: brandingData ? {
+					primaryColor: brandingData.primaryColor || "#2563eb",
+					accentColor: brandingData.accentColor || "#4f46e5"
+				} : {
+					primaryColor: "#2563eb",
+					accentColor: "#4f46e5"
+				}
+			}
+		});
+	} catch (error) {
+		console.error(`[CONTROLLER] updateSetup error for ${requestLabel}:`, error.message);
+		res.status(500).json({
+			status: "Error",
+			message: "Unable to update setup settings."
+		});
+	}
+};
 const createInitialSetup = async (req, res) => {
+	const requestLabel = `${req.method} ${req.originalUrl || "/api/setup"}`;
+	console.info(`[CONTROLLER] enter createInitialSetup for ${requestLabel}`);
 	const session = await mongoose.startSession();
 	session.startTransaction();
 	try {
 		if (await institution_default.findOne().session(session)) {
 			await session.abortTransaction();
+			console.info(`[CONTROLLER] createInitialSetup abort: already configured for ${requestLabel}`);
 			return res.status(409).json({
 				status: "Error",
 				message: "The application has already been configured."
@@ -9008,8 +11911,20 @@ const createInitialSetup = async (req, res) => {
 			country: institutionProfile.country,
 			state: institutionProfile.state,
 			city: institutionProfile.city,
+			addressLine1: String(institutionProfile.addressLine1 || ""),
+			addressLine2: String(institutionProfile.addressLine2 || ""),
+			contactEmail: String(institutionProfile.contactEmail || ""),
+			phone: String(institutionProfile.phone || ""),
+			website: String(institutionProfile.website || ""),
+			description: String(institutionProfile.description || ""),
 			academicCalendarType: institutionProfile.academicCalendarType,
 			timezone: institutionProfile.timezone,
+			addressLine1: String(institutionProfile.addressLine1 || ""),
+			addressLine2: String(institutionProfile.addressLine2 || ""),
+			contactEmail: String(institutionProfile.contactEmail || ""),
+			phone: String(institutionProfile.phone || ""),
+			website: String(institutionProfile.website || ""),
+			description: String(institutionProfile.description || ""),
 			logoUrl: String(institutionProfile.logoUrl || ""),
 			backgroundImageUrl: String(institutionProfile.backgroundImageUrl || ""),
 			academicSession: academicSessionDoc[0]._id,
@@ -9027,6 +11942,7 @@ const createInitialSetup = async (req, res) => {
 		});
 		await session.commitTransaction();
 		session.endSession();
+		console.info(`[CONTROLLER] exit createInitialSetup success for ${requestLabel}`);
 		res.status(201).json({
 			status: "Success",
 			message: "Initial system setup completed.",
@@ -9040,7 +11956,7 @@ const createInitialSetup = async (req, res) => {
 			}
 		});
 	} catch (error) {
-		console.error("Initial setup failed:", error.message);
+		console.error(`[CONTROLLER] createInitialSetup error for ${requestLabel}:`, error.message);
 		await session.abortTransaction();
 		session.endSession();
 		res.status(500).json({
@@ -9053,6 +11969,7 @@ const createInitialSetup = async (req, res) => {
 var setupRouter = express.Router();
 setupRouter.get("/status", getSetupStatus);
 setupRouter.post("/", createInitialSetup);
+setupRouter.patch("/", updateSetup);
 var setup_default = setupRouter;
 var MordredMessageSchema = new Schema({
 	user_id: {
@@ -9129,7 +12046,8 @@ var permittedInsightRoles = new Set([
 	"teacher",
 	"unitconsultant",
 	"unitresident",
-	"parent"
+	"parent",
+	"student"
 ]);
 var systemActionType = z.enum([
 	"NONE",
@@ -9140,8 +12058,8 @@ var systemActionType = z.enum([
 	"SEND_ALERT",
 	"ESCALATE_TO_ADMIN"
 ]);
-var isAdminRole = (role) => String(role ?? "").trim().toLowerCase() === "admin";
-var isInsightRole = (role) => permittedInsightRoles.has(String(role ?? "").trim().toLowerCase());
+var isAdminRole = (role) => normalizeRole(role) === "admin";
+var isInsightRole = (role) => permittedInsightRoles.has(normalizeRole(role));
 var handleAdminSystemAction = async (action, user) => {
 	if (!action || action.actionType === "NONE") return "";
 	console.log(`MORDRED system action requested by admin ${user?.email || user?._id}:`, action);
@@ -9174,19 +12092,92 @@ const saveChatMessage = async (req, res) => {
 		return res.status(500).json({ message: error.message });
 	}
 };
+const getCourseSummary = async (req, res) => {
+	try {
+		const { courseId } = req.body;
+		if (!courseId) return res.status(400).json({ message: "courseId is required" });
+		const course = await courses_default$1.findById(courseId).populate("department", "name").populate("unit", "name");
+		if (!course) return res.status(404).json({ message: "Course not found" });
+		const user = req.user;
+		const studentClassName = Array.isArray(user?.studentClasses) ? typeof user.studentClasses[0] === "object" ? String(user.studentClasses[0]?.name ?? "your class") : String(user.studentClasses[0] ?? "your class") : typeof user?.studentClasses === "object" ? String(user.studentClasses?.name ?? "your class") : String(user?.studentClasses ?? "your class");
+		const departmentName = String(course.department?.name ?? "");
+		const semesterLabel = course.semester ? ` It is offered in semester ${course.semester}.` : "";
+		const courseTitle = `${course.name} (${course.code})`;
+		const buildFallbackText = () => {
+			return [
+				`MORDRED AI says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
+				`It helps students in ${studentClassName} build strong foundations and make sense of how the subject connects to their current learning goals.`,
+				`This course is designed to support your class with real classroom relevance and future study readiness.`,
+				`You will gain knowledge that ties directly into your timetable, assessments, and the broader program for ${studentClassName}.`,
+				`The syllabus focuses on practical understanding, giving you a clear reason why this course is important to your academic progress.`
+			].sort(() => Math.random() - .5).slice(0, 5).join("\n");
+		};
+		const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+		if (!apiKey) {
+			console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using course-summary fallback.");
+			return res.status(200).json({
+				_id: `mordred-course-summary-fallback-${Date.now()}`,
+				sender: "mordred_ai",
+				text: buildFallbackText(),
+				fallbackUsed: true
+			});
+		}
+		const models = {
+			geminiAI: "google/gemini-3.5-pro",
+			openAI: "openai/gpt-5.5"
+		};
+		try {
+			createGoogleGenerativeAI({ apiKey });
+			const { text } = await generateText({
+				model: process.env.MORDRED_MODEL || models.geminiAI,
+				prompt: `You are MORDRED, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with \"MORDRED AI says:\" and do not exceed six lines.`,
+				temperature: .4,
+				max_tokens: 220
+			});
+			const summaryText = String(text ?? "").trim() || buildFallbackText();
+			const normalizedText = summaryText.startsWith("MORDRED AI says:") ? summaryText : `MORDRED AI says: ${summaryText}`;
+			return res.status(200).json({
+				_id: new mongoose.Types.ObjectId(),
+				sender: "mordred_ai",
+				text: normalizedText,
+				fallbackUsed: false
+			});
+		} catch (error) {
+			console.error("⚠️ Course summary AI request failed, returning fallback text.", error);
+			return res.status(200).json({
+				_id: `mordred-course-summary-fallback-${Date.now()}`,
+				sender: "mordred_ai",
+				text: buildFallbackText(),
+				fallbackUsed: true
+			});
+		}
+	} catch (error) {
+		console.error("Course summary route failed:", error);
+		return res.status(500).json({ message: error.message || "Server error" });
+	}
+};
 const mordredsWords = async (req, res) => {
 	try {
 		const { message: message$1, studentContext: studentContext$1 } = req.body;
 		const userRole$1 = String(req.user?.role ?? "").trim().toLowerCase();
 		const canExecuteSystemActions = isAdminRole(userRole$1);
-		const apiKey = (process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+		const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
 		if (!apiKey) {
 			console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using fallback response.");
 			return res.status(200).json(buildMordredFallbackResponse("missing credentials", message$1, studentContext$1, userRole$1));
 		}
+		const models = {
+			geminiAI: "google/gemini-3.5-pro",
+			openAI: "openai/gpt-5.5",
+			anthropicAI: "anthropic/claude-fable-5",
+			xAI: "xai/grok-4.5",
+			ossAI: "moonshotai/kimi-k2.7-code"
+		};
 		try {
+			createGoogleGenerativeAI({ apiKey })(process.env.MORDRED_MODEL || "gemini-2.0-flash");
+			const vercelModel = models.geminiAI;
 			const { object: mordredDecision } = await generateObject({
-				model: createGoogleGenerativeAI({ apiKey })(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+				model: vercelModel,
 				system: `
         You are MORDRED (Medlog Operational Rotation, Dialogue, & Record Engagement Director).
         Your persona is a vigilant, polite, and clinically precise digital steward.
@@ -9325,6 +12316,47 @@ const trackMordredPerformance = async (req, res) => {
 		return res.status(500).json({ error: error.message });
 	}
 };
+const createPostingAttendanceAlert = async (req, res) => {
+	try {
+		const user = req.user;
+		const payload = req.body ?? {};
+		if (!user?._id) return res.status(401).json({ message: "Authentication required." });
+		const targetUserId = payload.studentId ? new mongoose.Types.ObjectId(String(payload.studentId)) : user._id;
+		const overallPercent = Number(payload.overallPercent ?? 0);
+		const activeLocationTitle = String(payload.activeLocationTitle || "Active unit").trim();
+		const activeLocationValue = String(payload.activeLocationValue || "Current posting").trim();
+		const message$1 = `Your posting attendance is below the expected target at ${overallPercent}%. ${activeLocationTitle}: ${activeLocationValue}. ${String(payload.note || "Please attend the next scheduled session to stay on track.").trim()}`;
+		const notification = await createNotificationIfUnique({
+			userId: targetUserId,
+			role: "student",
+			title: "Posting attendance needs attention",
+			message: message$1,
+			type: "attendance",
+			metadata: {
+				source: "posting-attendance-alert",
+				activeLocationTitle,
+				activeLocationValue,
+				overallPercent
+			},
+			actorName: user.name || "MORDRED",
+			actorRole: "student"
+		});
+		return res.status(200).json({
+			success: true,
+			notification,
+			insight: {
+				id: notification?._id?.toString() ?? `attendance-alert-${Date.now()}`,
+				type: "WARNING",
+				targetUser: user.name || "You",
+				message: message$1,
+				timestamp: "Just Now"
+			}
+		});
+	} catch (error) {
+		console.error("Failed to create posting attendance alert", error);
+		return res.status(500).json({ message: error.message || "Unable to create attendance alert." });
+	}
+};
 const dynamicAIInsights = async (req, res) => {
 	try {
 		if (!isInsightRole(String(req.user?.role ?? "").trim().toLowerCase())) return res.status(403).json({ message: "Access denied. MORDRED insights are only available to admin, teacher, unitconsultant, unitresident, and parent users." });
@@ -9382,14 +12414,1447 @@ var mordredAIRouter = express.Router();
 mordredAIRouter.post("/save-message", protect, saveChatMessage);
 mordredAIRouter.post("/chat/handle", protect, mordredsWords);
 mordredAIRouter.get("/admin/diagnostics", protect, authorize(["admin"]), trackMordredPerformance);
+mordredAIRouter.post("/insights/attendance-alert", protect, authorize([
+	"student",
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident",
+	"parent"
+]), createPostingAttendanceAlert);
 mordredAIRouter.get("/insights", protect, authorize([
+	"student",
 	"admin",
 	"teacher",
 	"unitconsultant",
 	"unitresident",
 	"parent"
 ]), dynamicAIInsights);
+mordredAIRouter.post("/course-summary", protect, authorize([
+	"student",
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident",
+	"parent"
+]), getCourseSummary);
 var mordred_default = mordredAIRouter;
+var AttendanceRecordSchema = new Schema({
+	student: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "User",
+		required: true
+	},
+	status: {
+		type: String,
+		enum: [
+			"present",
+			"absent",
+			"late",
+			"excused",
+			"on-leave"
+		],
+		default: "absent"
+	},
+	checkInTime: {
+		type: Date,
+		default: null
+	},
+	checkOutTime: {
+		type: Date,
+		default: null
+	},
+	duration: {
+		type: Number,
+		default: null
+	},
+	notes: {
+		type: String,
+		default: ""
+	}
+}, { _id: true });
+var ClinicalAttendanceSchema = new Schema({
+	activityType: {
+		type: String,
+		enum: [
+			"ward_round",
+			"clinic",
+			"theatre",
+			"call_duty",
+			"simulation",
+			"procedure",
+			"practical"
+		],
+		required: true
+	},
+	title: {
+		type: String,
+		required: true
+	},
+	description: {
+		type: String,
+		default: ""
+	},
+	date: {
+		type: Date,
+		required: true
+	},
+	startTime: {
+		type: Date,
+		required: true
+	},
+	endTime: {
+		type: Date,
+		default: null
+	},
+	duration: {
+		type: Number,
+		default: null
+	},
+	unit: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "Unit",
+		required: false,
+		default: null
+	},
+	unitLabel: {
+		type: String,
+		default: ""
+	},
+	department: {
+		type: String,
+		default: ""
+	},
+	location: {
+		type: String,
+		default: ""
+	},
+	room: {
+		type: String,
+		default: ""
+	},
+	supervisor: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "User",
+		required: true
+	},
+	attendees: [AttendanceRecordSchema],
+	expectedStudents: [{
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "User"
+	}],
+	status: {
+		type: String,
+		enum: [
+			"planned",
+			"ongoing",
+			"completed",
+			"cancelled"
+		],
+		default: "planned"
+	},
+	checkInMethod: {
+		type: String,
+		enum: [
+			"manual",
+			"qr_code",
+			"biometric"
+		],
+		default: "manual"
+	},
+	requiresApproval: {
+		type: Boolean,
+		default: false
+	},
+	approvedBy: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "User",
+		default: null
+	},
+	approvalDate: {
+		type: Date,
+		default: null
+	},
+	clinicalRotation: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "ClinicalRotation",
+		default: null
+	},
+	academicYear: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "AcademicYear",
+		required: true
+	},
+	presentCount: {
+		type: Number,
+		default: 0
+	},
+	absentCount: {
+		type: Number,
+		default: 0
+	},
+	lateCount: {
+		type: Number,
+		default: 0
+	},
+	excusedCount: {
+		type: Number,
+		default: 0
+	},
+	patientCount: {
+		type: Number,
+		default: 0
+	},
+	proceduresPerformed: [{
+		type: String,
+		default: ""
+	}],
+	learningOutcomes: [{
+		type: String,
+		default: ""
+	}],
+	feedback: {
+		type: String,
+		default: ""
+	},
+	createdBy: {
+		type: mongoose.Schema.Types.ObjectId,
+		ref: "User",
+		required: true
+	}
+}, { timestamps: true });
+ClinicalAttendanceSchema.index({
+	date: 1,
+	unit: 1
+});
+ClinicalAttendanceSchema.index({
+	supervisor: 1,
+	date: -1
+});
+ClinicalAttendanceSchema.index({ academicYear: 1 });
+ClinicalAttendanceSchema.index({
+	"attendees.student": 1,
+	date: -1
+});
+ClinicalAttendanceSchema.index({ status: 1 });
+var clinicalAttendance_default$1 = mongoose.model("ClinicalAttendance", ClinicalAttendanceSchema);
+var normalizeToken = (value) => {
+	if (typeof value !== "string") return "";
+	return value.trim().toLowerCase().replace(/^department of\s+/, "").replace(/\s+/g, " ").trim();
+};
+const normalizeLabel = (value) => normalizeToken(value);
+const resolveMatchingUnitIds = (unitNames, departmentNames, hospitalUnits) => {
+	const normalizedUnitNames = unitNames.map((value) => normalizeLabel(value)).filter(Boolean);
+	const normalizedDepartmentNames = departmentNames.map((value) => normalizeLabel(value)).filter(Boolean);
+	const seenIds = /* @__PURE__ */ new Set();
+	const matchedIds = [];
+	const hospitalNameIndex = /* @__PURE__ */ new Map();
+	const hospitalDepartmentIndex = /* @__PURE__ */ new Map();
+	hospitalUnits.forEach((unit) => {
+		const unitId = String(unit._id);
+		const unitName = normalizeLabel(unit.name);
+		const departmentName = normalizeLabel(unit.department);
+		if (unitName) {
+			const buckets = hospitalNameIndex.get(unitName) ?? [];
+			buckets.push(unitId);
+			hospitalNameIndex.set(unitName, buckets);
+		}
+		if (departmentName) {
+			const buckets = hospitalDepartmentIndex.get(departmentName) ?? [];
+			buckets.push(unitId);
+			hospitalDepartmentIndex.set(departmentName, buckets);
+		}
+	});
+	normalizedUnitNames.forEach((candidateLabel) => {
+		for (const [unitLabel, unitIds] of hospitalNameIndex.entries()) if (unitLabel === candidateLabel || unitLabel.includes(candidateLabel) || candidateLabel.includes(unitLabel)) unitIds.forEach((unitId) => {
+			if (!seenIds.has(unitId)) {
+				seenIds.add(unitId);
+				matchedIds.push(unitId);
+			}
+		});
+	});
+	normalizedDepartmentNames.forEach((candidateLabel) => {
+		for (const [departmentLabel, unitIds] of hospitalDepartmentIndex.entries()) if (departmentLabel === candidateLabel || departmentLabel.includes(candidateLabel) || candidateLabel.includes(departmentLabel)) unitIds.forEach((unitId) => {
+			if (!seenIds.has(unitId)) {
+				seenIds.add(unitId);
+				matchedIds.push(unitId);
+			}
+		});
+	});
+	return matchedIds;
+};
+async function deriveClinicalSessionSeedFromClass(input) {
+	const academicYearId = input.academicYearId?.trim() || "";
+	const explicitUnitIds = Array.isArray(input.unitIds) ? input.unitIds.filter(Boolean).map((value) => String(value)) : [];
+	if (explicitUnitIds.length > 0) return {
+		academicYearId,
+		unitIds: explicitUnitIds
+	};
+	const unitNames = Array.isArray(input.unitNames) ? input.unitNames.filter((value) => typeof value === "string" && value.trim().length > 0) : [];
+	const departmentNames = Array.isArray(input.departmentNames) ? input.departmentNames.filter((value) => typeof value === "string" && value.trim().length > 0) : [];
+	if ([...unitNames, ...departmentNames].length === 0) return {
+		academicYearId,
+		unitIds: []
+	};
+	return {
+		academicYearId,
+		unitIds: resolveMatchingUnitIds(unitNames, departmentNames, await hospitalUnit_default.find({ isActive: true }).select("_id name department").lean())
+	};
+}
+function buildClinicalAttendanceFilter(query = {}) {
+	const filter = {};
+	if (query.unit) filter.unit = query.unit;
+	if (query.supervisor) filter.supervisor = query.supervisor;
+	if (query.status) {
+		const statuses = (Array.isArray(query.status) ? query.status.join(",") : String(query.status)).split(",").map((value) => value.trim()).filter(Boolean);
+		if (statuses.length > 1) filter.status = { $in: statuses };
+		else if (statuses.length === 1) filter.status = statuses[0];
+	}
+	if (query.academicYear) filter.academicYear = query.academicYear;
+	if (query.startDate || query.endDate) {
+		filter.date = {};
+		if (query.startDate) filter.date.$gte = new Date(String(query.startDate));
+		if (query.endDate) filter.date.$lte = new Date(String(query.endDate));
+	}
+	return filter;
+}
+var QrOtpSchema = new mongoose.Schema({
+	otp: {
+		type: String,
+		required: true,
+		index: true,
+		unique: true
+	},
+	payload: {
+		type: String,
+		required: true
+	},
+	expiresAt: {
+		type: Date,
+		required: true,
+		index: true
+	},
+	createdAt: {
+		type: Date,
+		default: () => /* @__PURE__ */ new Date()
+	}
+}, { timestamps: false });
+var qrOtp_default = mongoose.models.QrOtp || mongoose.model("QrOtp", QrOtpSchema);
+var SECRET_ENV = process.env.QR_SIGNING_SECRET || process.env.JWT_SECRET || "medlog-lms-quiet-secret";
+function normalizePayload(payload) {
+	return JSON.stringify(payload);
+}
+function createSignedQrPayload(payload) {
+	const body = normalizePayload(payload);
+	const signature = crypto.createHmac("sha256", SECRET_ENV).update(body).digest("hex");
+	return JSON.stringify({
+		data: payload,
+		signature
+	});
+}
+function verifySignedQrPayload(token) {
+	try {
+		const parsed = JSON.parse(token);
+		if (!parsed || typeof parsed !== "object" || !parsed.data || typeof parsed.signature !== "string") return null;
+		if (crypto.createHmac("sha256", SECRET_ENV).update(normalizePayload(parsed.data)).digest("hex") !== parsed.signature) return null;
+		return parsed.data;
+	} catch {
+		return null;
+	}
+}
+function getInstitutionIdentityReference(source) {
+	const inn = source.inn?.toString().trim();
+	if (inn) return inn;
+	const idNumber = source.idNumber?.toString().trim();
+	if (idNumber) return idNumber;
+	return source.email?.toString().trim() || "unknown";
+}
+init_rotationPlan();
+const resolveClinicalSessionPosting = async (postingId, classId, deps = {}) => {
+	if (!postingId) return null;
+	const findClinicalRotationById = deps.findClinicalRotationById ?? ((id) => clinicalRotation_default.findById(id).select("_id").lean());
+	const findRotationPlans = deps.findRotationPlans ?? (async (id) => {
+		if (id) return rotationPlan_default.find({ class: id }).select("postings _id").lean();
+		return rotationPlan_default.find({}).select("postings _id").lean();
+	});
+	if (await findClinicalRotationById(postingId)) return {
+		postingId,
+		source: "clinical-rotation"
+	};
+	const normalizedPostingId = String(postingId).trim();
+	const rotationPlans = await findRotationPlans(classId);
+	for (const rotationPlan of rotationPlans) {
+		if (String(rotationPlan?._id) === normalizedPostingId) return {
+			postingId,
+			source: "rotation-plan-posting"
+		};
+		if ((rotationPlan?.postings || []).find((posting) => String(posting?._id) === normalizedPostingId)) return {
+			postingId,
+			source: "rotation-plan-posting"
+		};
+	}
+	return null;
+};
+init_user();
+init_classes();
+init_rotationPlan();
+var OTP_RATE_LIMIT_WINDOW_MS = 6e4;
+var OTP_RATE_LIMIT_MAX_REQUESTS = 8;
+var otpRateLimitStore = /* @__PURE__ */ new Map();
+var cleanupExpiredOtpEntries = async () => {
+	try {
+		await qrOtp_default.deleteMany({ expiresAt: { $lte: /* @__PURE__ */ new Date() } });
+	} catch {}
+};
+var enforceOtpRateLimit = (req) => {
+	const key = `${req.ip ?? "unknown"}:${req.userId ?? "anonymous"}`;
+	const now = Date.now();
+	const bucket = otpRateLimitStore.get(key);
+	if (!bucket || now >= bucket.resetAt) {
+		otpRateLimitStore.set(key, {
+			count: 1,
+			resetAt: now + OTP_RATE_LIMIT_WINDOW_MS
+		});
+		return true;
+	}
+	if (bucket.count >= OTP_RATE_LIMIT_MAX_REQUESTS) return false;
+	bucket.count += 1;
+	otpRateLimitStore.set(key, bucket);
+	return true;
+};
+const createClinicalAttendanceSession = async (req, res) => {
+	try {
+		const { activityType, title, description, date, startTime, endTime, unit, location, room, supervisor, expectedStudents, checkInMethod, requiresApproval, clinicalRotation, academicYear, classId, learningOutcomes } = req.body;
+		const { department } = req.body;
+		const currentAcademicYear = await academicYear_default$1.findOne({ isCurrent: true }).select("_id").lean();
+		const activeAcademicYearId = academicYear || currentAcademicYear?._id?.toString() || "";
+		let resolvedUnitId = unit || "";
+		let derivedUnitIds = [];
+		let resolvedUnitLabel = "";
+		if (classId) {
+			if (!await classes_default$1.findById(classId).select("_id academicYear").lean()) return res.status(404).json({
+				success: false,
+				message: "Class not found"
+			});
+			const schedules = await rotationPlan_default.find({ class: classId }).select("postings meta").lean();
+			const postingUnitNames = /* @__PURE__ */ new Set();
+			const postingDepartmentNames = /* @__PURE__ */ new Set();
+			const addUnitName = (value) => {
+				if (typeof value === "string") {
+					const unitName = value.trim();
+					if (unitName) postingUnitNames.add(unitName);
+					return;
+				}
+				if (value && typeof value === "object") {
+					const objectValue = value;
+					if (typeof objectValue.name === "string" && objectValue.name.trim()) {
+						addUnitName(objectValue.name);
+						return;
+					}
+					if (typeof objectValue.unitName === "string" && objectValue.unitName.trim()) {
+						addUnitName(objectValue.unitName);
+						return;
+					}
+					if (typeof objectValue.departmentName === "string" && objectValue.departmentName.trim()) {
+						postingDepartmentNames.add(objectValue.departmentName.trim());
+						return;
+					}
+					if (typeof objectValue.department === "string" && objectValue.department.trim()) {
+						postingDepartmentNames.add(objectValue.department.trim());
+						return;
+					}
+					if (typeof objectValue._id === "string" && objectValue._id.trim()) {
+						addUnitName(objectValue._id);
+						return;
+					}
+					if (typeof objectValue.id === "string" && objectValue.id.trim()) {
+						addUnitName(objectValue.id);
+						return;
+					}
+					if (typeof objectValue.toString === "function") {
+						const stringValue = objectValue.toString();
+						if (typeof stringValue === "string" && stringValue.trim() && stringValue !== "[object Object]") addUnitName(stringValue);
+					}
+				}
+			};
+			for (const schedule of schedules) {
+				const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
+				for (const window of timeline) {
+					addUnitName(window?.unitName || window?.unitId);
+					addUnitName(window?.departmentName || window?.department || window?.departmentCode);
+				}
+				const postings = Array.isArray(schedule.postings) ? schedule.postings : [];
+				for (const posting of postings) {
+					const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+					const postingDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
+					for (const dept of postingDepartments) addUnitName(dept?.departmentName || dept?.department || dept?.departmentCode);
+					for (const group of groups) {
+						const groupData = group?.group || group || {};
+						addUnitName(groupData.unitName || groupData.unit?.name || groupData.name || groupData.unit);
+						addUnitName(groupData.departmentName || groupData.department || groupData.departmentCode);
+					}
+				}
+			}
+			derivedUnitIds = (await deriveClinicalSessionSeedFromClass({
+				academicYearId: activeAcademicYearId,
+				unitNames: Array.from(postingUnitNames),
+				departmentNames: Array.from(postingDepartmentNames)
+			})).unitIds;
+			if (!resolvedUnitId && derivedUnitIds.length > 0) resolvedUnitId = derivedUnitIds[0];
+			if (derivedUnitIds.length > 0) {
+				if (!resolvedUnitId && !department) resolvedUnitId = derivedUnitIds[0];
+				else if (resolvedUnitId && !derivedUnitIds.includes(String(resolvedUnitId))) return res.status(400).json({
+					success: false,
+					message: "The selected unit is not part of the current class posting schedule"
+				});
+			}
+		}
+		if (clinicalRotation) {
+			if (!await resolveClinicalSessionPosting(clinicalRotation, classId)) console.warn("Clinical attendance session created without a resolved posting reference", {
+				clinicalRotation,
+				classId
+			});
+		}
+		if (!activityType || !title || !date || !startTime || !resolvedUnitId && !department || !supervisor || !clinicalRotation) return res.status(400).json({
+			success: false,
+			message: "Missing required fields: activityType, title, date, startTime, supervisor, posting, and either unit or department"
+		});
+		if (!await user_default$1.findById(supervisor)) return res.status(404).json({
+			success: false,
+			message: "Supervisor not found"
+		});
+		let unitExists = null;
+		if (resolvedUnitId) {
+			const normalizedUnitId = String(resolvedUnitId).trim();
+			const maybeObjectId = normalizedUnitId.length === 24 && /^[a-fA-F0-9]{24}$/.test(normalizedUnitId) ? normalizedUnitId : null;
+			if (maybeObjectId) unitExists = await hospitalUnit_default.findById(maybeObjectId).lean();
+			else {
+				const escapedUnitId = normalizedUnitId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+				unitExists = await hospitalUnit_default.findOne({ $or: [
+					{ code: normalizedUnitId },
+					{ id: normalizedUnitId },
+					{ name: normalizedUnitId },
+					{ name: { $regex: new RegExp(escapedUnitId, "i") } }
+				] }).lean();
+			}
+			if (!unitExists) resolvedUnitLabel = normalizedUnitId;
+		}
+		if (!await academicYear_default$1.findById(activeAcademicYearId)) return res.status(404).json({
+			success: false,
+			message: "Academic year not found"
+		});
+		const clinicalAttendance = new clinicalAttendance_default$1({
+			activityType,
+			title,
+			description,
+			date: new Date(date),
+			startTime: new Date(startTime),
+			endTime: endTime ? new Date(endTime) : null,
+			unit: unitExists ? unitExists._id : null,
+			unitLabel: resolvedUnitLabel || "",
+			department: department || "",
+			location,
+			room,
+			supervisor,
+			expectedStudents: expectedStudents || [],
+			checkInMethod: checkInMethod || "manual",
+			requiresApproval: requiresApproval || false,
+			clinicalRotation: clinicalRotation || null,
+			academicYear: activeAcademicYearId,
+			learningOutcomes: learningOutcomes || [],
+			createdBy: req.user?._id,
+			status: "planned"
+		});
+		await clinicalAttendance.save();
+		await clinicalAttendance.populate([
+			{
+				path: "supervisor",
+				select: "firstName lastName email"
+			},
+			{
+				path: "unit",
+				select: "name"
+			},
+			{
+				path: "createdBy",
+				select: "firstName lastName"
+			}
+		]);
+		emitSystemEvent$1("clinicalAttendance.session.created", {
+			sessionId: clinicalAttendance._id.toString(),
+			academicYear: activeAcademicYearId,
+			classId: classId || null,
+			unitId: unitExists?._id?.toString() || null,
+			supervisor: supervisor.toString()
+		});
+		res.status(201).json({
+			success: true,
+			message: "Clinical attendance session created successfully",
+			data: clinicalAttendance
+		});
+	} catch (error) {
+		console.error("Error creating clinical attendance session:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error creating clinical attendance session",
+			error: error.message
+		});
+	}
+};
+const checkInStudent = async (req, res) => {
+	try {
+		const { sessionId, studentId, notes } = req.body;
+		if (!sessionId || !studentId) return res.status(400).json({
+			success: false,
+			message: "Missing required fields: sessionId, studentId"
+		});
+		const session = await clinicalAttendance_default$1.findById(sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		const existingRecord = session.attendees.find((attendee) => attendee.student.toString() === studentId);
+		if (existingRecord && existingRecord.checkInTime) return res.status(400).json({
+			success: false,
+			message: "Student already checked in"
+		});
+		const checkInTime = /* @__PURE__ */ new Date();
+		const status = checkInTime > session.startTime ? "late" : "present";
+		if (existingRecord) {
+			existingRecord.checkInTime = checkInTime;
+			existingRecord.status = status;
+			existingRecord.notes = notes || existingRecord.notes;
+		} else session.attendees.push({
+			student: studentId,
+			status,
+			checkInTime,
+			notes
+		});
+		await session.save();
+		emitSystemEvent$1("clinicalAttendance.student.checkedIn", {
+			sessionId,
+			studentId,
+			status,
+			checkInTime: checkInTime.toISOString()
+		});
+		res.status(200).json({
+			success: true,
+			message: "Student checked in successfully",
+			data: session
+		});
+	} catch (error) {
+		console.error("Error during check-in:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error during check-in",
+			error: error.message
+		});
+	}
+};
+const checkOutStudent = async (req, res) => {
+	try {
+		const { sessionId, studentId } = req.body;
+		if (!sessionId || !studentId) return res.status(400).json({
+			success: false,
+			message: "Missing required fields: sessionId, studentId"
+		});
+		const session = await clinicalAttendance_default$1.findById(sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		const attendeeRecord = session.attendees.find((attendee) => attendee.student.toString() === studentId);
+		if (!attendeeRecord) return res.status(404).json({
+			success: false,
+			message: "Student not found in this session"
+		});
+		const checkOutTime = /* @__PURE__ */ new Date();
+		attendeeRecord.checkOutTime = checkOutTime;
+		if (attendeeRecord.checkInTime) {
+			const durationMs = checkOutTime.getTime() - attendeeRecord.checkInTime.getTime();
+			attendeeRecord.duration = Math.round(durationMs / 6e4);
+		}
+		if (!session.endTime) {
+			session.endTime = checkOutTime;
+			const durationMs = checkOutTime.getTime() - session.startTime.getTime();
+			session.duration = Math.round(durationMs / 6e4);
+		}
+		await session.save();
+		emitSystemEvent$1("clinicalAttendance.student.checkedOut", {
+			sessionId,
+			studentId,
+			checkOutTime: checkOutTime.toISOString(),
+			durationMinutes: attendeeRecord.duration ?? null
+		});
+		res.status(200).json({
+			success: true,
+			message: "Student checked out successfully",
+			data: session
+		});
+	} catch (error) {
+		console.error("Error during check-out:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error during check-out",
+			error: error.message
+		});
+	}
+};
+const getClinicalAttendanceSessions = async (req, res) => {
+	try {
+		const { unit, supervisor, status, startDate, endDate, academicYear, page = 1, limit = 10 } = req.query;
+		const filter = buildClinicalAttendanceFilter({
+			unit: typeof unit === "string" ? unit : void 0,
+			supervisor: typeof supervisor === "string" ? supervisor : void 0,
+			status: typeof status === "string" ? status : void 0,
+			startDate: typeof startDate === "string" ? startDate : void 0,
+			endDate: typeof endDate === "string" ? endDate : void 0,
+			academicYear: typeof academicYear === "string" ? academicYear : void 0
+		});
+		const skip = (Number(page) - 1) * Number(limit);
+		const sessions = await clinicalAttendance_default$1.find(filter).populate([
+			{
+				path: "supervisor",
+				select: "firstName lastName email"
+			},
+			{
+				path: "unit",
+				select: "name"
+			},
+			{
+				path: "createdBy",
+				select: "firstName lastName"
+			},
+			{
+				path: "attendees.student",
+				select: "firstName lastName"
+			}
+		]).sort({ date: -1 }).skip(skip).limit(Number(limit));
+		const total = await clinicalAttendance_default$1.countDocuments(filter);
+		res.status(200).json({
+			success: true,
+			data: sessions,
+			pagination: {
+				total,
+				page: Number(page),
+				pages: Math.ceil(total / Number(limit)),
+				limit: Number(limit)
+			}
+		});
+	} catch (error) {
+		console.error("Error fetching clinical attendance sessions:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error fetching clinical attendance sessions",
+			error: error.message
+		});
+	}
+};
+const generateQrAttendancePayload = async (req, res) => {
+	try {
+		await cleanupExpiredOtpEntries();
+		if (!enforceOtpRateLimit(req)) return res.status(429).json({
+			success: false,
+			message: "Too many OTP requests. Please wait a moment and try again."
+		});
+		const { studentId, studentIdNumber, sessionId } = req.body;
+		if (!studentId || !sessionId) return res.status(400).json({
+			success: false,
+			message: "Missing required fields: studentId, sessionId"
+		});
+		const session = await clinicalAttendance_default$1.findById(sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		const student = await user_default$1.findById(studentId);
+		if (!student) return res.status(404).json({
+			success: false,
+			message: "Student not found"
+		});
+		const now = /* @__PURE__ */ new Date();
+		const validityMinutes = Math.max(30, Math.min(120, Math.round(((session.endTime ? new Date(session.endTime).getTime() : now.getTime() + 3600 * 1e3) - now.getTime()) / 6e4 / 2)));
+		const identityReference = getInstitutionIdentityReference({
+			inn: student.inn,
+			idNumber: studentIdNumber || student.idNumber,
+			email: student.email
+		});
+		const payload = {
+			studentId: student._id.toString(),
+			studentIdNumber: identityReference,
+			sessionId: session._id.toString(),
+			supervisorId: session.supervisor?.toString() || null,
+			issuedAt: now.toISOString(),
+			expiresAt: new Date(now.getTime() + validityMinutes * 6e4).toISOString(),
+			nonce: crypto.randomUUID(),
+			type: "clinical-attendance-qr"
+		};
+		const signedPayload = createSignedQrPayload(payload);
+		let otp = String(Math.floor(1e5 + Math.random() * 9e5));
+		try {
+			await qrOtp_default.create({
+				otp,
+				payload: signedPayload,
+				expiresAt: new Date(payload.expiresAt)
+			});
+		} catch (err) {
+			let attempts = 0;
+			let created = false;
+			while (attempts < 3 && !created) {
+				attempts += 1;
+				const next = String(Math.floor(1e5 + Math.random() * 9e5));
+				try {
+					await qrOtp_default.create({
+						otp: next,
+						payload: signedPayload,
+						expiresAt: new Date(payload.expiresAt)
+					});
+					otp = next;
+					created = true;
+				} catch {}
+			}
+		}
+		emitSystemEvent$1("clinicalAttendance.qr.generated", {
+			sessionId: session._id.toString(),
+			studentId: student._id.toString(),
+			expiresAt: payload.expiresAt,
+			otpGenerated: Boolean(otp)
+		});
+		res.status(200).json({
+			success: true,
+			message: "QR payload generated successfully",
+			data: {
+				qrPayload: signedPayload,
+				sessionId: session._id,
+				expiresAt: payload.expiresAt,
+				validityMinutes,
+				otp
+			}
+		});
+	} catch (error) {
+		console.error("Error generating QR payload:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error generating QR payload",
+			error: error.message
+		});
+	}
+};
+const approveQrAttendance = async (req, res) => {
+	try {
+		await cleanupExpiredOtpEntries();
+		if (!enforceOtpRateLimit(req)) return res.status(429).json({
+			success: false,
+			message: "Too many approval attempts. Please wait a moment and try again."
+		});
+		const { qrPayload, status = "present", notes = "" } = req.body;
+		if (!qrPayload) return res.status(400).json({
+			success: false,
+			message: "Missing required field: qrPayload"
+		});
+		let parsedPayload;
+		if (typeof qrPayload === "string" && /^\d{6}$/.test(qrPayload.trim())) {
+			const found = await qrOtp_default.findOne({
+				otp: qrPayload.trim(),
+				expiresAt: { $gt: /* @__PURE__ */ new Date() }
+			}).lean();
+			if (!found) return res.status(404).json({
+				success: false,
+				message: "OTP not found or expired"
+			});
+			try {
+				parsedPayload = verifySignedQrPayload(found.payload);
+				if (!parsedPayload) return res.status(400).json({
+					success: false,
+					message: "Invalid signed OTP payload stored on server"
+				});
+				await qrOtp_default.deleteOne({ _id: found._id }).catch(() => {});
+			} catch (err) {
+				return res.status(400).json({
+					success: false,
+					message: "Invalid OTP payload stored on server"
+				});
+			}
+		} else {
+			parsedPayload = verifySignedQrPayload(qrPayload);
+			if (!parsedPayload) return res.status(400).json({
+				success: false,
+				message: "Invalid or tampered QR payload"
+			});
+		}
+		const now = /* @__PURE__ */ new Date();
+		const expiresAt = parsedPayload.expiresAt ? new Date(parsedPayload.expiresAt) : null;
+		if (expiresAt && now.getTime() > expiresAt.getTime()) return res.status(410).json({
+			success: false,
+			message: "Attendance QR has expired"
+		});
+		const session = await clinicalAttendance_default$1.findById(parsedPayload.sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		const student = await user_default$1.findById(parsedPayload.studentId);
+		if (!student) return res.status(404).json({
+			success: false,
+			message: "Student not found"
+		});
+		const existingRecord = session.attendees.find((attendee) => attendee.student.toString() === parsedPayload.studentId);
+		const checkInTime = /* @__PURE__ */ new Date();
+		const normalizedStatus = status === "approved_absent" ? "excused" : status === "absent" ? "absent" : "present";
+		if (existingRecord) {
+			existingRecord.status = normalizedStatus;
+			existingRecord.checkInTime = checkInTime;
+			existingRecord.notes = notes || existingRecord.notes || "Approved via QR";
+		} else session.attendees.push({
+			student: parsedPayload.studentId,
+			status: normalizedStatus,
+			checkInTime,
+			notes: notes || "Approved via QR"
+		});
+		session.presentCount = session.attendees.filter((a) => a.status === "present").length;
+		session.absentCount = session.attendees.filter((a) => a.status === "absent").length;
+		session.lateCount = session.attendees.filter((a) => a.status === "late").length;
+		session.excusedCount = session.attendees.filter((a) => a.status === "excused").length;
+		await session.save();
+		emitSystemEvent$1("clinicalAttendance.qr.approved", {
+			sessionId: session._id.toString(),
+			studentId: parsedPayload.studentId,
+			status: normalizedStatus,
+			supervisorId: req.user?._id?.toString() || null,
+			approvedAt: checkInTime.toISOString()
+		});
+		res.status(200).json({
+			success: true,
+			message: "Attendance approved successfully",
+			data: {
+				studentId: student._id,
+				studentIdNumber: parsedPayload.studentIdNumber,
+				sessionId: session._id,
+				status: normalizedStatus,
+				checkedAt: checkInTime
+			}
+		});
+	} catch (error) {
+		console.error("Error approving QR attendance:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error approving QR attendance",
+			error: error.message
+		});
+	}
+};
+const getStudentAttendanceRecord = async (req, res) => {
+	try {
+		const { studentId, academicYear, unit } = req.query;
+		if (!studentId) return res.status(400).json({
+			success: false,
+			message: "Missing required field: studentId"
+		});
+		const filter = { "attendees.student": studentId };
+		if (academicYear) filter.academicYear = academicYear;
+		if (unit) filter.unit = unit;
+		const sessions = await clinicalAttendance_default$1.find(filter).populate([{
+			path: "unit",
+			select: "name"
+		}, {
+			path: "supervisor",
+			select: "firstName lastName"
+		}]).sort({ date: -1 });
+		let present = 0, absent = 0, late = 0, excused = 0;
+		let totalDuration = 0;
+		sessions.forEach((session) => {
+			const record = session.attendees.find((a) => a.student.toString() === studentId);
+			if (record) {
+				if (record.status === "present") present++;
+				if (record.status === "absent") absent++;
+				if (record.status === "late") late++;
+				if (record.status === "excused") excused++;
+				if (record.duration) totalDuration += record.duration;
+			}
+		});
+		res.status(200).json({
+			success: true,
+			data: {
+				sessions,
+				statistics: {
+					present,
+					absent,
+					late,
+					excused,
+					totalSessions: sessions.length,
+					totalMinutesAttended: totalDuration
+				}
+			}
+		});
+	} catch (error) {
+		console.error("Error fetching student attendance record:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error fetching student attendance record",
+			error: error.message
+		});
+	}
+};
+const updateStudentAttendanceStatus = async (req, res) => {
+	try {
+		const { sessionId, studentId, status, notes } = req.body;
+		if (!sessionId || !studentId || !status) return res.status(400).json({
+			success: false,
+			message: "Missing required fields: sessionId, studentId, status"
+		});
+		const session = await clinicalAttendance_default$1.findById(sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		const attendeeRecord = session.attendees.find((attendee) => attendee.student.toString() === studentId);
+		if (!attendeeRecord) return res.status(404).json({
+			success: false,
+			message: "Student not found in this session"
+		});
+		attendeeRecord.status = status;
+		if (notes) attendeeRecord.notes = notes;
+		session.presentCount = session.attendees.filter((a) => a.status === "present").length;
+		session.absentCount = session.attendees.filter((a) => a.status === "absent").length;
+		session.lateCount = session.attendees.filter((a) => a.status === "late").length;
+		session.excusedCount = session.attendees.filter((a) => a.status === "excused").length;
+		await session.save();
+		emitSystemEvent$1("clinicalAttendance.status.updated", {
+			sessionId,
+			studentId,
+			status,
+			notes
+		});
+		res.status(200).json({
+			success: true,
+			message: "Attendance status updated successfully",
+			data: session
+		});
+	} catch (error) {
+		console.error("Error updating attendance status:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error updating attendance status",
+			error: error.message
+		});
+	}
+};
+const endClinicalSession = async (req, res) => {
+	try {
+		const { sessionId, feedback, proceduresPerformed, patientCount } = req.body;
+		if (!sessionId) return res.status(400).json({
+			success: false,
+			message: "Missing required field: sessionId"
+		});
+		const session = await clinicalAttendance_default$1.findById(sessionId);
+		if (!session) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		session.status = "completed";
+		session.endTime = /* @__PURE__ */ new Date();
+		if (!session.duration && session.startTime && session.endTime) {
+			const durationMs = session.endTime.getTime() - session.startTime.getTime();
+			session.duration = Math.round(durationMs / 6e4);
+		}
+		if (feedback) session.feedback = feedback;
+		if (proceduresPerformed) session.proceduresPerformed = proceduresPerformed;
+		if (patientCount) session.patientCount = patientCount;
+		session.presentCount = session.attendees.filter((a) => a.status === "present").length;
+		session.absentCount = session.attendees.filter((a) => a.status === "absent").length;
+		session.lateCount = session.attendees.filter((a) => a.status === "late").length;
+		session.excusedCount = session.attendees.filter((a) => a.status === "excused").length;
+		await session.save();
+		emitSystemEvent$1("clinicalAttendance.session.completed", {
+			sessionId,
+			durationMinutes: session.duration,
+			endTime: session.endTime.toISOString()
+		});
+		res.status(200).json({
+			success: true,
+			message: "Clinical attendance session completed successfully",
+			data: session
+		});
+	} catch (error) {
+		console.error("Error ending clinical session:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error ending clinical session",
+			error: error.message
+		});
+	}
+};
+const generateAttendanceReport = async (req, res) => {
+	try {
+		const { academicYear, unit, startDate, endDate, format = "json" } = req.query;
+		if (!academicYear) return res.status(400).json({
+			success: false,
+			message: "Missing required field: academicYear"
+		});
+		const filter = { academicYear };
+		if (unit) filter.unit = unit;
+		if (startDate || endDate) {
+			filter.date = {};
+			if (startDate) filter.date.$gte = new Date(startDate);
+			if (endDate) filter.date.$lte = new Date(endDate);
+		}
+		const sessions = await clinicalAttendance_default$1.find(filter).populate([
+			{
+				path: "attendees.student",
+				select: "firstName lastName email"
+			},
+			{
+				path: "unit",
+				select: "name"
+			},
+			{
+				path: "supervisor",
+				select: "firstName lastName"
+			}
+		]).sort({ date: -1 });
+		const report = {
+			totalSessions: sessions.length,
+			totalParticipants: new Set(sessions.flatMap((s) => s.attendees.map((a) => a.student.toString()))).size,
+			activityBreakdown: {},
+			statistics: {
+				totalPresent: 0,
+				totalAbsent: 0,
+				totalLate: 0,
+				totalExcused: 0
+			},
+			sessionDetails: sessions
+		};
+		sessions.forEach((session) => {
+			if (!report.activityBreakdown[session.activityType]) report.activityBreakdown[session.activityType] = 0;
+			report.activityBreakdown[session.activityType]++;
+			report.statistics.totalPresent += session.presentCount;
+			report.statistics.totalAbsent += session.absentCount;
+			report.statistics.totalLate += session.lateCount;
+			report.statistics.totalExcused += session.excusedCount;
+		});
+		emitSystemEvent$1("clinicalAttendance.report.generated", {
+			academicYear: academicYear?.toString(),
+			unit: unit?.toString() || null,
+			recordCount: sessions.length,
+			format: String(format)
+		});
+		res.status(200).json({
+			success: true,
+			data: report
+		});
+	} catch (error) {
+		console.error("Error generating attendance report:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error generating attendance report",
+			error: error.message
+		});
+	}
+};
+const deleteClinicalSession = async (req, res) => {
+	try {
+		const { sessionId } = req.params;
+		if (!sessionId) return res.status(400).json({
+			success: false,
+			message: "Missing required field: sessionId"
+		});
+		if (!await clinicalAttendance_default$1.findByIdAndDelete(sessionId)) return res.status(404).json({
+			success: false,
+			message: "Clinical attendance session not found"
+		});
+		emitSystemEvent$1("clinicalAttendance.session.deleted", { sessionId });
+		res.status(200).json({
+			success: true,
+			message: "Clinical attendance session deleted successfully"
+		});
+	} catch (error) {
+		console.error("Error deleting clinical session:", error);
+		res.status(500).json({
+			success: false,
+			message: "Error deleting clinical session",
+			error: error.message
+		});
+	}
+};
+var clinicalAttendanceRouter = express.Router();
+clinicalAttendanceRouter.post("/session/create", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), createClinicalAttendanceSession);
+clinicalAttendanceRouter.post("/qr/generate", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident",
+	"student"
+]), generateQrAttendancePayload);
+clinicalAttendanceRouter.post("/qr/approve", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), approveQrAttendance);
+clinicalAttendanceRouter.post("/check-in", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"student"
+]), checkInStudent);
+clinicalAttendanceRouter.post("/check-out", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"student"
+]), checkOutStudent);
+clinicalAttendanceRouter.get("/sessions", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident",
+	"student"
+]), getClinicalAttendanceSessions);
+clinicalAttendanceRouter.get("/student-record", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"student"
+]), getStudentAttendanceRecord);
+clinicalAttendanceRouter.put("/attendance-status", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant"
+]), updateStudentAttendanceStatus);
+clinicalAttendanceRouter.post("/session/end", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant",
+	"unitresident"
+]), endClinicalSession);
+clinicalAttendanceRouter.get("/report", protect, authorize([
+	"admin",
+	"teacher",
+	"unitconsultant"
+]), generateAttendanceReport);
+clinicalAttendanceRouter.delete("/session/:sessionId", protect, authorize(["admin", "teacher"]), deleteClinicalSession);
+var clinicalAttendance_default = clinicalAttendanceRouter;
+var ActivityNotificationSchema = new Schema({
+	userId: {
+		type: Schema.Types.ObjectId,
+		ref: "User",
+		required: true,
+		index: true
+	},
+	activityId: {
+		type: String,
+		required: true
+	},
+	activityType: {
+		type: String,
+		enum: [
+			"lecture",
+			"clinical",
+			"tutorial",
+			"duty",
+			"call",
+			"posting"
+		],
+		required: true,
+		index: true
+	},
+	activityTitle: {
+		type: String,
+		required: true
+	},
+	classId: { type: String },
+	instructorId: {
+		type: Schema.Types.ObjectId,
+		ref: "User"
+	},
+	location: { type: String },
+	scheduledTime: {
+		type: Date,
+		required: true,
+		index: true
+	},
+	notificationTime: {
+		type: Date,
+		required: true,
+		index: true
+	},
+	leadTimeMinutes: {
+		type: Number,
+		required: true
+	},
+	message: {
+		type: String,
+		required: true
+	},
+	status: {
+		type: String,
+		enum: [
+			"pending",
+			"sent",
+			"dismissed"
+		],
+		default: "pending",
+		index: true
+	},
+	browserNotificationSent: {
+		type: Boolean,
+		default: false
+	},
+	databaseNotificationId: {
+		type: Schema.Types.ObjectId,
+		ref: "Notification"
+	}
+}, { timestamps: true });
+ActivityNotificationSchema.index({
+	userId: 1,
+	status: 1,
+	notificationTime: 1
+});
+ActivityNotificationSchema.index({
+	status: 1,
+	notificationTime: 1
+});
+const ActivityNotification = mongoose.model("ActivityNotification", ActivityNotificationSchema);
+const createActivityNotification = async (req, res) => {
+	try {
+		const { userId, activityId, activityType, activityTitle, classId, instructorId, location, scheduledTime, leadTimeMinutes, message: message$1 } = req.body;
+		if (!userId || !activityId || !activityType || !activityTitle || !scheduledTime || leadTimeMinutes === void 0) return res.status(400).json({ error: "Missing required fields" });
+		const validTypes = [
+			"lecture",
+			"clinical",
+			"tutorial",
+			"duty",
+			"call",
+			"posting"
+		];
+		if (!validTypes.includes(activityType)) return res.status(400).json({ error: `Invalid activityType. Must be one of: ${validTypes.join(", ")}` });
+		const scheduledDate = new Date(scheduledTime);
+		const notificationTime = /* @__PURE__ */ new Date(scheduledDate.getTime() - leadTimeMinutes * 6e4);
+		const activityNotification = await ActivityNotification.create({
+			userId: new mongoose.Types.ObjectId(userId),
+			activityId,
+			activityType,
+			activityTitle,
+			classId,
+			instructorId: instructorId ? new mongoose.Types.ObjectId(instructorId) : void 0,
+			location,
+			scheduledTime: scheduledDate,
+			notificationTime,
+			leadTimeMinutes,
+			message: message$1,
+			status: "pending",
+			browserNotificationSent: false
+		});
+		res.status(201).json({
+			success: true,
+			notification: activityNotification.toObject()
+		});
+	} catch (err) {
+		console.error("POST /activity-notifications error:", err);
+		res.status(500).json({ error: "Failed to create activity notification" });
+	}
+};
+const getPendingNotifications = async (req, res) => {
+	try {
+		const { userId } = req.params;
+		if (req.user && String(req.user._id) !== userId && req.user.role !== "admin") return res.status(403).json({ error: "Unauthorized" });
+		const notifications = await ActivityNotification.find({
+			userId: new mongoose.Types.ObjectId(userId),
+			status: "pending"
+		}).sort({ notificationTime: 1 }).lean();
+		res.json({
+			success: true,
+			notifications,
+			count: notifications.length
+		});
+	} catch (err) {
+		console.error("GET /activity-notifications/pending/:userId error:", err);
+		res.status(500).json({ error: "Failed to fetch pending notifications" });
+	}
+};
+const getDueNotifications = async (req, res) => {
+	try {
+		const { userId } = req.params;
+		const now = /* @__PURE__ */ new Date();
+		if (req.user && String(req.user._id) !== userId && req.user.role !== "admin") return res.status(403).json({ error: "Unauthorized" });
+		const notifications = await ActivityNotification.find({
+			userId: new mongoose.Types.ObjectId(userId),
+			status: "pending",
+			notificationTime: { $lte: now }
+		}).sort({ notificationTime: 1 }).lean();
+		res.json({
+			success: true,
+			notifications,
+			count: notifications.length
+		});
+	} catch (err) {
+		console.error("GET /activity-notifications/due/:userId error:", err);
+		res.status(500).json({ error: "Failed to fetch due notifications" });
+	}
+};
+const updateNotificationStatus = async (req, res) => {
+	try {
+		const { id } = req.params;
+		const { status, browserNotificationSent } = req.body;
+		const validStatuses = [
+			"pending",
+			"sent",
+			"dismissed"
+		];
+		if (!validStatuses.includes(status)) return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
+		const updateData = { status };
+		if (browserNotificationSent !== void 0) updateData.browserNotificationSent = browserNotificationSent;
+		const updated = await ActivityNotification.findByIdAndUpdate(id, updateData, { returnDocument: "after" });
+		if (!updated) return res.status(404).json({ error: "Activity notification not found" });
+		res.json({
+			success: true,
+			notification: updated.toObject()
+		});
+	} catch (err) {
+		console.error("PATCH /activity-notifications/:id error:", err);
+		res.status(500).json({ error: "Failed to update activity notification" });
+	}
+};
+const deleteActivityNotification = async (req, res) => {
+	try {
+		const { id } = req.params;
+		if (!await ActivityNotification.findByIdAndDelete(id)) return res.status(404).json({ error: "Activity notification not found" });
+		res.json({ success: true });
+	} catch (err) {
+		console.error("DELETE /activity-notifications/:id error:", err);
+		res.status(500).json({ error: "Failed to delete activity notification" });
+	}
+};
+const getPendingNotificationCount = async (req, res) => {
+	try {
+		const { userId } = req.params;
+		if (req.user && String(req.user._id) !== userId && req.user.role !== "admin") return res.status(403).json({ error: "Unauthorized" });
+		const count = await ActivityNotification.countDocuments({
+			userId: new mongoose.Types.ObjectId(userId),
+			status: "pending"
+		});
+		res.json({
+			success: true,
+			count
+		});
+	} catch (err) {
+		console.error("GET /activity-notifications/count/:userId error:", err);
+		res.status(500).json({ error: "Failed to fetch notification count" });
+	}
+};
+var router = Router();
+router.post("/", createActivityNotification);
+router.get("/pending/:userId", protect, getPendingNotifications);
+router.get("/due/:userId", protect, getDueNotifications);
+router.get("/count/:userId", protect, getPendingNotificationCount);
+router.patch("/:id", protect, updateNotificationStatus);
+router.delete("/:id", protect, deleteActivityNotification);
+var activityNotification_default = router;
 var DEFAULT_BODY_LIMIT = process.env.EXPRESS_BODY_LIMIT || "10mb";
 const createBodyParsers = () => ({
 	json: express.json({ limit: DEFAULT_BODY_LIMIT }),
@@ -9438,7 +13903,7 @@ try {
 	console$1.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
 	console$1.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
 	console$1.log(`   Vercel URL: ${process.env.VERCEL_URL || "not set"}`);
-	console$1.log(`   MEDLOG_MONGO_URL: ${process.env.MEDLOG_MONGO_URL ? "✅ SET" : "❌ NOT SET"}`);
+	console$1.log(`   MONGODB_URI: ${process.env.MONGODB_URI ? "✅ SET" : "❌ NOT SET"}`);
 	console$1.log(`   JWT_SECRET: ${process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET"}`);
 	console$1.log(`   CLIENT_URL: ${process.env.CLIENT_URL || "not set"}\n`);
 } catch (err) {}
@@ -9448,18 +13913,46 @@ app.use(json);
 app.use(urlencoded);
 app.use(cookieParser());
 if (process.env.NODE_ENV === "development") app.use(morgan("dev"));
-var allowedOrigins = [
+var configuredOrigins = [
 	normalizeOrigin(process.env.CLIENT_URL),
 	normalizeOrigin(process.env.LOCAL_CLIENT_URL),
+	normalizeOrigin(process.env.FRONTEND_URL),
 	normalizeOrigin(process.env.VERCEL_URL),
 	"http://localhost:5173",
 	"https://localhost:5173",
 	"http://127.0.0.1:5173",
 	"https://127.0.0.1:5173"
 ].filter((origin) => origin !== null && origin !== "");
+var isAllowedOrigin = (origin) => {
+	if (!origin) return true;
+	const normalizedOrigin = normalizeOrigin(origin);
+	if (!normalizedOrigin) return true;
+	if (configuredOrigins.includes(normalizedOrigin)) return true;
+	try {
+		const hostname = new URL(normalizedOrigin).hostname;
+		return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".vercel.app") || hostname.endsWith(".fly.dev");
+	} catch {
+		return false;
+	}
+};
 app.use(cors({
-	origin: allowedOrigins,
-	credentials: true
+	origin: (origin, callback) => {
+		callback(null, isAllowedOrigin(origin));
+	},
+	credentials: true,
+	methods: [
+		"GET",
+		"POST",
+		"PUT",
+		"PATCH",
+		"DELETE",
+		"OPTIONS"
+	],
+	allowedHeaders: [
+		"Content-Type",
+		"Authorization",
+		"X-Requested-With"
+	]
 }));
 app.get("/", (req, res) => {
 	res.status(200).json({
@@ -9480,6 +13973,27 @@ app.use((req, res, next) => {
 	}, timeout);
 	res.on("finish", () => clearTimeout(timeoutId));
 	res.on("close", () => clearTimeout(timeoutId));
+	next();
+});
+app.use((req, res, next) => {
+	const requestPath = req.path || "/";
+	if (!(requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status"))) {
+		next();
+		return;
+	}
+	const label = `${req.method} ${req.originalUrl}`;
+	const startTime = Date.now();
+	console$1.info(`[ROUTE] enter ${label}`);
+	const finishLogger = () => {
+		const elapsed = Date.now() - startTime;
+		console$1.info(`[ROUTE] exit  ${label} status=${res.statusCode} duration=${elapsed}ms`);
+	};
+	const closeLogger = () => {
+		const elapsed = Date.now() - startTime;
+		console$1.warn(`[ROUTE] close ${label} status=${res.statusCode} duration=${elapsed}ms`);
+	};
+	res.once("finish", finishLogger);
+	res.once("close", closeLogger);
 	next();
 });
 app.use(async (req, res, next) => {
@@ -9516,7 +14030,9 @@ var mountRoutes = (prefix) => {
 	app.use(`${prefix}/exams`, exam_default);
 	app.use(`${prefix}/dashboard`, dashboard_default);
 	app.use(`${prefix}/attendance`, attendance_default);
+	app.use(`${prefix}/clinical-attendance`, clinicalAttendance_default);
 	app.use(`${prefix}/notifications`, notification_default);
+	app.use(`${prefix}/activity-notifications`, activityNotification_default);
 	app.use(`${prefix}/setup`, setup_default);
 	app.use(`${prefix}/og-ped-rotations`, for500LevelPostings_default);
 	app.use(`${prefix}/rotation-schedules`, rotationSchedules_default);
@@ -9571,13 +14087,16 @@ app.use((err, req, res, next) => {
 	});
 });
 if (!isVercelRuntime) connectDB().then(async () => {
+	await backfillMissingInns();
 	app.listen(PORT, () => {
 		console$1.log(`Server is running on http://localhost:${PORT}`);
 	});
 }).catch((error) => {
 	console$1.error("Failed to connect to the database:", error);
 });
-else connectDB().catch((error) => {
+else connectDB().then(async () => {
+	await backfillMissingInns();
+}).catch((error) => {
 	console$1.error("Failed to connect to the database on Vercel startup:", error);
 });
 var server_default = app;
@@ -9597,4 +14116,4 @@ try {
 	throw error;
 }
 var api_default = handler;
-export { init_classes as a, UserAcademicStatus as c, UserRole as d, api_default as default, init_user as f, handler, classes_default$1 as i, UserDepartmentRole as l, init_timetable as n, Notification as o, user_default$1 as p, timetable_default$1 as r, init_notification as s, academicYear_default$1 as t, UserIDs as u };
+export { init_user as _, rotationPlan_default as a, timetable_default$1 as c, Notification as d, api_default as default, init_notification as f, UserRole as g, UserIDs as h, handler, init_rotationPlan as i, classes_default$1 as l, UserDepartmentRole as m, rotationRunner_default as n, academicYear_default$1 as o, UserAcademicStatus as p, runRotationSnapshot as r, init_timetable as s, init_rotationRunner as t, init_classes as u, user_default$1 as v };

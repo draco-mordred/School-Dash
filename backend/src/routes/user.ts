@@ -1,5 +1,5 @@
 import express from "express";
-const userRoutes = express.Router(); 
+const userRoutes = express.Router();
 import {
     login,
     registerUser,
@@ -17,8 +17,6 @@ import {
     extractFromPDF,
     extractFromImage,
     isFirstUser,
-    requestPasswordReset,
-    resetPassword,
 } from "../controllers/user";
 import { protect, authorize } from "../middleware/auth";
 
