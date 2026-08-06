@@ -5,18 +5,24 @@ export async function selectSupervisorRoundRobin(key: string, candidateIds: stri
   if (!key) return null;
   if (!Array.isArray(candidateIds) || candidateIds.length === 0) return null;
 
-  // Ensure candidateIds are ObjectIds
-  const objIds = candidateIds.map((id) => new mongoose.Types.ObjectId(id));
+  const normalizedCandidates: any[] = candidateIds.map((id) => {
+    if (!id) return null;
+    if (mongoose.Types.ObjectId.isValid(id)) {
+      return new mongoose.Types.ObjectId(id);
+    }
+    return String(id);
+  }).filter((value): value is string => typeof value === 'string');
+
+  if (normalizedCandidates.length === 0) return null;
 
   let pool = await SupervisorPool.findOne({ key });
   if (!pool) {
-    pool = await SupervisorPool.create({ key, candidates: objIds, pointer: 0 });
+    pool = await SupervisorPool.create({ key, candidates: normalizedCandidates, pointer: 0 });
   } else {
-    // Ensure pool candidates match current candidates (replace if different)
     const poolIds = (pool.candidates || []).map((c: any) => String(c));
     const incomingIds = candidateIds.map(String);
     if (poolIds.length !== incomingIds.length || poolIds.some((p: string, i: number) => p !== incomingIds[i])) {
-      pool.candidates = objIds;
+      pool.candidates = normalizedCandidates;
       pool.pointer = 0;
     }
   }

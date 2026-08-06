@@ -12,7 +12,9 @@ type DeptConfig = {
   activeUnitIds?: string[];
   reserveUnitIds?: string[];
   departmentDurationWeeks?: number;
+  departmentDurationDays?: number;
   unitDurationWeeks?: number;
+  unitDurationDays?: number;
   useUnits?: boolean;
 };
 
@@ -30,12 +32,23 @@ type GenerateOpts = {
 
 type TimelineWindow = {
   phaseIndex: number;
+  phaseLabel?: string | null;
+  phaseDurationDays?: number;
+  phaseDurationWeeks?: number;
+  phaseDurationLabel?: string | null;
   departmentIndex: number;
   departmentId: string;
+  departmentName?: string | null;
+  departmentCode?: string | null;
   departmentGroupIndex: number;
+  departmentGroupLabel?: string | null;
   unitGroupIndex: number;
+  unitGroupLabel?: string | null;
   unitIndex: number;
   unitId: string | null;
+  unitName?: string | null;
+  unitCode?: string | null;
+  unitID?: string | null;
   studentIds: string[];
   startDate: string;
   endDate: string;
@@ -43,6 +56,9 @@ type TimelineWindow = {
   supervisorName?: string | null;
   departmentSupervisorId: string | null;
   departmentSupervisorName?: string | null;
+  spin?: string | null;
+  departmentSpin?: string | null;
+  unitSpin?: string | null;
 };
 
 type DepartmentGroup = {
@@ -155,6 +171,11 @@ const getUnitDurationDays = (dept: any) => {
   return Math.max(1, Number(dept.unitDurationWeeks) || 1) * 7;
 };
 
+const getPhaseDurationLabel = (days: number) => {
+  const weeks = Math.max(1, Math.ceil(days / 7));
+  return `${weeks} week${weeks === 1 ? '' : 's'}`;
+};
+
 const rankSupervisorCandidates = (users: SupervisorUser[]) => {
   return users
     .slice()
@@ -178,13 +199,13 @@ const getSupervisorName = async (supervisorId: string | null) => {
   }
 };
 
-const findDepartmentSupervisors = async (departmentDoc: any) => {
+const findDepartmentSupervisors = async (departmentDoc: any, assignedSet?: Set<string>) => {
   if (!departmentDoc) return [];
 
-  const roles = ['unitconsultant', 'unitresident', 'teacher', 'consultant', 'head', 'staff'];
+  // Only consider teachers for supervisor assignment; ignore existing isSupervisor flag
+  const roles = ['teacher'];
 
   const q: any = {
-    isSupervisor: true,
     role: { $in: roles },
     $or: [
       { departmentId: departmentDoc._id },
@@ -193,10 +214,19 @@ const findDepartmentSupervisors = async (departmentDoc: any) => {
       { department: departmentDoc.departmentID },
     ],
   };
-  return User.find(q).lean();
+
+  const candidates = await User.find(q).lean();
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+
+  if (assignedSet && assignedSet.size > 0) {
+    const filtered = candidates.filter((c: any) => !assignedSet.has(String(c._id)));
+    return filtered.length ? filtered : candidates;
+  }
+
+  return candidates;
 };
 
-const findUnitSupervisor = async (unit: any, departmentDoc: any) => {
+const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: Set<string>) => {
   if (!unit) return null;
 
   if (unit.supervisor) {
@@ -204,10 +234,10 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any) => {
     if (supervisor) return String(supervisor._id);
   }
 
-  const roles = ['unitconsultant', 'unitresident', 'teacher', 'consultant', 'head', 'staff'];
+  // Prefer teachers; ignore isSupervisor flag so teachers can be selected even if not pre-marked
+  const roles = ['teacher'];
 
   const query: any = {
-    isSupervisor: true,
     role: { $in: roles },
     $or: [],
   };
@@ -227,7 +257,15 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any) => {
     delete query.$or;
   }
 
-  const candidates = await User.find(query as any).lean();
+  let candidates = await User.find(query as any).lean();
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+
+  // Exclude already-assigned supervisors in this generation run when possible
+  if (assignedSet && assignedSet.size > 0) {
+    const filtered = candidates.filter((c: any) => !assignedSet.has(String(c._id)));
+    if (filtered.length) candidates = filtered;
+  }
+
   const candidateIds = candidates.map((c: any) => String(c._id));
   if (candidateIds.length === 0) return null;
 
@@ -236,30 +274,33 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any) => {
   if (poolKey) {
     try {
       const selected = await selectSupervisorRoundRobin(poolKey, candidateIds);
-      if (selected) return selected;
+      if (selected && (!assignedSet || !assignedSet.has(selected))) return selected;
     } catch (e) {
       console.warn('Round-robin supervisor selection failed', e);
     }
   }
 
-  // Fallback to ranking
+  // Fallback to ranking; prefer those not already assigned
   const ranked = rankSupervisorCandidates(candidates);
-  return ranked.length ? String(ranked[0]._id) : null;
+  const pick = ranked.find((r) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
+  return pick ? String(pick._id) : null;
 };
 
-const findBestDepartmentSupervisor = async (departmentDoc: any) => {
-  const candidates = await findDepartmentSupervisors(departmentDoc);
+const findBestDepartmentSupervisor = async (departmentDoc: any, assignedSet?: Set<string>) => {
+  const candidates = await findDepartmentSupervisors(departmentDoc, assignedSet);
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
   const candidateIds = candidates.map((c: any) => String(c._id));
   if (candidateIds.length === 0) return null;
   try {
     const selected = await selectSupervisorRoundRobin(`department:${String(departmentDoc._id)}`, candidateIds);
-    if (selected) return selected;
+    if (selected && (!assignedSet || !assignedSet.has(selected))) return selected;
   } catch (e) {
     console.warn('Round-robin department supervisor selection failed', e);
   }
 
   const ranked = rankSupervisorCandidates(candidates);
-  return ranked.length ? String(ranked[0]._id) : null;
+  const pick = ranked.find((r) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
+  return pick ? String(pick._id) : null;
 };
 
 export async function generateKrystaSchedule(opts: GenerateOpts) {
@@ -274,16 +315,19 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
 
   const deptGroups = splitIntoBuckets(studentIds, numDepartments);
   const timeline: TimelineWindow[] = [];
+  const assignedSupervisorIds = new Set<string>();
   const unvisitedUnits: { departmentIndex: number; unitIds: string[] }[] = [];
   const unvisitedUnitGroups: { departmentIndex: number; unitGroupIndex: number; usedUnitIds: string[]; unusedUnitIds: string[] }[] = [];
   const unassignedWindows: any[] = [];
-  const groupSupervisorMap = new Map<number, { supervisorId: string | null; supervisorName: string | null }>();
+  const groupSupervisorMap = new Map<number, { supervisorId: string | null; supervisorName: string | null; departmentSupervisorId: string | null; departmentSupervisorName: string | null }>();
   const phases: any[] = [];
 
   const phaseDurationDays = Math.max(
     ...departments.map((dept) => Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7),
     1
   );
+  const phaseDurationWeeks = Math.max(1, Math.ceil(phaseDurationDays / 7));
+  const phaseDurationLabel = getPhaseDurationLabel(phaseDurationDays);
 
   let phaseStart = new Date(startDate);
 
@@ -300,8 +344,11 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       const departmentGroup = deptGroups[assignedGroupIndex];
 
       const departmentDoc = await resolveDepartmentDocument(dept.departmentId);
-      const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc);
+      const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc, assignedSupervisorIds);
       const departmentSupervisorName = await getSupervisorName(departmentSupervisorId);
+      const departmentName = departmentDoc?.name || dept.departmentId;
+      const departmentCode = departmentDoc?.code || undefined;
+      const departmentIdentifier = departmentDoc?.departmentID || dept.departmentId;
       const unitMap = useUnits ? await resolveUnitMap(activeUnits) : new Map<string, any>();
       // Determine number of unit groups per department group (S / u)
       const studentCount = Array.isArray(departmentGroup.studentIds) ? departmentGroup.studentIds.length : 0;
@@ -310,6 +357,7 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       const unitGroups = useUnits
         ? splitIntoBuckets(departmentGroup.studentIds, unitGroupCount)
         : [];
+      const activeUnitNames = useUnits ? activeUnits.map((id) => unitMap.get(id)?.name || String(id)) : [];
 
       if (useUnits && activeUnits.length > 0) {
         // number of unit windows each group must complete within the department duration
@@ -335,16 +383,31 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
             const unitGroup = unitGroups[unitGroupIndex];
             const assignedUnitId = groupAssignedUnits[unitGroupIndex][windowIndex] ?? null;
             const unitDoc = assignedUnitId ? unitMap.get(assignedUnitId) || null : null;
-            const unitSupervisorId = await findUnitSupervisor(unitDoc, departmentDoc);
+            const unitSupervisorId = await findUnitSupervisor(unitDoc, departmentDoc, assignedSupervisorIds);
             const supervisorId = unitSupervisorId || departmentSupervisorId;
             const supervisorName = supervisorId ? (await getSupervisorName(supervisorId)) || departmentSupervisorName : departmentSupervisorName;
 
             const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
-            if (!existingSupervisor || (!existingSupervisor.supervisorName && supervisorName)) {
+            const preferredSupervisorId = departmentSupervisorId || supervisorId || null;
+            const preferredSupervisorName = departmentSupervisorName || supervisorName || null;
+            if (!existingSupervisor || (!existingSupervisor.departmentSupervisorName && departmentSupervisorName) || (!existingSupervisor.supervisorName && supervisorName)) {
               groupSupervisorMap.set(assignedGroupIndex, {
-                supervisorId: supervisorId || null,
-                supervisorName,
+                supervisorId: preferredSupervisorId,
+                supervisorName: preferredSupervisorName,
+                departmentSupervisorId,
+                departmentSupervisorName,
               });
+            }
+
+            // Mark this supervisor as assigned for the generation run so they are not reused
+            if (supervisorId) {
+              assignedSupervisorIds.add(String(supervisorId));
+              // best-effort: persist isSupervisor flag so external tools can see assigned supervisors
+              try {
+                await User.findByIdAndUpdate(supervisorId, { isSupervisor: true }).lean();
+              } catch (e) {
+                // ignore persistence failures during generation
+              }
             }
 
             // rotate student ordering per unit window so captain rotates
@@ -355,12 +418,23 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
 
             timeline.push({
               phaseIndex,
+              phaseLabel: `Phase ${phaseIndex + 1}`,
+              phaseDurationDays,
+              phaseDurationWeeks,
+              phaseDurationLabel,
               departmentIndex: deptSlotIndex,
               departmentId: dept.departmentId,
+              departmentName,
+              departmentCode,
               departmentGroupIndex: assignedGroupIndex,
+              departmentGroupLabel: `Department Group ${assignedGroupIndex + 1}`,
               unitGroupIndex,
+              unitGroupLabel: `Unit Group ${unitGroupIndex + 1}`,
               unitIndex,
               unitId: assignedUnitId,
+              unitName: unitDoc?.name || null,
+              unitCode: unitDoc?.code || null,
+              unitID: unitDoc?.unitID || null,
               studentIds: orderedStudents,
               startDate: windowStart.toISOString(),
               endDate: windowEnd.toISOString(),
@@ -399,21 +473,43 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         const supervisorName = departmentSupervisorName;
 
         const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
-        if (!existingSupervisor || (!existingSupervisor.supervisorName && supervisorName)) {
+        if (!existingSupervisor || (!existingSupervisor.departmentSupervisorName && departmentSupervisorName) || (!existingSupervisor.supervisorName && supervisorName)) {
           groupSupervisorMap.set(assignedGroupIndex, {
             supervisorId: departmentSupervisorId || null,
-            supervisorName,
+            supervisorName: departmentSupervisorName || null,
+            departmentSupervisorId,
+            departmentSupervisorName,
           });
+        }
+
+        if (departmentSupervisorId) {
+          assignedSupervisorIds.add(String(departmentSupervisorId));
+          try {
+            await User.findByIdAndUpdate(departmentSupervisorId, { isSupervisor: true }).lean();
+          } catch (e) {
+            // ignore
+          }
         }
 
         timeline.push({
           phaseIndex,
+          phaseLabel: `Phase ${phaseIndex + 1}`,
+          phaseDurationDays,
+          phaseDurationWeeks,
+          phaseDurationLabel,
           departmentIndex: deptSlotIndex,
           departmentId: dept.departmentId,
+          departmentName,
+          departmentCode,
           departmentGroupIndex: assignedGroupIndex,
+          departmentGroupLabel: `Department Group ${assignedGroupIndex + 1}`,
           unitGroupIndex: 0,
+          unitGroupLabel: 'Unit Group 1',
           unitIndex: 0,
           unitId: null,
+          unitName: null,
+          unitCode: null,
+          unitID: null,
           studentIds: departmentGroup.studentIds,
           startDate: windowStart.toISOString(),
           endDate: windowEnd.toISOString(),
@@ -441,6 +537,9 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
       phaseDepartments.push({
         departmentIndex: deptSlotIndex,
         departmentId: dept.departmentId,
+        departmentName,
+        departmentCode,
+        departmentIdentifier,
         departmentGroupIndex: assignedGroupIndex,
         studentIds: departmentGroup.studentIds,
         departmentSupervisorId,
@@ -448,12 +547,16 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         departmentDurationDays,
         unitDurationDays,
         activeUnitIds: activeUnits,
+        activeUnitNames,
       });
     }
 
     phases.push({
       phaseIndex,
       phaseName: `Phase ${phaseIndex + 1}`,
+      phaseDurationDays,
+      phaseDurationWeeks,
+      phaseDurationLabel,
       startDate: phaseStart.toISOString(),
       endDate: addDays(phaseStart, phaseDurationDays).toISOString(),
       departments: phaseDepartments,
@@ -462,22 +565,28 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
     phaseStart = addDays(phaseStart, phaseDurationDays);
   }
 
+  const createdByValue = createdBy && mongoose.Types.ObjectId.isValid(createdBy)
+    ? new mongoose.Types.ObjectId(createdBy)
+    : createdBy || undefined;
+
   const rotationPlan: any = {
     name,
     class: classId,
-    createdBy: createdBy ? new mongoose.Types.ObjectId(createdBy) : undefined,
+    createdBy: createdByValue,
     postings: [
       {
         name,
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         groups: deptGroups.map((g) => {
-          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null };
+          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null, departmentSupervisorId: null, departmentSupervisorName: null };
           return {
             groupId: null,
             group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` },
-            supervisor: supervisorInfo.supervisorId,
-            supervisorName: supervisorInfo.supervisorName || undefined,
+            supervisor: supervisorInfo.departmentSupervisorId || supervisorInfo.supervisorId || undefined,
+            supervisorName: supervisorInfo.departmentSupervisorName || supervisorInfo.supervisorName || undefined,
+            departmentSupervisor: supervisorInfo.departmentSupervisorId || undefined,
+            departmentSupervisorName: supervisorInfo.departmentSupervisorName || undefined,
           };
         }),
         meta: {

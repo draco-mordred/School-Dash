@@ -9,9 +9,52 @@ import { api } from "@/lib/api";
 import { buildTimelineWindowView, formatWindowDuration, getReferenceDisplayName } from "@/lib/rotationScheduleViews";
 import { toast } from "sonner";
 
+type RotationScheduleRecord = {
+  _id?: string;
+  name?: string;
+  createdAt?: string | Date;
+  generatedAt?: string | Date;
+  class?: string;
+  meta?: {
+    timeline?: Array<Record<string, unknown>>;
+  };
+  postings?: Array<Record<string, unknown>>;
+};
+
+type TimelineWindowRecord = {
+  id?: string;
+  startDate?: string | Date | null;
+  endDate?: string | Date | null;
+  phaseIndex?: number;
+  phaseLabel?: string | null;
+  phaseDurationLabel?: string | null;
+  departmentGroupIndex?: number;
+  departmentSpin?: string | null;
+  departmentSupervisorName?: string | null;
+  supervisorName?: string | null;
+  spin?: string | null;
+  studentIds?: Array<string | Record<string, unknown>>;
+  unitGroupLabel?: string | null;
+  unitGroupIndex?: number;
+  unitName?: string | null;
+  unitId?: string | null;
+  supervisorId?: string | null;
+  departmentName?: string | null;
+  departmentGroupLabel?: string | null;
+};
+
+type UnitGroupCard = {
+  key: string;
+  label: string;
+  windows: TimelineWindowRecord[];
+  spin: string | null;
+  studentIds: string[];
+  supervisorName: string;
+};
+
 export default function RotationSchedules() {
   const navigate = useNavigate();
-  const [schedules, setSchedules] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<RotationScheduleRecord[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -40,32 +83,32 @@ export default function RotationSchedules() {
         ]);
 
         const classList = Array.isArray(classesRes?.data?.classes)
-          ? classesRes.data.classes
+          ? (classesRes.data.classes as Array<Record<string, unknown>>)
           : Array.isArray(classesRes?.data)
-            ? classesRes.data
+            ? (classesRes.data as Array<Record<string, unknown>>)
             : Array.isArray(classesRes?.data?.data)
-              ? classesRes.data.data
+              ? (classesRes.data.data as Array<Record<string, unknown>>)
               : [];
         const studentList = Array.isArray(studentsRes?.data?.users)
-          ? studentsRes.data.users
+          ? (studentsRes.data.users as Array<Record<string, unknown>>)
           : Array.isArray(studentsRes?.data)
-            ? studentsRes.data
+            ? (studentsRes.data as Array<Record<string, unknown>>)
             : Array.isArray(studentsRes?.data?.data)
-              ? studentsRes.data.data
+              ? (studentsRes.data.data as Array<Record<string, unknown>>)
               : [];
 
-        const nextClassNameById = classList.reduce<Record<string, string>>((acc, cls: any) => {
+        const nextClassNameById = classList.reduce<Record<string, string>>((acc, cls) => {
           const id = cls?._id || cls?.id;
-          if (id && cls?.name) {
+          if (typeof id === "string" && cls?.name) {
             acc[String(id)] = String(cls.name);
           }
           return acc;
         }, {});
 
-        const nextStudentNameById = studentList.reduce<Record<string, string>>((acc, student: any) => {
+        const nextStudentNameById = studentList.reduce<Record<string, string>>((acc, student) => {
           const id = student?._id || student?.id;
           const name = student?.name || student?.fullName || student?.displayName;
-          if (id && name) {
+          if (typeof id === "string" && typeof name === "string" && name.trim()) {
             acc[String(id)] = String(name);
           }
           return acc;
@@ -115,7 +158,7 @@ export default function RotationSchedules() {
     departmentGroupLabel: string;
     departmentStartDate: Date | null;
     departmentEndDate: Date | null;
-    windows: any[];
+    windows: TimelineWindowRecord[];
     hasUnits: boolean;
     studentIds: string[];
   };
@@ -142,7 +185,7 @@ export default function RotationSchedules() {
     }
 
     const timeline = Array.isArray(selectedSchedule?.meta?.timeline) ? selectedSchedule.meta.timeline : [];
-    const phases = timeline.reduce((acc: Record<string, PhaseGroup>, currentWindow: any, index: number) => {
+    const phases = timeline.reduce<Record<string, PhaseGroup>>((acc, currentWindow, index) => {
       const view = buildTimelineWindowView(selectedSchedule, currentWindow, index);
       const phaseKey = `${view.phaseIndex ?? 0}`;
       if (!acc[phaseKey]) {
@@ -188,7 +231,7 @@ export default function RotationSchedules() {
       }
       department.windows.push(view);
       department.hasUnits = department.hasUnits || Boolean(view.unitId);
-      view.studentIds.forEach((studentId: any) => {
+      view.studentIds.forEach((studentId: string | Record<string, unknown>) => {
         const id = String(studentId);
         if (!department.studentIds.includes(id)) {
           department.studentIds.push(id);
@@ -262,7 +305,7 @@ export default function RotationSchedules() {
                 >
                   <button
                     type="button"
-                    onClick={() => setSelectedScheduleId(schedule._id)}
+                    onClick={() => setSelectedScheduleId(schedule._id ?? null)}
                     className={`flex-1 rounded-lg p-3 text-left transition ${selectedScheduleId === schedule._id ? "bg-primary/10" : "bg-background"}`}
                   >
                     <div className="font-medium">{schedule.name || "Rotation Schedule"}</div>
@@ -273,7 +316,7 @@ export default function RotationSchedules() {
                     size="sm"
                     className="h-9 w-9 rounded-full"
                     disabled={deleteLoading}
-                    onClick={() => handleDeleteSchedule(schedule._id)}
+                    onClick={() => handleDeleteSchedule(schedule._id ?? "")}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -294,11 +337,24 @@ export default function RotationSchedules() {
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Posting</p>
-                    <p className="mt-2 font-medium">{selectedSchedule.postings?.[0]?.name || selectedSchedule.name || "Posting"}</p>
+                    {(() => {
+                      const posting = selectedSchedule.postings?.[0] as Record<string, unknown> | undefined;
+                      const postingName = typeof posting?.name === "string" ? posting.name : selectedSchedule.name || "Posting";
+                      const postingSpin = typeof posting?.spin === "string" ? posting.spin : typeof (posting?.meta as Record<string, unknown> | undefined)?.spin === "string" ? (posting?.meta as Record<string, unknown>).spin : null;
+                      return (
+                        <>
+                          <p className="mt-2 font-medium">{postingName}</p>
+                          {postingSpin ? <div className="mt-1 text-xs text-muted-foreground">Posting SPIN: {String(postingSpin)}</div> : null}
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Date range</p>
-                    <p className="mt-2 font-medium">{formatDate(selectedSchedule.postings?.[0]?.startDate)} – {formatDate(selectedSchedule.postings?.[0]?.endDate)}</p>
+                    {(() => {
+                      const posting = selectedSchedule.postings?.[0] as Record<string, unknown> | undefined;
+                      return <p className="mt-2 font-medium">{formatDate(posting?.startDate as string | Date | null | undefined)} – {formatDate(posting?.endDate as string | Date | null | undefined)}</p>;
+                    })()}
                   </div>
                   <div className="rounded-2xl border border-border/70 bg-muted/40 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Timeline windows</p>
@@ -309,114 +365,171 @@ export default function RotationSchedules() {
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Posting groups</h3>
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {(selectedSchedule.postings?.[0]?.groups || []).map((g: any, gi: number) => {
-                      const groupData = g?.group || g || {};
-                      const spin = g?.spin ?? groupData.spin ?? null;
-                      const name = groupData.name || `Group ${gi + 1}`;
-                      const students = Array.isArray(groupData.students) ? groupData.students : (g?.studentIds || []);
-                      return (
-                        <div key={`group-${gi}`} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <div className="text-sm text-muted-foreground">{name}</div>
-                              <div className="mt-1 font-medium">Students: {students.length}</div>
+                    {(() => {
+                      const posting = selectedSchedule.postings?.[0] as Record<string, unknown> | undefined;
+                      const groups = Array.isArray(posting?.groups) ? (posting.groups as Array<Record<string, unknown>>) : [];
+                      return groups.map((g, gi) => {
+                        const groupData = (g?.group as Record<string, unknown> | undefined) || g || {};
+                        const spin = (g as Record<string, unknown>).spin ?? (groupData as Record<string, unknown>).spin ?? (groupData as Record<string, unknown>).departmentSpin ?? (groupData as Record<string, unknown>).unitSpin ?? null;
+                        const name = (groupData as Record<string, unknown>).name || `Group ${gi + 1}`;
+                        const students = Array.isArray((groupData as Record<string, unknown>).students) ? ((groupData as Record<string, unknown>).students as Array<string | Record<string, unknown>>) : ((g as Record<string, unknown>).studentIds as Array<string | Record<string, unknown>> | undefined) || [];
+                        return (
+                          <div key={`group-${gi}`} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div>
+                                <div className="text-sm text-muted-foreground">{String(name)}</div>
+                                <div className="mt-1 font-medium">Students: {students.length}</div>
+                              </div>
+                              {/* {spin ? (
+                                <Badge className="px-2 py-0.5 rounded-full text-xs font-semibold border border-primary/20 bg-primary/5 text-primary">{String(spin)}</Badge>
+                              ) : null} */}
                             </div>
-                            {spin ? (
-                              <Badge className="px-2 py-0.5 rounded-full text-xs font-semibold border border-primary/20 bg-primary/5 text-primary">{spin}</Badge>
-                            ) : null}
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </div>
 
                   <h3 className="text-lg font-semibold">Posting phases</h3>
                   <Accordion type="single" collapsible className="space-y-4">
-                    {phaseGroups.map((phase, phaseIndex) => (
+                    {phaseGroups.map((phase) => (
                       <AccordionItem key={phase.key} value={`phase-${phase.key}`}>
                         <AccordionTrigger className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex flex-col gap-2 sm:justify-between">
                             <div>
                               <p className="text-sm font-medium text-muted-foreground">{phase.phaseLabel}</p>
                               <p className="text-lg font-semibold">{phase.phaseDurationLabel}</p>
                               <p className="mt-1 text-sm text-muted-foreground">{formatDate(phase.phaseStartDate)} – {formatDate(phase.phaseEndDate)}</p>
                             </div>
-                            <div className="text-sm text-muted-foreground">Departments: {phase.departments.length}</div>
+                             <Badge variant="secondary" className="whitespace-nowrap text-sm">Departments: {phase.departments.length}</Badge>
                           </div>
                         </AccordionTrigger>
                         <AccordionContent>
                           <div className="space-y-4">
-                            {phase.departments.map((dept, deptIndex) => {
-                              const nextDepartment = phase.departments[deptIndex + 1]?.departmentName || "End of phase";
-                              return (
-                                <div key={dept.key} className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                                    <div>
-                                      <p className="text-sm font-medium text-muted-foreground">{dept.departmentName}</p>
-                                      <p className="text-lg font-semibold">{dept.departmentGroupLabel}</p>
-                                      <p className="mt-2 text-sm text-muted-foreground">Duration: {formatWindowDuration(dept.departmentStartDate, dept.departmentEndDate)}</p>
-                                      <p className="text-sm text-muted-foreground">{formatDate(dept.departmentStartDate)} – {formatDate(dept.departmentEndDate)}</p>
-                                    </div>
-                                  </div>
+                            <Accordion type="single" collapsible className="space-y-3">
+                              {phase.departments.map((dept) => {
+                                const postingGroups = Array.isArray((selectedSchedule.postings?.[0] as Record<string, unknown> | undefined)?.groups)
+                                  ? ((selectedSchedule.postings?.[0] as Record<string, unknown>).groups as Array<Record<string, unknown>>)
+                                  : [];
+                                const postingGroup = postingGroups[dept.departmentGroupIndex ?? 0] as Record<string, unknown> | undefined;
+                                const postingGroupData = (postingGroup?.group as Record<string, unknown> | undefined) || postingGroup || {};
+                                const departmentSupervisor = dept.windows.find((window) => Boolean(window.departmentSupervisorName))?.departmentSupervisorName || dept.windows[0]?.supervisorName || "Unassigned";
+                                const departmentSpinValue =
+                                  (postingGroup as Record<string, unknown> | undefined)?.departmentSpin
+                                  ?? (postingGroupData as Record<string, unknown>).departmentSpin
+                                  ?? (postingGroup as Record<string, unknown> | undefined)?.spin
+                                  ?? (postingGroupData as Record<string, unknown>).spin
+                                  ?? dept.windows.find((window) => Boolean(window.departmentSpin))?.departmentSpin
+                                  ?? dept.windows[0]?.spin
+                                  ?? null;
+                                const departmentSpin = typeof departmentSpinValue === "string" ? departmentSpinValue : null;
+                                const unitGroups = dept.hasUnits
+                                  ? Object.values(
+                                      dept.windows.reduce<Record<string, UnitGroupCard>>((acc, window) => {
+                                        const key = `${window.unitGroupLabel || window.unitGroupIndex || window.unitId || "unit"}`;
+                                        if (!acc[key]) {
+                                          acc[key] = {
+                                            key: `${dept.key}-${key}`,
+                                            label: window.unitGroupLabel || `Unit Group ${Number(window.unitGroupIndex ?? 0) + 1}`,
+                                            windows: [],
+                                            spin: window.spin || null,
+                                            studentIds: [],
+                                            supervisorName: window.supervisorName || "Unassigned",
+                                          };
+                                        }
+                                        acc[key].windows.push(window);
+                                        window.studentIds?.forEach((studentId) => {
+                                          const id = String(studentId);
+                                          if (!acc[key].studentIds.includes(id)) acc[key].studentIds.push(id);
+                                        });
+                                        if (!acc[key].spin && window.spin) acc[key].spin = window.spin;
+                                        if (acc[key].supervisorName === "Unassigned" && window.supervisorName) acc[key].supervisorName = window.supervisorName;
+                                        return acc;
+                                      }, {}),
+                                    )
+                                  : [];
 
-                                  {dept.hasUnits ? (
-                                    <div className="mt-4 grid gap-4">
-                                      {dept.windows
-                                        .slice()
-                                        .sort((a, b) => Number(a.startDate?.getTime?.() ?? 0) - Number(b.startDate?.getTime?.() ?? 0))
-                                        .map((window) => (
-                                          <div key={window.id} className="rounded-2xl border border-border/70 bg-muted/40 p-4">
-                                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                                              <div>
-                                                <p className="font-medium">{window.unitGroupLabel}</p>
-                                                <p className="text-sm text-muted-foreground">Unit: {window.unitName}</p>
-                                                {window.spin ? (
-                                                  <div className="mt-2">
-                                                    <Badge className="px-2 py-0.5 rounded-full text-xs font-semibold border border-primary/20 bg-primary/5 text-primary">SPIN: {window.spin}</Badge>
-                                                  </div>
+                                return (
+                                  <AccordionItem key={dept.key} value={`dept-${dept.key}`} className="rounded-2xl border border-border/70 bg-background p-0 shadow-sm">
+                                    <AccordionTrigger className="px-4 py-4 text-left hover:no-underline">
+                                      <div className="flex w-full items-start justify-between gap-4">
+                                        <div className="min-w-0 text-left">
+                                          <p className="text-sm font-medium text-muted-foreground">{dept.departmentName}</p>
+                                          <p className="text-lg font-semibold">{dept.departmentGroupLabel}</p>
+                                          <p className="mt-2 text-sm text-muted-foreground">Duration: {formatWindowDuration(dept.departmentStartDate, dept.departmentEndDate)}</p>
+                                          <p className="text-sm text-muted-foreground">Supervisor: {departmentSupervisor}</p>
+                                        </div>
+                                        <div className="flex flex-wrap items-center justify-end gap-2 text-right">
+                                          {departmentSpin ? (
+                                            <Badge className="whitespace-nowrap border border-primary/20 bg-primary/5 text-primary">SPIN: {departmentSpin}</Badge>
+                                          ) : null}
+                                          <Badge variant="secondary" className="whitespace-nowrap">{dept.departmentGroupLabel}</Badge>
+                                        </div>
+                                      </div>
+                                    </AccordionTrigger>
+                                    <AccordionContent className="px-4 pb-4">
+                                      <div className="space-y-3">
+                                        {dept.hasUnits && unitGroups.length > 0 ? (
+                                          unitGroups.map((unitGroup) => (
+                                            <div key={unitGroup.key} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                                              <Accordion type="single" collapsible>
+                                                <AccordionItem value={`unit-${unitGroup.key}`} className="border-0">
+                                                  <AccordionTrigger className="px-0 py-0 text-left hover:no-underline">
+                                                    <div className="flex w-full items-start justify-between gap-4">
+                                                      <div className="min-w-0 text-left">
+                                                        <p className="font-medium">{unitGroup.label}</p>
+                                                        <p className="mt-1 text-sm text-muted-foreground">Supervisor: {unitGroup.supervisorName} • Students: {unitGroup.studentIds.length}</p>
+                                                      </div>
+                                                      <div className="flex flex-wrap items-center justify-end gap-2 text-right">
+                                                        <Badge variant="outline" className="whitespace-nowrap">{unitGroup.label}</Badge>
+                                                        {unitGroup.spin ? (
+                                                          <Badge className="whitespace-nowrap border border-primary/20 bg-primary/5 text-primary">SPIN: {unitGroup.spin}</Badge>
+                                                        ) : null}
+                                                      </div>
+                                                    </div>
+                                                  </AccordionTrigger>
+                                                  <AccordionContent className="pt-3">
+                                                    <div className="flex flex-wrap gap-2">
+                                                      {unitGroup.studentIds.map((student: string | Record<string, unknown>, index: number) => {
+                                                        const studentName = getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`);
+                                                        const studentId = typeof student === "string" ? student : (student?._id || student?.id || "");
+                                                        return (
+                                                          <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
+                                                            {studentId ? `${studentName} (${studentId})` : studentName}
+                                                          </span>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  </AccordionContent>
+                                                </AccordionItem>
+                                              </Accordion>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <p className="text-sm font-medium">Students in this department group</p>
+                                              <div className="flex flex-wrap items-center gap-2">
+                                                {departmentSpin ? (
+                                                  <Badge className="whitespace-nowrap border border-primary/20 bg-primary/5 text-primary">SPIN: {departmentSpin}</Badge>
                                                 ) : null}
-                                                <p className="mt-2 text-sm text-muted-foreground">{formatDate(window.startDate)} – {formatDate(window.endDate)}</p>
-                                                <p className="text-sm text-muted-foreground">Duration: {window.durationLabel}</p>
-                                              </div>
-                                              <div className="text-sm text-muted-foreground">
-                                                <div>Supervisor: {window.supervisorName}</div>
-                                                <div>Students: {window.studentCount}</div>
                                               </div>
                                             </div>
-                                            {window.studentIds.length ? (
-                                              <div className="mt-3">
-                                                <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Students in this unit group</p>
-                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                  {window.studentIds.map((student: any, index: number) => {
-                                                    const studentName = getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`);
-                                                    const studentId = typeof student === "string" ? student : (student?._id || student?.id || "");
-                                                    return (
-                                                      <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
-                                                        {studentId ? `${studentName} (${studentId})` : studentName}
-                                                      </span>
-                                                    );
-                                                  })}
-                                                </div>
-                                              </div>
-                                            ) : null}
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                              {dept.studentIds.map((student: string, index: number) => (
+                                                <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
+                                                  {getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`)}
+                                                </span>
+                                              ))}
+                                            </div>
                                           </div>
-                                        ))}
-                                    </div>
-                                  ) : (
-                                    <div className="mt-4 rounded-2xl border border-border/70 bg-muted/40 p-4">
-                                      <p className="text-sm text-muted-foreground">No units enabled for this department in this phase.</p>
-                                      <div className="mt-3 flex flex-wrap gap-2">
-                                        {dept.studentIds.map((student: any, index: number) => (
-                                          <span key={`${student}-${index}`} className="rounded-full border border-border/70 bg-background px-3 py-1 text-sm">
-                                            {getReferenceDisplayName(student, studentNameById, `Student ${index + 1}`)}
-                                          </span>
-                                        ))}
+                                        )}
                                       </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                                    </AccordionContent>
+                                  </AccordionItem>
+                                );
+                              })}
+                            </Accordion>
                           </div>
                         </AccordionContent>
                       </AccordionItem>

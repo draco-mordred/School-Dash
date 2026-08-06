@@ -117,16 +117,44 @@ export function buildTimelineWindowView(schedule: any, window: any, index: numbe
   const now = new Date();
   const status = startDate && endDate ? (startDate > now ? "upcoming" : endDate < now ? "completed" : "current") : "pending";
 
-  const departmentName = getDepartmentDisplayName(window?.departmentId, window?.departmentName, window?.departmentCode);
+  const departmentSource = window?.department || window?.departmentInfo || null;
+  const unitSource = window?.unit || window?.unitInfo || null;
+  const unitGroupSource = window?.unitGroup || window?.unitGroupInfo || null;
+
+  const departmentName = getDepartmentDisplayName(
+    window?.departmentId ?? departmentSource?.departmentId ?? departmentSource?.id ?? null,
+    window?.departmentName ?? departmentSource?.name ?? null,
+    window?.departmentCode ?? departmentSource?.code ?? null,
+  );
   const defaultUnitLabel = `Unit ${Number(window?.unitGroupIndex ?? 0) + 1}`;
-  const unitNameValue = window?.unitName ? getFriendlyUnitName(window.unitName, defaultUnitLabel) : getFriendlyUnitName(window?.unitId, defaultUnitLabel);
-  const unitGroupLabel = window?.unitId && window?.unitName ? `${unitNameValue} (${window.unitId})` : unitNameValue;
-  const phaseLabel = typeof window?.phaseLabel === 'string' ? window.phaseLabel : `Phase ${Number(window?.phaseIndex ?? window?.departmentIndex ?? 0) + 1}`;
-  const phaseDurationLabel = typeof window?.phaseDurationLabel === 'string'
+  const unitNameValue = getFriendlyUnitName(
+    window?.unitName ?? unitSource?.name ?? unitSource?.unitName ?? null,
+    getFriendlyUnitName(window?.unitId ?? unitSource?.id ?? unitSource?.unitId ?? unitSource?.unitID ?? null, defaultUnitLabel),
+  );
+  const unitGroupName = getFriendlyUnitName(
+    window?.unitGroupName ?? unitGroupSource?.name ?? unitGroupSource?.unitGroupName ?? null,
+    null,
+  );
+  const unitGroupLabel = unitGroupName
+    ? unitGroupName
+    : window?.unitId && unitNameValue && unitNameValue !== defaultUnitLabel
+      ? `${unitNameValue} (${window.unitId})`
+      : unitNameValue;
+  const phaseLabel = typeof window?.phaseLabel === 'string'
+    ? window.phaseLabel
+    : typeof window?.phaseName === 'string'
+      ? window.phaseName
+      : `Phase ${Number(window?.phaseIndex ?? window?.departmentIndex ?? 0) + 1}`;
+  const phaseDurationLabel = typeof window?.phaseDurationLabel === 'string' && window.phaseDurationLabel.trim()
     ? window.phaseDurationLabel
-    : typeof window?.phaseDurationWeeks === 'number'
+    : typeof window?.phaseDurationWeeks === 'number' && Number.isFinite(window.phaseDurationWeeks)
       ? `${window.phaseDurationWeeks} week${window.phaseDurationWeeks === 1 ? '' : 's'}`
-      : 'Phase duration pending';
+      : typeof window?.phaseDurationDays === 'number' && Number.isFinite(window.phaseDurationDays)
+        ? `${Math.max(1, Math.ceil(window.phaseDurationDays / 7))} week${Math.max(1, Math.ceil(window.phaseDurationDays / 7)) === 1 ? '' : 's'}`
+        : 'Phase duration pending';
+  const departmentGroupLabel = typeof window?.departmentGroupLabel === 'string'
+    ? window.departmentGroupLabel
+    : `Department Group ${Number(window?.departmentGroupIndex ?? 0) + 1}`;
 
   return {
     id: `${schedule?._id ?? "schedule"}-${index}`,
@@ -135,10 +163,10 @@ export function buildTimelineWindowView(schedule: any, window: any, index: numbe
     phaseLabel,
     phaseDurationLabel,
     departmentName,
-    departmentGroupLabel: `Department Group ${Number(window?.departmentGroupIndex ?? 0) + 1}`,
+    departmentGroupLabel,
     unitGroupLabel,
     unitName: unitNameValue,
-    unitId: window?.unitId ?? null,
+    unitId: window?.unitId ?? unitSource?.id ?? unitSource?.unitId ?? unitSource?.unitID ?? null,
     startDate,
     endDate,
     status,
@@ -147,7 +175,9 @@ export function buildTimelineWindowView(schedule: any, window: any, index: numbe
     studentIds,
     matchesStudent,
     supervisorName: window?.supervisorName || (window?.supervisorId ? String(window.supervisorId) : "Unassigned"),
-    spin: window?.spin ?? (window?.group?.spin ?? null),
+    departmentSupervisorName: window?.departmentSupervisorName || window?.departmentSupervisor?.name || null,
+    departmentSpin: window?.departmentSpin ?? window?.group?.departmentSpin ?? window?.department?.departmentSpin ?? null,
+    spin: window?.spin ?? window?.group?.spin ?? null,
     rawWindow: window,
   };
 }

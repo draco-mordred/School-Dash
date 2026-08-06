@@ -9749,6 +9749,9 @@ async function generateKrystaSchedule(opts) {
 			const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc);
 			const departmentSupervisorName = await getSupervisorName(departmentSupervisorId);
 			const unitMap = useUnits ? await resolveUnitMap(activeUnits) : /* @__PURE__ */ new Map();
+			const departmentName = departmentDoc?.name || null;
+			const departmentCode = departmentDoc?.code || null;
+			const departmentIdentifier = departmentDoc?.departmentID || dept.departmentId || null;
 			const studentCount = Array.isArray(departmentGroup.studentIds) ? departmentGroup.studentIds.length : 0;
 			const unitCount = Math.max(1, activeUnits.length);
 			const unitGroupCount = Math.max(1, Math.ceil(studentCount / unitCount));
@@ -9770,7 +9773,11 @@ async function generateKrystaSchedule(opts) {
 					for (let unitGroupIndex = 0; unitGroupIndex < unitGroups.length; unitGroupIndex++) {
 						const unitGroup = unitGroups[unitGroupIndex];
 						const assignedUnitId = groupAssignedUnits[unitGroupIndex][windowIndex] ?? null;
-						const supervisorId = await findUnitSupervisor(assignedUnitId ? unitMap.get(assignedUnitId) || null : null, departmentDoc) || departmentSupervisorId;
+						const unitDoc = assignedUnitId ? unitMap.get(assignedUnitId) || null : null;
+						const unitName = unitDoc?.name || assignedUnitId || null;
+						const unitCode = unitDoc?.code || null;
+						const unitIdentifier = unitDoc?.unitID || assignedUnitId || null;
+						const supervisorId = await findUnitSupervisor(unitDoc, departmentDoc) || departmentSupervisorId;
 						const supervisorName = supervisorId ? await getSupervisorName(supervisorId) || departmentSupervisorName : departmentSupervisorName;
 						const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
 						if (!existingSupervisor || !existingSupervisor.supervisorName && supervisorName) groupSupervisorMap.set(assignedGroupIndex, {
@@ -9783,10 +9790,16 @@ async function generateKrystaSchedule(opts) {
 							phaseIndex,
 							departmentIndex: deptSlotIndex,
 							departmentId: dept.departmentId,
+							departmentName,
+							departmentCode,
+							departmentID: departmentIdentifier,
 							departmentGroupIndex: assignedGroupIndex,
 							unitGroupIndex,
 							unitIndex,
-							unitId: assignedUnitId,
+							unitId: unitDoc?._id ? String(unitDoc._id) : assignedUnitId,
+							unitName,
+							unitCode,
+							unitIdentifier,
 							studentIds: orderedStudents,
 							startDate: windowStart.toISOString(),
 							endDate: windowEnd.toISOString(),
@@ -9844,6 +9857,9 @@ async function generateKrystaSchedule(opts) {
 					phaseIndex,
 					departmentIndex: deptSlotIndex,
 					departmentId: dept.departmentId,
+					departmentName,
+					departmentCode,
+					departmentID: departmentIdentifier,
 					departmentGroupIndex: assignedGroupIndex,
 					unitGroupIndex: 0,
 					unitIndex: 0,

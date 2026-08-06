@@ -45,9 +45,28 @@ export function generateSpinBase(name: string) {
   return base;
 }
 
-function formatSuffix(n: number) {
-  if (n < 100) return n.toString().padStart(2, '0');
-  return n.toString();
+function formatSuffix(n: number, width = 3) {
+  return n.toString().padStart(width, '0');
+}
+
+function getDateSpinSegments(dateValue?: string | Date | null) {
+  const date = dateValue ? (dateValue instanceof Date ? dateValue : new Date(dateValue)) : new Date();
+  if (Number.isNaN(date.getTime())) return { month: '00', day: '00', yearShort: '00', yearLong: '0000' };
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(date.getUTCDate()).padStart(2, '0');
+  const yyyy = String(date.getUTCFullYear());
+  const yy = yyyy.slice(-2);
+  return { month: mm, day: dd, yearShort: yy, yearLong: yyyy };
+}
+
+function buildPostingDateSuffix(dateValue?: string | Date | null) {
+  const { month, day, yearShort, yearLong } = getDateSpinSegments(dateValue);
+  return `${month}.${day}.${yearShort}.${yearLong}`;
+}
+
+function buildGroupDateSuffix(dateValue?: string | Date | null) {
+  const { month, day, yearShort } = getDateSpinSegments(dateValue);
+  return `${month}.${day}.${yearShort}`;
 }
 
 async function getExistingSpinsForClass(classId?: string) {
@@ -98,12 +117,54 @@ export async function generatePostingSpinsForPayload(classId: string | undefined
       suffix++;
     }
     assigned[base].add(suffix);
-    p.spin = `${base}${formatSuffix(suffix)}`;
+    const dateSuffix = buildPostingDateSuffix(p.startDate || p.createdAt || null);
+    p.spin = `${base}${formatSuffix(suffix, 3)}.${dateSuffix}`;
   }
 
   // after assigning posting spins, also assign department and unit spins deterministically
   assignDepartmentAndUnitSpins(postings);
   return postings;
+}
+
+export function attachSpinMetadataToTimeline(timeline: any[], postings: any[]) {
+  if (!Array.isArray(timeline)) return timeline;
+
+  const timelineByPosting = new Map<string, any[]>();
+  for (const window of timeline) {
+    const postingName = String(window?.postingName || window?.posting?.name || '');
+    if (!postingName) continue;
+    const windows = timelineByPosting.get(postingName) || [];
+    windows.push(window);
+    timelineByPosting.set(postingName, windows);
+  }
+
+  for (const posting of postings) {
+    const postingName = String(posting?.name || '');
+    const postingSpin = posting?.spin || posting?.spinBase || generateSpinBase(postingName);
+    const postingWindows = postingName ? timelineByPosting.get(postingName) || [] : [];
+    const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+
+    groups.forEach((groupEntry: any, groupIndex: number) => {
+      const groupData = groupEntry?.group || groupEntry || {};
+      const departmentSpin = groupData.departmentSpin || null;
+      const unitSpin = groupData.unitSpin || null;
+      const matchingWindows = postingWindows.filter((window: any) => Number(window?.departmentGroupIndex ?? 0) === groupIndex);
+
+      matchingWindows.forEach((window: any) => {
+        if (postingSpin) window.spin = postingSpin;
+        if (departmentSpin) window.departmentSpin = departmentSpin;
+        if (unitSpin) window.unitSpin = unitSpin;
+      });
+    });
+
+    if (postingSpin) {
+      postingWindows.forEach((window: any) => {
+        window.spin = postingSpin;
+      });
+    }
+  }
+
+  return timeline;
 }
 
 export function assignDepartmentAndUnitSpins(postings: any[]) {
@@ -124,13 +185,14 @@ export function assignDepartmentAndUnitSpins(postings: any[]) {
         unitMap[deptName] = {};
       }
       const deptIndex = deptMap[deptName];
-      const deptSpin = `${baseSpin}-DPT${String(deptIndex).padStart(3, '0')}`;
+      const groupDateSuffix = buildGroupDateSuffix(p.startDate || p.createdAt || null);
+      const deptSpin = `${baseSpin}-DPT${String(deptIndex).padStart(3, '0')}.${groupDateSuffix}`;
       groupObj.departmentSpin = deptSpin;
 
       const unitName = (groupObj.name || `Unit${i+1}`).toString();
       unitMap[deptName][unitName] = unitMap[deptName][unitName] || (Object.keys(unitMap[deptName]).length + 1);
       const unitIndex = unitMap[deptName][unitName];
-      const unitSpin = `${baseSpin}-UNT${String(unitIndex).padStart(3, '0')}`;
+      const unitSpin = `${baseSpin}-UNT${String(unitIndex).padStart(3, '0')}.${groupDateSuffix}`;
       groupObj.unitSpin = unitSpin;
 
       // write back

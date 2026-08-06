@@ -184,6 +184,7 @@ const Classes = () => {
               {classes.map((cls) => {
                 const studentCount = Array.isArray(cls.students) ? cls.students.length : 0;
                 const subjectCount = Array.isArray(cls.subjects) ? cls.subjects.length : 0;
+                const teacherName = cls.classTeacher?.name ?? "Not assigned";
                 return (
                   <div
                     key={cls._id}
@@ -207,7 +208,22 @@ const Classes = () => {
                       <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
                         <div className="rounded-lg border bg-background/70 p-3">
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">Teacher</div>
-                          <div className="mt-1 font-medium">{cls.classTeacher?.name ?? "Not assigned"}</div>
+                          <div className="mt-1 overflow-hidden">
+                            <div className="marquee-clip w-full overflow-hidden text-left">
+                              <div
+                                className="marquee-track inline-flex min-w-max items-center whitespace-nowrap marquee-animate"
+                                style={{
+                                  "--marquee-distance": "220px",
+                                  "--marquee-duration": "9s",
+                                } as React.CSSProperties}
+                              >
+                                <span className="marquee-item inline-flex pr-8 font-medium">{teacherName}</span>
+                                <span className="marquee-item inline-flex pr-8 font-medium" aria-hidden="true">
+                                  {teacherName}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                         <div className="rounded-lg border bg-background/70 p-3">
                           <div className="text-xs uppercase tracking-wide text-muted-foreground">Capacity</div>

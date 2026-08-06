@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ChevronLeft } from "lucide-react";
+import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
 
 export default function RotationScheduleDetail() {
   const { id } = useParams();
@@ -44,6 +45,41 @@ export default function RotationScheduleDetail() {
       }
     })();
   }, [id]);
+
+  const timelineViews = useMemo(() => {
+    if (!schedule?.meta?.timeline) return [] as any[];
+    return (schedule.meta.timeline as any[]).map((window: any, index: number) => buildTimelineWindowView(schedule, window, index));
+  }, [schedule]);
+
+  const phaseGroups = useMemo(() => {
+    const groups: Record<string, any> = {};
+    timelineViews.forEach((view: any) => {
+      const phaseKey = `${view.phaseIndex ?? 0}`;
+      if (!groups[phaseKey]) {
+        groups[phaseKey] = {
+          key: phaseKey,
+          phaseLabel: view.phaseLabel,
+          departments: {},
+        };
+      }
+      const phase = groups[phaseKey];
+      const departmentKey = `${view.departmentName}-${view.departmentGroupLabel}`;
+      if (!phase.departments[departmentKey]) {
+        phase.departments[departmentKey] = {
+          key: departmentKey,
+          departmentName: view.departmentName,
+          departmentGroupLabel: view.departmentGroupLabel,
+          windows: [],
+        };
+      }
+      phase.departments[departmentKey].windows.push(view);
+    });
+
+    return Object.values(groups).map((phase: any) => ({
+      ...phase,
+      departments: Object.values(phase.departments).sort((a: any, b: any) => String(a.departmentGroupLabel).localeCompare(String(b.departmentGroupLabel))),
+    }));
+  }, [timelineViews]);
 
   if (!schedule) return <div className="ml-8 mt-10">Loading...</div>;
 
@@ -126,6 +162,51 @@ export default function RotationScheduleDetail() {
       <div className="grid grid-cols-1 gap-4 mt-4">
             <Card className="w-full mx-auto">
               <CardContent>
+                <h3 className="font-medium">Timeline structure</h3>
+                <div className="mt-3 space-y-4">
+                  {phaseGroups.map((phase: any) => (
+                    <div key={phase.key} className="rounded-lg border bg-muted/20 p-3">
+                      <div className="font-semibold">{phase.phaseLabel}</div>
+                      <div className="mt-3 space-y-3">
+                        {phase.departments.map((department: any) => (
+                          <div key={department.key} className="rounded-md border bg-background p-3">
+                            <div className="font-medium">{department.departmentName} · {department.departmentGroupLabel}</div>
+                            <div className="mt-3 space-y-2">
+                              {department.windows.map((window: any) => (
+                                <div key={window.id} className="rounded-md border p-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div>
+                                      <div className="font-medium">{window.unitGroupLabel}</div>
+                                      <div className="text-sm text-muted-foreground">{window.unitName || 'Unassigned unit'}</div>
+                                    </div>
+                                    <div className="text-sm text-muted-foreground">Supervisor: {window.supervisorName || 'Unassigned'}</div>
+                                  </div>
+                                  {window.spin ? <div className="mt-2 text-xs text-muted-foreground">SPIN: {window.spin}</div> : null}
+                                  {window.phaseDurationLabel ? <div className="mt-2 text-xs text-muted-foreground">Phase duration: {window.phaseDurationLabel}</div> : null}
+                                  <div className="mt-2 text-sm text-muted-foreground">{safeFormat(window.startDate, 'MMM d')} – {safeFormat(window.endDate, 'MMM d')}</div>
+                                  {window.studentIds?.length ? (
+                                    <div className="mt-2 text-sm">
+                                      <div className="font-medium">Students</div>
+                                      <div className="mt-1 flex flex-wrap gap-2">
+                                        {window.studentIds.map((student: any, index: number) => (
+                                          <span key={`${student}-${index}`} className="rounded-full border px-2 py-1 text-xs">{String(student)}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="w-full mx-auto">
+              <CardContent>
                 <h3 className="font-medium">Postings</h3>
                 <div className="mt-3">
                   {/* Group postings by category */}
@@ -162,7 +243,7 @@ export default function RotationScheduleDetail() {
                                     <div className="grid grid-cols-1 md:grid-cols-[2fr_1fr_2fr_160px] gap-4">
                                       <div>
                                         <div className="text-lg font-semibold">{p.name} — {p.category}</div>
-                                        {p.spin && <div className="text-xs text-muted-foreground">SPIN: {p.spin}</div>}
+                                        {(p.spin || p?.meta?.spin) && <div className="text-xs text-muted-foreground">SPIN: {p.spin || p?.meta?.spin}</div>}
                                         <div className="text-sm text-muted-foreground">Duration: {safeFormat(p?.startDate, 'PPP')} — {safeFormat(p?.endDate, 'PPP')}</div>
                                       </div>
                                       <div />
@@ -280,11 +361,11 @@ export default function RotationScheduleDetail() {
                                                 <div>
                                                   <div className="font-medium">{group?.name || group?._id}</div>
                                                   <div className="text-xs text-muted-foreground">Supervisor: {group?.supervisor?.name || group?.supervisor || 'TBA'}</div>
-                                                  {(group?.departmentSpin || group?.unitSpin) && (
+                                                  {((group?.departmentSpin || group?.unitSpin || group?.group?.departmentSpin || group?.group?.unitSpin || pg?.departmentSpin || pg?.group?.departmentSpin || pg?.group?.unitSpin)) && (
                                                     <div className="text-xs text-muted-foreground mt-1">
-                                                      {group?.departmentSpin ? `Dept SPIN: ${group.departmentSpin}` : ''}
-                                                      {group?.departmentSpin && group?.unitSpin ? ' • ' : ''}
-                                                      {group?.unitSpin ? `Unit SPIN: ${group.unitSpin}` : ''}
+                                                      {(group?.departmentSpin || group?.group?.departmentSpin || pg?.departmentSpin || pg?.group?.departmentSpin) ? `Dept SPIN: ${group?.departmentSpin || group?.group?.departmentSpin || pg?.departmentSpin || pg?.group?.departmentSpin}` : ''}
+                                                      {((group?.departmentSpin || group?.group?.departmentSpin || pg?.departmentSpin || pg?.group?.departmentSpin) && (group?.unitSpin || group?.group?.unitSpin || pg?.unitSpin || pg?.group?.unitSpin)) ? ' • ' : ''}
+                                                      {(group?.unitSpin || group?.group?.unitSpin || pg?.unitSpin || pg?.group?.unitSpin) ? `Unit SPIN: ${group?.unitSpin || group?.group?.unitSpin || pg?.unitSpin || pg?.group?.unitSpin}` : ''}
                                                     </div>
                                                   )}
                                                 </div>

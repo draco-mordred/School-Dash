@@ -42,6 +42,36 @@ describe("rotation schedule view helpers", () => {
     expect(view.supervisorName).toBe("Dr. Ada");
   });
 
+  it("uses nested department, unit, and spin metadata when present", () => {
+    const view = buildTimelineWindowView(
+      { _id: "schedule-1", name: "Posting A", postings: [{ name: "Posting A" }] },
+      {
+        startDate: "2026-07-01T00:00:00.000Z",
+        endDate: "2026-07-07T00:00:00.000Z",
+        phaseIndex: 0,
+        phaseLabel: "Phase 1",
+        departmentGroupIndex: 2,
+        department: { name: "Department of Pediatrics", code: "PAE" },
+        unitGroupIndex: 1,
+        unitGroup: { name: "Neonatal Unit" },
+        unit: { name: "Cardiology", code: "CARD", unitID: "U-10" },
+        studentIds: ["student-1"],
+        supervisorName: "Dr. Ada",
+        departmentSupervisorName: "Dr. Ada",
+        departmentSpin: "ABC123-DPT001",
+        spin: "ABC123",
+      },
+      0,
+    );
+
+    expect(view.departmentName).toBe("Department of Pediatrics (PAE)");
+    expect(view.unitName).toBe("Cardiology");
+    expect(view.unitGroupLabel).toBe("Neonatal Unit");
+    expect(view.spin).toBe("ABC123");
+    expect(view.departmentSupervisorName).toBe("Dr. Ada");
+    expect(view.departmentSpin).toBe("ABC123-DPT001");
+  });
+
   it("resolves display names from object IDs and populated objects", () => {
     expect(getReferenceDisplayName("64f8e1c2f1a2b3c4d5e6f7a8", { "64f8e1c2f1a2b3c4d5e6f7a8": "Ada Lovelace" })).toBe("Ada Lovelace");
     expect(getReferenceDisplayName({ _id: "student-2", name: "Grace Hopper" }, {}, "Student")).toBe("Grace Hopper");

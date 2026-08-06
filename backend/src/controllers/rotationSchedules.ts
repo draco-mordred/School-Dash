@@ -3,6 +3,7 @@ import RotationPlan from '../models/rotationPlan';
 import User from '../models/user';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
+import { attachSpinMetadataToTimeline, generatePostingSpinsForPayload } from '../utils/spinGenerator';
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -30,8 +31,27 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
           postingScheduleId: payload.postingScheduleId,
         });
 
-        // merge any additional meta and persist
-        const doc = await RotationPlan.create(planObj);
+        await generatePostingSpinsForPayload(planObj.class, planObj.postings || []);
+        const timeline = Array.isArray(planObj.meta?.timeline) ? planObj.meta.timeline : [];
+        attachSpinMetadataToTimeline(timeline, planObj.postings || []);
+
+        const doc = await RotationPlan.create({
+          ...planObj,
+          meta: {
+            ...(planObj.meta || {}),
+            timeline,
+            phases: Array.isArray(planObj.meta?.phases) ? planObj.meta.phases : [],
+            unvisitedUnits: Array.isArray(planObj.meta?.unvisitedUnits) ? planObj.meta.unvisitedUnits : [],
+            unvisitedUnitGroups: Array.isArray(planObj.meta?.unvisitedUnitGroups) ? planObj.meta.unvisitedUnitGroups : [],
+          },
+          postings: (planObj.postings || []).map((posting: any) => ({
+            ...posting,
+            meta: {
+              ...(posting.meta || {}),
+              timeline,
+            },
+          })),
+        });
         return res.status(201).json(doc);
       } catch (gErr: any) {
         console.error('Krysta generation failed', gErr);
@@ -39,7 +59,23 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
       }
     }
 
-    const doc = await RotationPlan.create(payload);
+    const doc = await RotationPlan.create({
+      ...payload,
+      meta: {
+        ...(payload.meta || {}),
+        timeline: Array.isArray(payload.meta?.timeline) ? payload.meta.timeline : [],
+        phases: Array.isArray(payload.meta?.phases) ? payload.meta.phases : [],
+        unvisitedUnits: Array.isArray(payload.meta?.unvisitedUnits) ? payload.meta.unvisitedUnits : [],
+        unvisitedUnitGroups: Array.isArray(payload.meta?.unvisitedUnitGroups) ? payload.meta.unvisitedUnitGroups : [],
+      },
+      postings: (payload.postings || []).map((posting: any) => ({
+        ...posting,
+        meta: {
+          ...(posting.meta || {}),
+          timeline: Array.isArray(payload.meta?.timeline) ? payload.meta.timeline : [],
+        },
+      })),
+    });
     res.status(201).json(doc);
   } catch (err) {
     console.error('createRotationSchedule error', err);
@@ -448,6 +484,16 @@ export const updateRotationSchedule = async (req: Request, res: Response) => {
     if (!plan) return res.status(404).json({ message: 'Schedule not found' });
 
     Object.assign(plan, updates);
+    if (updates.meta) {
+      plan.meta = {
+        ...(plan.meta || {}),
+        ...(updates.meta || {}),
+        timeline: Array.isArray(updates.meta?.timeline) ? updates.meta.timeline : (plan.meta?.timeline || []),
+        phases: Array.isArray(updates.meta?.phases) ? updates.meta.phases : (plan.meta?.phases || []),
+        unvisitedUnits: Array.isArray(updates.meta?.unvisitedUnits) ? updates.meta.unvisitedUnits : (plan.meta?.unvisitedUnits || []),
+        unvisitedUnitGroups: Array.isArray(updates.meta?.unvisitedUnitGroups) ? updates.meta.unvisitedUnitGroups : (plan.meta?.unvisitedUnitGroups || []),
+      };
+    }
     await plan.save();
     res.json(plan);
   } catch (err) {
