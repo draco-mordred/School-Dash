@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -34,11 +34,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Clock, Plus, CheckCircle2, UserX, AlertCircle } from "lucide-react";
+import { Clock, Plus, CheckCircle2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/useAuth";
 
 interface AttendanceRecord {
-  student: any;
+  student: { firstName?: string; lastName?: string; _id?: string } | null;
   status: "present" | "absent" | "late" | "excused";
   checkInTime?: Date;
   checkOutTime?: Date;
@@ -52,8 +53,8 @@ interface ClinicalSession {
   date: Date;
   startTime: Date;
   endTime?: Date;
-  unit: any;
-  supervisor: any;
+  unit?: { _id?: string; name?: string } | null;
+  supervisor?: { firstName?: string; lastName?: string } | null;
   status: "planned" | "ongoing" | "completed" | "cancelled";
   attendees: AttendanceRecord[];
   presentCount: number;
@@ -64,7 +65,7 @@ interface ClinicalSession {
 export const ClinicalAttendanceDashboard = () => {
   const [sessions, setSessions] = useState<ClinicalSession[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<ClinicalSession[]>([]);
-  const [units, setUnits] = useState<any[]>([]);
+  const [units, setUnits] = useState<Array<{ _id: string; name?: string; department?: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterUnit, setFilterUnit] = useState<string>("all");
@@ -72,11 +73,6 @@ export const ClinicalAttendanceDashboard = () => {
   const [selectedSession, setSelectedSession] = useState<ClinicalSession | null>(
     null
   );
-
-  useEffect(() => {
-    fetchSessions();
-    fetchUnits();
-  }, []);
 
   const fetchSessions = async () => {
     try {
@@ -107,6 +103,11 @@ export const ClinicalAttendanceDashboard = () => {
       console.error("Error fetching units:", error);
     }
   };
+
+  useEffect(() => {
+    void fetchSessions();
+    void fetchUnits();
+  }, []);
 
   useEffect(() => {
     let filtered = sessions;
@@ -141,7 +142,7 @@ export const ClinicalAttendanceDashboard = () => {
   };
 
   const getActivityIcon = (type: string) => {
-    const icons: Record<string, JSX.Element> = {
+    const icons: Record<string, ReactNode> = {
       ward_round: <Clock className="w-4 h-4" />,
       clinic: <CheckCircle2 className="w-4 h-4" />,
       theatre: <AlertCircle className="w-4 h-4" />,
@@ -339,13 +340,16 @@ const CreateSessionForm = ({
 }: {
   onSuccess: () => void;
 }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [classes, setClasses] = useState<any[]>([]);
-  const [schedulePostings, setSchedulePostings] = useState<any[]>([]);
-  const [hospitalUnits, setHospitalUnits] = useState<any[]>([]);
-  const [scheduleUnits, setScheduleUnits] = useState<any[]>([]);
+  const [classes, setClasses] = useState<Array<{ _id: string; name?: string; displayName?: string }>>([]);
+  const [schedulePostings, setSchedulePostings] = useState<Array<{ _id: string; name: string }>>([]);
+  const [hospitalUnits, setHospitalUnits] = useState<Array<{ _id: string; name?: string; department?: string; departmentName?: string; departmentId?: string; departmentID?: string; departmentCode?: string }>>([]);
+  const [scheduleUnits, setScheduleUnits] = useState<Array<{ _id: string; name?: string; department?: string }>>([]);
   const [scheduleDepartments, setScheduleDepartments] = useState<string[]>([]);
-  const [units, setUnits] = useState<any[]>([]);
+  const [availableGroups, setAvailableGroups] = useState<Array<{ id: string; label: string; code?: string }>>([]);
+  const [groupSelectionMessage, setGroupSelectionMessage] = useState<string>("");
+  const [units, setUnits] = useState<Array<{ _id: string; name?: string; department?: string }>>([]);
   const [timelineMissing, setTimelineMissing] = useState(false);
   const [formData, setFormData] = useState({
     activityType: "ward_round",
@@ -360,6 +364,7 @@ const CreateSessionForm = ({
     academicYear: "",
     classId: "",
     clinicalRotation: "",
+    groupId: "",
   });
 
   useEffect(() => {
@@ -426,7 +431,7 @@ const CreateSessionForm = ({
           ? response.data.data
           : [];
 
-        const nextPostings: any[] = [];
+        const nextPostings: Array<{ _id: string; name: string }> = [];
         const normalizeText = (value: unknown) => {
           if (typeof value !== "string") return "";
           return value.trim().toLowerCase();
@@ -456,30 +461,29 @@ const CreateSessionForm = ({
           return left === right || left.includes(right) || right.includes(left);
         };
 
-        scheduleList.forEach((schedule: any) => {
+        scheduleList.forEach((schedule: Record<string, unknown>) => {
           const scheduleId = String(schedule?._id ?? "");
           const postings = Array.isArray(schedule?.postings) && schedule.postings.length > 0 ? schedule.postings : [{ _id: scheduleId, name: schedule?.name }];
-          postings.forEach((posting: any) => {
+          postings.forEach((posting: Record<string, unknown>) => {
             const postingId = String(posting?._id ?? scheduleId);
             const postingName = posting?.name || schedule?.name || "Posting schedule";
             if (!nextPostings.some((item) => item._id === postingId)) {
               nextPostings.push({
                 _id: postingId,
-                name: postingName,
-                scheduleId,
+                name: typeof postingName === "string" ? postingName : String(postingName ?? "Posting schedule"),
               });
             }
           });
         });
 
         // Resolve active schedule: formData.clinicalRotation may be a schedule _id or a posting _id
-        let activeSchedule: any = null;
-        let activePosting: any = null;
+        let activeSchedule: Record<string, unknown> | null = null;
+        let activePosting: Record<string, unknown> | null = null;
         if (formData.clinicalRotation) {
           // find schedule where posting._id matches
           for (const schedule of scheduleList) {
             const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
-            const found = postings.find((p: any) => String(p?._id) === String(formData.clinicalRotation));
+            const found = postings.find((p: Record<string, unknown>) => String(p?._id) === String(formData.clinicalRotation));
             if (found) {
               activeSchedule = schedule;
               activePosting = found;
@@ -488,7 +492,7 @@ const CreateSessionForm = ({
           }
           // fallback: maybe clinicalRotation is the schedule id itself
           if (!activeSchedule) {
-            activeSchedule = scheduleList.find((s: any) => String(s?._id) === String(formData.clinicalRotation)) || null;
+            activeSchedule = scheduleList.find((s: Record<string, unknown>) => String(s?._id) === String(formData.clinicalRotation)) || null;
           }
         }
         activeSchedule = activeSchedule || scheduleList[0] || null;
@@ -497,21 +501,26 @@ const CreateSessionForm = ({
         const departmentNames = new Set<string>();
 
         if (activeSchedule) {
-          const timeline = Array.isArray(activeSchedule?.meta?.timeline)
-            ? activeSchedule.meta.timeline
-            : Array.isArray(activeSchedule?.postings?.[0]?.meta?.timeline)
-            ? activeSchedule.postings[0].meta.timeline
-            : Array.isArray(activeSchedule?.meta?.windows)
-            ? activeSchedule.meta.windows
+          const meta = (activeSchedule as Record<string, unknown>).meta as Record<string, unknown> | undefined;
+          const postings = Array.isArray((activeSchedule as Record<string, unknown>).postings)
+            ? ((activeSchedule as Record<string, unknown>).postings as Array<Record<string, unknown>>)
+            : [];
+          const firstPostingMeta = postings[0]?.meta as Record<string, unknown> | undefined;
+          const timeline = Array.isArray(meta?.timeline)
+            ? (meta?.timeline as Array<Record<string, unknown>>)
+            : Array.isArray(firstPostingMeta?.timeline)
+            ? (firstPostingMeta.timeline as Array<Record<string, unknown>>)
+            : Array.isArray(meta?.windows)
+            ? (meta.windows as Array<Record<string, unknown>>)
             : [];
 
           if (timeline.length === 0) {
-            console.warn("No timeline found on rotation schedule:", activeSchedule._id || activeSchedule.name);
+            console.warn("No timeline found on rotation schedule:", (activeSchedule as Record<string, unknown>).name ?? (activeSchedule as Record<string, unknown>)._id);
           }
 
           setTimelineMissing(timeline.length === 0);
 
-          timeline.forEach((window: any) => {
+          timeline.forEach((window: Record<string, unknown>) => {
             addNormalizedVariants(window?.unitName, unitNames);
             addNormalizedVariants(window?.unitId, unitNames);
             addNormalizedVariants(window?.department, departmentNames);
@@ -522,41 +531,45 @@ const CreateSessionForm = ({
 
           // Inspect groups from the selected posting if available, otherwise inspect all postings on the schedule
           const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
-          postingsToInspect.forEach((posting: any) => {
+          postingsToInspect.forEach((posting: Record<string, unknown>) => {
             const groups = Array.isArray(posting?.groups) ? posting.groups : [];
-            const postingDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
-            postingDepartments.forEach((dept: any) => {
+            const postingMeta = (posting as Record<string, unknown>).meta as Record<string, unknown> | undefined;
+            const postingDepartments = Array.isArray(postingMeta?.departments)
+              ? (postingMeta?.departments as Array<Record<string, unknown>>)
+              : [];
+            postingDepartments.forEach((dept: Record<string, unknown>) => {
               addNormalizedVariants(dept?.departmentName, departmentNames);
               addNormalizedVariants(dept?.department, departmentNames);
               addNormalizedVariants(dept?.departmentCode, departmentNames);
               addNormalizedVariants(dept?.departmentId, departmentNames);
             });
-            groups.forEach((group: any) => {
-              const groupData = group?.group || group || {};
+            groups.forEach((group: Record<string, unknown>) => {
+              const groupData = (group as Record<string, unknown>)?.group || group || {};
+              const groupRecord = groupData as Record<string, unknown>;
               const unitName =
-                groupData.unitName ||
-                (groupData.unit && typeof groupData.unit === "object"
-                  ? groupData.unit.name
-                  : groupData.unit) ||
-                groupData.name;
+                groupRecord.unitName ||
+                (groupRecord.unit && typeof groupRecord.unit === "object"
+                  ? (groupRecord.unit as Record<string, unknown>).name
+                  : groupRecord.unit) ||
+                groupRecord.name;
 
               addNormalizedVariants(unitName, unitNames);
-              addNormalizedVariants(groupData.department, departmentNames);
-              addNormalizedVariants(groupData.departmentName, departmentNames);
-              addNormalizedVariants(groupData.departmentId, departmentNames);
-              addNormalizedVariants(groupData.departmentCode, departmentNames);
+              addNormalizedVariants(groupRecord.department, departmentNames);
+              addNormalizedVariants(groupRecord.departmentName, departmentNames);
+              addNormalizedVariants(groupRecord.departmentId, departmentNames);
+              addNormalizedVariants(groupRecord.departmentCode, departmentNames);
             });
           });
         }
 
         const institutionDepartments = new Set<string>();
-        hospitalUnits.forEach((unit: any) => {
+        hospitalUnits.forEach((unit: Record<string, unknown>) => {
           [unit.department, unit.departmentName, unit.departmentId, unit.departmentID, unit.departmentCode].forEach((value) => {
             addNormalizedVariants(value, institutionDepartments);
           });
         });
 
-        const matchedUnits = hospitalUnits.filter((unit: any) => {
+        const matchedUnits = hospitalUnits.filter((unit: Record<string, unknown>) => {
           if (typeof unit.name !== "string" || !unit.name.trim()) return false;
           const name = normalizeText(unit.name);
           if (name && Array.from(unitNames).some((candidate) => isLabelMatch(candidate, name))) return true;
@@ -574,7 +587,7 @@ const CreateSessionForm = ({
           });
         });
 
-        const matchedDepartmentUnits = hospitalUnits.filter((unit: any) => {
+        const matchedDepartmentUnits = hospitalUnits.filter((unit: Record<string, unknown>) => {
           const candidates = [
             ...buildLabelVariants(unit.department),
             ...buildLabelVariants(unit.departmentName),
@@ -595,6 +608,38 @@ const CreateSessionForm = ({
         setSchedulePostings(nextPostings);
         setScheduleUnits(matchedUnits);
         setScheduleDepartments(departmentFallbackOptions);
+
+        if (nextPostings.length > 0) {
+          const postingId = formData.clinicalRotation || nextPostings[0]._id;
+          const supervisedGroupsResponse = await api.get(`/clinical-attendance/groups/available`, {
+            params: {
+              classId: formData.classId,
+              postingId,
+              userId: user?._id,
+            },
+          });
+
+          const groups = Array.isArray(supervisedGroupsResponse.data?.groups) ? supervisedGroupsResponse.data.groups : [];
+          setAvailableGroups(groups);
+          setGroupSelectionMessage(supervisedGroupsResponse.data?.message || "");
+
+          if (groups.length > 0) {
+            const currentSelection = groups.find((group) => group.id === formData.groupId);
+            const fallbackGroup = currentSelection || groups[0];
+            setFormData((current) => ({
+              ...current,
+              groupId: current.groupId || fallbackGroup.id,
+              department: current.department || fallbackGroup.label || fallbackGroup.code || "",
+              unit: "",
+            }));
+          } else {
+            setFormData((current) => ({ ...current, groupId: "", department: "", unit: "" }));
+          }
+        } else {
+          setAvailableGroups([]);
+          setGroupSelectionMessage("");
+          setFormData((current) => ({ ...current, groupId: "", department: "", unit: "" }));
+        }
 
         if (matchedUnits.length > 0) {
           setUnits(matchedUnits);
@@ -650,6 +695,7 @@ const CreateSessionForm = ({
         academicYear: "",
         classId: formData.classId,
         clinicalRotation: formData.clinicalRotation,
+        groupId: "",
       });
     } catch (error) {
       console.error("Error creating session:", error);
@@ -658,6 +704,12 @@ const CreateSessionForm = ({
       setLoading(false);
     }
   };
+
+  if (!user) {
+    return <p className="text-sm text-muted-foreground">Please sign in to create a clinical session.</p>;
+  }
+
+  const isSupervisor = Boolean((user as { isSupervisor?: boolean; role?: string } | null)?.isSupervisor || (user as { role?: string } | null)?.role === "admin");
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -751,70 +803,41 @@ const CreateSessionForm = ({
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium mb-1">
-            {scheduleUnits.length > 0
-              ? "Unit"
-              : scheduleDepartments.length > 0
-              ? "Unit / Department"
-              : "Unit"}
-          </label>
-          {units.length > 0 ? (
-            <>
-              {scheduleUnits.length === 0 && scheduleDepartments.length > 0 ? (
-                <div className="mb-2">
-                  <label className="block text-xs font-medium mb-1">Department</label>
-                  <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value, unit: "" })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a department" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {scheduleDepartments.map((d) => (
-                        <SelectItem key={d} value={d}>{d}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="mt-2 text-xs text-muted-foreground">Selecting a department will create a department-level session.</p>
-                </div>
-              ) : null}
-              <Select
-                value={formData.unit}
-                onValueChange={(value) => setFormData({ ...formData, unit: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={scheduleUnits.length > 0 ? "Select a unit" : "Select a department unit"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {units.map((unit) => (
-                    <SelectItem key={unit._id} value={unit._id}>
-                      {unit.name} {unit.department ? `(${unit.department})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {scheduleUnits.length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Showing units available from the selected class posting schedule.
-                </p>
-              )}
-              {scheduleUnits.length === 0 && scheduleDepartments.length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Units are not enabled for the selected posting schedule. Showing hospital units for scheduled departments: {scheduleDepartments.join(", ")}.
-                </p>
-              )}
-              {scheduleUnits.length === 0 && scheduleDepartments.length === 0 && formData.classId && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  No matched schedule units or departments found; using all hospital units.
-                </p>
-              )}
-            </>
-          ) : (
-            <Input
-              value={formData.unit}
-              onChange={(e) =>
-                setFormData({ ...formData, unit: e.target.value })
+          <label className="block text-sm font-medium mb-1">Department / Unit Group</label>
+          {!isSupervisor ? (
+            <p className="text-sm text-muted-foreground">Only supervisors can create clinical attendance sessions.</p>
+          ) : availableGroups.length > 0 ? (
+            <Select
+              value={formData.groupId}
+              onValueChange={(value) =>
+                setFormData((current) => ({
+                  ...current,
+                  groupId: value,
+                  department: availableGroups.find((group) => group.id === value)?.label || current.department,
+                  unit: "",
+                }))
               }
-              placeholder="Enter unit ID"
-            />
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a supervised group" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableGroups.map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.label} {group.code && group.code !== group.label ? `(${group.code})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {groupSelectionMessage || "No supervised department or unit groups are available for the selected posting yet."}
+            </p>
+          )}
+          {availableGroups.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              These are the department or unit groups available for your current posting and supervisor role.
+            </p>
           )}
         </div>
         <div>
@@ -829,7 +852,13 @@ const CreateSessionForm = ({
         </div>
       </div>
 
-      <Button type="submit" disabled={loading} className="w-full">
+      {timelineMissing ? (
+        <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+          This posting has no schedule timeline, so the unit selection may fall back to hospital units.
+        </div>
+      ) : null}
+
+      <Button type="submit" disabled={loading || !isSupervisor || !formData.groupId} className="w-full">
         {loading ? "Creating..." : "Create Session"}
       </Button>
     </form>
@@ -839,7 +868,6 @@ const CreateSessionForm = ({
 const SessionDetailsDialog = ({
   session,
   onClose,
-  onUpdate,
 }: {
   session: ClinicalSession;
   onClose: () => void;
@@ -859,11 +887,6 @@ const SessionDetailsDialog = ({
         <div className="space-y-6">
           {/* Session Overview */}
           <div className="grid grid-cols-2 gap-4">
-            {timelineMissing ? (
-              <div className="col-span-2 mb-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
-                This posting has no schedule timeline; units derived from the posting may be unavailable. You can pick a Department or select a hospital Unit.
-              </div>
-            ) : null}
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium">Unit</CardTitle>

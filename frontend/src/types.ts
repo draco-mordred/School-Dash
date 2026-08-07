@@ -16,6 +16,8 @@ export interface pagination {
 export interface user {
   _id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   idNumber?: string;
   inn?: string | null;

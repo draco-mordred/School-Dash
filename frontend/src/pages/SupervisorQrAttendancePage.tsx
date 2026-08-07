@@ -42,8 +42,16 @@ interface ClinicalSessionSummary {
   endTime?: string | Date;
   status: string;
   unit?: { name?: string };
-  supervisor?: { firstName?: string; lastName?: string };
-  attendees?: Array<{ student?: { firstName?: string; lastName?: string } }>;
+  supervisor?: { firstName?: string; lastName?: string; name?: string; email?: string };
+  supervisorName?: string;
+  supervisorGroupLabel?: string;
+  supervisorGroupCode?: string;
+  supervisorGroupType?: string;
+  attendees?: Array<{
+    student?: { _id?: string; firstName?: string; lastName?: string } | string;
+    status?: string;
+    notes?: string;
+  }>;
   presentCount?: number;
   absentCount?: number;
   lateCount?: number;
@@ -63,12 +71,49 @@ interface PendingApproval {
 interface ClinicalUnitOption {
   _id: string;
   name?: string;
+  department?: string;
+  departmentName?: string;
+  departmentId?: string;
+  departmentID?: string;
+  departmentCode?: string;
+}
+
+interface AvailableSupervisorGroup {
+  id: string;
+  label: string;
+  code?: string;
+  type?: string;
 }
 
 interface PostingOption {
   _id: string;
   name?: string;
   scheduleName?: string;
+}
+
+interface RotationPostingLike {
+  _id?: string;
+  name?: string;
+  groups?: Array<Record<string, unknown>>;
+  meta?: {
+    departments?: Array<Record<string, unknown>>;
+    timeline?: Array<Record<string, unknown>>;
+    windows?: Array<Record<string, unknown>>;
+  };
+}
+
+interface RotationScheduleLike {
+  _id?: string;
+  name?: string;
+  phaseId?: string;
+  phaseName?: string;
+  postingPhase?: string;
+  meta?: {
+    phaseId?: string;
+    timeline?: Array<Record<string, unknown>>;
+    windows?: Array<Record<string, unknown>>;
+  };
+  postings?: RotationPostingLike[];
 }
 
 interface ClassOption {
@@ -108,20 +153,24 @@ export default function SupervisorQrAttendancePage() {
   const [scannerError, setScannerError] = useState("");
   const [showCameraModal, setShowCameraModal] = useState(false);
   const [mirrorPreview, setMirrorPreview] = useState(false);
-  const [scanFeedback, setScanFeedback] = useState<FeedbackState | null>(null);
+  const [, setScanFeedback] = useState<FeedbackState | null>(null);
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== "undefined" ? navigator.onLine : true);
   const [submitting, setSubmitting] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [classes, setClasses] = useState<ClassOption[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
-  const [selectedClock, setSelectedClock] = useState<AcademicClockSummary | null>(null);
-  const [units, setUnits] = useState<ClinicalUnitOption[]>([]);
+  const [, setSelectedClock] = useState<AcademicClockSummary | null>(null);
+  const [, setUnits] = useState<ClinicalUnitOption[]>([]);
   const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState(false);
-  const [departmentsForPosting, setDepartmentsForPosting] = useState<string[]>([]);
+  const [, setDepartmentsForPosting] = useState<string[]>([]);
   const [timelineMissing, setTimelineMissing] = useState(false);
   const [selectedPostingDepartment, setSelectedPostingDepartment] = useState<string>("");
   const [postings, setPostings] = useState<PostingOption[]>([]);
+  const [availableSupervisorGroups, setAvailableSupervisorGroups] = useState<AvailableSupervisorGroup[]>([]);
+  const [selectedSupervisorGroupId, setSelectedSupervisorGroupId] = useState<string>("");
+  const [groupSelectionMessage, setGroupSelectionMessage] = useState("");
   const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
+  const [approvalSort, setApprovalSort] = useState<"asc" | "desc">("desc");
   const [newSessionForm, setNewSessionForm] = useState({
     activityType: "ward_round",
     title: "",
@@ -308,7 +357,7 @@ export default function SupervisorQrAttendancePage() {
             ? schedulesResponse.data
             : [];
 
-        const phaseAwareSchedules = scheduleList.filter((schedule: any) => {
+        const phaseAwareSchedules = scheduleList.filter((schedule: RotationScheduleLike) => {
           if (!nextClock) return true;
           const activePhase = resolveActiveAcademicClockPhase(nextClock, schedule?.name ?? "", new Date());
           const phaseId = activePhase?.phaseId;
@@ -352,10 +401,10 @@ export default function SupervisorQrAttendancePage() {
         const postingDepartments = new Set<string>();
         const seenPostingKeys = new Set<string>();
 
-        phaseAwareSchedules.forEach((schedule: any) => {
+        phaseAwareSchedules.forEach((schedule: RotationScheduleLike) => {
           const scheduleId = String(schedule?._id ?? "");
           const postings = Array.isArray(schedule?.postings) && schedule.postings.length > 0 ? schedule.postings : [{ _id: scheduleId, name: schedule?.name }];
-          postings.forEach((posting: any) => {
+          postings.forEach((posting: RotationPostingLike) => {
             const postingId = String(posting?._id ?? scheduleId);
             const postingName = posting?.name || schedule?.name || "Unnamed posting";
             const postingKey = `${scheduleId}-${postingId}`;
@@ -370,13 +419,13 @@ export default function SupervisorQrAttendancePage() {
           });
         });
 
-        let activeSchedule: any = null;
-        let activePosting: any = null;
+        let activeSchedule: RotationScheduleLike | null = null;
+        let activePosting: RotationPostingLike | null = null;
         if (newSessionForm.clinicalRotation) {
           for (const schedule of phaseAwareSchedules) {
             const scheduleId = String(schedule?._id ?? "");
             const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
-            const found = postings.find((p: any) => String(p?._id) === String(newSessionForm.clinicalRotation));
+            const found = postings.find((p: RotationPostingLike) => String(p?._id) === String(newSessionForm.clinicalRotation));
             if (found) {
               activeSchedule = schedule;
               activePosting = found;
@@ -405,7 +454,7 @@ export default function SupervisorQrAttendancePage() {
 
           setTimelineMissing(timeline.length === 0);
 
-          timeline.forEach((window: any) => {
+          timeline.forEach((window: Record<string, unknown>) => {
             addNormalizedVariants(window?.unitName, unitNames);
             addNormalizedVariants(window?.unitId, unitNames);
             addNormalizedVariants(window?.department, departmentNames);
@@ -417,10 +466,10 @@ export default function SupervisorQrAttendancePage() {
           });
 
           const postingsToInspect = activePosting ? [activePosting] : (Array.isArray(activeSchedule?.postings) ? activeSchedule.postings : []);
-          postingsToInspect.forEach((posting: any) => {
+          postingsToInspect.forEach((posting: RotationPostingLike) => {
             const groups = Array.isArray(posting?.groups) ? posting.groups : [];
             const scheduleDepartments = Array.isArray(posting?.meta?.departments) ? posting.meta.departments : [];
-            scheduleDepartments.forEach((dept: any) => {
+            scheduleDepartments.forEach((dept: Record<string, unknown>) => {
               addNormalizedVariants(dept?.departmentName, departmentNames);
               addNormalizedVariants(dept?.department, departmentNames);
               addNormalizedVariants(dept?.departmentCode, departmentNames);
@@ -428,26 +477,26 @@ export default function SupervisorQrAttendancePage() {
               if (typeof dept?.departmentName === 'string' && dept.departmentName.trim()) postingDepartments.add(dept.departmentName.trim());
             });
 
-            groups.forEach((group: any) => {
-              const groupData = group?.group || group || {};
+            groups.forEach((group: Record<string, unknown>) => {
+              const groupData = (group?.group ?? group ?? {}) as Record<string, unknown>;
               const unitName =
-                groupData.unitName ||
-                (groupData.unit && typeof groupData.unit === "object" ? groupData.unit.name : groupData.unit) ||
-                groupData.name;
+                (typeof groupData.unitName === "string" ? groupData.unitName : "") ||
+                (typeof groupData.name === "string" ? groupData.name : "") ||
+                (typeof groupData.department === "string" ? groupData.department : "");
 
-                addNormalizedVariants(unitName, unitNames);
-                addNormalizedVariants(groupData.department, departmentNames);
-                addNormalizedVariants(groupData.departmentName, departmentNames);
-                addNormalizedVariants(groupData.departmentId, departmentNames);
-                addNormalizedVariants(groupData.departmentCode, departmentNames);
-                if (typeof groupData.department === 'string' && groupData.department.trim()) postingDepartments.add(groupData.department.trim());
-                if (typeof groupData.departmentName === 'string' && groupData.departmentName.trim()) postingDepartments.add(groupData.departmentName.trim());
+              addNormalizedVariants(unitName, unitNames);
+              addNormalizedVariants(typeof groupData.department === "string" ? groupData.department : undefined, departmentNames);
+              addNormalizedVariants(typeof groupData.departmentName === "string" ? groupData.departmentName : undefined, departmentNames);
+              addNormalizedVariants(typeof groupData.departmentId === "string" ? groupData.departmentId : undefined, departmentNames);
+              addNormalizedVariants(typeof groupData.departmentCode === "string" ? groupData.departmentCode : undefined, departmentNames);
+              if (typeof groupData.department === "string" && groupData.department.trim()) postingDepartments.add(groupData.department.trim());
+              if (typeof groupData.departmentName === "string" && groupData.departmentName.trim()) postingDepartments.add(groupData.departmentName.trim());
             });
           });
         }
 
         const institutionDepartments = new Set<string>();
-        nextUnits.forEach((unit: any) => {
+        nextUnits.forEach((unit: ClinicalUnitOption) => {
           [unit.department, unit.departmentName, unit.departmentId, unit.departmentID, unit.departmentCode].forEach((value) => {
             addNormalizedVariants(value, institutionDepartments);
           });
@@ -473,7 +522,7 @@ export default function SupervisorQrAttendancePage() {
           });
         });
 
-        const matchedDepartmentUnits = nextUnits.filter((unit: any) => {
+        const matchedDepartmentUnits = nextUnits.filter((unit: ClinicalUnitOption) => {
           const candidates = [
             ...buildLabelVariants(unit.department),
             ...buildLabelVariants(unit.departmentName),
@@ -502,13 +551,13 @@ export default function SupervisorQrAttendancePage() {
         if (matchedUnits.length > 0) {
           setUnits(matchedUnits);
           setShouldUseDepartmentFallback(false);
-          if (!newSessionForm.unit || !matchedUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+          if (!newSessionForm.unit || !matchedUnits.some((unit: ClinicalUnitOption) => String(unit._id) === String(newSessionForm.unit))) {
             setNewSessionForm((current) => ({ ...current, unit: matchedUnits[0]._id }));
           }
         } else if (shouldUseDepartmentFallback && matchedDepartmentUnits.length > 0) {
           setUnits(matchedDepartmentUnits);
           setShouldUseDepartmentFallback(true);
-          if (!newSessionForm.unit || !matchedDepartmentUnits.some((unit) => String(unit._id) === String(newSessionForm.unit))) {
+          if (!newSessionForm.unit || !matchedDepartmentUnits.some((unit: ClinicalUnitOption) => String(unit._id) === String(newSessionForm.unit))) {
             setNewSessionForm((current) => ({ ...current, unit: matchedDepartmentUnits[0]._id }));
           }
         } else {
@@ -521,6 +570,54 @@ export default function SupervisorQrAttendancePage() {
 
         // expose posting-level departments for optional department select UI
         setDepartmentsForPosting(departmentFallbackOptions);
+
+        if (nextPostingOptions.length > 0) {
+          const postingId = newSessionForm.clinicalRotation || nextPostingOptions[0]._id;
+          if (postingId && user?._id) {
+            try {
+              const groupsResponse = await api.get("/clinical-attendance/groups/available", {
+                params: {
+                  classId: selectedClassId,
+                  postingId,
+                  userId: user._id,
+                  userName: user.name || "",
+                  userEmail: user.email || "",
+                },
+              });
+
+              const groups = Array.isArray(groupsResponse.data?.groups) ? groupsResponse.data.groups : [];
+              setAvailableSupervisorGroups(groups);
+              setGroupSelectionMessage(groupsResponse.data?.message || "");
+
+              if (groups.length > 0) {
+                const currentSelection = groups.find((group: AvailableSupervisorGroup) => group.id === selectedSupervisorGroupId);
+                const nextGroupId = currentSelection?.id || groups[0].id;
+                setSelectedSupervisorGroupId(nextGroupId);
+                setNewSessionForm((current) => ({
+                  ...current,
+                  department: groups.find((group: AvailableSupervisorGroup) => group.id === nextGroupId)?.label || current.department,
+                  unit: "",
+                }));
+              } else {
+                setSelectedSupervisorGroupId("");
+                setNewSessionForm((current) => ({ ...current, department: "", unit: "" }));
+              }
+            } catch (error) {
+              console.error("Failed to load supervisor-specific posting groups", error);
+              setAvailableSupervisorGroups([]);
+              setGroupSelectionMessage("Unable to load supervisor groups for this posting.");
+              setSelectedSupervisorGroupId("");
+            }
+          } else {
+            setAvailableSupervisorGroups([]);
+            setGroupSelectionMessage("");
+            setSelectedSupervisorGroupId("");
+          }
+        } else {
+          setAvailableSupervisorGroups([]);
+          setGroupSelectionMessage("");
+          setSelectedSupervisorGroupId("");
+        }
 
         if (nextPostingOptions.length > 0 && !newSessionForm.clinicalRotation) {
           setNewSessionForm((current) => ({ ...current, clinicalRotation: nextPostingOptions[0]._id }));
@@ -571,6 +668,58 @@ export default function SupervisorQrAttendancePage() {
     return Math.min(120, Math.max(30, Math.round(durationMinutes / 2)));
   }, [selectedSession]);
 
+  const approvalGroups = useMemo(() => {
+    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: { student?: { _id?: string; firstName?: string; lastName?: string } | string; status?: string; notes?: string }; status: string }>>();
+
+    sessions.forEach((session) => {
+      const groupKey = session.supervisorGroupLabel || "Unassigned group";
+      const groupEntries = Array.isArray(session.attendees) ? session.attendees : [];
+      const groupedAttendees = groupEntries
+        .filter((attendee) => attendee?.status && attendee.status !== "pending")
+        .map((attendee) => ({ session, attendee, status: attendee.status ?? "present" }));
+
+      if (groupedAttendees.length > 0) {
+        const existing = groups.get(groupKey) ?? [];
+        groups.set(groupKey, [...existing, ...groupedAttendees]);
+      }
+    });
+
+    return Array.from(groups.entries()).map(([label, entries]) => ({
+      label,
+      entries: entries.sort((left, right) => {
+        const leftDate = new Date(left.session.date).getTime();
+        const rightDate = new Date(right.session.date).getTime();
+        return approvalSort === "asc" ? leftDate - rightDate : rightDate - leftDate;
+      }),
+    }));
+  }, [sessions, approvalSort]);
+
+  const awaitingApprovalGroups = useMemo(() => {
+    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: { student?: { _id?: string; firstName?: string; lastName?: string } | string; status?: string; notes?: string }; status: string }>>();
+
+    sessions.forEach((session) => {
+      const groupKey = session.supervisorGroupLabel || "Unassigned group";
+      const groupEntries = Array.isArray(session.attendees) ? session.attendees : [];
+      const groupedAttendees = groupEntries
+        .filter((attendee) => attendee?.status === "pending")
+        .map((attendee) => ({ session, attendee, status: attendee.status ?? "pending" }));
+
+      if (groupedAttendees.length > 0) {
+        const existing = groups.get(groupKey) ?? [];
+        groups.set(groupKey, [...existing, ...groupedAttendees]);
+      }
+    });
+
+    return Array.from(groups.entries()).map(([label, entries]) => ({
+      label,
+      entries: entries.sort((left, right) => {
+        const leftDate = new Date(left.session.date).getTime();
+        const rightDate = new Date(right.session.date).getTime();
+        return approvalSort === "asc" ? leftDate - rightDate : rightDate - leftDate;
+      }),
+    }));
+  }, [sessions, approvalSort]);
+
   const stopScanner = () => {
     scannerActiveRef.current = false;
     const stream = videoRef.current?.srcObject as MediaStream | null;
@@ -588,12 +737,24 @@ export default function SupervisorQrAttendancePage() {
       const response = await api.get("/clinical-attendance/sessions?status=ongoing,planned");
       const sessionList = response.data?.data ?? [];
       setSessions(sessionList);
-      if (sessionList.length > 0 && !sessionList.some((session) => session._id === selectedSessionId)) {
+      if (sessionList.length > 0 && !sessionList.some((session: ClinicalSessionSummary) => session._id === selectedSessionId)) {
         setSelectedSessionId(sessionList[0]._id);
       }
     } catch (error) {
       console.error("Failed to refresh clinical sessions", error);
     }
+  };
+
+  const handleRetryPendingApprovals = async () => {
+    if (!isOnline) {
+      toast.error("The network is still unavailable. Please retry once connectivity improves.");
+      return;
+    }
+
+    await syncPendingQueue();
+    const queuedItems = readQueue();
+    setPendingApprovals(queuedItems);
+    toast.success("Queued approvals were retried.");
   };
 
   const handleCreateSession = async (event: FormEvent) => {
@@ -613,9 +774,15 @@ export default function SupervisorQrAttendancePage() {
 
     try {
       setCreatingSession(true);
+      const selectedGroup = availableSupervisorGroups.find((group) => group.id === selectedSupervisorGroupId);
       const payload = {
         ...newSessionForm,
         department: effectiveDepartment || newSessionForm.department,
+        groupId: selectedSupervisorGroupId || undefined,
+        supervisorGroupId: selectedSupervisorGroupId || undefined,
+        supervisorGroupLabel: selectedGroup?.label || "",
+        supervisorGroupCode: selectedGroup?.code || "",
+        supervisorGroupType: selectedGroup?.type || "",
         supervisor: user._id,
         academicYear: currentAcademicYearId,
         classId: newSessionForm.classId || selectedClassId,
@@ -635,6 +802,9 @@ export default function SupervisorQrAttendancePage() {
         description: "",
         location: "",
       }));
+      setSelectedSupervisorGroupId("");
+      setAvailableSupervisorGroups([]);
+      setGroupSelectionMessage("");
       await refreshSessions();
       if (createdSessionId) {
         setSelectedSessionId(createdSessionId);
@@ -659,7 +829,7 @@ export default function SupervisorQrAttendancePage() {
   };
 
   useEffect(() => {
-    let detector: any | null = null;
+    let detector: { detect?: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>; reset?: () => void } | null = null;
     let active = false;
 
     const openCameraAndScan = async () => {
@@ -674,14 +844,14 @@ export default function SupervisorQrAttendancePage() {
         }
 
         videoRef.current.srcObject = stream;
-        try { await videoRef.current.play(); } catch {}
+        try { await videoRef.current.play(); } catch { /* ignore autoplay errors */ }
 
         const barcodeDetectorSupported = typeof window !== "undefined" && "BarcodeDetector" in window;
         scannerActiveRef.current = true;
         setScannerActive(true);
 
         if (barcodeDetectorSupported) {
-          const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+          const BarcodeDetectorCtor = (window as Window & { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>; reset?: () => void } }).BarcodeDetector;
           if (BarcodeDetectorCtor) {
             detector = new BarcodeDetectorCtor({ formats: ["qr_code"] });
             active = true;
@@ -689,7 +859,7 @@ export default function SupervisorQrAttendancePage() {
             const scanFrame = async () => {
               if (!active || !scannerActiveRef.current || !videoRef.current) return;
               try {
-                const barcodes = await detector.detect(videoRef.current);
+                const barcodes = await detector.detect?.(videoRef.current);
                 const detectedCode = barcodes[0]?.rawValue;
                 if (detectedCode) {
                   setQrInput(detectedCode);
@@ -713,9 +883,9 @@ export default function SupervisorQrAttendancePage() {
         try {
           const codeReader = new BrowserQRCodeReader();
           // decode continuously from the video element
-          codeReader.decodeFromVideoElementContinuously(videoRef.current as HTMLVideoElement, (result: any, error: any) => {
+          codeReader.decodeFromVideoElementContinuously(videoRef.current as HTMLVideoElement, (result: unknown, _error: unknown) => {
             if (result) {
-              const text = typeof result === "string" ? result : (result.getText ? result.getText() : (result as any).text ?? "");
+              const text = typeof result === "string" ? result : (result && typeof result === "object" && "getText" in result && typeof (result as { getText?: () => string }).getText === "function" ? (result as { getText: () => string }).getText() : "");
               if (text) {
                 setQrInput(text);
                 showFeedback({ type: "success", message: "QR detected successfully." });
@@ -728,7 +898,7 @@ export default function SupervisorQrAttendancePage() {
           detector = codeReader;
           active = true;
           return;
-        } catch (zxErr) {
+        } catch {
           // continue to jsQR fallback
         }
 
@@ -771,13 +941,14 @@ export default function SupervisorQrAttendancePage() {
           };
 
           void scanFallback();
-        } catch (jsErr) {
+        } catch {
           setScannerError("Camera preview opened, but QR decoding is not available in this browser. Please paste the QR payload manually.");
           return;
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Unable to open camera scanner", err);
-        setScannerError(err?.message || "Unable to open the camera for QR scanning.");
+        const message = err instanceof Error ? err.message : "Unable to open the camera for QR scanning.";
+        setScannerError(message);
         setShowCameraModal(false);
       }
     };
@@ -1027,64 +1198,45 @@ export default function SupervisorQrAttendancePage() {
                   </div>
 
                   <div>
-                      {shouldUseDepartmentFallback && departmentsForPosting.length > 0 ? (
-                        <div>
-                          <label className="mb-1 block text-xs font-medium">Department</label>
-                          <Select value={selectedPostingDepartment} onValueChange={(value) => {
-                            setSelectedPostingDepartment(value);
-                            // set department on the form and clear unit (department-only session)
-                            setNewSessionForm((current) => ({ ...current, department: value, unit: "" }));
-                          }}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choose a department" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {departmentsForPosting.map((d) => (
-                                <SelectItem key={d} value={d}>{d}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <p className="mt-2 text-xs text-muted-foreground">Pick a department to choose a matching department unit.</p>
-                        </div>
-                      ) : null}
+                    {timelineMissing ? (
+                      <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                        This posting has no schedule timeline, so the session will rely on the supervisor group selection below.
+                      </div>
+                    ) : null}
 
-                      {timelineMissing ? (
-                        <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
-                          This posting has no schedule timeline; units derived from the posting may be unavailable. You can pick a Department or select a hospital Unit.
-                        </div>
-                      ) : null}
-
-                      <label className="mb-1 block text-xs font-medium">
-                        {shouldUseDepartmentFallback ? "Unit / Department" : "Unit"}
-                      </label>
-                      <Select value={newSessionForm.unit} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, unit: value }))}>
+                    <label className="mb-1 block text-xs font-medium">Supervisor Group</label>
+                    {availableSupervisorGroups.length > 0 ? (
+                      <Select
+                        value={selectedSupervisorGroupId}
+                        onValueChange={(value) => {
+                          const selectedGroup = availableSupervisorGroups.find((group) => group.id === value);
+                          setSelectedSupervisorGroupId(value);
+                          setNewSessionForm((current) => ({
+                            ...current,
+                            department: selectedGroup?.label || current.department,
+                            unit: "",
+                          }));
+                        }}
+                      >
                         <SelectTrigger>
-                          <SelectValue placeholder={units.length === 0 ? "No units for selected class" : shouldUseDepartmentFallback ? "Choose a department unit" : "Choose a unit"} />
+                          <SelectValue placeholder="Choose a supervisor group" />
                         </SelectTrigger>
                         <SelectContent>
-                          {units.length === 0 ? (
-                            <div className="p-2 text-sm text-muted-foreground">No posting units were found for the selected class’s active clock phase.</div>
-                          ) : (
-                            units.map((unit) => (
-                              <SelectItem key={unit._id} value={unit._id}>
-                                <div className="flex flex-col">
-                                  <div>{unit.name ?? "Unnamed unit"}</div>
-                                  {(unit.unitSpin || unit.spin || unit.departmentSpin) ? (
-                                    <div className="text-xs text-muted-foreground">{unit.unitSpin || unit.spin || unit.departmentSpin}</div>
-                                  ) : null}
-                                </div>
-                              </SelectItem>
-                            ))
-                          )}
+                          {availableSupervisorGroups.map((group) => (
+                            <SelectItem key={group.id} value={group.id}>
+                              {group.label} {group.code && group.code !== group.label ? `(${group.code})` : ""}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
-                    {shouldUseDepartmentFallback ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        The selected posting has no concrete units; you may pick a department (creates a department-level session) or choose a specific unit.
-                      </p>
                     ) : (
-                      <p className="mt-2 text-xs text-muted-foreground">If no posting units appear, select a unit from the class’s scheduled departments or use a hospital unit.</p>
+                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                        {groupSelectionMessage || "No supervisor groups are available for the selected posting yet."}
+                      </div>
                     )}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      This uses the posting-dependent department or unit groups assigned to you for the selected posting.
+                    </p>
                   </div>
                 </div>
 
@@ -1154,8 +1306,12 @@ export default function SupervisorQrAttendancePage() {
                   <div>
                     <p className="text-muted-foreground">Supervisor</p>
                     <p className="font-medium">
-                      {selectedSession.supervisor?.firstName ?? ""} {selectedSession.supervisor?.lastName ?? ""}
+                      {selectedSession.supervisorName || [selectedSession.supervisor?.firstName, selectedSession.supervisor?.lastName].filter(Boolean).join(" ") || selectedSession.supervisor?.name || "Not assigned"}
                     </p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Group</p>
+                    <p className="font-medium">{selectedSession.supervisorGroupLabel || selectedSession.supervisorGroupCode || "Not assigned"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Date</p>
@@ -1174,7 +1330,7 @@ export default function SupervisorQrAttendancePage() {
                 <label className="mb-2 block text-sm font-medium">Student QR payload</label>
                 <textarea
                   value={qrInput}
-                  onChange={(event) => setQrInput(event.target.value)}
+                  onChange={(event) => handleQrInputChange(event.target.value)}
                   placeholder='Paste the student QR payload here or scan it into the field'
                   className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
                 />
@@ -1304,6 +1460,12 @@ export default function SupervisorQrAttendancePage() {
               <CardDescription>Queued locally for sync when connectivity improves.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Badge variant={isOnline ? "default" : "secondary"}>{isOnline ? "Network online" : "Network offline"}</Badge>
+                <Button type="button" size="sm" variant="outline" onClick={() => void handleRetryPendingApprovals()} disabled={!isOnline || pendingApprovals.length === 0}>
+                  Retry sync
+                </Button>
+              </div>
               {pendingApprovals.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No approvals queued yet.</p>
               ) : (
@@ -1318,6 +1480,78 @@ export default function SupervisorQrAttendancePage() {
                       {format(new Date(approval.createdAt), "p, MMM dd")}
                     </p>
                   </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle>Approved clinical sessions</CardTitle>
+                <select value={approvalSort} onChange={(event) => setApprovalSort(event.target.value as "asc" | "desc")} className="rounded-md border border-input px-2 py-1 text-sm">
+                  <option value="desc">Newest first</option>
+                  <option value="asc">Oldest first</option>
+                </select>
+              </div>
+              <CardDescription>Students approved for the groups you supervise.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {approvalGroups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No approved students yet.</p>
+              ) : (
+                approvalGroups.map((group) => (
+                  <details key={group.label} className="rounded-lg border p-3" open>
+                    <summary className="cursor-pointer font-medium">{group.label}</summary>
+                    <div className="mt-3 space-y-2">
+                      {group.entries.map(({ session, attendee }) => {
+                        const student = attendee?.student && typeof attendee.student === "object" ? attendee.student : null;
+                        const studentName = student?.firstName || student?.lastName ? [student?.firstName, student?.lastName].filter(Boolean).join(" ") : attendee?.student ? String(attendee.student) : "Student";
+                        return (
+                          <div key={`${session._id}-${studentName}`} className="rounded-md border bg-muted/20 p-2 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{studentName}</span>
+                              <Badge variant="secondary">{attendee.status}</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{session.title} • {format(new Date(session.date), "MMM dd, yyyy")}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Awaiting approvals</CardTitle>
+              <CardDescription>Students still awaiting supervisor review for each supervised group.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {awaitingApprovalGroups.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No students are awaiting approval.</p>
+              ) : (
+                awaitingApprovalGroups.map((group) => (
+                  <details key={group.label} className="rounded-lg border p-3" open>
+                    <summary className="cursor-pointer font-medium">{group.label}</summary>
+                    <div className="mt-3 space-y-2">
+                      {group.entries.map(({ session, attendee }) => {
+                        const student = attendee?.student && typeof attendee.student === "object" ? attendee.student : null;
+                        const studentName = student?.firstName || student?.lastName ? [student?.firstName, student?.lastName].filter(Boolean).join(" ") : attendee?.student ? String(attendee.student) : "Student";
+                        return (
+                          <div key={`${session._id}-${studentName}`} className="rounded-md border border-dashed p-2 text-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{studentName}</span>
+                              <Badge variant="outline">Pending</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{session.title} • {format(new Date(session.date), "MMM dd, yyyy")}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </details>
                 ))
               )}
             </CardContent>

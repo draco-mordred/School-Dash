@@ -20,11 +20,25 @@ const UserDetailsDialog = ({
 
   const attendanceValue = typeof user.attendancePercentage === "number" ? `${user.attendancePercentage}%` : "—";
   const currentPostingValue = user.currentPosting || "Not assigned";
+  //fetch user's profile image as a badge if available, else use a default icon or placeholder
+  const profileImage = user.profileImage ? (
+    <img
+      src={user.profileImage} 
+      alt={`${user.name}'s profile`}
+      className="h-8 w-8 rounded-full object-cover"
+    />  
+  ) : (
+    <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+      <span className="text-sm font-semibold">{user.name ? user.name.charAt(0).toUpperCase() : "U"}</span>
+    </div>
+  );
+  const userInnNumber = user.inn || "N/A";
+  const userPhone = user.phone || "N/A";
+  const userIdNumber = user.idNumber || "N/A";
+  const userClass = user.class || "N/A";
 
   const roleLabel =
-    user.role ||
-    (user.matricNumber ? "Student" : user.studentsCount ? "Parent" : "Staff") ||
-    "User";
+    user.role || (user.matricNumber ? "Student" : user.studentsCount ? "Parent" : "Staff") || "User";
 
   return (
     <Modal
@@ -34,11 +48,18 @@ const UserDetailsDialog = ({
       setOpen={setOpen}
     >
       <div className="mt-2 animate-[pop-in_220ms_cubic-bezier(0.16,1,0.3,1)] rounded-2xl border border-border/70 bg-card/70 p-4 shadow-[0_18px_45px_-20px_rgba(15,23,42,0.45)]">
+        
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 pb-4">
-          <div>
+          <div className="flex items-center gap-3">
+          {profileImage}
+          <div className="flex flex-col">
             <p className="text-lg font-semibold text-foreground">{user.name || "Unnamed user"}</p>
             <p className="text-sm text-muted-foreground">{user.email || "No email provided"}</p>
+            <Badge variant="secondary" className="bg-primary/10 text-primary">
+             {userIdNumber}
+            </Badge>
           </div>
+        </div>
           <Badge variant="secondary" className="bg-primary/10 text-primary">
             {roleLabel}
           </Badge>
@@ -59,26 +80,30 @@ const UserDetailsDialog = ({
             <p className={labelClass}>Status</p>
             <p className={valueClass}>{user.status || "—"}</p>
           </div>
-          {user.matricNumber && (
+          {userInnNumber && (
             <div className="rounded-xl border border-border/60 bg-background/70 p-3">
-              <p className={labelClass}>Matric Number</p>
-              <p className={valueClass}>{user.matricNumber}</p>
+              <p className={labelClass}>INN</p>
+              <p className={valueClass}>{userInnNumber}</p>
             </div>
           )}
-          {user.class && (
+          { user.class && user.role === 'student' && (
             <div className="rounded-xl border border-border/60 bg-background/70 p-3">
               <p className={labelClass}>Class</p>
               <p className={valueClass}>{user.class}</p>
             </div>
           )}
-          <div className="rounded-xl border border-border/60 bg-background/70 p-3">
+          { currentPostingValue && user.role === 'student' && (
+            <div className="rounded-xl border border-border/60 bg-background/70 p-3">
             <p className={labelClass}>Current Posting</p>
             <p className={valueClass}>{currentPostingValue}</p>
           </div>
+          )}
+          { attendanceValue && user.role === 'student' && (
           <div className="rounded-xl border border-border/60 bg-background/70 p-3">
             <p className={labelClass}>Attendance</p>
             <p className={valueClass}>{attendanceValue}</p>
           </div>
+          )}
           {user.studentsCount !== undefined && (
             <div className="rounded-xl border border-border/60 bg-background/70 p-3">
               <p className={labelClass}>Students</p>

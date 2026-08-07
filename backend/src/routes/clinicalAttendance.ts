@@ -2,6 +2,7 @@ import express from "express";
 import { protect, authorize } from "../middleware/auth";
 import {
   createClinicalAttendanceSession,
+  getAvailableClinicalAttendanceGroups,
   checkInStudent,
   checkOutStudent,
   getClinicalAttendanceSessions,
@@ -22,6 +23,13 @@ clinicalAttendanceRouter.post(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   createClinicalAttendanceSession
+);
+
+clinicalAttendanceRouter.get(
+  "/groups/available",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  getAvailableClinicalAttendanceGroups
 );
 
 // (dev-only route removed)

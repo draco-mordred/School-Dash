@@ -579,14 +579,16 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         startDate: new Date(startDate),
         endDate: new Date(endDate),
         groups: deptGroups.map((g) => {
-          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null, departmentSupervisorId: null, departmentSupervisorName: null };
+          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null, departmentSupervisorId: null, departmentSupervisorName: null, supervisorEmail: null, departmentSupervisorEmail: null } as any;
           return {
             groupId: null,
             group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` },
             supervisor: supervisorInfo.departmentSupervisorId || supervisorInfo.supervisorId || undefined,
             supervisorName: supervisorInfo.departmentSupervisorName || supervisorInfo.supervisorName || undefined,
+            supervisorEmail: supervisorInfo.departmentSupervisorEmail || supervisorInfo.supervisorEmail || undefined,
             departmentSupervisor: supervisorInfo.departmentSupervisorId || undefined,
             departmentSupervisorName: supervisorInfo.departmentSupervisorName || undefined,
+            departmentSupervisorEmail: supervisorInfo.departmentSupervisorEmail || undefined,
           };
         }),
         meta: {

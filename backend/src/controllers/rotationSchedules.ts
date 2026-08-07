@@ -131,10 +131,13 @@ export const deleteRotationSchedule = async (req: Request, res: Response) => {
   }
 };
 
-const getSupervisorNameById = async (supervisorId: string | null) => {
-  if (!supervisorId) return null;
-  const supervisor = await User.findById(supervisorId).select('name').lean();
-  return supervisor?.name || null;
+const getSupervisorIdentityById = async (supervisorId: string | null) => {
+  if (!supervisorId) return { name: null, email: null };
+  const supervisor = await User.findById(supervisorId).select('name email').lean();
+  return {
+    name: supervisor?.name || null,
+    email: supervisor?.email || null,
+  };
 };
 
 // POST /api/rotation-schedules/:id/assign-supervisor
@@ -148,12 +151,15 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
     if (!plan) return res.status(404).json({ message: 'Schedule not found' });
 
     const timeline = (plan.meta && plan.meta.timeline) || [];
-    const supervisorName = await getSupervisorNameById(supervisorId || null);
+    const supervisorIdentity = await getSupervisorIdentityById(supervisorId || null);
+    const supervisorName = supervisorIdentity.name;
+    const supervisorEmail = supervisorIdentity.email;
 
     if (typeof windowIndex === 'number') {
       if (!timeline[windowIndex]) return res.status(400).json({ message: 'Invalid windowIndex' });
       timeline[windowIndex].supervisorId = supervisorId;
       timeline[windowIndex].supervisorName = supervisorName;
+      timeline[windowIndex].supervisorEmail = supervisorEmail;
     } else if (req.body.matching) {
       // allow matching criteria to set multiple windows: { matching: { departmentIndex, departmentGroupIndex, unitGroupIndex } }
       const m = req.body.matching || {};
@@ -166,6 +172,7 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
         if (ok) {
           t.supervisorId = supervisorId;
           t.supervisorName = supervisorName;
+          t.supervisorEmail = supervisorEmail;
         }
       }
     }
@@ -182,16 +189,22 @@ export const assignSupervisorToWindow = async (req: Request, res: Response) => {
         // Match this group with windows that have matching departmentGroupIndex
         let supervisorForGroup: any = null;
         let supervisorNameForGroup: string | null = null;
+        let supervisorEmailForGroup: string | null = null;
         for (const t of timeline) {
           if (t.departmentGroupIndex === i && t.supervisorId) {
             supervisorForGroup = t.supervisorId;
             supervisorNameForGroup = t.supervisorName || null;
+            supervisorEmailForGroup = t.supervisorEmail || null;
             break;
           }
         }
         if (supervisorForGroup) {
           g.supervisor = supervisorForGroup;
           g.supervisorName = supervisorNameForGroup || undefined;
+          g.supervisorEmail = supervisorEmailForGroup || undefined;
+          g.departmentSupervisor = supervisorForGroup;
+          g.departmentSupervisorName = supervisorNameForGroup || undefined;
+          g.departmentSupervisorEmail = supervisorEmailForGroup || undefined;
         }
       }
     }
@@ -446,8 +459,10 @@ export const updateWindowInSchedule = async (req: Request, res: Response) => {
     if (payload.startDate !== undefined) window.startDate = payload.startDate;
     if (payload.endDate !== undefined) window.endDate = payload.endDate;
     if (payload.supervisorId !== undefined) {
+      const supervisorIdentity = await getSupervisorIdentityById(payload.supervisorId || null);
       window.supervisorId = payload.supervisorId;
-      window.supervisorName = await getSupervisorNameById(payload.supervisorId || null);
+      window.supervisorName = supervisorIdentity.name;
+      window.supervisorEmail = supervisorIdentity.email;
 
       const groupIndex = typeof window.departmentGroupIndex === 'number' ? window.departmentGroupIndex : null;
       if (groupIndex !== null) {
@@ -458,6 +473,10 @@ export const updateWindowInSchedule = async (req: Request, res: Response) => {
           if (groups[groupIndex]) {
             groups[groupIndex].supervisor = payload.supervisorId;
             groups[groupIndex].supervisorName = window.supervisorName || undefined;
+            groups[groupIndex].supervisorEmail = window.supervisorEmail || undefined;
+            groups[groupIndex].departmentSupervisor = payload.supervisorId;
+            groups[groupIndex].departmentSupervisorName = window.supervisorName || undefined;
+            groups[groupIndex].departmentSupervisorEmail = window.supervisorEmail || undefined;
           }
         }
       }

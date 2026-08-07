@@ -37,6 +37,8 @@ interface StudentAttendanceState {
   checkedAt?: string;
   supervisorName?: string;
   notes?: string;
+  groupLabel?: string;
+  groupCode?: string;
 }
 
 export default function StudentClinicalAttendancePage() {
@@ -49,6 +51,7 @@ export default function StudentClinicalAttendancePage() {
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState<string | null>(null);
   const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const loadAttendanceData = async () => {
     if (!user?._id) {
@@ -94,6 +97,8 @@ export default function StudentClinicalAttendancePage() {
                 ? `${latestSession.supervisor.firstName} ${latestSession.supervisor.lastName}`
                 : latestSession?.supervisor?.firstName ?? "Pending",
               notes: attendeeRecord.notes ?? "No notes yet",
+              groupLabel: latestSession?.supervisorGroupLabel || latestSession?.department || "Current group",
+              groupCode: latestSession?.supervisorGroupCode || "",
             }
           : null
       );
@@ -129,6 +134,15 @@ export default function StudentClinicalAttendancePage() {
   }, [user?._id]);
 
   const activeSession = useMemo(() => sessions[0] ?? null, [sessions]);
+  const sortedSessions = useMemo(() => {
+    const nextSessions = [...sessions];
+    nextSessions.sort((left, right) => {
+      const leftDate = new Date(left.date).getTime();
+      const rightDate = new Date(right.date).getTime();
+      return sortDirection === "asc" ? leftDate - rightDate : rightDate - leftDate;
+    });
+    return nextSessions;
+  }, [sessions, sortDirection]);
 
   const handleGenerateQr = async () => {
     if (!activeSession || !user?._id) {
@@ -221,6 +235,10 @@ export default function StudentClinicalAttendancePage() {
                     <p className="font-medium">{studentState.supervisorName ?? "Pending"}</p>
                   </div>
                   <div>
+                    <p className="text-xs uppercase text-muted-foreground">Group</p>
+                    <p className="font-medium">{studentState.groupLabel ?? "Current group"}</p>
+                  </div>
+                  <div>
                     <p className="text-xs uppercase text-muted-foreground">Notes</p>
                     <p className="font-medium">{studentState.notes ?? "No notes yet"}</p>
                   </div>
@@ -285,6 +303,47 @@ export default function StudentClinicalAttendancePage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle>Attendance approvals</CardTitle>
+            <select value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")} className="rounded-md border border-input px-2 py-1 text-sm">
+              <option value="desc">Newest first</option>
+              <option value="asc">Oldest first</option>
+            </select>
+          </div>
+          <CardDescription>Your supervisor approvals sorted by date.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {sortedSessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No clinical attendance approvals have been recorded yet.</p>
+          ) : (
+            sortedSessions.map((session) => {
+              const attendeeRecord = session.attendees?.find((attendee: any) => {
+                const studentId = attendee?.student?._id ?? attendee?.student;
+                return studentId && String(studentId) === String(user?._id);
+              });
+              const status = attendeeRecord?.status === "excused" ? "approved_absent" : attendeeRecord?.status === "present" ? "present" : attendeeRecord?.status === "absent" ? "absent" : "pending";
+              return (
+                <div key={session._id} className="rounded-lg border p-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{session.title}</p>
+                      <p className="text-xs text-muted-foreground">{format(new Date(session.date), "PPP")}</p>
+                    </div>
+                    {getStatusBadge(status)}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <span>Group: {session.supervisorGroupLabel || session.department || "Current group"}</span>
+                    <span>Supervisor: {session.supervisor?.firstName && session.supervisor?.lastName ? `${session.supervisor.firstName} ${session.supervisor.lastName}` : session.supervisor?.firstName || "Pending"}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

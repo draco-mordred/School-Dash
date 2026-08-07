@@ -9,7 +9,7 @@ export type ClinicalActivityType =
   | "procedure"
   | "practical";
 
-export type AttendanceRecordStatus = "present" | "absent" | "late" | "excused" | "on-leave";
+export type AttendanceRecordStatus = "present" | "absent" | "late" | "excused" | "on-leave" | "pending";
 
 export interface IAttendanceRecord {
   student: mongoose.Types.ObjectId;
@@ -39,6 +39,12 @@ export interface IClinicalAttendance extends Document {
 
   // Participants
   supervisor: mongoose.Types.ObjectId; // Consultant/Resident overseeing
+  supervisorName?: string;
+  supervisorEmail?: string;
+  supervisorGroupId?: string | null;
+  supervisorGroupLabel?: string;
+  supervisorGroupCode?: string;
+  supervisorGroupType?: string;
   attendees: IAttendanceRecord[];
   expectedStudents?: mongoose.Types.ObjectId[]; // List of students expected
 
@@ -76,8 +82,8 @@ const AttendanceRecordSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["present", "absent", "late", "excused", "on-leave"],
-      default: "absent",
+      enum: ["present", "absent", "late", "excused", "on-leave", "pending"],
+      default: "pending",
     },
     checkInTime: {
       type: Date,
@@ -164,6 +170,30 @@ const ClinicalAttendanceSchema = new Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    supervisorName: {
+      type: String,
+      default: "",
+    },
+    supervisorEmail: {
+      type: String,
+      default: "",
+    },
+    supervisorGroupId: {
+      type: String,
+      default: null,
+    },
+    supervisorGroupLabel: {
+      type: String,
+      default: "",
+    },
+    supervisorGroupCode: {
+      type: String,
+      default: "",
+    },
+    supervisorGroupType: {
+      type: String,
+      default: "",
     },
     attendees: [AttendanceRecordSchema],
     expectedStudents: [

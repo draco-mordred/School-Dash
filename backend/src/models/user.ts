@@ -80,7 +80,13 @@ export const roleDisplayName: Record<userRoles, string> = {
     unitresident: "Unit Resident",
 };
 
-export type userIDs =  "ADMINID" | "STUDENTID" | "TEACHERID" | "PARENTID" | "UNITCONSULTANTID" | "UNITRESIDENTID";
+export type userIDs =  
+"ADMINID" 
+| "STUDENTID" 
+| "TEACHERID" 
+| "PARENTID" 
+| "UNITCONSULTANTID" 
+| "UNITRESIDENTID";
 // Let's map type userDepartments to UserDeparments so that Users can be assigned to OandG or Pediatrics or other Deparments, for all user roles except students and parents.
 // export const UserDepartmentName = {
 //     OBG: "Obstetrics & Gynaecology",
@@ -157,6 +163,8 @@ export type userDepartmentRole =
 
 export interface IUser extends Document {
     name: string;
+    firstName?: string | null;
+    lastName?: string | null;
     email: string;
     idNumber: string; // field for ID number
     inn?: string | null; // Institution Identity Number used for cards and attendance
