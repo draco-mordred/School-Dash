@@ -53,6 +53,8 @@ import Exams from "@/pages/lms/Exams";
 import Exam from "../lms/Exam";
 import Assignments from "@/pages/lms/Assignments";
 import StudyMaterials from "@/pages/lms/StudyMaterials";
+import ClassLessonPlanPage from "@/pages/lms/ClassLessonPlanPage";
+import ClassCourseMaterialsPage from "@/pages/lms/ClassCourseMaterialsPage";
 import Account from "@/pages/settings/Account";
 import Notifications from "@/pages/Notifications";
 import InstitutionSetupPage from "@/pages/setup/InstitutionSetupPage";
@@ -347,6 +349,14 @@ export const router = createBrowserRouter([
           {
             path: "lms/materials",
             element: <StudyMaterials />,
+          },
+          {
+            path: "lms/materials/:classId/resources",
+            element: <ClassCourseMaterialsPage />,
+          },
+          {
+            path: "lms/materials/:classId/lesson-plan",
+            element: <ClassLessonPlanPage />,
           },
           {
             path: "timetable",

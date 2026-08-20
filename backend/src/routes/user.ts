@@ -11,6 +11,12 @@ import {
     deleteUser,
     logoutUser,
     getUserProfile,
+    getGoogleDriveAuthUrl,
+    handleGoogleDriveOAuthCallback,
+    getGoogleDriveStatus,
+    saveGoogleDriveAccount,
+    disconnectGoogleDriveAccount,
+    getVisibleClassesForCurrentUser,
     getUsers,
     getUserById,
     bulkUploadUsers,
@@ -33,8 +39,15 @@ userRoutes.post("/public/register", registerPublic);
 userRoutes.post("/forgot-password", requestPasswordReset);
 userRoutes.post("/reset-password", resetPassword);
 userRoutes.post("/login", login); 
-userRoutes.post("/logout", logoutUser); 
+userRoutes.post("/logout", logoutUser);
+userRoutes.get("/google-drive/connect-url", protect, getGoogleDriveAuthUrl);
+userRoutes.get("/google-drive/oauth/callback", protect, handleGoogleDriveOAuthCallback);
+userRoutes.post("/google-drive/oauth/callback", protect, handleGoogleDriveOAuthCallback);
+userRoutes.post("/google-drive/link", protect, saveGoogleDriveAccount);
+userRoutes.post("/google-drive/disconnect", protect, disconnectGoogleDriveAccount);
+userRoutes.get("/google-drive/status", protect, getGoogleDriveStatus);
 userRoutes.get("/profile", protect, getUserProfile); // Get user profile via cookie, protected route    
+userRoutes.get("/visible-classes", protect, getVisibleClassesForCurrentUser);
 userRoutes.get("/",
     protect,
     authorize(["admin", "teacher", "parent", "student", "unitconsultant"]),

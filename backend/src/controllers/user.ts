@@ -4,6 +4,8 @@ import User, { type userRoles } from "../models/user";
 import Department from "../models/departments";
 import Institution from "../models/institution";
 import FacultyModel from "../models/faculty";
+import ClassModel from "../models/classes";
+import CourseModel from "../models/courses";
 import { getAllDepartments } from "../constants/departments";
 import { Notification } from "../models/notification";
 
@@ -189,6 +191,64 @@ const ensureUniqueInn = async ({ userId, role, idNumber, institutionName }: { us
     }
 };
 
+const normalizeObjectIdList = (value: unknown): string[] => {
+    if (!value) return [];
+    const items = Array.isArray(value) ? value : [value];
+    const ids = items
+        .map((item) => {
+            if (!item) return null;
+            if (typeof item === "string") return item.trim();
+            if (typeof item === "object" && item !== null && "_id" in item && item._id) {
+                return String((item as any)._id).trim();
+            }
+            return String(item).trim();
+        })
+        .filter((item): item is string => Boolean(item) && mongoose.isValidObjectId(item));
+    return Array.from(new Set(ids));
+};
+
+export const resolveTeacherClassesFromAssignments = async (teacherSubjectInput?: unknown, teacherCourseInput?: unknown) => {
+    const subjectOrCourseIds = new Set([
+        ...normalizeObjectIdList(teacherSubjectInput),
+        ...normalizeObjectIdList(teacherCourseInput),
+    ]);
+
+    if (!subjectOrCourseIds.size) {
+        return [] as string[];
+    }
+
+    const matchingCourses = await CourseModel.find({
+        $or: [
+            { _id: { $in: Array.from(subjectOrCourseIds) } },
+            { "subjects._id": { $in: Array.from(subjectOrCourseIds) } },
+        ],
+    }).select("_id subjects classAssignments").lean();
+
+    const courseIds = Array.from(
+        new Set(
+            matchingCourses
+                .map((course: any) => String(course._id))
+                .filter(Boolean)
+        )
+    );
+
+    if (!courseIds.length) {
+        return [] as string[];
+    }
+
+    const matchingClasses = await ClassModel.find({
+        courses: { $in: courseIds },
+    }).select("_id").lean();
+
+    return Array.from(
+        new Set(
+            matchingClasses
+                .map((cls: any) => String(cls._id))
+                .filter(Boolean)
+        )
+    );
+};
+
 export const backfillMissingInns = async () => {
     try {
         const users = await User.find({ $or: [{ inn: { $exists: false } }, { inn: null }, { inn: "" }] })
@@ -263,6 +323,7 @@ export const registerUser = async (
             department,
             studentClasses,
             teacherSubject,
+            teacherCourses,
             parentStudents,
             isActive,
             isSupervisor,
@@ -313,6 +374,16 @@ export const registerUser = async (
               ? [teacherSubject]
               : [];
 
+        const teacherCoursesNormalized = Array.isArray(teacherCourses)
+            ? teacherCourses
+            : teacherCourses
+              ? [teacherCourses]
+              : [];
+
+        const teacherClassesDerived = await resolveTeacherClassesFromAssignments(
+            teacherSubjectNormalized,
+            teacherCoursesNormalized,
+        );
 
         const parentStudentsNormalized = Array.isArray(parentStudents)
             ? parentStudents
@@ -426,6 +497,8 @@ export const registerUser = async (
             departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: finalStudentClass,
             teacherSubject: teacherSubjectNormalized,
+            teacherCourses: teacherCoursesNormalized,
+            teacherClasses: teacherClassesDerived,
             parentStudents: parentStudentsNormalized,
             isActive,
             isSupervisor: isSupervisor || false,
@@ -435,6 +508,7 @@ export const registerUser = async (
 
         if (newUser) {
             await newUser.populate("studentClasses", "name academicYear");
+            await newUser.populate("teacherClasses", "_id name");
             // teacherSubject is populated from the Course model
             await newUser.populate("teacherSubject", "name code");
                         // If student, link to class students array
@@ -629,6 +703,15 @@ export const registerPublic = async (
             : teacherSubject
             ? [teacherSubject]
             : [];
+        const teacherCoursesNormalized = Array.isArray(req.body?.teacherCourses)
+            ? req.body.teacherCourses
+            : req.body?.teacherCourses
+              ? [req.body.teacherCourses]
+              : [];
+        const teacherClassesDerived = await resolveTeacherClassesFromAssignments(
+            teacherSubjectNormalized,
+            teacherCoursesNormalized,
+        );
         const parentStudentsNormalized = Array.isArray(parentStudents)
             ? parentStudents
             : parentStudents
@@ -679,6 +762,8 @@ export const registerPublic = async (
             departmentId: departmentDoc ? departmentDoc._id : undefined,
             studentClasses: studentClassId,
             teacherSubject: teacherSubjectNormalized,
+            teacherCourses: teacherCoursesNormalized,
+            teacherClasses: teacherClassesDerived,
             parentStudents: parentStudentsNormalized,
             isActive: requestedActiveState,
             approvalStatus: approvalState.approvalStatus,
@@ -686,6 +771,8 @@ export const registerPublic = async (
 
         if (newUser) {
             await newUser.populate('studentClasses', 'name academicYear');
+            await newUser.populate('teacherClasses', '_id name');
+            await newUser.populate('teacherCourses', '_id name code');
             await newUser.populate('teacherSubject', 'name code');
 
             if (role === 'student' && studentClassId) {
@@ -917,9 +1004,12 @@ export const login = async (
                     role: user.role,
                     idNumber: user.idNumber,
                     profileImage: user.profileImage,
+                    googleDriveAccount: user.googleDriveAccount ?? null,
                     studentClasses: user.studentClasses,
                     studentClass: user.studentClasses,
                     teacherSubject: user.teacherSubject,
+                    teacherCourses: user.teacherCourses,
+                    teacherClasses: user.teacherClasses,
                     parentStudents: user.parentStudents,
                     isActive: user.isActive,
                     academicStatus: user.academicStatus,
@@ -1081,6 +1171,16 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                         ? [req.body.teacherSubject]
                         : [];
                 user.teacherSubject = normalizedTeacherSubject.filter((subject: any) => typeof subject !== "string" || subject.trim() !== "") as any;
+                user.teacherClasses = await resolveTeacherClassesFromAssignments(user.teacherSubject, req.body.teacherCourses);
+            }
+            if (req.body.teacherCourses !== undefined) {
+                const normalizedTeacherCourses = Array.isArray(req.body.teacherCourses)
+                    ? req.body.teacherCourses
+                    : req.body.teacherCourses
+                        ? [req.body.teacherCourses]
+                        : [];
+                user.teacherCourses = normalizedTeacherCourses.filter((course: any) => typeof course !== "string" || course.trim() !== "") as any;
+                user.teacherClasses = await resolveTeacherClassesFromAssignments(user.teacherSubject, user.teacherCourses);
             }
             if (req.body.parentStudents !== undefined) {
                 const normalizedParentStudents = Array.isArray(req.body.parentStudents)
@@ -1399,6 +1499,8 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
     try {
         const user = await User.findById((req as any).user._id)
           .populate("studentClasses", "name academicYear")
+          .populate("teacherClasses", "_id name")
+          .populate("teacherCourses", "_id name code")
           .populate("teacherSubject", "name code")
           .populate("parentStudents", "name email idNumber role studentClasses");
         if (user){
@@ -1411,8 +1513,11 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
                     idNumber: user.idNumber,
                     inn: user.inn,
                     profileImage: user.profileImage,
+                    googleDriveAccount: user.googleDriveAccount ?? null,
                     studentClasses: user.studentClasses,
                     teacherSubject: user.teacherSubject,
+                    teacherCourses: user.teacherCourses,
+                    teacherClasses: user.teacherClasses,
                     parentStudents: user.parentStudents,
                     academicStatus: user.academicStatus,
                     departmentRole: user.departmentRole,
@@ -1438,6 +1543,312 @@ export const getUserProfile = async (req: Request, res: Response) : Promise<void
         res.status(500).json({ status: "Error!", message: `Server error: ${error}` });
     }
 }
+
+const getGoogleDriveConfig = () => {
+    const clientId = process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+    const clientSecret = process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
+    const redirectUri = process.env.GOOGLE_DRIVE_REDIRECT_URI || `${process.env.BACKEND_URL || "http://localhost:5000"}/api/users/google-drive/oauth/callback`;
+    return { clientId, clientSecret, redirectUri };
+};
+
+export const getGoogleDriveAuthUrl = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { clientId, redirectUri } = getGoogleDriveConfig();
+        if (!clientId) {
+            res.status(200).json({
+                configured: false,
+                message: "Google Drive is not configured yet. Add the Google OAuth client ID and secret in the backend environment before connecting a Google account.",
+                authUrl: null,
+                redirectUri,
+            });
+            return;
+        }
+
+        const params = new URLSearchParams({
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: "openid email profile https://www.googleapis.com/auth/drive.readonly",
+            access_type: "offline",
+            prompt: "consent",
+        });
+
+        res.json({
+            configured: true,
+            authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+            redirectUri,
+        });
+    } catch (error) {
+        console.error("getGoogleDriveAuthUrl failed:", error);
+        res.status(500).json({ message: "Failed to create Google Drive authorization URL." });
+    }
+};
+
+export const handleGoogleDriveOAuthCallback = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const currentUser = (req as any).user;
+        if (!currentUser?._id) {
+            res.status(401).json({ message: "You must sign in before connecting Google Drive." });
+            return;
+        }
+
+        const code = typeof req.query.code === "string" ? req.query.code : (req.body?.code as string | undefined);
+        if (!code) {
+            res.status(400).json({ message: "Missing authorization code from Google." });
+            return;
+        }
+
+        const { clientId, clientSecret, redirectUri } = getGoogleDriveConfig();
+        if (!clientId || !clientSecret) {
+            res.status(400).json({ message: "Google OAuth client credentials are not configured on the server." });
+            return;
+        }
+
+        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                code,
+                client_id: clientId,
+                client_secret: clientSecret,
+                redirect_uri: redirectUri,
+                grant_type: "authorization_code",
+            }),
+        });
+
+        const tokenPayload = await tokenResponse.json();
+        if (!tokenResponse.ok) {
+            console.error("Google OAuth exchange failed:", tokenPayload);
+            res.status(400).json({ message: tokenPayload?.error_description || "Google authorization failed." });
+            return;
+        }
+
+        const googleAccessToken = typeof tokenPayload.access_token === "string" ? tokenPayload.access_token : null;
+        const refreshToken = typeof tokenPayload.refresh_token === "string" ? tokenPayload.refresh_token : null;
+        const expiresIn = Number(tokenPayload.expires_in ?? 0);
+
+        if (!googleAccessToken) {
+            res.status(400).json({ message: "Google did not return an access token." });
+            return;
+        }
+
+        const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+            headers: {
+                Authorization: `Bearer ${googleAccessToken}`,
+            },
+        });
+
+        const userInfo = await userInfoResponse.json();
+        if (!userInfoResponse.ok) {
+            console.error("Google userinfo lookup failed:", userInfo);
+            res.status(400).json({ message: "Could not read the authenticated Google profile." });
+            return;
+        }
+
+        const user = await User.findById(currentUser._id);
+        if (!user) {
+            res.status(404).json({ message: "User not found." });
+            return;
+        }
+
+        user.googleDriveAccount = {
+            ...(user.googleDriveAccount ?? {}),
+            googleUserId: userInfo.id ?? user.googleDriveAccount?.googleUserId ?? null,
+            email: userInfo.email ?? user.googleDriveAccount?.email ?? null,
+            accessToken: googleAccessToken,
+            refreshToken: refreshToken ?? user.googleDriveAccount?.refreshToken ?? null,
+            tokenExpiry: expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : user.googleDriveAccount?.tokenExpiry ?? null,
+            connectedAt: user.googleDriveAccount?.connectedAt ?? new Date(),
+            driveFolderId: user.googleDriveAccount?.driveFolderId ?? null,
+            driveFolderUrl: user.googleDriveAccount?.driveFolderUrl ?? null,
+            scope: "https://www.googleapis.com/auth/drive.readonly",
+            status: "connected",
+        };
+
+        await user.save();
+
+        if (req.method === "GET") {
+            res.type("html").send(`<!DOCTYPE html><html><body><p>Google Drive connected successfully. You can close this window.</p><script>window.opener && window.opener.postMessage({ type: 'GOOGLE_DRIVE_AUTH_DONE', status: 'success' }, '*'); window.close();</script></body></html>`);
+            return;
+        }
+
+        res.json({
+            message: "Google Drive connection succeeded.",
+            connected: true,
+            googleDriveAccount: user.googleDriveAccount,
+        });
+    } catch (error) {
+        console.error("handleGoogleDriveOAuthCallback failed:", error);
+        res.status(500).json({ message: "Failed to complete Google Drive connection.", error: (error as Error)?.message ?? String(error) });
+    }
+};
+
+export const saveGoogleDriveAccount = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const currentUser = (req as any).user;
+        if (!currentUser?._id) {
+            res.status(401).json({ message: "You must sign in before connecting Google Drive." });
+            return;
+        }
+
+        const payload = req.body ?? {};
+        const user = await User.findById(currentUser._id);
+        if (!user) {
+            res.status(404).json({ message: "User not found." });
+            return;
+        }
+
+        user.googleDriveAccount = {
+            ...(user.googleDriveAccount ?? {}),
+            googleUserId: payload.googleUserId ?? user.googleDriveAccount?.googleUserId ?? null,
+            email: payload.email ?? user.googleDriveAccount?.email ?? null,
+            accessToken: payload.accessToken ?? user.googleDriveAccount?.accessToken ?? null,
+            refreshToken: payload.refreshToken ?? user.googleDriveAccount?.refreshToken ?? null,
+            tokenExpiry: payload.tokenExpiry ? new Date(payload.tokenExpiry) : user.googleDriveAccount?.tokenExpiry ?? null,
+            connectedAt: user.googleDriveAccount?.connectedAt ?? new Date(),
+            driveFolderId: payload.driveFolderId ?? user.googleDriveAccount?.driveFolderId ?? null,
+            driveFolderUrl: payload.driveFolderUrl ?? user.googleDriveAccount?.driveFolderUrl ?? null,
+            scope: payload.scope ?? user.googleDriveAccount?.scope ?? "https://www.googleapis.com/auth/drive.readonly",
+            status: payload.status ?? "connected",
+        };
+
+        await user.save();
+        res.json({ message: "Google Drive account saved.", connected: true, googleDriveAccount: user.googleDriveAccount });
+    } catch (error) {
+        console.error("saveGoogleDriveAccount failed:", error);
+        res.status(500).json({ message: "Failed to save Google Drive account data." });
+    }
+};
+
+export const getGoogleDriveStatus = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const currentUser = (req as any).user;
+        if (!currentUser?._id) {
+            res.status(401).json({ message: "User is not authenticated." });
+            return;
+        }
+
+        const user = await User.findById(currentUser._id).select("googleDriveAccount");
+        const googleDriveAccount = user?.googleDriveAccount ?? null;
+        res.json({
+            connected: Boolean(googleDriveAccount?.accessToken || googleDriveAccount?.status === "connected"),
+            googleDriveAccount,
+        });
+    } catch (error) {
+        console.error("getGoogleDriveStatus failed:", error);
+        res.status(500).json({ message: "Failed to fetch Google Drive status." });
+    }
+};
+
+export const disconnectGoogleDriveAccount = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const currentUser = (req as any).user;
+        if (!currentUser?._id) {
+            res.status(401).json({ message: "You must sign in before disconnecting Google Drive." });
+            return;
+        }
+
+        const user = await User.findById(currentUser._id);
+        if (!user) {
+            res.status(404).json({ message: "User not found." });
+            return;
+        }
+
+        user.googleDriveAccount = {
+            googleUserId: null,
+            email: null,
+            accessToken: null,
+            refreshToken: null,
+            tokenExpiry: null,
+            connectedAt: null,
+            driveFolderId: null,
+            driveFolderUrl: null,
+            scope: null,
+            status: "disconnected",
+        };
+
+        await user.save();
+        res.json({ message: "Google Drive account disconnected.", connected: false });
+    } catch (error) {
+        console.error("disconnectGoogleDriveAccount failed:", error);
+        res.status(500).json({ message: "Failed to disconnect Google Drive account." });
+    }
+};
+
+export const getVisibleClassesForCurrentUser = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const user = await User.findById((req as any).user._id)
+            .select("role studentClasses teacherClasses teacherSubject teacherCourses")
+            .lean();
+
+        if (!user) {
+            res.status(404).json({ message: "User not found" });
+            return;
+        }
+
+        const normalizedRole = String(user.role ?? "").trim().toLowerCase();
+        const isTeacherLikeRole = ["teacher", "staff", "unitconsultant", "unitresident"].includes(normalizedRole);
+
+        if (normalizedRole === "admin") {
+            const allClasses = await ClassModel.find({}).populate("academicYear", "name").lean();
+            res.json({ classes: allClasses });
+            return;
+        }
+
+        if (normalizedRole === "student") {
+            const classId = user.studentClasses ? String((user.studentClasses as any)._id ?? user.studentClasses) : null;
+            const classes = classId ? await ClassModel.find({ _id: classId }).populate("academicYear", "name").lean() : [];
+            res.json({ classes });
+            return;
+        }
+
+        if (isTeacherLikeRole) {
+            const teacherClassIds = new Set(
+                (Array.isArray(user.teacherClasses) ? user.teacherClasses : [])
+                    .map((item: any) => String((item && typeof item === "object" ? item._id : item)))
+                    .filter(Boolean)
+            );
+
+            const teacherAssignmentIds = new Set(
+                [
+                    ...(Array.isArray(user.teacherSubject) ? user.teacherSubject : []),
+                    ...(Array.isArray((user as any).teacherCourses) ? (user as any).teacherCourses : []),
+                ]
+                    .map((item: any) => String((item && typeof item === "object" ? item._id : item)))
+                    .filter(Boolean)
+            );
+
+            let classIds: string[] = [];
+            if (teacherClassIds.size) {
+                classIds = Array.from(teacherClassIds);
+            } else if (teacherAssignmentIds.size) {
+                const matchingCourses = await CourseModel.find({
+                    $or: [
+                        { _id: { $in: Array.from(teacherAssignmentIds) } },
+                        { "subjects._id": { $in: Array.from(teacherAssignmentIds) } },
+                    ],
+                }).select("_id").lean();
+                const courseIds = Array.from(new Set(matchingCourses.map((course: any) => String(course._id)).filter(Boolean)));
+                if (courseIds.length) {
+                    const matchingClasses = await ClassModel.find({ courses: { $in: courseIds } }).select("_id").lean();
+                    classIds = Array.from(new Set(matchingClasses.map((cls: any) => String(cls._id)).filter(Boolean)));
+                }
+            }
+
+            const classes = classIds.length
+                ? await ClassModel.find({ _id: { $in: classIds } }).populate("academicYear", "name").populate("courses", "name code subjects.name subjects.code subjects.subjectID subjects.lecturer").lean()
+                : [];
+
+            res.json({ classes });
+            return;
+        }
+
+        res.json({ classes: [] });
+    } catch (error) {
+        console.error("getVisibleClassesForCurrentUser failed:", error);
+        res.status(500).json({ message: "Server error", error: (error as any)?.message ?? String(error) });
+    }
+};
 
 // desc   Logout users / clear cookie
 // route   POST /api/users/logout

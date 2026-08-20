@@ -1,18 +1,106 @@
 import { type Request, type Response } from "express";
 import ClassModel from "../models/classes";
 import UserModel from "../models/user";
-import { logActivity } from "../utils/activitieslog"
+import { logActivity } from "../utils/activitieslog";
+import {
+  classDriveMaterialsService,
+  extractGoogleDriveFolderId,
+} from "../subs/adam/classDriveMaterialsService";
+
+const { buildDriveMaterialsPayload } = classDriveMaterialsService;
+
+export const saveClassCloudStorage = async (req: Request, res: Response) => {
+  try {
+    const { provider = "google-drive", rootUrl } = req.body ?? {};
+    const classId = req.params.id;
+
+    if (!rootUrl || !String(rootUrl).trim()) {
+      return res.status(400).json({ message: "A cloud storage link is required." });
+    }
+
+    const folderId = extractGoogleDriveFolderId(String(rootUrl).trim());
+    const cls = await ClassModel.findById(classId);
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+
+    cls.cloudStorage = {
+      provider,
+      rootUrl: String(rootUrl).trim(),
+      folderId: folderId ?? "",
+      status: folderId ? "ready" : "error",
+      lastError: folderId ? null : "Invalid or unsupported Drive folder link.",
+      lastSyncedAt: new Date(),
+      syncedBy: (req as any).user?._id ?? null,
+    };
+
+    await cls.save();
+    return res.json({
+      message: "Class cloud storage link saved.",
+      classId: cls._id,
+      cloudStorage: cls.cloudStorage,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const getClassCourseMaterials = async (req: Request, res: Response) => {
+  try {
+    const cls = await ClassModel.findById(req.params.id)
+      .populate({
+        path: "courses",
+        select: "_id name code",
+      })
+      .lean();
+
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+
+    const rootUrl = cls.cloudStorage?.rootUrl ?? "";
+    const courseDocs = Array.isArray((cls as any).courses) ? (cls as any).courses : [];
+    const currentUser = (req as any).user?._id
+      ? await UserModel.findById((req as any).user._id).select("googleDriveAccount").lean()
+      : null;
+    const userAccessToken = currentUser?.googleDriveAccount?.accessToken ?? null;
+
+    if (!rootUrl) {
+      return res.json({
+        classId: String(cls._id),
+        synced: false,
+        cloudStorage: cls.cloudStorage ?? null,
+        message: "No cloud storage link has been configured for this class yet.",
+        courseMaterials: [],
+      });
+    }
+
+    const payload = await buildDriveMaterialsPayload(rootUrl, courseDocs, userAccessToken);
+
+    return res.json({
+      classId: String(cls._id),
+      cloudStorage: cls.cloudStorage ?? null,
+      ...payload,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
 
 export const getClassById = async (req: Request, res: Response) => {
   try {
     const cls = await ClassModel.findById(req.params.id)
       .populate("academicYear", "name")
       .populate("classTeacher", "name email")
-      .populate(
-        "courses",
-        "name code subjects.name subjects.code subjects.subjectID subjects.lecturer"
-      )
-      .select("name academicYear classTeacher courses");
+      .populate({
+        path: "courses",
+        select: "name code subjects._id subjects.name subjects.code subjects.subjectID subjects.date subjects.startTime subjects.endTime subjects.lecturer",
+        populate: {
+          path: "subjects.lecturer",
+          select: "name email _id",
+        },
+      })
+      .select("name academicYear classTeacher courses cloudStorage");
     if (!cls) {
       return res.status(404).json({ message: "Class not found" });
     }

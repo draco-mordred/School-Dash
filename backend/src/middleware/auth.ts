@@ -32,6 +32,8 @@ export const protect = async (
             req.user = (await User.findById(decoded.userId)
                 .select("-password")
                 .populate("studentClasses", "_id name")
+                .populate("teacherClasses", "_id name")
+                .populate("teacherCourses", "_id name code")
                 .populate("teacherSubject", "_id name code")
                 .populate("parentStudents", "_id name email idNumber role studentClasses")) as IUser;
             next();

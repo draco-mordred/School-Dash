@@ -1,10 +1,32 @@
 import express from "express"
-import { createClass, deleteClass, getAllClasses, getClassById, updateClass, getStudentsForClass, removeCourseFromClass } from "../controllers/classes";
+import {
+  createClass,
+  deleteClass,
+  getAllClasses,
+  getClassById,
+  updateClass,
+  getStudentsForClass,
+  removeCourseFromClass,
+  saveClassCloudStorage,
+  getClassCourseMaterials,
+} from "../controllers/classes";
 import { authorize, protect } from "../middleware/auth";
 
 const classRouter = express.Router();
 
 classRouter.post("/create", protect, authorize(["admin"]), createClass);
+classRouter.post(
+  "/:id/cloud-storage",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  saveClassCloudStorage
+);
+classRouter.get(
+  "/:id/course-materials",
+  protect,
+  authorize(["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"]),
+  getClassCourseMaterials
+);
 classRouter.get(
   "/",
   protect,

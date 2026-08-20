@@ -560,7 +560,7 @@ export const getClinicalAttendanceSessions = async (
         { path: "supervisor", select: "firstName lastName email name" },
         { path: "unit", select: "name" },
         { path: "createdBy", select: "firstName lastName" },
-        { path: "attendees.student", select: "firstName lastName" },
+        { path: "attendees.student", select: "firstName lastName name inn idNumber" },
       ])
       .sort({ date: -1 })
       .skip(skip)
@@ -774,12 +774,20 @@ export const approveQrAttendance = async (
       existingRecord.status = normalizedStatus;
       existingRecord.checkInTime = checkInTime;
       existingRecord.notes = notes || existingRecord.notes || "Approved via QR";
+      existingRecord.approvedBy = (req as any).user?._id || existingRecord.approvedBy || null;
+      existingRecord.approvedByName = ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : existingRecord.approvedByName || '';
+      existingRecord.approvedByEmail = (req as any).user?.email || existingRecord.approvedByEmail || '';
+      existingRecord.approvedAt = checkInTime;
     } else {
       session.attendees.push({
         student: parsedPayload.studentId,
         status: normalizedStatus,
         checkInTime,
         notes: notes || "Approved via QR",
+        approvedBy: (req as any).user?._id || null,
+        approvedByName: ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : '',
+        approvedByEmail: (req as any).user?.email || '',
+        approvedAt: checkInTime,
       } as any);
     }
 
@@ -1069,7 +1077,7 @@ export const generateAttendanceReport = async (
 
     const sessions = await ClinicalAttendance.find(filter)
       .populate([
-        { path: "attendees.student", select: "firstName lastName email" },
+        { path: "attendees.student", select: "firstName lastName name inn idNumber email" },
         { path: "unit", select: "name" },
         { path: "supervisor", select: "firstName lastName" },
       ])

@@ -182,8 +182,21 @@ export interface IUser extends Document {
     approvedAt?: Date | null;
     approvedBy?: mongoose.Types.ObjectId | null;
     profileImage?: string; // Base64 encoded profile image
+    googleDriveAccount?: {
+        googleUserId?: string | null;
+        email?: string | null;
+        accessToken?: string | null;
+        refreshToken?: string | null;
+        tokenExpiry?: Date | null;
+        connectedAt?: Date | null;
+        driveFolderId?: string | null;
+        driveFolderUrl?: string | null;
+        scope?: string | null;
+        status?: "disconnected" | "connected" | "expired" | "error";
+    } | null;
     studentClasses?: mongoose.Types.ObjectId | null; // Class ID for student
-    teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of class IDs for teachers
+    teacherSubject?: mongoose.Types.ObjectId[] | null; // Array of assigned course/subject IDs for teachers
+    teacherClasses?: mongoose.Types.ObjectId[] | null; // Derived class IDs for the classes the teacher teaches
     parentStudents?: mongoose.Types.ObjectId[] | null; // Array of student IDs for parents
     //Course to which the teacher is assigned, for teachers/lecturers
     teacherCourses?: mongoose.Types.ObjectId[] | null; // Array of course IDs for teachers
@@ -302,15 +315,68 @@ const UserSchema: Schema<IUser> = new Schema({
         type: String,
         default: null
     },
+    googleDriveAccount: {
+        googleUserId: {
+            type: String,
+            default: null,
+        },
+        email: {
+            type: String,
+            default: null,
+        },
+        accessToken: {
+            type: String,
+            default: null,
+        },
+        refreshToken: {
+            type: String,
+            default: null,
+        },
+        tokenExpiry: {
+            type: Date,
+            default: null,
+        },
+        connectedAt: {
+            type: Date,
+            default: null,
+        },
+        driveFolderId: {
+            type: String,
+            default: null,
+        },
+        driveFolderUrl: {
+            type: String,
+            default: null,
+        },
+        scope: {
+            type: String,
+            default: null,
+        },
+        status: {
+            type: String,
+            enum: ["disconnected", "connected", "expired", "error"],
+            default: "disconnected",
+        },
+    },
     studentClasses: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Class",
         // default: null
     },
     teacherSubject: [{
-        type: mongoose.Schema.Types.ObjectId, // This field points to Course (your “subjets” implementation lives under courses.ts)
+        type: mongoose.Schema.Types.ObjectId,
         ref: "Course",
         default: null
+    }],
+    teacherClasses: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Class",
+        default: []
+    }],
+    teacherCourses: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Course",
+        default: []
     }],
 
     parentStudents: [{

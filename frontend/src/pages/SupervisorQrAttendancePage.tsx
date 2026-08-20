@@ -19,181 +19,86 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff } from "lucide-react";
+import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff, Plus } from "lucide-react";
 import jsQR from "jsqr";
 import { BrowserQRCodeReader } from "@zxing/library";
+import { format } from "date-fns";
 import {
   Dialog,
+  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { format } from "date-fns";
-import { resolveActiveAcademicClockPhase } from "@/lib/academicClock";
-import { loadSupervisorAttendanceSupportOptions } from "@/lib/supervisorAttendanceSupportOptions";
-
-interface ClinicalSessionSummary {
-  _id: string;
-  title: string;
-  activityType: string;
-  date: string | Date;
-  startTime: string | Date;
-  endTime?: string | Date;
-  status: string;
-  unit?: { name?: string };
-  supervisor?: { firstName?: string; lastName?: string; name?: string; email?: string };
-  supervisorName?: string;
-  supervisorGroupLabel?: string;
-  supervisorGroupCode?: string;
-  supervisorGroupType?: string;
-  attendees?: Array<{
-    student?: { _id?: string; firstName?: string; lastName?: string } | string;
-    status?: string;
-    notes?: string;
-  }>;
-  presentCount?: number;
-  absentCount?: number;
-  lateCount?: number;
-}
-
-interface PendingApproval {
-  id: string;
-  studentIdNumber: string;
-  sessionId: string;
-  sessionTitle: string;
-  status: string;
-  createdAt: string;
-  notes?: string;
-  qrPayload: string;
-}
-
-interface ClinicalUnitOption {
-  _id: string;
-  name?: string;
-  department?: string;
-  departmentName?: string;
-  departmentId?: string;
-  departmentID?: string;
-  departmentCode?: string;
-}
-
-interface AvailableSupervisorGroup {
-  id: string;
-  label: string;
-  code?: string;
-  type?: string;
-}
-
-interface PostingOption {
-  _id: string;
-  name?: string;
-  scheduleName?: string;
-}
-
-interface RotationPostingLike {
-  _id?: string;
-  name?: string;
-  groups?: Array<Record<string, unknown>>;
-  meta?: {
-    departments?: Array<Record<string, unknown>>;
-    timeline?: Array<Record<string, unknown>>;
-    windows?: Array<Record<string, unknown>>;
-  };
-}
-
-interface RotationScheduleLike {
-  _id?: string;
-  name?: string;
-  phaseId?: string;
-  phaseName?: string;
-  postingPhase?: string;
-  meta?: {
-    phaseId?: string;
-    timeline?: Array<Record<string, unknown>>;
-    windows?: Array<Record<string, unknown>>;
-  };
-  postings?: RotationPostingLike[];
-}
-
-interface ClassOption {
-  _id: string;
-  name: string;
-  academicYearId?: string;
-}
-
-interface AcademicClockSummary {
-  _id?: string;
-  classId?: string;
-  academicYear?: string;
-  clockPhase?: string | null;
-  phaseConfig?: Record<string, { name?: string; postingType?: string | null }>;
-}
-
-const allowedRoles = ["admin", "teacher", "unitconsultant", "unitresident"];
-const APPROVAL_QUEUE_STORAGE_KEY = "clinical-attendance-queue-v1";
-const LAST_SYNC_STORAGE_KEY = "clinical-attendance-last-update";
-
-interface FeedbackState {
-  type: "success" | "info" | "error";
-  message: string;
-}
 
 export default function SupervisorQrAttendancePage() {
-  const { user, loading } = useAuth();
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scannerActiveRef = useRef(false);
-  const [sessions, setSessions] = useState<ClinicalSessionSummary[]>([]);
+  const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const { user } = useAuth();
+
+  // UI state and refs
+  const [sessions, setSessions] = useState<any[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
-  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
-  const [qrInput, setQrInput] = useState("");
-  const [statusSelection, setStatusSelection] = useState("present");
-  const [notes, setNotes] = useState("");
-  const [scannerActive, setScannerActive] = useState(false);
-  const [scannerError, setScannerError] = useState("");
-  const [showCameraModal, setShowCameraModal] = useState(false);
-  const [mirrorPreview, setMirrorPreview] = useState(false);
-  const [, setScanFeedback] = useState<FeedbackState | null>(null);
-  const [isOnline, setIsOnline] = useState(() => typeof navigator !== "undefined" ? navigator.onLine : true);
-  const [submitting, setSubmitting] = useState(false);
-  const [creatingSession, setCreatingSession] = useState(false);
-  const [classes, setClasses] = useState<ClassOption[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState("");
-  const [, setSelectedClock] = useState<AcademicClockSummary | null>(null);
-  const [, setUnits] = useState<ClinicalUnitOption[]>([]);
-  const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState(false);
-  const [, setDepartmentsForPosting] = useState<string[]>([]);
-  const [timelineMissing, setTimelineMissing] = useState(false);
+  const [classes, setClasses] = useState<any[]>([]);
+  const [currentAcademicYearId, setCurrentAcademicYearId] = useState<string | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+  const [newSessionForm, setNewSessionForm] = useState<any>({ classId: "", activityType: "ward_round", clinicalRotation: "", unit: "", department: "", title: "", description: "", date: "", startTime: "", location: "" });
+  const [units, setUnits] = useState<any[]>([]);
+  const [postings, setPostings] = useState<any[]>([]);
+  const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState<boolean>(false);
+  const [selectedClock, setSelectedClock] = useState<any | null>(null);
+  const [timelineMissing, setTimelineMissing] = useState<boolean>(false);
   const [selectedPostingDepartment, setSelectedPostingDepartment] = useState<string>("");
-  const [postings, setPostings] = useState<PostingOption[]>([]);
-  const [availableSupervisorGroups, setAvailableSupervisorGroups] = useState<AvailableSupervisorGroup[]>([]);
+  const [availableSupervisorGroups, setAvailableSupervisorGroups] = useState<any[]>([]);
+  const [groupSelectionMessage, setGroupSelectionMessage] = useState<string>("");
   const [selectedSupervisorGroupId, setSelectedSupervisorGroupId] = useState<string>("");
-  const [groupSelectionMessage, setGroupSelectionMessage] = useState("");
-  const [currentAcademicYearId, setCurrentAcademicYearId] = useState("");
-  const [approvalSort, setApprovalSort] = useState<"asc" | "desc">("desc");
-  const [newSessionForm, setNewSessionForm] = useState({
-    activityType: "ward_round",
-    title: "",
-    description: "",
-    date: new Date().toISOString().slice(0, 10),
-    startTime: "08:00",
-    location: "",
-    classId: "",
-    unit: "",
-    department: "",
-    clinicalRotation: "",
-  });
+  const [creatingSession, setCreatingSession] = useState<boolean>(false);
+  const [scannerError, setScannerError] = useState<string>("");
+  const [scannerActive, setScannerActive] = useState<boolean>(false);
+  const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
+  const [mirrorPreview, setMirrorPreview] = useState<boolean>(false);
   const feedbackTimeoutRef = useRef<number | null>(null);
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
+  const [approvalSort, setApprovalSort] = useState<"asc" | "desc">("desc");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [canAccess, setCanAccess] = useState<boolean>(true);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [qrInput, setQrInput] = useState<string>("");
+  const [rawQrPayload, setRawQrPayload] = useState<string | null>(null);
+  const [qrDisplay, setQrDisplay] = useState<string>("");
 
-  const canAccess = allowedRoles.includes(user?.role ?? "");
+  const parseQrPayloadForLabel = (payload: string) => {
+    try {
+      const maybeJson = JSON.parse(payload);
+      const first = maybeJson.firstName || maybeJson.first_name || maybeJson.first || maybeJson.givenName;
+      const last = maybeJson.lastName || maybeJson.last_name || maybeJson.last || maybeJson.familyName;
+      const name = maybeJson.name || [first, last].filter(Boolean).join(" ");
+      const id = maybeJson.idNumber || maybeJson.id_number || maybeJson.studentIdNumber || maybeJson.INN || maybeJson.regNo || maybeJson.matNumber;
+      if (name || id) {
+        return `${(name || "Student").trim()}${id ? ` — ${id}` : ""}`;
+      }
+    } catch {}
 
-  const showFeedback = (feedback: FeedbackState) => {
-    if (feedbackTimeoutRef.current) {
-      window.clearTimeout(feedbackTimeoutRef.current);
-    }
-    setScanFeedback(feedback);
-    feedbackTimeoutRef.current = window.setTimeout(() => setScanFeedback(null), 1800);
+    try {
+      const parts = payload.split(".");
+      if (parts.length >= 2) {
+        const decoded = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+        const obj = JSON.parse(decoded);
+        const name = obj.name || obj.firstName || obj.first_name || obj.givenName;
+        const id = obj.idNumber || obj.studentIdNumber || obj.INN || obj.matNumber;
+        if (name || id) return `${(name || "Student").trim()}${id ? ` — ${id}` : ""}`;
+      }
+    } catch {}
+
+    const digits = payload.replace(/\D/g, "");
+    if (/^\d{6}$/.test(digits)) return `OTP: ${digits.replace(/.(?=.{2})/g, '*')}`;
+
+    return "Student QR scanned — payload hidden";
   };
+  const [statusSelection, setStatusSelection] = useState<string>("present");
+  const [notes, setNotes] = useState<string>("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerActiveRef = useRef<boolean>(false);
 
   const readQueue = () => {
     if (typeof window === "undefined") {
@@ -227,6 +132,7 @@ export default function SupervisorQrAttendancePage() {
       return;
     }
 
+    const axios = (await import("axios")).default;
     const remaining: PendingApproval[] = [];
     for (const item of queuedItems) {
       try {
@@ -236,7 +142,33 @@ export default function SupervisorQrAttendancePage() {
           notes: item.notes,
         });
         window.dispatchEvent(new Event("clinical-attendance-updated"));
-      } catch (error) {
+      } catch (error: any) {
+        const status = error?.response?.status;
+        const message: string = (error?.response?.data?.message as string) || "";
+
+        // If server indicates the OTP expired or not found, drop it from the queue and inform the user
+        if (status === 410 || /otp not found|expired/i.test(message)) {
+          toast.error(`Queued approval expired: ${item.qrPayload}`);
+          continue;
+        }
+
+        // In development, a 404 from the vite server may indicate proxy missing; try direct backend host
+        if (import.meta.env.DEV && status === 404) {
+          try {
+            const backendHost = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+            const directUrl = `${backendHost.replace(/\/$/, "")}/api/clinical-attendance/qr/approve`;
+            await axios.post(directUrl, {
+              qrPayload: item.qrPayload,
+              status: item.status,
+              notes: item.notes,
+            }, { timeout: 30000 });
+            window.dispatchEvent(new Event("clinical-attendance-updated"));
+            continue;
+          } catch (err) {
+            // fall through to re-queue below
+          }
+        }
+
         remaining.push(item);
       }
     }
@@ -732,6 +664,8 @@ export default function SupervisorQrAttendancePage() {
     setShowCameraModal(false);
   };
 
+  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false);
+
   const refreshSessions = async () => {
     try {
       const response = await api.get("/clinical-attendance/sessions?status=ongoing,planned");
@@ -862,7 +796,8 @@ export default function SupervisorQrAttendancePage() {
                 const barcodes = await detector.detect?.(videoRef.current);
                 const detectedCode = barcodes[0]?.rawValue;
                 if (detectedCode) {
-                  setQrInput(detectedCode);
+                  setRawQrPayload(detectedCode);
+                  setQrDisplay(parseQrPayloadForLabel(detectedCode));
                   showFeedback({ type: "success", message: "QR detected successfully." });
                   setShowCameraModal(false);
                   stopScanner();
@@ -887,7 +822,8 @@ export default function SupervisorQrAttendancePage() {
             if (result) {
               const text = typeof result === "string" ? result : (result && typeof result === "object" && "getText" in result && typeof (result as { getText?: () => string }).getText === "function" ? (result as { getText: () => string }).getText() : "");
               if (text) {
-                setQrInput(text);
+                setRawQrPayload(text);
+                setQrDisplay(parseQrPayloadForLabel(text));
                 showFeedback({ type: "success", message: "QR detected successfully." });
                 setShowCameraModal(false);
                 stopScanner();
@@ -928,7 +864,8 @@ export default function SupervisorQrAttendancePage() {
               const imageData = ctx.getImageData(0, 0, vw, vh);
               const code = jsQR(imageData.data, imageData.width, imageData.height);
               if (code?.data) {
-                setQrInput(code.data);
+                setRawQrPayload(code.data);
+                setQrDisplay(parseQrPayloadForLabel(code.data));
                 showFeedback({ type: "success", message: "QR detected successfully." });
                 setShowCameraModal(false);
                 stopScanner();
@@ -1025,9 +962,17 @@ export default function SupervisorQrAttendancePage() {
       toast.success("Student attendance approved successfully.");
     } catch (error: any) {
       console.error("QR approval failed", error);
-      const nextQueue = [queueItem, ...readQueue()];
-      persistQueue(nextQueue);
-      toast.error(error.response?.data?.message || "Unable to approve this student attendance. The approval has been queued for later sync.");
+      const status = error?.response?.status;
+      const message: string = (error?.response?.data?.message as string) || "";
+
+      // If OTP expired, don't re-queue — inform user to request a fresh OTP
+      if (status === 410 || /otp not found|expired/i.test(message)) {
+        toast.error(message || "OTP not found or expired. Ask the student to provide a fresh QR/OTP.");
+      } else {
+        const nextQueue = [queueItem, ...readQueue()];
+        persistQueue(nextQueue);
+        toast.error(message || "Unable to approve this student attendance. The approval has been queued for later sync.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -1037,6 +982,9 @@ export default function SupervisorQrAttendancePage() {
     const normalized = value.replace(/\s/g, "");
     const otpOnly = normalized.replace(/\D/g, "").slice(0, 6);
     const nextValue = /^\d{6}$/.test(normalized) ? otpOnly : value;
+    // manual input clears any previously scanned raw payload
+    setRawQrPayload(null);
+    setQrDisplay(nextValue);
     setQrInput(nextValue);
 
     if (/^\d{6}$/.test(nextValue.trim())) {
@@ -1047,12 +995,16 @@ export default function SupervisorQrAttendancePage() {
   const handleApproveAttendance = async (event: FormEvent) => {
     event.preventDefault();
 
-    if (!selectedSession || !qrInput.trim()) {
+    const payloadToSend = rawQrPayload ?? qrInput.trim();
+
+    if (!selectedSession || !payloadToSend) {
       toast.error("Scan or paste the student QR payload before approving.");
       return;
     }
-
-    await submitApproval(qrInput.trim(), statusSelection, notes);
+    await submitApproval(payloadToSend, statusSelection, notes);
+    // clear both raw and display after submission
+    setRawQrPayload(null);
+    setQrDisplay("");
     setQrInput("");
     setNotes("");
   };
@@ -1122,174 +1074,185 @@ export default function SupervisorQrAttendancePage() {
               </Select>
             </div>
 
-            <div className="rounded-lg border border-dashed bg-muted/20 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold">Create a new clinical session</p>
-                  <p className="text-xs text-muted-foreground">Use this to populate the supervisor dropdown immediately.</p>
-                </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">Create a new clinical session</p>
+                <p className="text-xs text-muted-foreground">Use this to populate the supervisor dropdown immediately.</p>
               </div>
+              <Dialog open={isCreatePanelOpen} onOpenChange={(open) => setIsCreatePanelOpen(open)}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" onClick={() => setIsCreatePanelOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add new session
+                  </Button>
+                </DialogTrigger>
 
-              <form onSubmit={handleCreateSession} className="mt-4 space-y-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium">Class</label>
-                    <Select value={selectedClassId} onValueChange={(value) => {
-                      setSelectedClassId(value);
-                      setNewSessionForm((current) => ({ ...current, classId: value, unit: "", clinicalRotation: "" }));
-                    }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a class" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {classes.length === 0 ? (
-                          <div className="p-2 text-sm text-muted-foreground">No classes available.</div>
-                        ) : (
-                          classes.map((cls) => (
-                            <SelectItem key={cls._id} value={cls._id}>
-                              {cls.name}
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create a new clinical session</DialogTitle>
+                    <DialogDescription>Use this to populate the supervisor dropdown immediately.</DialogDescription>
+                  </DialogHeader>
 
-                  <div>
-                    <label className="mb-1 block text-xs font-medium">Activity type</label>
-                    <Select value={newSessionForm.activityType} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, activityType: value }))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="ward_round">Ward round</SelectItem>
-                        <SelectItem value="clinic">Clinic</SelectItem>
-                        <SelectItem value="theatre">Theatre</SelectItem>
-                        <SelectItem value="call_duty">Call duty</SelectItem>
-                        <SelectItem value="procedure">Procedure</SelectItem>
-                        <SelectItem value="simulation">Simulation</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="mb-1 block text-xs font-medium">Posting</label>
-                    <Select value={newSessionForm.clinicalRotation} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, clinicalRotation: value }))}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue placeholder={postings.length === 0 ? "No postings for selected class" : "Choose a posting"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {postings.length === 0 ? (
-                          <div className="p-2 text-sm text-muted-foreground">No postings were found for the selected class’s active academic clock.</div>
-                        ) : (
-                          postings.map((posting) => (
-                            <SelectItem key={posting._id} value={posting._id}>
-                              <div className="flex items-center justify-between">
-                                {/* <div className="truncate">{posting.name ?? "Unnamed posting"}</div> */}
-                                {/* <div className="ml-2 text-xs text-muted-foreground">{posting.scheduleName ?? ""}</div> */}
-                                <div className="ml-2 text-sm text-muted-foreground">{posting.scheduleName ?? ""}</div>
-                              </div>
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    <p className="mt-2 text-xs text-muted-foreground">Posting SPIN prefixes are derived from the posting name; individual group SPINs are shown in Rotation Schedules.</p>
-                  </div>
-
-                  <div>
-                    {timelineMissing ? (
-                      <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
-                        This posting has no schedule timeline, so the session will rely on the supervisor group selection below.
+                  <form onSubmit={handleCreateSession} className="mt-4 space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium">Class</label>
+                        <Select value={selectedClassId} onValueChange={(value) => {
+                          setSelectedClassId(value);
+                          setNewSessionForm((current) => ({ ...current, classId: value, unit: "", clinicalRotation: "" }));
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose a class" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {classes.length === 0 ? (
+                              <div className="p-2 text-sm text-muted-foreground">No classes available.</div>
+                            ) : (
+                              classes.map((cls) => (
+                                <SelectItem key={cls._id} value={cls._id}>
+                                  {cls.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    ) : null}
 
-                    <label className="mb-1 block text-xs font-medium">Supervisor Group</label>
-                    {availableSupervisorGroups.length > 0 ? (
-                      <Select
-                        value={selectedSupervisorGroupId}
-                        onValueChange={(value) => {
-                          const selectedGroup = availableSupervisorGroups.find((group) => group.id === value);
-                          setSelectedSupervisorGroupId(value);
-                          setNewSessionForm((current) => ({
-                            ...current,
-                            department: selectedGroup?.label || current.department,
-                            unit: "",
-                          }));
-                        }}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Choose a supervisor group" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableSupervisorGroups.map((group) => (
-                            <SelectItem key={group.id} value={group.id}>
-                              {group.label} {group.code && group.code !== group.label ? `(${group.code})` : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                        {groupSelectionMessage || "No supervisor groups are available for the selected posting yet."}
+                      <div>
+                        <label className="mb-1 block text-xs font-medium">Activity type</label>
+                        <Select value={newSessionForm.activityType} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, activityType: value }))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ward_round">Ward round</SelectItem>
+                            <SelectItem value="clinic">Clinic</SelectItem>
+                            <SelectItem value="theatre">Theatre</SelectItem>
+                            <SelectItem value="call_duty">Call duty</SelectItem>
+                            <SelectItem value="procedure">Procedure</SelectItem>
+                            <SelectItem value="simulation">Simulation</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      This uses the posting-dependent department or unit groups assigned to you for the selected posting.
-                    </p>
-                  </div>
-                </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium">Session title</label>
-                  <Input
-                    value={newSessionForm.title}
-                    onChange={(event) => setNewSessionForm((current) => ({ ...current, title: event.target.value }))}
-                    placeholder="Morning ward round"
-                  />
-                </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium">Posting</label>
+                        <Select value={newSessionForm.clinicalRotation} onValueChange={(value) => setNewSessionForm((current) => ({ ...current, clinicalRotation: value }))}>
+                          <SelectTrigger className="w-48">
+                            <SelectValue placeholder={postings.length === 0 ? "No postings for selected class" : "Choose a posting"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {postings.length === 0 ? (
+                              <div className="p-2 text-sm text-muted-foreground">No postings were found for the selected class’s active academic clock.</div>
+                            ) : (
+                              postings.map((posting) => (
+                                <SelectItem key={posting._id} value={posting._id}>
+                                  <div className="flex items-center justify-between">
+                                    <div className="ml-2 text-sm text-muted-foreground">{posting.scheduleName ?? ""}</div>
+                                  </div>
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-2 text-xs text-muted-foreground">Posting SPIN prefixes are derived from the posting name; individual group SPINs are shown in Rotation Schedules.</p>
+                      </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium">Description</label>
-                  <Input
-                    value={newSessionForm.description}
-                    onChange={(event) => setNewSessionForm((current) => ({ ...current, description: event.target.value }))}
-                    placeholder="Optional details"
-                  />
-                </div>
+                      <div>
+                        {timelineMissing ? (
+                          <div className="mb-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-900">
+                            This posting has no schedule timeline, so the session will rely on the supervisor group selection below.
+                          </div>
+                        ) : null}
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium">Date</label>
-                    <Input
-                      type="date"
-                      value={newSessionForm.date}
-                      onChange={(event) => setNewSessionForm((current) => ({ ...current, date: event.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium">Start time</label>
-                    <Input
-                      type="time"
-                      value={newSessionForm.startTime}
-                      onChange={(event) => setNewSessionForm((current) => ({ ...current, startTime: event.target.value }))}
-                    />
-                  </div>
-                </div>
+                        <label className="mb-1 block text-xs font-medium">Supervisor Group</label>
+                        {availableSupervisorGroups.length > 0 ? (
+                          <Select
+                            value={selectedSupervisorGroupId}
+                            onValueChange={(value) => {
+                              const selectedGroup = availableSupervisorGroups.find((group) => group.id === value);
+                              setSelectedSupervisorGroupId(value);
+                              setNewSessionForm((current) => ({
+                                ...current,
+                                department: selectedGroup?.label || current.department,
+                                unit: "",
+                              }));
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose a supervisor group" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableSupervisorGroups.map((group) => (
+                                <SelectItem key={group.id} value={group.id}>
+                                  {group.label} {group.code && group.code !== group.label ? `(${group.code})` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                            {groupSelectionMessage || "No supervisor groups are available for the selected posting yet."}
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          This uses the posting-dependent department or unit groups assigned to you for the selected posting.
+                        </p>
+                      </div>
+                    </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-medium">Location</label>
-                  <Input
-                    value={newSessionForm.location}
-                    onChange={(event) => setNewSessionForm((current) => ({ ...current, location: event.target.value }))}
-                    placeholder="Ward A"
-                  />
-                </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">Session title</label>
+                      <Input
+                        value={newSessionForm.title}
+                        onChange={(event) => setNewSessionForm((current) => ({ ...current, title: event.target.value }))}
+                        placeholder="Morning ward round"
+                      />
+                    </div>
 
-                <Button type="submit" className="w-full" disabled={creatingSession}>
-                  {creatingSession ? "Creating session..." : "Create session"}
-                </Button>
-              </form>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">Description</label>
+                      <Input
+                        value={newSessionForm.description}
+                        onChange={(event) => setNewSessionForm((current) => ({ ...current, description: event.target.value }))}
+                        placeholder="Optional details"
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium">Date</label>
+                        <Input
+                          type="date"
+                          value={newSessionForm.date}
+                          onChange={(event) => setNewSessionForm((current) => ({ ...current, date: event.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium">Start time</label>
+                        <Input
+                          type="time"
+                          value={newSessionForm.startTime}
+                          onChange={(event) => setNewSessionForm((current) => ({ ...current, startTime: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-medium">Location</label>
+                      <Input
+                        value={newSessionForm.location}
+                        onChange={(event) => setNewSessionForm((current) => ({ ...current, location: event.target.value }))}
+                        placeholder="Ward A"
+                      />
+                    </div>
+
+                    <Button type="submit" className="w-full" disabled={creatingSession}>
+                      {creatingSession ? "Creating session..." : "Create session"}
+                    </Button>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
 
             {selectedSession && (
@@ -1329,13 +1292,13 @@ export default function SupervisorQrAttendancePage() {
               <div>
                 <label className="mb-2 block text-sm font-medium">Student QR payload</label>
                 <textarea
-                  value={qrInput}
+                  value={qrDisplay || qrInput}
                   onChange={(event) => handleQrInputChange(event.target.value)}
                   placeholder='Paste the student QR payload here or scan it into the field'
                   className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm"
                 />
                   <p className="mt-2 text-xs text-muted-foreground">Or enter the student's 6-digit OTP code shown with their QR (fallback when scanning fails).</p>
-                  {/^\d{6}$/.test(qrInput.trim()) ? (
+                  {!rawQrPayload && /^\d{6}$/.test(qrInput.trim()) ? (
                     <p className="mt-1 text-xs text-green-700">Detected 6-digit OTP — using OTP fallback.</p>
                   ) : null}
               </div>
@@ -1422,7 +1385,7 @@ export default function SupervisorQrAttendancePage() {
                 />
               </div>
 
-              <Button type="submit" disabled={submitting || !selectedSession || !qrInput.trim()} className="w-full">
+              <Button type="submit" disabled={submitting || !selectedSession || !(rawQrPayload ?? qrInput.trim())} className="w-full">
                 {submitting ? "Submitting approval..." : "Submit attendance review"}
               </Button>
             </form>
@@ -1506,11 +1469,16 @@ export default function SupervisorQrAttendancePage() {
                     <div className="mt-3 space-y-2">
                       {group.entries.map(({ session, attendee }) => {
                         const student = attendee?.student && typeof attendee.student === "object" ? attendee.student : null;
-                        const studentName = student?.firstName || student?.lastName ? [student?.firstName, student?.lastName].filter(Boolean).join(" ") : attendee?.student ? String(attendee.student) : "Student";
+                        const studentName = student ? ([student.firstName, student.lastName].filter(Boolean).join(" ") || student.name || "Student") : (attendee?.student ? String(attendee.student) : "Student");
+                        const inn = student?.inn || (student && (student as any).INN) || "";
+                        const idNumber = student?.idNumber || (student && (student as any).idNumber) || "";
                         return (
                           <div key={`${session._id}-${studentName}`} className="rounded-md border bg-muted/20 p-2 text-sm">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">{studentName}</span>
+                              <div>
+                                <div className="font-medium">{studentName}</div>
+                                <div className="text-xs text-muted-foreground">{inn || idNumber ? `${inn}${inn && idNumber ? ' — ' : ''}${idNumber}` : ''}</div>
+                              </div>
                               <Badge variant="secondary">{attendee.status}</Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">{session.title} • {format(new Date(session.date), "MMM dd, yyyy")}</p>
@@ -1539,11 +1507,16 @@ export default function SupervisorQrAttendancePage() {
                     <div className="mt-3 space-y-2">
                       {group.entries.map(({ session, attendee }) => {
                         const student = attendee?.student && typeof attendee.student === "object" ? attendee.student : null;
-                        const studentName = student?.firstName || student?.lastName ? [student?.firstName, student?.lastName].filter(Boolean).join(" ") : attendee?.student ? String(attendee.student) : "Student";
+                        const studentName = student ? ([student.firstName, student.lastName].filter(Boolean).join(" ") || student.name || "Student") : (attendee?.student ? String(attendee.student) : "Student");
+                        const inn = student?.inn || (student && (student as any).INN) || "";
+                        const idNumber = student?.idNumber || (student && (student as any).idNumber) || "";
                         return (
                           <div key={`${session._id}-${studentName}`} className="rounded-md border border-dashed p-2 text-sm">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">{studentName}</span>
+                              <div>
+                                <div className="font-medium">{studentName}</div>
+                                <div className="text-xs text-muted-foreground">{inn || idNumber ? `${inn}${inn && idNumber ? ' — ' : ''}${idNumber}` : ''}</div>
+                              </div>
                               <Badge variant="outline">Pending</Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">{session.title} • {format(new Date(session.date), "MMM dd, yyyy")}</p>

@@ -93,7 +93,9 @@ export default function StudentClinicalAttendancePage() {
               sessionTitle: latestSession?.title ?? "Clinical activity",
               sessionId: latestSession?._id,
               checkedAt: attendeeRecord.checkInTime ?? latestSession?.date,
-              supervisorName: latestSession?.supervisor?.firstName && latestSession?.supervisor?.lastName
+              supervisorName: attendeeRecord?.approvedByName
+                ? attendeeRecord.approvedByName
+                : latestSession?.supervisor?.firstName && latestSession?.supervisor?.lastName
                 ? `${latestSession.supervisor.firstName} ${latestSession.supervisor.lastName}`
                 : latestSession?.supervisor?.firstName ?? "Pending",
               notes: attendeeRecord.notes ?? "No notes yet",

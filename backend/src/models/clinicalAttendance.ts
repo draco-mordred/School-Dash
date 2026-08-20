@@ -101,6 +101,24 @@ const AttendanceRecordSchema = new Schema(
       type: String,
       default: "",
     },
+    // Approver info stored at the attendee record level
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    approvedByName: {
+      type: String,
+      default: "",
+    },
+    approvedByEmail: {
+      type: String,
+      default: "",
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { _id: true }
 );

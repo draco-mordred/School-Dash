@@ -74,6 +74,8 @@ export const sidebardata = {
         // { title: "Sessions", url: "/settings/academic-years", roles: ["admin"] },
         // { title: "Semesters", url: "/semesters", roles: ["admin"] },
         { title: "Academic Calendar", url: "/academic-calendar", roles: ["admin"] },
+        { title: "Study Materials", url: "/lms/materials" },
+        { title: "Assignments", url: "/lms/assignments" },
       ],
     },
     {

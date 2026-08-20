@@ -9,6 +9,15 @@ export interface IClass extends Document {
   courses: mongoose.Types.ObjectId[]; // List of Courses taught in this class.
   students: mongoose.Types.ObjectId[]; // List of Students enrolled.
   capacity: number; // Max number of Students allowed (optional).
+  cloudStorage: {
+    provider: "google-drive" | "onedrive" | "dropbox" | "other";
+    rootUrl: string;
+    folderId: string;
+    status: "idle" | "syncing" | "ready" | "error";
+    lastSyncedAt?: Date | null;
+    lastError?: string | null;
+    syncedBy?: mongoose.Types.ObjectId | null;
+  };
 }
 
 const classSchema = new Schema<IClass>(
@@ -29,30 +38,62 @@ const classSchema = new Schema<IClass>(
       type: Schema.Types.ObjectId,
       ref: "User",
       default: null,
-   },
-   // Arrays of References to Course model
-   courses: [
-    {
-      type: Schema.Types.ObjectId,
-      ref: "Course",
     },
-   ],
-   // Arrays of Refernces to User model (Student role)
-   students: [
-    {
-      type: Schema.Types.ObjectId,
-      ref: "User",
+    // Arrays of References to Course model
+    courses: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "Course",
+      },
+    ],
+    // Arrays of Refernces to User model (Student role)
+    students: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    capacity: {
+      type: Number,
+      default: 200,
     },
-   ],
-   capacity: {
-    type: Number,
-    default: 200,
-   },
+    cloudStorage: {
+      provider: {
+        type: String,
+        enum: ["google-drive", "onedrive", "dropbox", "other"],
+        default: "google-drive",
+      },
+      rootUrl: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+      folderId: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+      status: {
+        type: String,
+        enum: ["idle", "syncing", "ready", "error"],
+        default: "idle",
+      },
+      lastSyncedAt: {
+        type: Date,
+        default: null,
+      },
+      lastError: {
+        type: String,
+        default: null,
+      },
+      syncedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
   },
-  {
-    timestamps: true, // Automatically manages createdAt and updatedAt
-  }
-)
+);
 
 // Compound Index: Prevents creating duplicate classes (e.g., You can't have two "Grade 10 - A" in the same Academic Year)
 

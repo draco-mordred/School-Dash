@@ -27,6 +27,7 @@ export interface user {
   studentClasses?: Class | string;
   teacherSubjects?: courses[];
   teacherSubject?: courses[] | string[];
+  teacherClasses?: Class[] | string[];
   parentStudents?: user[] | string[];
   departmentId?: string;
   facultyId?: string;
