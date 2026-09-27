@@ -23,7 +23,7 @@ export const saveClassCloudStorage = async (req: Request, res: Response) => {
     if (!cls) {
       return res.status(404).json({ message: "Class not found" });
     }
-
+ 
     cls.cloudStorage = {
       provider,
       rootUrl: String(rootUrl).trim(),

@@ -159,6 +159,11 @@ const About = () => {
     if (activeContactDeveloper?.name === developer.name) {
       closeContactPopover();
     }
+
+    if (activeDetailsDeveloper?.name === developer.name) {
+      setIsDetailsVisible(false);
+      setActiveDetailsDeveloper(null);
+    }
   };
 
   const toggleCardDetails = (
@@ -309,9 +314,17 @@ const About = () => {
               {developers.map((developer) => (
                 <div
                   key={developer.name}
+                  data-expanded={
+                    activeDetailsDeveloper?.name === developer.name &&
+                    isDetailsVisible
+                  }
+                  data-contact-open={
+                    activeContactDeveloper?.name === developer.name &&
+                    isContactVisible
+                  }
                   onMouseLeave={() => handleCardLeave(developer)}
                   onClick={(event) => toggleCardDetails(developer, event)}
-                  className="group relative isolate h-[34rem] cursor-pointer overflow-hidden rounded-[2rem] border border-border/70 bg-card/90 shadow-[0_30px_70px_-35px_rgba(15,23,42,0.35)] transition-all duration-500 hover:z-20 hover:-translate-y-4 hover:scale-[1.03] hover:shadow-[0_30px_70px_-30px_rgba(15,23,42,0.35)]"
+                  className="developer-card group relative isolate h-[34rem] cursor-pointer overflow-hidden rounded-[2rem] border border-border/70 bg-card/90 shadow-[0_30px_70px_-35px_rgba(15,23,42,0.35)] transition-all duration-500 hover:z-20 hover:-translate-y-4 hover:scale-[1.03] hover:shadow-[0_30px_70px_-30px_rgba(15,23,42,0.35)]"
                 >
                   <div className="absolute inset-0 bg-background/20 dark:bg-background/70">
                     <img
@@ -322,20 +335,22 @@ const About = () => {
                     <div className="absolute inset-0 bg-gradient-to-t from-background/60 via-background/20 to-transparent dark:from-background/95 dark:via-background/40 dark:to-transparent" />
                   </div>
 
-                  <div className="absolute left-5 right-5 bottom-5 z-10 rounded-[1.75rem] border border-border/70 bg-background/55 p-5 backdrop-blur-xl shadow-lg shadow-foreground/5 transition-all duration-500 group-hover:translate-y-4 dark:bg-background/85">
-                    <p className="text-xs uppercase tracking-[0.3em] text-primary/80">
-                      Developer
-                    </p>
-                    <h3 className="mt-2 text-2xl font-semibold leading-tight text-foreground">
-                      {developer.name}
-                    </h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      {developer.role}
-                    </p>
+                  <div className="developer-card-summary absolute left-5 right-5 bottom-5 z-10 rounded-[1.75rem] border border-border/70 bg-background/55 p-5 backdrop-blur-xl shadow-lg shadow-foreground/5 dark:bg-background/85">
+                    <div className="developer-card-summary-content">
+                      <p className="text-xs uppercase tracking-[0.3em] text-primary/80">
+                        Developer
+                      </p>
+                      <h3 className="mt-2 text-2xl font-semibold leading-tight text-foreground">
+                        {developer.name}
+                      </h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {developer.role}
+                      </p>
+                    </div>
                   </div>
 
                   <div
-                    className={`absolute inset-x-0 bottom-0 z-20 flex h-full flex-col justify-end bg-gradient-to-t from-background/80 via-background/60 to-transparent p-6 pt-24 transition-all duration-500 dark:from-background dark:via-background/95 dark:to-transparent ${activeContactDeveloper?.name === developer.name && isContactVisible ? "translate-y-6 opacity-0 pointer-events-none" : `${activeDetailsDeveloper?.name === developer.name && isDetailsVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-6 opacity-0 pointer-events-none group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto"}`}`}
+                    className="developer-card-details absolute inset-x-0 bottom-0 z-20 flex h-full flex-col justify-end bg-gradient-to-t from-background/80 via-background/60 to-transparent p-6 pt-24 dark:from-background dark:via-background/95 dark:to-transparent"
                   >
                     <div className="space-y-6">
                       <div className="flex flex-wrap items-center gap-2 text-[9px] uppercase tracking-[0.2em] text-muted-foreground">

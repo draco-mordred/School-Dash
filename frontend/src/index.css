@@ -19,12 +19,13 @@
   /* Position the main app area so right edge stays fixed; left adjusts with sidebar. */
   main#app-main {
     position: absolute !important;
-    left: 0px !important;
+    left: 15px !important;
     right: 5px !important;
   }
 
   main#app-main div.space-y-6 {
-    margin: 5px 0px 0px 15px;
+    /* margin: 5px 0px 0px 15px; */
+    margin: 0px 0px 25px 0px;
   }
 
   --card: rgb(255, 255, 255);
@@ -59,9 +60,9 @@
   --sidebar-ring: rgb(110, 86, 207);
   --sidebar-width: 16rem;
   --sidebar-width-icon: 4rem;
-  --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+  --font-sans: "Poppins", ui-sans-serif, sans-serif, system-ui;
   --font-serif: Georgia, serif;
-  --font-mono: Source Code Pro, ui-monospace, monospace;
+  --font-mono: "Source Code Pro", ui-monospace, monospace;
   --radius: 0.5rem;
   --topbar-height: 56px;
   --shadow-x: 0px;
@@ -128,9 +129,9 @@
   --sidebar-accent-foreground: rgb(226, 226, 245);
   --sidebar-border: rgb(48, 48, 82);
   --sidebar-ring: rgb(164, 143, 255);
-  --font-sans: Poppins, ui-sans-serif, sans-serif, system-ui;
+  --font-sans: "Poppins", ui-sans-serif, sans-serif, system-ui;
   --font-serif: Georgia, serif;
-  --font-mono: Source Code Pro, ui-monospace, monospace;
+  --font-mono: "Source Code Pro", ui-monospace, monospace;
   --radius: 0.5rem;
   --shadow-x: 0px;
   --shadow-y: 4px;
@@ -196,9 +197,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
-  --font-serif: var(--font-serif);
+  --font-sans: "Poppins", ui-sans-serif, sans-serif, system-ui;
+  --font-mono: "Source Code Pro", ui-monospace, monospace;
+  --font-serif: Georgia, serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -252,6 +253,61 @@
 .user-card-action-row {
   opacity: 0;
   transition: opacity 0.2s ease;
+}
+
+.developer-card-summary {
+  height: 9rem;
+  transition: height 500ms cubic-bezier(0.22, 1, 0.36, 1) 500ms;
+}
+
+.developer-card-summary-content {
+  opacity: 1;
+  transition: opacity 200ms ease 300ms;
+}
+
+.developer-card-details {
+  opacity: 0;
+  transform: translateY(1.5rem);
+  pointer-events: none;
+  transition:
+    opacity 250ms ease,
+    transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.developer-card:hover .developer-card-summary,
+.developer-card[data-expanded="true"] .developer-card-summary {
+  height: calc(100% - 2.5rem);
+  transition-delay: 0ms;
+}
+
+.developer-card:hover .developer-card-summary-content,
+.developer-card[data-expanded="true"] .developer-card-summary-content {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.developer-card:hover .developer-card-details,
+.developer-card[data-expanded="true"] .developer-card-details {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition-delay: 220ms;
+}
+
+.developer-card[data-contact-open="true"] .developer-card-details {
+  opacity: 0;
+  transform: translateY(1.5rem);
+  pointer-events: none;
+  transition-delay: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .developer-card-summary,
+  .developer-card-summary-content,
+  .developer-card-details {
+    transition-duration: 0.01ms;
+    transition-delay: 0ms;
+  }
 }
 
 .user-card:hover .user-card-action-row {
@@ -934,10 +990,15 @@ input.border.rounded-md {
 #mainCardHeader {
   background: var(--background);
   padding: 15px 20px 10px 20px;
-  margin: -24px 0px 0px 0px;
+  /* margin: -24px 0px 0px 0px; */
+  margin: -10px 0px -10px 0px;
   border-top-right-radius: 20px;
   border-top-left-radius: 15px;
   border-top-left-radius: 15px;
+}
+
+div.space-y-6 #mainCardHeader{
+  margin: -24px 0px -10px 0px;
 }
 
 #chatBubbles {

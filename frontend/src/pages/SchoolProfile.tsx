@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Building2, CalendarDays, Compass, ImageIcon, MapPin, Palette, School2 } from "lucide-react";
+import { Award, Building2, CalendarDays, CheckCircle2, ClipboardCheck, Compass, ImageIcon, Palette, School2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useAuth } from "@/hooks/useAuth";
 
 type InstitutionProfile = {
   name: string;
@@ -14,6 +15,19 @@ type InstitutionProfile = {
   timezone: string;
   logoUrl: string;
   backgroundImageUrl: string;
+  attendanceSettings?: {
+    minimumAttendancePercentage?: number;
+  };
+  assessmentSettings?: {
+    mcq?: boolean;
+    essay?: boolean;
+    osce?: boolean;
+    longCase?: boolean;
+    shortCase?: boolean;
+    continuousAssessment?: boolean;
+    passMark?: number;
+    gradingScale?: string[];
+  };
   brandingSettings?: {
     primaryColor?: string;
     accentColor?: string;
@@ -28,6 +42,7 @@ const DetailItem = ({ label, value }: { label: string; value: string }) => (
 );
 
 export default function SchoolProfile() {
+  const { user } = useAuth();
   const [institution, setInstitution] = useState<InstitutionProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -81,6 +96,16 @@ export default function SchoolProfile() {
       </div>
     );
   }
+
+  const assessmentTypes = [
+    { label: "Multiple-choice exams", enabled: institution.assessmentSettings?.mcq },
+    { label: "Essays", enabled: institution.assessmentSettings?.essay },
+    { label: "OSCEs", enabled: institution.assessmentSettings?.osce },
+    { label: "Long cases", enabled: institution.assessmentSettings?.longCase },
+    { label: "Short cases", enabled: institution.assessmentSettings?.shortCase },
+    { label: "Continuous assessment", enabled: institution.assessmentSettings?.continuousAssessment },
+  ].filter((assessment) => assessment.enabled);
+  const isStudent = user?.role === "student";
 
   return (
     <div className="space-y-6 px-6 py-8">
@@ -136,49 +161,95 @@ export default function SchoolProfile() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-3xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Palette className="h-5 w-5" />
-              Branding
-            </CardTitle>
-            <CardDescription>The visual identity that currently appears in the app.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <ImageIcon className="h-4 w-4" />
-                Logo status
+        {isStudent ? (
+          <Card className="rounded-3xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Award className="h-5 w-5" />
+                Academic performance requirements
+              </CardTitle>
+              <CardDescription>Minimum academic standards and assessment formats set by the school.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <DetailItem
+                  label="Minimum attendance"
+                  value={`${institution.attendanceSettings?.minimumAttendancePercentage ?? 75}%`}
+                />
+                <DetailItem
+                  label="Minimum pass mark"
+                  value={`${institution.assessmentSettings?.passMark ?? 50}%`}
+                />
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {institution.logoUrl ? "A logo is currently configured for this institution." : "No logo has been uploaded yet."}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Compass className="h-4 w-4" />
-                Background image
+              <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <ClipboardCheck className="h-4 w-4" />
+                  Assessment formats
+                </div>
+                {assessmentTypes.length > 0 ? (
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {assessmentTypes.map((assessment) => (
+                      <li key={assessment.label} className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                        {assessment.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-sm text-muted-foreground">No assessment formats are currently enabled.</p>
+                )}
               </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {institution.backgroundImageUrl ? "A background image is currently configured." : "No background image has been uploaded yet."}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
-              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <Palette className="h-4 w-4" />
-                Primary colors
+              <DetailItem
+                label="Grading scale"
+                value={institution.assessmentSettings?.gradingScale?.join(", ") || "Not configured"}
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="rounded-3xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Palette className="h-5 w-5" />
+                Branding
+              </CardTitle>
+              <CardDescription>The visual identity that currently appears in the app.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <ImageIcon className="h-4 w-4" />
+                  Logo status
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {institution.logoUrl ? "A logo is currently configured for this institution." : "No logo has been uploaded yet."}
+                </p>
               </div>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="h-8 w-8 rounded-full border border-border" style={{ backgroundColor: institution.brandingSettings?.primaryColor || "#2563eb" }} />
-                <span className="text-sm text-muted-foreground">Primary: {institution.brandingSettings?.primaryColor || "#2563eb"}</span>
+              <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Compass className="h-4 w-4" />
+                  Background image
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {institution.backgroundImageUrl ? "A background image is currently configured." : "No background image has been uploaded yet."}
+                </p>
               </div>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="h-8 w-8 rounded-full border border-border" style={{ backgroundColor: institution.brandingSettings?.accentColor || "#4f46e5" }} />
-                <span className="text-sm text-muted-foreground">Accent: {institution.brandingSettings?.accentColor || "#4f46e5"}</span>
+              <div className="rounded-2xl border border-border/70 bg-card/80 p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Palette className="h-4 w-4" />
+                  Primary colors
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="h-8 w-8 rounded-full border border-border" style={{ backgroundColor: institution.brandingSettings?.primaryColor || "#2563eb" }} />
+                  <span className="text-sm text-muted-foreground">Primary: {institution.brandingSettings?.primaryColor || "#2563eb"}</span>
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                  <span className="h-8 w-8 rounded-full border border-border" style={{ backgroundColor: institution.brandingSettings?.accentColor || "#4f46e5" }} />
+                  <span className="text-sm text-muted-foreground">Accent: {institution.brandingSettings?.accentColor || "#4f46e5"}</span>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card className="rounded-3xl shadow-sm">

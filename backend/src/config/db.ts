@@ -9,9 +9,9 @@ export const connectDB = async () => {
     }
 
     const conn = await mongoose.connect(link, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 20000,
-      connectTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 40000,
+      connectTimeoutMS: 10000,
       retryWrites: true,
       maxPoolSize: 10,
       minPoolSize: 2,

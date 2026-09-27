@@ -25,6 +25,7 @@ import UnitConsultantCourses from "@/pages/UnitConsultantCourses";
 import UnitResidentCourses from "@/pages/UnitResidentCourses";
 import ParentCourses from "@/pages/ParentCourses";
 import StudentClinicalsCurrentPosting from "@/pages/StudentClinicalsCurrentPosting";
+import StudentRotationHistory from "@/pages/StudentRotationHistory";
 import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
 import Attendance from "@/pages/academics/Attendance";
@@ -222,7 +223,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/clinicals/history",
-            element: <StudentSection title="Clinical History" description="Review your rotation history and past postings." />,
+            element: <StudentRotationHistory />,
           },
           {
             path: "student/logbook/approved",

@@ -251,7 +251,7 @@ export const sidebardata = {
         { title: "Rotation Schedule", url: "/rotation-schedule" },
         { title: "My Team", url: "/student/clinicals/team" },
         // { title: "Clinical Attendance", url: "/student/clinicals/attendance" },
-        { title: "Clinical History", url: "/student/clinicals/history" },
+        { title: "Your Rotations History", url: "/student/clinicals/history" },
 
         { title: "Daily activities", url: "/student/schedule/daily-activities" },
         { title: "This Week", url: "/student/schedule/week" },

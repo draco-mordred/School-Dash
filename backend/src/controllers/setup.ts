@@ -108,13 +108,23 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     console.info("Request /api/setup/status: received (cache miss)");
 
     const institution = await Institution.findOne()
-      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings')
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings assessmentSettings')
       .lean()
       .exec()
       .then((value) => value as any);
 
     let brandingSettings = { primaryColor: "#2563eb", accentColor: "#4f46e5" };
     let attendanceSettings = { minimumAttendancePercentage: 75 };
+    let assessmentSettings = {
+      mcq: true,
+      essay: true,
+      osce: true,
+      longCase: true,
+      shortCase: true,
+      continuousAssessment: true,
+      passMark: 50,
+      gradingScale: ["A", "B", "C", "D", "F"],
+    };
     if (institution?.brandingSettings) {
       const branding = await Promise.race([
         BrandingSettings.findById(institution.brandingSettings).select('primaryColor accentColor').lean().exec(),
@@ -139,6 +149,41 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
         const numericThreshold = Number(settingsData.minimumAttendancePercentage ?? 75);
         attendanceSettings = {
           minimumAttendancePercentage: Number.isFinite(numericThreshold) ? numericThreshold : 75,
+        };
+      }
+    }
+
+    if (institution?.assessmentSettings) {
+      const settings = await Promise.race([
+        AssessmentSettings.findById(institution.assessmentSettings)
+          .select('mcq essay osce longCase shortCase continuousAssessment passMark gradingScale')
+          .lean()
+          .exec(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 1000)),
+      ]);
+      if (settings && typeof settings === "object" && settings !== null) {
+        const settingsData = settings as {
+          mcq?: boolean;
+          essay?: boolean;
+          osce?: boolean;
+          longCase?: boolean;
+          shortCase?: boolean;
+          continuousAssessment?: boolean;
+          passMark?: number;
+          gradingScale?: string[];
+        };
+        const passMark = Number(settingsData.passMark ?? 50);
+        assessmentSettings = {
+          mcq: settingsData.mcq ?? true,
+          essay: settingsData.essay ?? true,
+          osce: settingsData.osce ?? true,
+          longCase: settingsData.longCase ?? true,
+          shortCase: settingsData.shortCase ?? true,
+          continuousAssessment: settingsData.continuousAssessment ?? true,
+          passMark: Number.isFinite(passMark) ? passMark : 50,
+          gradingScale: Array.isArray(settingsData.gradingScale)
+            ? settingsData.gradingScale.filter((grade): grade is string => typeof grade === "string")
+            : ["A", "B", "C", "D", "F"],
         };
       }
     }
@@ -168,6 +213,7 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             backgroundImageUrl: (institution as any).backgroundImageUrl || "",
             brandingSettings,
             attendanceSettings,
+            assessmentSettings,
           }
         : null,
     };
