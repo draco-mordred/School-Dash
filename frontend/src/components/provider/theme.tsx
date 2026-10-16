@@ -8,7 +8,6 @@ import {
 
 type Theme = "dark" | "light" | "system";
 type ThemeOrigin = { x: number; y: number };
-type ThemeTransitionDirection = "outward" | "inward";
 
 type ThemeProviderProps = {
   children: ReactNode;
@@ -19,6 +18,10 @@ type ThemeProviderProps = {
 type ThemeProviderState = {
   theme: Theme;
   setTheme: (theme: Theme, origin?: ThemeOrigin) => void;
+};
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (callback: () => void) => { finished: Promise<void> };
 };
 
 const initialState: ThemeProviderState = {
@@ -47,32 +50,6 @@ const applyThemeToDocument = (theme: Theme) => {
   root.style.colorScheme = resolvedTheme;
 };
 
-const createThemeTransitionOverlay = (
-  origin?: ThemeOrigin,
-  direction: ThemeTransitionDirection = "outward",
-) => {
-  if (typeof window === "undefined") return null;
-
-  const overlay = window.document.createElement("div");
-  overlay.className = `theme-transition-ripple ${direction === "inward" ? "is-inward" : "is-outward"}`;
-
-  const x = origin?.x ?? window.innerWidth / 2;
-  const y = origin?.y ?? window.innerHeight / 2;
-
-  overlay.style.left = `${x}px`;
-  overlay.style.top = `${y}px`;
-
-  window.document.body.appendChild(overlay);
-
-  requestAnimationFrame(() => {
-    overlay.classList.add("is-active");
-  });
-
-  window.setTimeout(() => overlay.remove(), 1100);
-
-  return overlay;
-};
-
 export function ThemeProvider({
   children,
   defaultTheme = "system",
@@ -94,26 +71,37 @@ export function ThemeProvider({
         return;
       }
 
-      const direction: ThemeTransitionDirection =
-        theme === "system" || nextTheme === "system" ? "inward" : "outward";
-
       const root = window.document.documentElement;
-      root.classList.add("theme-transition-active");
+      const updateTheme = () => {
+        localStorage.setItem(storageKey, nextTheme);
+        applyThemeToDocument(nextTheme);
+        setTheme(nextTheme);
+      };
+      const prefersReducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      const documentWithTransitions = window.document as ViewTransitionDocument;
 
-      createThemeTransitionOverlay(origin, direction);
+      if (!documentWithTransitions.startViewTransition || prefersReducedMotion) {
+        updateTheme();
+        return;
+      }
 
-      window.setTimeout(
-        () => {
-          localStorage.setItem(storageKey, nextTheme);
-          applyThemeToDocument(nextTheme);
-          setTheme(nextTheme);
-        },
-        direction === "inward" ? 120 : 220,
+      root.style.setProperty(
+        "--theme-transition-x",
+        `${origin?.x ?? window.innerWidth / 2}px`,
+      );
+      root.style.setProperty(
+        "--theme-transition-y",
+        `${origin?.y ?? window.innerHeight / 2}px`,
       );
 
-      window.setTimeout(() => {
-        root.classList.remove("theme-transition-active");
-      }, 1100);
+      const transition = documentWithTransitions.startViewTransition(updateTheme);
+      const clearTransitionOrigin = () => {
+        root.style.removeProperty("--theme-transition-x");
+        root.style.removeProperty("--theme-transition-y");
+      };
+      void transition.finished.then(clearTransitionOrigin, clearTransitionOrigin);
     },
   };
 

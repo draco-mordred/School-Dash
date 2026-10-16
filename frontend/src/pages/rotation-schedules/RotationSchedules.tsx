@@ -8,6 +8,7 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/
 import { api } from "@/lib/api";
 import { buildTimelineWindowView, formatWindowDuration, getReferenceDisplayName } from "@/lib/rotationScheduleViews";
 import { toast } from "sonner";
+import { useAdminClassOptions, useAdminCollection, useAdminRotationSchedules } from "@/lib/adminData";
 
 type RotationScheduleRecord = {
   _id?: string;
@@ -56,74 +57,53 @@ export default function RotationSchedules() {
   const navigate = useNavigate();
   const [schedules, setSchedules] = useState<RotationScheduleRecord[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [classNameById, setClassNameById] = useState<Record<string, string>>({});
   const [studentNameById, setStudentNameById] = useState<Record<string, string>>({});
+  const schedulesResource = useAdminRotationSchedules(null, 50);
+  const classesResource = useAdminClassOptions();
+  const studentsResource = useAdminCollection<Record<string, unknown>>(
+    "admin:students-for-rotation-schedules",
+    "/users?role=student&limit=500",
+    "users",
+    ["users"],
+  );
+  const loading = schedulesResource.isLoading;
 
   useEffect(() => {
-    const loadSchedules = async () => {
-      try {
-        const { data } = await api.get("/rotation-schedules", { params: { page: 1, limit: 50 } });
-        const docs = Array.isArray(data?.schedules) ? data.schedules : [];
-        setSchedules(docs);
-        setSelectedScheduleId((current) => current || docs[0]?._id || null);
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (schedulesResource.error) {
+      console.error("Failed to load rotation schedules", schedulesResource.error);
+      return;
+    }
+    if (!schedulesResource.data) return;
+    const docs = schedulesResource.data as RotationScheduleRecord[];
+    setSchedules(docs);
+    setSelectedScheduleId((current) =>
+      current && docs.some((schedule) => schedule._id === current)
+        ? current
+        : docs[0]?._id || null,
+    );
+  }, [schedulesResource.data, schedulesResource.error]);
 
-    const loadReferenceNames = async () => {
-      try {
-        const [classesRes, studentsRes] = await Promise.all([
-          api.get("/classes?limit=200"),
-          api.get("/users?role=student&limit=500"),
-        ]);
+  useEffect(() => {
+    if (classesResource.error) {
+      console.error("Failed to load class names", classesResource.error);
+    } else if (classesResource.data) {
+      setClassNameById(Object.fromEntries(classesResource.data.map((cls) => [cls._id, cls.name])));
+    }
 
-        const classList = Array.isArray(classesRes?.data?.classes)
-          ? (classesRes.data.classes as Array<Record<string, unknown>>)
-          : Array.isArray(classesRes?.data)
-            ? (classesRes.data as Array<Record<string, unknown>>)
-            : Array.isArray(classesRes?.data?.data)
-              ? (classesRes.data.data as Array<Record<string, unknown>>)
-              : [];
-        const studentList = Array.isArray(studentsRes?.data?.users)
-          ? (studentsRes.data.users as Array<Record<string, unknown>>)
-          : Array.isArray(studentsRes?.data)
-            ? (studentsRes.data as Array<Record<string, unknown>>)
-            : Array.isArray(studentsRes?.data?.data)
-              ? (studentsRes.data.data as Array<Record<string, unknown>>)
-              : [];
-
-        const nextClassNameById = classList.reduce<Record<string, string>>((acc, cls) => {
-          const id = cls?._id || cls?.id;
-          if (typeof id === "string" && cls?.name) {
-            acc[String(id)] = String(cls.name);
-          }
-          return acc;
-        }, {});
-
-        const nextStudentNameById = studentList.reduce<Record<string, string>>((acc, student) => {
-          const id = student?._id || student?.id;
-          const name = student?.name || student?.fullName || student?.displayName;
-          if (typeof id === "string" && typeof name === "string" && name.trim()) {
-            acc[String(id)] = String(name);
-          }
-          return acc;
-        }, {});
-
-        setClassNameById(nextClassNameById);
-        setStudentNameById(nextStudentNameById);
-      } catch (error) {
-        console.error("Failed to load class and student names", error);
-      }
-    };
-
-    void loadSchedules();
-    void loadReferenceNames();
-  }, []);
+    if (studentsResource.error) {
+      console.error("Failed to load student names", studentsResource.error);
+    } else if (studentsResource.data) {
+      const names = studentsResource.data.reduce<Record<string, string>>((acc, student) => {
+        const id = student._id || student.id;
+        const name = student.name || student.fullName || student.displayName;
+        if (typeof id === "string" && typeof name === "string" && name.trim()) acc[id] = name;
+        return acc;
+      }, {});
+      setStudentNameById(names);
+    }
+  }, [classesResource.data, classesResource.error, studentsResource.data, studentsResource.error]);
 
   const selectedSchedule = useMemo(() => schedules.find((schedule) => schedule._id === selectedScheduleId) || schedules[0] || null, [schedules, selectedScheduleId]);
 
@@ -137,11 +117,6 @@ export default function RotationSchedules() {
     setDeleteLoading(true);
     try {
       await api.delete(`/rotation-schedules/${scheduleId}`);
-      const remaining = schedules.filter((item) => item._id !== scheduleId);
-      setSchedules(remaining);
-      if (selectedScheduleId === scheduleId) {
-        setSelectedScheduleId(remaining[0]?._id ?? null);
-      }
       toast.success("Posting schedule deleted");
     } catch (error) {
       console.error("Failed to delete rotation schedule", error);

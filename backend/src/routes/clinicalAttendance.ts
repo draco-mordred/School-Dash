@@ -13,6 +13,7 @@ import {
   deleteClinicalSession,
   generateQrAttendancePayload,
   approveQrAttendance,
+  getStudentClinicalAttendanceContext,
 } from "../controllers/clinicalAttendance";
 
 const clinicalAttendanceRouter = express.Router();
@@ -38,7 +39,7 @@ clinicalAttendanceRouter.get(
 clinicalAttendanceRouter.post(
   "/qr/generate",
   protect,
-  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student"]),
+  authorize(["student"]),
   generateQrAttendancePayload
 );
 
@@ -54,7 +55,7 @@ clinicalAttendanceRouter.post(
 clinicalAttendanceRouter.post(
   "/check-in",
   protect,
-  authorize(["admin", "teacher", "unitconsultant", "student"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   checkInStudent
 );
 
@@ -62,7 +63,7 @@ clinicalAttendanceRouter.post(
 clinicalAttendanceRouter.post(
   "/check-out",
   protect,
-  authorize(["admin", "teacher", "unitconsultant", "student"]),
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   checkOutStudent
 );
 
@@ -75,6 +76,13 @@ clinicalAttendanceRouter.get(
 );
 
 // Get student attendance record
+clinicalAttendanceRouter.get(
+  "/student-context",
+  protect,
+  authorize(["student"]),
+  getStudentClinicalAttendanceContext
+);
+
 clinicalAttendanceRouter.get(
   "/student-record",
   protect,

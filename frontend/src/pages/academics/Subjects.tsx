@@ -4,6 +4,7 @@ import { BookOpen, GraduationCap, Plus, Sparkles, ArrowDownAZ, ArrowUpZA, Loader
 
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
+import { useAdminResource } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
 import SubjectBulkUploadDialog from "@/components/subjects/SubjectBulkUploadDialog";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +69,26 @@ export const Subjects = () => {
     return typeof currentClass === "object" ? currentClass._id ?? null : null;
   }, [user?.studentClasses]);
 
+  const subjectsQuery = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("page", pageNum.toString());
+    params.set("limit", "100");
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    if (isStudent && studentClassId) params.set("class", studentClassId);
+    return params.toString();
+  }, [debouncedSearch, isStudent, pageNum, studentClassId]);
+  const subjectsResource = useAdminResource<{
+    courses: SubjectItem[];
+    pagination?: pagination;
+  }>(
+    `admin:subject-list:${subjectsQuery}`,
+    async () => {
+      const { data } = await api.get(`/courses?${subjectsQuery}`);
+      return data;
+    },
+    ["courses"],
+  );
+
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
@@ -93,35 +114,34 @@ export const Subjects = () => {
 
 
   const fetchSubjects = useCallback(async () => {
-    try {
-      setLoading(true);
-      const params = new URLSearchParams();
-      params.append("page", pageNum.toString());
-      params.append("limit", "100");
-      if (debouncedSearch) params.append("search", debouncedSearch);
-      if (isStudent && studentClassId) {
-        params.append("class", studentClassId);
-      }
-
-      const { data } = (await api.get(`/courses?${params.toString()}`)) as {
-        data: { courses: SubjectItem[]; pagination: pagination };
-      };
-
-      setSubjects(Array.isArray(data?.courses) ? data.courses : []);
-      setTotalPages(data?.pagination?.pages ?? 1);
-    } catch {
+    setLoading(true);
+    const snapshot = await subjectsResource.refetch();
+    if (snapshot.error) {
+      console.error("Failed to load subjects", snapshot.error);
       toast.error("Failed to load subjects");
       setSubjects([]);
-    } finally {
-      setLoading(false);
+    } else if (snapshot.data) {
+      setSubjects(Array.isArray(snapshot.data.courses) ? snapshot.data.courses : []);
+      setTotalPages(snapshot.data.pagination?.pages ?? 1);
     }
-  }, [debouncedSearch, pageNum, isStudent, studentClassId]);
+    setLoading(false);
+  }, [subjectsResource.refetch]);
 
   useEffect(() => {
-    const loadSubjects = async () => {
-      await fetchSubjects();
-    };
-    void loadSubjects();
+    if (subjectsResource.error) {
+      console.error("Failed to load subjects", subjectsResource.error);
+      toast.error("Failed to load subjects");
+      setSubjects([]);
+      return;
+    }
+    if (subjectsResource.data) {
+      setSubjects(Array.isArray(subjectsResource.data.courses) ? subjectsResource.data.courses : []);
+      setTotalPages(subjectsResource.data.pagination?.pages ?? 1);
+    }
+  }, [subjectsResource.data, subjectsResource.error]);
+
+  useEffect(() => {
+    void fetchSubjects();
   }, [fetchSubjects]);
 
   const groupedSubjects = useMemo(() => {

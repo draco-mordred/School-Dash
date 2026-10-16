@@ -41,11 +41,22 @@ interface CurrentPosting {
   reportingVenue?: string;
 }
 
+interface PhaseLearningObjective {
+  courseId?: string | null;
+  courseName?: string | null;
+  courseCode?: string | null;
+  type: "tutorial" | "presentation" | "assignment" | "research" | "seminar";
+  title: string;
+  description?: string;
+}
+
 export default function StudentClinicalsCurrentPosting() {
   const { user } = useAuth();
   const [posting, setPosting] = useState<CurrentPosting | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [phaseObjectives, setPhaseObjectives] = useState<PhaseLearningObjective[]>([]);
+  const [activePhaseName, setActivePhaseName] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchCurrentPosting = async () => {
@@ -65,6 +76,8 @@ export default function StudentClinicalsCurrentPosting() {
         }
 
         const { data } = await api.get(`/rotation-schedules/student/${studentId}/current`);
+        setPhaseObjectives(Array.isArray(data?.learningObjectives) ? data.learningObjectives : []);
+        setActivePhaseName(data?.phaseName ?? data?.phaseId ?? null);
         const current = Array.isArray(data?.current) ? data.current[0] : null;
         if (current) {
           const windowData = current.window ?? {};
@@ -127,6 +140,20 @@ export default function StudentClinicalsCurrentPosting() {
             <p className="text-sm text-muted-foreground">
               Please contact your clinical coordinator if you believe this is an error.
             </p>
+            {phaseObjectives.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="font-medium">Academic Clock Phase Activities{activePhaseName ? ` · ${activePhaseName}` : ""}</p>
+                <ul className="mt-2 space-y-2">
+                  {phaseObjectives.map((objective, index) => (
+                    <li key={`${objective.type}-${objective.title}-${index}`} className="text-sm">
+                      <span className="font-medium capitalize">{objective.type}: </span>{objective.title}
+                      {objective.courseName ? ` · ${objective.courseCode ? `${objective.courseCode} — ` : ""}${objective.courseName}` : ""}
+                      {objective.description ? <p className="text-muted-foreground">{objective.description}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -169,7 +196,9 @@ export default function StudentClinicalsCurrentPosting() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold">{posting.rotation.name}</h1>
-        <p className="text-muted-foreground mt-1">Current Clinical Rotation Assignment</p>
+        <p className="text-muted-foreground mt-1">
+          Current Clinical Rotation Assignment{activePhaseName ? ` · ${activePhaseName}` : ""}
+        </p>
       </div>
 
       {/* Status & Duration */}
@@ -324,6 +353,28 @@ export default function StudentClinicalsCurrentPosting() {
       )}
 
       {/* Learning Outcomes */}
+      {phaseObjectives.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Academic Clock Phase Activities</CardTitle>
+            <CardDescription>Course-linked objectives for the active class phase</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {phaseObjectives.map((objective, index) => (
+                <li key={`${objective.type}-${objective.title}-${index}`} className="text-sm">
+                  <p className="font-medium capitalize">
+                    {objective.type}: {objective.title}
+                    {objective.courseName ? ` · ${objective.courseCode ? `${objective.courseCode} — ` : ""}${objective.courseName}` : ""}
+                  </p>
+                  {objective.description ? <p className="text-muted-foreground">{objective.description}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       {posting.learningOutcomes && posting.learningOutcomes.length > 0 && (
         <Card>
           <CardHeader>

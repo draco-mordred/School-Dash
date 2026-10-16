@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff, Plus } from "lucide-react";
+import { Camera, CameraOff, Clock3, QrCode, Wifi, WifiOff, Plus, CheckCircle2 } from "lucide-react";
 import jsQR from "jsqr";
 import { BrowserQRCodeReader } from "@zxing/library";
 import { format } from "date-fns";
@@ -53,6 +53,7 @@ export default function SupervisorQrAttendancePage() {
   const [groupSelectionMessage, setGroupSelectionMessage] = useState<string>("");
   const [selectedSupervisorGroupId, setSelectedSupervisorGroupId] = useState<string>("");
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
+  const [endingSession, setEndingSession] = useState<boolean>(false);
   const [scannerError, setScannerError] = useState<string>("");
   const [scannerActive, setScannerActive] = useState<boolean>(false);
   const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
@@ -138,6 +139,7 @@ export default function SupervisorQrAttendancePage() {
       try {
         await api.post("/clinical-attendance/qr/approve", {
           qrPayload: item.qrPayload,
+          sessionId: item.sessionId,
           status: item.status,
           notes: item.notes,
         });
@@ -148,7 +150,7 @@ export default function SupervisorQrAttendancePage() {
 
         // If server indicates the OTP expired or not found, drop it from the queue and inform the user
         if (status === 410 || /otp not found|expired/i.test(message)) {
-          toast.error(`Queued approval expired: ${item.qrPayload}`);
+          toast.error("A queued approval expired and was removed. Ask the student to generate a fresh code.");
           continue;
         }
 
@@ -159,6 +161,7 @@ export default function SupervisorQrAttendancePage() {
             const directUrl = `${backendHost.replace(/\/$/, "")}/api/clinical-attendance/qr/approve`;
             await axios.post(directUrl, {
               qrPayload: item.qrPayload,
+              sessionId: item.sessionId,
               status: item.status,
               notes: item.notes,
             }, { timeout: 30000 });
@@ -691,6 +694,26 @@ export default function SupervisorQrAttendancePage() {
     toast.success("Queued approvals were retried.");
   };
 
+  const handleEndSession = async () => {
+    if (!selectedSession || selectedSession.status !== "ongoing") return;
+    if (!isOnline || pendingApprovals.some((item) => item.sessionId === selectedSession._id)) {
+      toast.error("Sync queued approvals for this session before ending it.");
+      return;
+    }
+
+    try {
+      setEndingSession(true);
+      await api.post("/clinical-attendance/session/end", { sessionId: selectedSession._id });
+      toast.success("Session ended. Unconfirmed students were marked absent.");
+      await refreshSessions();
+      window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, String(Date.now()));
+    } catch (error: any) {
+      toast.error(error?.response?.data?.message || "Unable to end this session right now.");
+    } finally {
+      setEndingSession(false);
+    }
+  };
+
   const handleCreateSession = async (event: FormEvent) => {
     event.preventDefault();
 
@@ -931,7 +954,10 @@ export default function SupervisorQrAttendancePage() {
     };
 
     if (!isOnline) {
-      const nextQueue = [queueItem, ...readQueue()];
+      const queuedApprovals = readQueue();
+      const nextQueue = queuedApprovals.some((item) => item.qrPayload === payload)
+        ? queuedApprovals
+        : [queueItem, ...queuedApprovals];
       persistQueue(nextQueue);
       window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, String(Date.now()));
       window.dispatchEvent(new Event("clinical-attendance-updated"));
@@ -941,22 +967,12 @@ export default function SupervisorQrAttendancePage() {
 
     try {
       setSubmitting(true);
-      const response = await api.post("/clinical-attendance/qr/approve", {
+      await api.post("/clinical-attendance/qr/approve", {
         qrPayload: payload,
+        sessionId: selectedSession._id,
         status: approvalStatus,
         notes: approvalNotes,
       });
-
-      const approved = response.data?.data;
-      const completedItem: PendingApproval = {
-        ...queueItem,
-        id: approved?.studentId ?? queueItem.id,
-        studentIdNumber: approved?.studentIdNumber ?? queueItem.studentIdNumber,
-        status: approved?.status ?? approvalStatus,
-      };
-
-      const nextQueue = [completedItem, ...pendingApprovals.filter((item) => item.id !== completedItem.id)].slice(0, 8);
-      persistQueue(nextQueue);
       window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, String(Date.now()));
       window.dispatchEvent(new Event("clinical-attendance-updated"));
       toast.success("Student attendance approved successfully.");
@@ -969,7 +985,10 @@ export default function SupervisorQrAttendancePage() {
       if (status === 410 || /otp not found|expired/i.test(message)) {
         toast.error(message || "OTP not found or expired. Ask the student to provide a fresh QR/OTP.");
       } else {
-        const nextQueue = [queueItem, ...readQueue()];
+        const queuedApprovals = readQueue();
+        const nextQueue = queuedApprovals.some((item) => item.qrPayload === payload)
+          ? queuedApprovals
+          : [queueItem, ...queuedApprovals];
         persistQueue(nextQueue);
         toast.error(message || "Unable to approve this student attendance. The approval has been queued for later sync.");
       }
@@ -1395,7 +1414,20 @@ export default function SupervisorQrAttendancePage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Session snapshot</CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Session snapshot</CardTitle>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleEndSession()}
+                  disabled={endingSession || selectedSession?.status !== "ongoing" || pendingApprovals.some((item) => item.sessionId === selectedSession?._id)}
+                  title="End session and finalize unconfirmed attendance"
+                >
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  {endingSession ? "Ending…" : "End session"}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex items-center justify-between">

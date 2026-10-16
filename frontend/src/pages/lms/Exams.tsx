@@ -16,47 +16,41 @@ import { useNavigate } from "react-router-dom";
 import type { exam } from "@/types";
 import { toast } from "sonner";
 import ExamGenerator from "@/components/lms/ExamGenerator";
+import { useAdminCollection } from "@/lib/adminData";
 
 const Exams = () => {
   const { user } = useAuth();
   const isTeacher = user?.role === "teacher" || user?.role === "admin";
   const [exams, setExams] = useState<exam[]>([]);
   const [isGenOpen, setIsGenOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const examsResource = useAdminCollection<exam>(
+    "admin:exams",
+    "/exams",
+    "exams",
+    ["exams"],
+  );
+  const loading = examsResource.isLoading;
   const navigate = useNavigate();
 
-
-  // fetch exams
-  const fetchExams = async () => {
-    try {
-      setLoading(true);
-      const { data } = await api.get("/exams");
-      setExams(data);
-    } catch (err) {
-      toast.error("failed to load exams");
-      console.log(err);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (examsResource.error) {
+      console.error("Failed to load exams", examsResource.error);
+      toast.error("Failed to load exams");
+      return;
     }
-  };
+    if (examsResource.data) setExams(examsResource.data);
+  }, [examsResource.data, examsResource.error]);
 
   const handleDeleteExam = async (examId: string) => {
     if (!confirm("Are you sure you want to delete this exam?")) return;
     try {
       await api.delete(`/exams/${examId}`);
       toast.success("Exam deleted");
-      fetchExams();
     } catch (error) {
+      console.error("Failed to delete exam", error);
       toast.error("Failed to delete exam");
     }
   };
-
-  useEffect(() => {
-    const run = async () => {
-      await fetchExams();
-    };
-    run();
-  }, []);
 
 
   if (loading) {

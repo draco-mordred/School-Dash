@@ -22,6 +22,7 @@ import {
 import { Label } from "@/components/ui/label";
 import type { academicYear, Class } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminClassOptions, useAdminCollection } from "@/lib/adminData";
 
 export interface GenSettings {
   startTime: string;
@@ -35,14 +36,12 @@ interface Props {
     yearId: string,
     settings: GenSettings
   ) => Promise<void>;
-  onClassChange: (classId: string) => void;
   isGenerating: boolean;
   selectedClass: string;
   setSelectedClass: (classId: string) => void;
 }
 const GeneratorControls = ({
   onGenerate,
-  onClassChange,
   isGenerating,
   selectedClass,
   setSelectedClass,
@@ -52,37 +51,36 @@ const GeneratorControls = ({
   const [classes, setClasses] = useState<Class[]>([]);
   const [years, setYears] = useState<academicYear[]>([]);
   const [selectedYear, setSelectedYear] = useState("");
-  const [loadingData, setLoadingData] = useState(false);
+  const classesResource = useAdminClassOptions();
+  const yearsResource = useAdminCollection<academicYear>(
+    "admin:academic-years",
+    "/academic-years",
+    "years",
+    ["academic-years"],
+  );
+  const loadingData = classesResource.isLoading || yearsResource.isLoading;
   // Time Settings
   const [startTime, setStartTime] = useState("08:00");
   const [endTime, setEndTime] = useState("14:00");
   const [periods, setPeriods] = useState("5");
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoadingData(true);
-      try {
-        const [clsRes, yearRes] = await Promise.all([
-          api.get("/classes"),
-          api.get("/academic-years"), // Get all years so we can see history if needed
-        ]);
-        setClasses(clsRes.data.classes);
-        setYears(yearRes.data.years);
+    if (classesResource.error) {
+      console.error("Failed to load timetable class options", classesResource.error);
+      toast.error("Failed to load class selection data");
+    } else if (classesResource.data) {
+      setClasses(classesResource.data as Class[]);
+    }
 
-        // Auto-select current year
-        const current = Array.isArray(yearRes.data)
-          ? yearRes.data.find((y: academicYear) => y.isCurrent)
-          : yearRes.data;
-
-        if (current?._id) setSelectedYear(current._id);
-      } catch (error) {
-        toast.error("Failed to load selection data");
-      } finally {
-        setLoadingData(false);
-      }
-    };
-    fetchData();
-  }, []);
+    if (yearsResource.error) {
+      console.error("Failed to load timetable academic years", yearsResource.error);
+      toast.error("Failed to load academic year selection data");
+    } else if (yearsResource.data) {
+      setYears(yearsResource.data);
+      const current = yearsResource.data.find((year) => year.isCurrent);
+      if (current?._id) setSelectedYear(current._id);
+    }
+  }, [classesResource.data, classesResource.error, yearsResource.data, yearsResource.error]);
 
   const handleGenerateClick = () => {
     if (!selectedClass || !selectedYear) {
@@ -98,7 +96,6 @@ const GeneratorControls = ({
 
   const handleClassSelect = (val: string) => {
     setSelectedClass(val);
-    onClassChange(val);
 
     // Auto-detect clinical level classes and set clinical time frame
     const selectedClassData = classes.find((c) => c._id === val);

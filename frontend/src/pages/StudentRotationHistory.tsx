@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock3, Loader2, MapPin } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarDays, Clock3, Loader2, MapPin, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -16,26 +17,15 @@ type StudentPostingSchedule = {
   windows: RotationWindowView[];
 };
 
-const toValidDate = (value: unknown): Date | null => {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-};
-
 const formatDate = (date: Date | null) =>
   date?.toLocaleDateString("en", { dateStyle: "medium" }) ?? "Date not set";
 
 const formatDateRange = (startDate: Date | null, endDate: Date | null) =>
   `${formatDate(startDate)} – ${formatDate(endDate)}`;
 
-const getScheduleDateRange = (schedule: any, timeline: any[]) => {
-  const postings = Array.isArray(schedule?.postings) ? schedule.postings : [];
-  const postingStarts = postings.map((posting: any) => toValidDate(posting?.startDate)).filter((date: Date | null): date is Date => date !== null);
-  const postingEnds = postings.map((posting: any) => toValidDate(posting?.endDate)).filter((date: Date | null): date is Date => date !== null);
-  const timelineStarts = timeline.map((window: any) => toValidDate(window?.startDate)).filter((date: Date | null): date is Date => date !== null);
-  const timelineEnds = timeline.map((window: any) => toValidDate(window?.endDate)).filter((date: Date | null): date is Date => date !== null);
-  const starts = postingStarts.length ? postingStarts : timelineStarts;
-  const ends = postingEnds.length ? postingEnds : timelineEnds;
+const getScheduleDateRange = (windows: RotationWindowView[]) => {
+  const starts = windows.map((window) => window.startDate).filter((date): date is Date => date !== null);
+  const ends = windows.map((window) => window.endDate).filter((date): date is Date => date !== null);
 
   return {
     startDate: starts.length ? new Date(Math.min(...starts.map((date) => date.getTime()))) : null,
@@ -64,18 +54,13 @@ export default function StudentRotationHistory() {
   const [activeScheduleId, setActiveScheduleId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const classId = useMemo(() => {
-    const studentClass = user?.studentClass ?? user?.studentClasses;
-    if (typeof studentClass === "object" && studentClass !== null) return studentClass._id;
-    return typeof studentClass === "string" ? studentClass : null;
-  }, [user]);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadSchedules = async () => {
-      if (!classId || !user?._id) {
+      if (!user?._id) {
         setSchedules([]);
         setActiveScheduleId("");
         setLoading(false);
@@ -85,29 +70,8 @@ export default function StudentRotationHistory() {
       setLoading(true);
       setError(null);
       try {
-        const responseSchedules: any[] = [];
-        const pageSize = 100;
-        let page = 1;
-        while (true) {
-          const { data } = await api.get("/rotation-schedules", {
-            params: { classId, limit: pageSize, page },
-          });
-          const pageSchedules = Array.isArray(data?.schedules)
-            ? data.schedules
-            : Array.isArray(data)
-              ? data
-              : [];
-          responseSchedules.push(...pageSchedules);
-
-          const total = Number(data?.total);
-          if (
-            pageSchedules.length < pageSize ||
-            (Number.isFinite(total) && responseSchedules.length >= total)
-          ) {
-            break;
-          }
-          page += 1;
-        }
+        const { data } = await api.get("/rotation-schedules/student/me/schedules");
+        const responseSchedules = Array.isArray(data?.schedules) ? data.schedules : [];
         const studentId = String(user._id);
         const normalizedSchedules = responseSchedules.map((schedule: any, index: number) => {
           const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
@@ -116,7 +80,7 @@ export default function StudentRotationHistory() {
               buildTimelineWindowView(schedule, window, windowIndex, studentId),
             )
             .filter((window: RotationWindowView) => window.matchesStudent);
-          const dateRange = getScheduleDateRange(schedule, timeline);
+          const dateRange = getScheduleDateRange(windows);
 
           return {
             id: String(schedule?._id ?? `${schedule?.name ?? "posting-schedule"}-${index}`),
@@ -134,7 +98,8 @@ export default function StudentRotationHistory() {
               : normalizedSchedules[0]?.id ?? "",
           );
         }
-      } catch {
+      } catch (requestError) {
+        console.error("Failed to load student posting schedules", requestError);
         if (isMounted) {
           setError("Unable to load your posting schedules right now.");
           setSchedules([]);
@@ -149,7 +114,7 @@ export default function StudentRotationHistory() {
     return () => {
       isMounted = false;
     };
-  }, [classId, user?._id]);
+  }, [retryCount, user?._id]);
 
   const activeSchedule = schedules.find((schedule) => schedule.id === activeScheduleId);
 
@@ -173,18 +138,17 @@ export default function StudentRotationHistory() {
         </div>
       ) : error ? (
         <Card className="border-destructive/30">
-          <CardContent className="p-5 text-sm text-destructive">{error}</CardContent>
-        </Card>
-      ) : !classId ? (
-        <Card className="border-dashed">
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            Your class could not be identified. Refresh the page or contact your school administrator.
+          <CardContent className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-destructive">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => setRetryCount((count) => count + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
           </CardContent>
         </Card>
       ) : schedules.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="p-6 text-sm text-muted-foreground">
-            No posting schedules are available for your class yet.
+            No posting schedule has been assigned to your account yet.
           </CardContent>
         </Card>
       ) : (
@@ -212,7 +176,16 @@ export default function StudentRotationHistory() {
                   <CardDescription>{formatDateRange(schedule.startDate, schedule.endDate)}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Tabs defaultValue="upcoming" className="w-full">
+                  <Tabs
+                    defaultValue={
+                      schedule.windows.some((window) => getRotationStatus(window) === "current")
+                        ? "current"
+                        : schedule.windows.some((window) => getRotationStatus(window) === "upcoming")
+                          ? "upcoming"
+                          : "completed"
+                    }
+                    className="w-full"
+                  >
                     <TabsList className="grid h-auto w-full grid-cols-3">
                       {Object.entries(statusLabels).map(([status, label]) => (
                         <TabsTrigger key={status} value={status}>{label}</TabsTrigger>

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it } from "vitest";
 
-import { buildInitialPhasePlan, getClockPhaseId, getClassLevelPhasePlan, normalizePhasePlan, resolveActiveAcademicClockPhase } from "./academicClock";
+import { buildInitialPhasePlan, doesPhaseRequirePostingSchedule, getClockPhaseId, getClassLevelPhasePlan, normalizePhasePlan, resolveActiveAcademicClockPhase } from "./academicClock";
 
 describe("getClockPhaseId", () => {
   it("returns phase2 once the clock has passed the first four months", () => {
@@ -75,8 +75,56 @@ describe("normalizePhasePlan", () => {
         durationMonths: 3,
         color: "#3B82F6",
         subPostings: [],
+        postingType: null,
+        postingId: null,
+        requiresPostingSchedule: false,
+        postingScheduleId: null,
+        postingName: null,
+        timetablePhaseId: null,
+        courseIds: [],
+        learningObjectives: [],
+        missingScheduleAlertSignature: null,
       },
     ]);
+  });
+
+  it("preserves phase schedule, course, and learning activity associations", () => {
+    const plan = normalizePhasePlan([{
+      id: "phase-custom",
+      name: "Clinical block",
+      durationMonths: 3,
+      color: "#123456",
+      subPostings: ["Medicine"],
+      requiresPostingSchedule: true,
+      postingScheduleId: "rotation-plan-id",
+      postingName: "Medicine",
+      timetablePhaseId: "legacy",
+      courseIds: ["course-id"],
+      learningObjectives: [{
+        courseId: "course-id",
+        type: "seminar",
+        title: "Case review",
+      }],
+    }]);
+
+    expect(plan[0]).toMatchObject({
+      requiresPostingSchedule: true,
+      postingScheduleId: "rotation-plan-id",
+      postingName: "Medicine",
+      timetablePhaseId: "legacy",
+      courseIds: ["course-id"],
+      learningObjectives: [{ type: "seminar", title: "Case review" }],
+    });
+  });
+
+  it("infers posting requirements for clinical phases but allows explicit overrides", () => {
+    expect(doesPhaseRequirePostingSchedule({ name: "Medicine Posting", subPostings: [] })).toBe(true);
+    expect(doesPhaseRequirePostingSchedule({ name: "Examinations", subPostings: [] })).toBe(false);
+    expect(doesPhaseRequirePostingSchedule({
+      name: "Medicine Posting",
+      subPostings: [],
+      requiresPostingSchedule: false,
+    })).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { api } from "@/lib/api";
+import { useAdminDepartmentConstants, useAdminDepartmentList } from "@/lib/adminData";
 import { getEntityId } from "@/lib/getEntityId";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -128,33 +129,26 @@ const DepartmentFormCard = ({
 export const DepartmentUnitsSection = ({ search }: { search: string }) => {
   const [departmentUnits, setDepartmentUnits] = useState<Record<string, DepartmentUnitsData>>({});
   const [expandedUnits, setExpandedUnits] = useState<Record<string, boolean>>({});
-  const [loadingUnits, setLoadingUnits] = useState(false);
-
-  const fetchConstants = useCallback(async () => {
-    setLoadingUnits(true);
-    try {
-      const { data } = await api.get<DepartmentConstantsResponse>("/courses/department-constants");
-      const normalized = Object.values(data.departmentUnits ?? {}).reduce(
-        (acc: Record<string, DepartmentUnitsData>, entry) => {
-          if (entry?.id) {
-            acc[String(entry.id).toUpperCase()] = entry;
-          }
-          return acc;
-        },
-        {}
-      );
-      setDepartmentUnits(normalized);
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to load department units.");
-    } finally {
-      setLoadingUnits(false);
-    }
-  }, []);
+  const constantsResource = useAdminDepartmentConstants();
+  const loadingUnits = constantsResource.isLoading;
 
   useEffect(() => {
-    void fetchConstants();
-  }, [fetchConstants]);
+    if (constantsResource.error) {
+      console.error("Failed to load department units", constantsResource.error);
+      toast.error("Failed to load department units.");
+      return;
+    }
+    const data = constantsResource.data as DepartmentConstantsResponse | null | undefined;
+    if (!data) return;
+    const normalized = Object.values(data.departmentUnits ?? {}).reduce(
+      (acc: Record<string, DepartmentUnitsData>, entry) => {
+        if (entry?.id) acc[String(entry.id).toUpperCase()] = entry;
+        return acc;
+      },
+      {},
+    );
+    setDepartmentUnits(normalized);
+  }, [constantsResource.data, constantsResource.error]);
 
   const visibleDepartments = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -260,6 +254,7 @@ const AdminDepartments = () => {
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [activeDepartmentForUserSearch, setActiveDepartmentForUserSearch] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const departmentsResource = useAdminDepartmentList();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
@@ -275,16 +270,21 @@ const AdminDepartments = () => {
 
   const fetchDepartments = useCallback(async () => {
     setLoading(true);
-    try {
-      const { data } = await api.get("/courses/departments");
-      setDepartments(data.departments ?? []);
-    } catch (error) {
-      console.error(error);
+    const snapshot = await departmentsResource.refetch();
+    if (snapshot.error) {
+      console.error("Failed to load departments", snapshot.error);
       toast.error("Failed to load departments.");
-    } finally {
-      setLoading(false);
+    } else {
+      setDepartments((snapshot.data ?? []) as department[]);
     }
-  }, []);
+    setLoading(false);
+  }, [departmentsResource.refetch]);
+
+  useEffect(() => {
+    if (departmentsResource.data) {
+      setDepartments(departmentsResource.data as department[]);
+    }
+  }, [departmentsResource.data]);
 
   const fetchDepartmentUsers = useCallback(async (departmentId: string) => {
     setLoadingDepartmentUsers((prev) => ({ ...prev, [departmentId]: true }));

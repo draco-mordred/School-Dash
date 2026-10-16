@@ -22,7 +22,14 @@ import "./models/clinicalRotation"; // register ClinicalRotation mongoose model
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
-import { generateExam, generateTimeTable, generateAttendance, bulkCreateUsers, rotationNotify } from "./inngest/functions";
+import {
+  generateExam,
+  generateTimeTable,
+  generateAttendance,
+  bulkCreateUsers,
+  rotationNotify,
+  academicClockPhaseReconciliation,
+} from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
 import dashBoardRouter from "./routes/dashboard";
@@ -275,7 +282,14 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/activity-entries`, activityEntryRouter);
   app.use(`${prefix}/inngest`, serve({
     client: inngest,
-    functions: [generateTimeTable, generateExam, generateAttendance, bulkCreateUsers, rotationNotify]
+    functions: [
+      generateTimeTable,
+      generateExam,
+      generateAttendance,
+      bulkCreateUsers,
+      rotationNotify,
+      academicClockPhaseReconciliation,
+    ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);
 };

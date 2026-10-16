@@ -63,6 +63,7 @@ const currentUserMatchesSupervisor = (currentUser: unknown, supervisorValues: Ar
     addValue(currentUserRecord._id);
     addValue(currentUserRecord.id);
     addValue(currentUserRecord.name);
+    addValue([currentUserRecord.firstName, currentUserRecord.lastName].filter(Boolean).join(" "));
     addValue(currentUserRecord.email);
   }
 
@@ -81,7 +82,7 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
   currentUser?: string | Record<string, any> | null
 ): ClinicalAttendanceGroupSelectionResult => {
   const phases = Array.isArray(schedule?.meta?.phases) ? schedule.meta.phases : [];
-  const activePhase = phases.find((phase: any) => isDateWithinPhase(today, phase)) || phases[0] || null;
+  const activePhase = phases.find((phase: any) => isDateWithinPhase(today, phase)) || null;
 
   const windows = [
     ...(Array.isArray(posting?.meta?.timeline) ? posting.meta.timeline : []),
@@ -89,9 +90,14 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
     ...(Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : []),
     ...(Array.isArray(schedule?.meta?.windows) ? schedule.meta.windows : []),
   ];
-  const activePhaseWindows = activePhase
+  const phaseWindows = activePhase
     ? windows.filter((window: any) => Number(window?.phaseIndex ?? 0) === Number(activePhase.phaseIndex ?? 0))
     : windows;
+  const activePhaseWindows = phaseWindows.filter((window: any) => {
+    const startDate = normalizeDate(window?.startDate);
+    const endDate = normalizeDate(window?.endDate);
+    return (!startDate || today >= startDate) && (!endDate || today < endDate);
+  });
 
   const usesUnits = activePhaseWindows.some((window: any) => Boolean(window?.unitName || window?.unitId || window?.unitGroupLabel || window?.unitCode || window?.unitID));
 
@@ -101,7 +107,6 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
   const addGroup = (option: ClinicalAttendanceGroupOption) => {
     const key = `${option.type}:${option.id}`;
     if (seen.has(key)) return;
-    seen.add(key);
 
     const supervisorValues = [
       option.supervisorId,
@@ -116,6 +121,7 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
 
     const matchesSupervisor = currentUserMatchesSupervisor(currentUser, supervisorValues);
     if (matchesSupervisor) {
+      seen.add(key);
       groups.push(option);
     }
   };
@@ -123,19 +129,27 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
   if (activePhaseWindows.length > 0) {
     activePhaseWindows.forEach((window: any, index: number) => {
       const hasUnitInfo = Boolean(window?.unitName || window?.unitId || window?.unitGroupLabel || window?.unitCode || window?.unitID);
-      const groupIndex = window?.departmentGroupIndex ?? window?.unitGroupIndex ?? index;
+      const groupIndex = hasUnitInfo
+        ? window?.unitGroupIndex ?? window?.departmentGroupIndex ?? index
+        : window?.departmentGroupIndex ?? index;
+      const sourceGroup = (Array.isArray(posting?.groups) ? posting.groups : [])[Number(groupIndex)] ?? {};
+      const sourceData = sourceGroup?.group ?? sourceGroup;
       const label = hasUnitInfo
         ? (window?.unitGroupLabel || window?.unitName || `Unit Group ${Number(window?.unitGroupIndex ?? 0) + 1}`)
         : (window?.departmentGroupLabel || window?.departmentName || window?.departmentCode || `Department Group ${Number(groupIndex ?? 0) + 1}`);
       const code = window?.departmentCode || window?.unitCode || window?.unitGroupLabel || window?.unitName || label;
+      const sourceSupervisor = sourceGroup?.departmentSupervisor || sourceGroup?.supervisor || sourceData?.supervisor || null;
+      const sourceSupervisorId = sourceSupervisor && typeof sourceSupervisor === "object"
+        ? sourceSupervisor._id ?? sourceSupervisor.id ?? null
+        : sourceSupervisor;
       addGroup({
         id: hasUnitInfo ? `unit:${groupIndex}` : `department:${groupIndex}`,
         label,
         code,
         type: hasUnitInfo ? "unit" : "department",
-        supervisorId: window?.supervisorId || window?.departmentSupervisorId || null,
-        supervisorName: window?.supervisorName || window?.departmentSupervisorName || null,
-        supervisorEmail: window?.supervisorEmail || window?.departmentSupervisorEmail || null,
+        supervisorId: window?.supervisorId || window?.departmentSupervisorId || sourceSupervisorId,
+        supervisorName: window?.supervisorName || window?.departmentSupervisorName || sourceGroup?.departmentSupervisorName || sourceGroup?.supervisorName || sourceData?.supervisor?.name || null,
+        supervisorEmail: window?.supervisorEmail || window?.departmentSupervisorEmail || sourceGroup?.departmentSupervisorEmail || sourceGroup?.supervisorEmail || sourceData?.supervisor?.email || null,
         groupIndex: window?.departmentGroupIndex ?? null,
         unitGroupIndex: window?.unitGroupIndex ?? null,
       });
@@ -146,12 +160,13 @@ export const getAvailableClinicalAttendanceGroupsForPosting = (
     const postingGroups = Array.isArray(posting?.groups) ? posting.groups : [];
     postingGroups.forEach((group: any, index: number) => {
       const groupData = group?.group || group || {};
+      const hasUnitInfo = Boolean(groupData?.unitName || groupData?.unit?.name || groupData?.unitId);
       const label = groupData?.name || groupData?.label || `Department Group ${index + 1}`;
       addGroup({
-        id: `department:${index}`,
+        id: `${hasUnitInfo ? "unit" : "department"}:${index}`,
         label,
         code: label,
-        type: "department",
+        type: hasUnitInfo ? "unit" : "department",
         supervisorId: group?.departmentSupervisor || group?.supervisor || null,
         supervisorName: group?.departmentSupervisorName || group?.supervisorName || null,
         supervisorEmail: group?.departmentSupervisorEmail || group?.supervisorEmail || null,

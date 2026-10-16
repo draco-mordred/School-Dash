@@ -45,6 +45,7 @@ import {
 import Search from "@/components/global/Search";
 import CustomPagination from "@/components/global/CustomPagination";
 import { getClockPhaseId, getClassLevelPhasePlan } from "@/lib/academicClock";
+import { useAdminClassClock, useAdminClassOptions } from "@/lib/adminData";
 import {
   getEligibleDepartmentsForPhase,
   getPostingPhaseOptions,
@@ -709,10 +710,12 @@ const buildOgPedsSeniorPostingSchedule = ({
 export default function ClinicalRotations() {
   const { user, year: currentYear } = useAuth();
   const [rotations, setRotations] = useState<Rotation[]>([]);
-  const [availableClasses, setAvailableClasses] = useState<Array<{ _id: string; name: string; academicYearId?: string }>>([]);
   const [selectedClassId, setSelectedClassId] = useState<string>("");
   const [selectedClock, setSelectedClock] = useState<AcademicClockSummary | null>(null);
-  const [clockLoading, setClockLoading] = useState(false);
+  const [availableClasses, setAvailableClasses] = useState<Array<{ _id: string; name: string; academicYearId?: string }>>([]);
+  const classesResource = useAdminClassOptions();
+  const classClockResource = useAdminClassClock(selectedClassId);
+  const clockLoading = classClockResource.isLoading;
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -757,87 +760,41 @@ export default function ClinicalRotations() {
   })();
 
   useEffect(() => {
-    const loadClasses = async () => {
-      try {
-        const { data } = await api.get("/classes?limit=200");
-        const classList = Array.isArray(data) ? data : (data?.classes ?? data?.data ?? []);
-        const mappedClasses = (classList as Array<{ _id?: string; name?: string; academicYear?: string | { _id?: string } }> || [])
-          .filter((cls) => cls?._id)
-          .map((cls) => ({
-            _id: cls._id!,
-            name: cls.name ?? "Untitled class",
-            academicYearId: typeof cls.academicYear === "string" ? cls.academicYear : cls.academicYear?._id,
-          }));
-
-        setAvailableClasses(mappedClasses);
-        if (!selectedClassId) {
-          if (user?.role === "student" && authStudentClassId) {
-            setSelectedClassId(authStudentClassId);
-          } else if (mappedClasses[0]?._id) {
-            setSelectedClassId(mappedClasses[0]._id);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to load classes", error);
+    if (classesResource.error) {
+      console.error("Failed to load classes", classesResource.error);
+      return;
+    }
+    const mappedClasses = classesResource.data;
+    if (!mappedClasses) return;
+    setAvailableClasses(mappedClasses);
+    if (!selectedClassId) {
+      if (user?.role === "student" && authStudentClassId) {
+        setSelectedClassId(authStudentClassId);
+      } else if (mappedClasses[0]?._id) {
+        setSelectedClassId(mappedClasses[0]._id);
       }
-    };
-
-    loadClasses();
-  }, [authStudentClassId, selectedClassId, user?.role]);
+    }
+  }, [authStudentClassId, classesResource.data, classesResource.error, selectedClassId, user?.role]);
 
   useEffect(() => {
-    const selectedClass = availableClasses.find((cls) => cls._id === selectedClassId);
-    let academicYearId = selectedClass?.academicYearId;
-
     if (!selectedClassId) {
       setSelectedClock(null);
       return;
     }
-
-    let isActive = true;
-
-    const loadClock = async () => {
-      setClockLoading(true);
-      try {
-        if (!academicYearId) {
-          const classResponse = await api.get(`/classes/${selectedClassId}`);
-          const classDetails = classResponse?.data;
-          academicYearId = typeof classDetails?.academicYear === "string"
-            ? classDetails.academicYear
-            : classDetails?.academicYear?._id;
-        }
-
-        const params = new URLSearchParams();
-        if (academicYearId) params.append("academicYearId", academicYearId);
-        params.append("classId", selectedClassId);
-
-        const { data } = await api.get(`/academic-clocks?${params.toString()}`);
-        const clocks = Array.isArray(data)
-          ? data
-          : (data?.data ?? data?.clocks ?? data?.academicClocks ?? []);
-        const clock = Array.isArray(clocks) ? clocks[0] ?? null : null;
-
-        if (isActive) {
-          setSelectedClock(clock as AcademicClockSummary | null);
-        }
-      } catch (error) {
-        console.error("Failed to load academic clock", error);
-        if (isActive) {
-          setSelectedClock(null);
-        }
-      } finally {
-        if (isActive) {
-          setClockLoading(false);
-        }
-      }
-    };
-
-    loadClock();
-
-    return () => {
-      isActive = false;
-    };
-  }, [selectedClassId, currentYear?._id, availableClasses]);
+    if (classClockResource.isLoading && !classClockResource.data) {
+      setSelectedClock(null);
+      return;
+    }
+    if (classClockResource.data) {
+      setSelectedClock({
+        ...classClockResource.data,
+        clockPhase: classClockResource.data.activePhase?.id ?? null,
+      } as AcademicClockSummary);
+    } else if (classClockResource.error && !classClockResource.isLoading) {
+      console.error("Failed to load academic clock", classClockResource.error);
+      setSelectedClock(null);
+    }
+  }, [classClockResource.data, classClockResource.error, classClockResource.isLoading, selectedClassId]);
 
   useEffect(() => {
     let isActive = true;
@@ -2423,16 +2380,20 @@ export default function ClinicalRotations() {
   }, [selectedClassId, currentPostingScheduleStorageKey]);
 
   const currentClockPhase = selectedClock
-    ? selectedClock.clockPhase ?? (selectedClock.clockStartDate && selectedClassPhasePlan.length > 0
+    ? classClockResource.data
+      ? classClockResource.data.activePhase?.id ?? null
+      : selectedClock.clockPhase ?? (selectedClock.clockStartDate && selectedClassPhasePlan.length > 0
       ? getClockPhaseId(new Date(selectedClock.clockStartDate), new Date(), selectedClassPhasePlan)
       : null)
     : null;
-  const currentPhaseConfig = selectedClock?.phaseConfig?.[currentClockPhase ?? ""] ?? null;
+  const currentPhaseConfig = classClockResource.data?.activePhase?.config
+    ?? selectedClock?.phaseConfig?.[currentClockPhase ?? ""]
+    ?? null;
   const currentPhaseDefinition = currentClockPhase
     ? selectedClassPhasePlan.find((phase) => phase.id === currentClockPhase) ?? null
     : null;
   const currentPostingTitle = currentPhaseConfig?.name ?? currentPhaseDefinition?.name ?? (currentClockPhase ? `Phase ${currentClockPhase.replace("phase", "")}` : "No active posting");
-  const currentPhaseDuration = currentPhaseConfig?.duration ?? currentPhaseDefinition?.durationMonths ?? 0;
+  const currentPhaseDuration = currentPhaseConfig?.duration ?? classClockResource.data?.activePhase?.duration ?? currentPhaseDefinition?.durationMonths ?? 0;
   const postingComponents = currentPhaseDefinition?.subPostings ?? [];
   const currentPostingSubtitle = currentPhaseConfig?.postingType ?? currentPhaseDefinition?.subPostings?.join(", ") ?? "Clinical posting";
   const currentPhaseLabel = currentClockPhase ? currentClockPhase.replace("phase", "Phase ") : "No active phase";

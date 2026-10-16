@@ -52,6 +52,7 @@ export default function StudentLogbook({
   const [loading, setLoading] = useState(true);
   const [rotations, setRotations] = useState<any[]>([]);
   const [selectedRotation, setSelectedRotation] = useState<string>(rotationId || "");
+  const [activePhaseName, setActivePhaseName] = useState<string | null>(null);
   const [stats, setStats] = useState({
     total: 0,
     thisMonth: 0,
@@ -61,6 +62,7 @@ export default function StudentLogbook({
   const fetchRotations = async () => {
     try {
       const { data } = await api.get(`/rotation-schedules/student/${user?._id}/current`);
+      setActivePhaseName(typeof data.phaseName === "string" ? data.phaseName : null);
       const currentPostings = Array.isArray(data.current) ? data.current : [];
       const mapped = currentPostings.map((item: any) => ({
         _id: String(item.scheduleId ?? item.windowIndex ?? item._id ?? ""),
@@ -131,6 +133,7 @@ export default function StudentLogbook({
           <h2 className="text-2xl font-bold">Your Clinical Logbook</h2>
           <p className="text-sm text-muted-foreground mt-1">
             Track your approved clinical activities and progress
+            {activePhaseName ? ` · Active class phase: ${activePhaseName}` : ""}
           </p>
         </div>
 

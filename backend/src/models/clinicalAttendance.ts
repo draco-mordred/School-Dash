@@ -57,6 +57,7 @@ export interface IClinicalAttendance extends Document {
 
   // Clinical Rotation
   clinicalRotation?: mongoose.Types.ObjectId;
+  classId?: mongoose.Types.ObjectId;
   academicYear: mongoose.Types.ObjectId;
 
   // Statistics
@@ -118,6 +119,10 @@ const AttendanceRecordSchema = new Schema(
     approvedAt: {
       type: Date,
       default: null,
+    },
+    approvalNonce: {
+      type: String,
+      default: "",
     },
   },
   { _id: true }
@@ -247,6 +252,12 @@ const ClinicalAttendanceSchema = new Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "ClinicalRotation",
       default: null,
+    },
+    classId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Class",
+      default: null,
+      index: true,
     },
     academicYear: {
       type: mongoose.Schema.Types.ObjectId,

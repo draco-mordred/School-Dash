@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { BookOpen, FolderOpen, NotebookText } from "lucide-react";
-import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { useAdminClassOptions, useAdminVisibleClasses } from "@/lib/adminData";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -110,33 +110,28 @@ const buildClassMaterials = (className: string, classId: string) => [
 const StudyMaterials = () => {
   const { user } = useAuth();
   const [classes, setClasses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeClassId, setActiveClassId] = useState<string>("");
+  const visibleClassesResource = useAdminVisibleClasses();
+  const classOptionsResource = useAdminClassOptions();
+  const loading = visibleClassesResource.isLoading && classOptionsResource.isLoading;
 
   useEffect(() => {
-    const loadClasses = async () => {
-      try {
-        setLoading(true);
-        const { data } = await api.get("/users/visible-classes");
-        const list = Array.isArray(data?.classes) ? data.classes : Array.isArray(data) ? data : [];
-        setClasses(list);
-      } catch (error) {
-        console.error("Failed to load classes for learning materials", error);
-
-        try {
-          const { data } = await api.get("/classes?limit=200");
-          const list = Array.isArray(data?.classes) ? data.classes : Array.isArray(data) ? data : [];
-          setClasses(list);
-        } catch {
-          setClasses([]);
-        }
-      } finally {
-        setLoading(false);
+    if (visibleClassesResource.error) {
+      console.error("Failed to load visible classes for learning materials", visibleClassesResource.error);
+      if (classOptionsResource.error) {
+        console.error("Failed to load class options for learning materials", classOptionsResource.error);
+        return;
       }
-    };
-
-    void loadClasses();
-  }, []);
+      if (classOptionsResource.data) setClasses(classOptionsResource.data);
+      return;
+    }
+    if (visibleClassesResource.data) setClasses(visibleClassesResource.data);
+  }, [
+    classOptionsResource.data,
+    classOptionsResource.error,
+    visibleClassesResource.data,
+    visibleClassesResource.error,
+  ]);
 
   const visibleClasses = useMemo(
     () => (classes.length ? classes : resolveVisibleClasses(user, classes)),

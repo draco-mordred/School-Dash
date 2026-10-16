@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import type { academicYear, AcademicClockPhase } from "@/types";
 import { api } from "@/lib/api";
-import { buildInitialPhasePlan, getClockPhaseId, getClassLevelPhasePlan, type AcademicClockPhaseDefinition } from "@/lib/academicClock";
+import { buildInitialPhasePlan, doesPhaseRequirePostingSchedule, getClockPhaseId, getClassLevelPhasePlan, type AcademicClockPhaseDefinition } from "@/lib/academicClock";
 import AcademicYearTable from "@/components/academic-year/academic-year-table";
 import Search from "@/components/global/Search";
 import AcademicYearForm from "@/components/academic-year/AcademicYearForm";
@@ -29,8 +29,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ArrowUp, ArrowDown } from "lucide-react";
+import { useAdminClassClock, useAdminClassOptions } from "@/lib/adminData";
 
 const AcademicYear = () => {
+  type PhaseLearningObjective = NonNullable<AcademicClockPhaseDefinition["learningObjectives"]>[number];
+  type PhaseCourseOption = { _id: string; name: string; code?: string };
+  type PhasePostingOption = { _id: string; name?: string; postings?: Array<{ name: string }> };
   const [years, setYears] = useState<academicYear[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,6 +55,8 @@ const AcademicYear = () => {
   const [currentAcademicYear, setCurrentAcademicYear] = useState<academicYear | null>(null);
   const [clockStartDate, setClockStartDate] = useState<Date>(new Date());
   const [classes, setClasses] = useState<Array<{ _id: string; name: string }>>([]);
+  const [phaseCourses, setPhaseCourses] = useState<PhaseCourseOption[]>([]);
+  const [phasePostingSchedules, setPhasePostingSchedules] = useState<PhasePostingOption[]>([]);
   const [selectedClockClassId, setSelectedClockClassId] = useState<string>("");
   const [clockNow, setClockNow] = useState<Date>(new Date());
   const [isClockPaused, setIsClockPaused] = useState(false);
@@ -60,6 +66,7 @@ const AcademicYear = () => {
   const [isConfiguringClassClock, setIsConfiguringClassClock] = useState<boolean>(false);
   const [selectedClockDocId, setSelectedClockDocId] = useState<string | null>(null);
   const [classPhasePlan, setClassPhasePlan] = useState<AcademicClockPhaseDefinition[]>([]);
+  const classesResource = useAdminClassOptions();
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
   const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null);
   const [hoveredPhaseId, setHoveredPhaseId] = useState<string | null>(null);
@@ -70,6 +77,18 @@ const AcademicYear = () => {
     durationMonths: "1",
     subPostings: "",
     color: "#3B82F6",
+    requiresPostingSchedule: false,
+    postingScheduleId: "",
+    postingName: "",
+    timetablePhaseId: "",
+    courseIds: [] as string[],
+    learningObjectives: [] as PhaseLearningObjective[],
+  });
+  const [newObjective, setNewObjective] = useState<PhaseLearningObjective>({
+    type: "tutorial",
+    title: "",
+    courseId: "",
+    description: "",
   });
   const [isStartPopoverOpen, setIsStartPopoverOpen] = useState(false);
   const { institution } = useInstitution();
@@ -172,24 +191,60 @@ const AcademicYear = () => {
       }
     };
 
-    const loadClasses = async () => {
+    void loadActiveYear();
+  }, []);
+
+  useEffect(() => {
+    if (classesResource.error) {
+      console.error("Failed to load classes", classesResource.error);
+      return;
+    }
+    const classList = classesResource.data;
+    if (!classList) return;
+    setClasses(classList);
+    if (classList.length > 0 && !selectedClockClassId) {
+      setSelectedClockClassId(classList[0]._id);
+    }
+  }, [classesResource.data, classesResource.error, selectedClockClassId]);
+
+  useEffect(() => {
+    if (!selectedClockClassId) {
+      setPhaseCourses([]);
+      setPhasePostingSchedules([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadPhaseOptions = async () => {
       try {
-        const { data } = await api.get("/classes");
-        const classList = Array.isArray(data.classes) ? data.classes : [];
-        setClasses(classList);
-        if (classList.length > 0 && !selectedClockClassId) {
-          setSelectedClockClassId(classList[0]._id);
-        }
+        const [classResponse, postingResponse] = await Promise.all([
+          api.get(`/classes/${selectedClockClassId}`),
+          api.get(`/rotation-schedules?classId=${selectedClockClassId}&limit=100`),
+        ]);
+        if (cancelled) return;
+        setPhaseCourses(Array.isArray(classResponse.data?.courses) ? classResponse.data.courses : []);
+        setPhasePostingSchedules(
+          Array.isArray(postingResponse.data?.schedules) ? postingResponse.data.schedules : [],
+        );
       } catch {
-        setClasses([]);
+        if (cancelled) return;
+        setPhaseCourses([]);
+        setPhasePostingSchedules([]);
+        toast.error("Failed to load phase courses or clinical posting schedules.");
       }
     };
 
-    void loadActiveYear();
-    void loadClasses();
+    void loadPhaseOptions();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedClockClassId]);
 
   const activeYear = currentAcademicYear || currentYear;
+  const classClockResource = useAdminClassClock(
+    selectedClockClassId,
+    activeYear?._id ?? activeYear?.id,
+  );
   const activeStartDate = clockStartDate;
   const selectedClass = useMemo(
     () => classes.find((cls) => cls._id === selectedClockClassId) ?? null,
@@ -214,7 +269,7 @@ const AcademicYear = () => {
     return null;
   };
 
-  const convertPhaseConfigToPlan = useCallback((phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>) => {
+  const convertPhaseConfigToPlan = useCallback((phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; requiresPostingSchedule?: boolean; missingScheduleAlertSignature?: string | null; postingScheduleId?: string | null; postingName?: string | null; timetablePhaseId?: string | null; courseIds?: string[]; learningObjectives?: PhaseLearningObjective[]; color?: string; subPostings?: string[] }>) => {
     if (!phaseConfig || Object.keys(phaseConfig).length === 0) return [];
 
     return Object.entries(phaseConfig).map(([phaseId, config], index) => ({
@@ -223,6 +278,15 @@ const AcademicYear = () => {
       durationMonths: config?.duration ?? 1,
       color: config?.color ?? "#3B82F6",
       subPostings: config?.subPostings ?? [],
+      postingType: config?.postingType ?? null,
+      postingId: config?.postingId ?? null,
+      requiresPostingSchedule: doesPhaseRequirePostingSchedule(config),
+      missingScheduleAlertSignature: config?.missingScheduleAlertSignature ?? null,
+      postingScheduleId: config?.postingScheduleId ?? null,
+      postingName: config?.postingName ?? null,
+      timetablePhaseId: config?.timetablePhaseId ?? null,
+      courseIds: config?.courseIds?.map(String) ?? [],
+      learningObjectives: config?.learningObjectives ?? [],
     }));
   }, []);
 
@@ -234,6 +298,12 @@ const AcademicYear = () => {
       durationMonths: phase.durationMonths.toString(),
       subPostings: phase.subPostings.join(", "),
       color: phase.color,
+      requiresPostingSchedule: doesPhaseRequirePostingSchedule(phase),
+      postingScheduleId: phase.postingScheduleId ?? "",
+      postingName: phase.postingName ?? "",
+      timetablePhaseId: phase.timetablePhaseId ?? "",
+      courseIds: phase.courseIds ?? [],
+      learningObjectives: phase.learningObjectives ?? [],
     });
     setIsPhaseModalOpen(true);
   };
@@ -244,8 +314,9 @@ const AcademicYear = () => {
   };
 
   const persistPhasePlan = async (phasePlan: AcademicClockPhaseDefinition[]) => {
-    if (!activeYear) return;
-    await saveClockState({}, phasePlan);
+    if (!activeYear) throw new Error("Select an active academic year before saving phases.");
+    const saved = await saveClockState({}, phasePlan);
+    if (!saved) throw new Error("Class clock phases were not saved.");
   };
 
   const savePhaseEdit = async () => {
@@ -263,13 +334,23 @@ const AcademicYear = () => {
               .split(",")
               .map((posting) => posting.trim())
               .filter(Boolean),
+            requiresPostingSchedule: phaseEditValues.requiresPostingSchedule,
+            postingScheduleId: phaseEditValues.postingScheduleId || null,
+            postingName: phaseEditValues.postingName || null,
+            timetablePhaseId: phaseEditValues.timetablePhaseId || null,
+            courseIds: phaseEditValues.courseIds,
+            learningObjectives: phaseEditValues.learningObjectives,
           }
         : phase,
     );
 
-    setClassPhasePlan(updatedPlan);
-    closePhaseEditor();
-    await persistPhasePlan(updatedPlan);
+    try {
+      await persistPhasePlan(updatedPlan);
+      setClassPhasePlan(updatedPlan);
+      closePhaseEditor();
+    } catch {
+      toast.error("Failed to save phase changes.");
+    }
   };
 
   const addClassPhase = () => {
@@ -353,7 +434,21 @@ const AcademicYear = () => {
     clockPausedAt?: string | null;
     clockPhase?: AcademicClockPhase | null;
     classLevel?: string | null;
-    phaseConfig?: Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>;
+    phaseConfig?: Record<string, {
+      name: string;
+      duration: number;
+      postingType: string | null;
+      postingId: string | null;
+      requiresPostingSchedule?: boolean;
+      missingScheduleAlertSignature?: string | null;
+      postingScheduleId?: string | null;
+      postingName?: string | null;
+      timetablePhaseId?: string | null;
+      courseIds?: string[];
+      learningObjectives?: PhaseLearningObjective[];
+      color?: string;
+      subPostings?: string[];
+    }>;
   };
 
   const normalizeClockUpdate = (data: {
@@ -398,12 +493,19 @@ const AcademicYear = () => {
       clockPhase: data.clockPhase ?? clockPhase,
     });
 
-    const phaseConfig = phasePlan.reduce<Record<string, { name: string; duration: number; postingType: string | null; postingId: string | null; color?: string; subPostings?: string[] }>>((acc, phase) => {
+    const phaseConfig = phasePlan.reduce<NonNullable<ClassClockPayload["phaseConfig"]>>((acc, phase) => {
       acc[phase.id] = {
         name: phase.name,
         duration: phase.durationMonths,
-        postingType: null,
-        postingId: null,
+        postingType: phase.postingType ?? null,
+        postingId: phase.postingId ?? null,
+        requiresPostingSchedule: doesPhaseRequirePostingSchedule(phase),
+        missingScheduleAlertSignature: phase.missingScheduleAlertSignature ?? null,
+        postingScheduleId: phase.postingScheduleId ?? null,
+        postingName: phase.postingName ?? null,
+        timetablePhaseId: phase.timetablePhaseId ?? null,
+        courseIds: phase.courseIds ?? [],
+        learningObjectives: phase.learningObjectives ?? [],
         color: phase.color,
         subPostings: phase.subPostings,
       };
@@ -422,11 +524,11 @@ const AcademicYear = () => {
     clockIsPaused?: boolean;
     clockPausedAt?: Date | null;
     clockPhase?: AcademicClockPhase | null;
-  }, phasePlan: AcademicClockPhaseDefinition[] = classPhasePlan) => {
-    if (!activeYear) return;
+  }, phasePlan: AcademicClockPhaseDefinition[] = classPhasePlan): Promise<boolean> => {
+    if (!activeYear) return false;
 
     const activeYearId = activeYear ? (activeYear._id ?? (activeYear.id ?? undefined)) : undefined;
-    if (!activeYearId) return;
+    if (!activeYearId) return false;
 
     try {
       const payload = buildClassClockPayload({
@@ -463,40 +565,48 @@ const AcademicYear = () => {
         await api.patch(`/academic-years/update/${activeYearId}`, payload);
       }
       await fetchYears();
+      return true;
     } catch {
       toast.error("Failed to save clock state");
+      return false;
     }
   };
 
   const loadSelectedClassClock = useCallback(async () => {
-    const ayId = currentAcademicYear ? (currentAcademicYear._id ?? currentAcademicYear.id ?? undefined) : undefined;
+    const ayId = activeYear ? (activeYear._id ?? activeYear.id ?? undefined) : undefined;
     if (!ayId || !selectedClockClassId) {
       setSelectedClockDocId(null);
       setHasClassClock(false);
       return;
     }
 
+    setSelectedClockDocId(null);
+    setHasClassClock(false);
     try {
-      const { data } = await api.get(`/academic-clocks?academicYearId=${ayId}&classId=${selectedClockClassId}`);
-      const existingClock = Array.isArray(data?.clocks) ? data.clocks[0] : null;
+      const snapshot = await classClockResource.refetch();
+      const existingClock = snapshot.data;
 
       if (existingClock) {
         setSelectedClockDocId(existingClock._id);
         setHasClassClock(true);
-        setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
+        setClockStartDate(existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(activeYear?.fromYear ?? new Date()));
         setIsClockPaused(Boolean(existingClock.clockIsPaused));
         setClockPausedAt(existingClock.clockPausedAt ? new Date(existingClock.clockPausedAt) : null);
         const existingPlan = convertPhaseConfigToPlan(existingClock.phaseConfig);
         setClassPhasePlan(existingPlan);
-        setClockPhase((existingClock.clockPhase as AcademicClockPhase) ?? getClockPhaseId(
-          existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()),
+        setClockPhase((existingClock.activePhase?.id as AcademicClockPhase | undefined) ?? getClockPhaseId(
+          existingClock.clockStartDate ? new Date(existingClock.clockStartDate) : new Date(activeYear?.fromYear ?? new Date()),
           new Date(),
           existingPlan,
         ));
         return;
       }
-    } catch {
-      // fall back to the saved academic-year class clock data below
+      if (snapshot.error) {
+        const errorStatus = (snapshot.error as { response?: { status?: number } })?.response?.status;
+        if (errorStatus !== 404) console.error("Failed to load class academic clock", snapshot.error);
+      }
+    } catch (error) {
+      console.error("Failed to load class academic clock", error);
     }
 
     const classData = (currentAcademicYear as academicYear & { classClockData?: Record<string, ClassClockPayload> }).classClockData
@@ -506,7 +616,7 @@ const AcademicYear = () => {
     if (classData) {
       setSelectedClockDocId(null);
       setHasClassClock(true);
-      setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(currentAcademicYear?.fromYear ?? new Date()));
+      setClockStartDate(classData.clockStartDate ? new Date(classData.clockStartDate) : new Date(activeYear?.fromYear ?? new Date()));
       setIsClockPaused(Boolean(classData.clockIsPaused));
       setClockPausedAt(classData.clockPausedAt ? new Date(classData.clockPausedAt) : null);
       setClassPhasePlan(convertPhaseConfigToPlan(classData.phaseConfig));
@@ -519,13 +629,13 @@ const AcademicYear = () => {
       setSelectedClockDocId(null);
       setHasClassClock(false);
       setIsConfiguringClassClock(false);
-      setClockStartDate(new Date(currentAcademicYear?.fromYear ?? new Date()));
+      setClockStartDate(new Date(activeYear?.fromYear ?? new Date()));
       setIsClockPaused(false);
       setClockPausedAt(null);
       setClassPhasePlan([]);
       setClockPhase("phase1");
     }
-  }, [currentAcademicYear, selectedClockClassId, selectedClassPhasePlan, convertPhaseConfigToPlan]);
+  }, [activeYear, classClockResource.refetch, currentAcademicYear, selectedClockClassId, convertPhaseConfigToPlan]);
 
   // When current academic year or selected class changes, load class-specific clock data
   useEffect(() => {
@@ -572,15 +682,20 @@ const AcademicYear = () => {
 
     if (isClockPaused) {
       const resumeDate = new Date();
-      const nextPhase = getClockPhaseId(clockStartDate, resumeDate, classPhasePlan);
+      const pausedDuration = clockPausedAt
+        ? Math.max(0, resumeDate.getTime() - clockPausedAt.getTime())
+        : 0;
+      const resumedStartDate = new Date(clockStartDate.getTime() + pausedDuration);
+      const nextPhase = getClockPhaseId(resumedStartDate, resumeDate, classPhasePlan);
 
       setClockNow(resumeDate);
+      setClockStartDate(resumedStartDate);
       setIsClockPaused(false);
       setClockPausedAt(null);
       setClockPhase(nextPhase);
 
       await saveClockState({
-        clockStartDate,
+        clockStartDate: resumedStartDate,
         clockIsPaused: false,
         clockPausedAt: null,
         clockPhase: nextPhase,
@@ -899,6 +1014,160 @@ const AcademicYear = () => {
                           rows={3}
                           className="mt-2"
                         />
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="phase-posting-schedule">Clinical posting schedule</Label>
+                          <select
+                            id="phase-posting-schedule"
+                            value={phaseEditValues.postingScheduleId}
+                            onChange={(event) => setPhaseEditValues({
+                              ...phaseEditValues,
+                              postingScheduleId: event.target.value,
+                              postingName: "",
+                            })}
+                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="">No posting selected</option>
+                            {phasePostingSchedules.map((schedule) => (
+                              <option key={schedule._id} value={schedule._id}>
+                                {schedule.name || "Clinical posting schedule"}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="phase-posting">Posting</Label>
+                          <select
+                            id="phase-posting"
+                            value={phaseEditValues.postingName}
+                            onChange={(event) => setPhaseEditValues({ ...phaseEditValues, postingName: event.target.value })}
+                            disabled={!phaseEditValues.postingScheduleId}
+                            className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-50"
+                          >
+                            <option value="">Choose posting</option>
+                            {(phasePostingSchedules.find((schedule) => schedule._id === phaseEditValues.postingScheduleId)?.postings ?? []).map((posting) => (
+                              <option key={posting.name} value={posting.name}>{posting.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={phaseEditValues.requiresPostingSchedule}
+                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, requiresPostingSchedule: event.target.checked })}
+                        />
+                        Require a clinical posting schedule during this phase
+                      </label>
+                      <div>
+                        <Label htmlFor="phase-timetable-source">Lecture timetable source</Label>
+                        <select
+                          id="phase-timetable-source"
+                          value={phaseEditValues.timetablePhaseId}
+                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, timetablePhaseId: event.target.value })}
+                          className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="">Use this phase&apos;s timetable</option>
+                          <option value="legacy">Use the existing shared timetable</option>
+                          {classPhasePlan.filter((phase) => phase.id !== editingPhaseId).map((phase) => (
+                            <option key={phase.id} value={phase.id}>Reuse {phase.name} timetable</option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-xs text-muted-foreground">A generated timetable is saved to the active phase unless another source is selected.</p>
+                      </div>
+                      <div>
+                        <Label>Courses for this phase</Label>
+                        {phaseCourses.length ? (
+                          <div className="mt-2 grid max-h-36 gap-2 overflow-y-auto rounded-md border p-3 sm:grid-cols-2">
+                            {phaseCourses.map((course) => (
+                              <label key={course._id} className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={phaseEditValues.courseIds.includes(course._id)}
+                                  onChange={(event) => setPhaseEditValues({
+                                    ...phaseEditValues,
+                                    courseIds: event.target.checked
+                                      ? [...phaseEditValues.courseIds, course._id]
+                                      : phaseEditValues.courseIds.filter((id) => id !== course._id),
+                                  })}
+                                />
+                                <span>{course.code ? `${course.code} — ` : ""}{course.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-2 text-sm text-muted-foreground">No courses are assigned to this class. An empty selection means all class courses.</p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>Learning objectives and activities</Label>
+                        <div className="mt-2 grid gap-2 rounded-md border p-3">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <select
+                              aria-label="Objective type"
+                              value={newObjective.type}
+                              onChange={(event) => setNewObjective({ ...newObjective, type: event.target.value as PhaseLearningObjective["type"] })}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              {["tutorial", "presentation", "assignment", "research", "seminar"].map((type) => (
+                                <option key={type} value={type}>{type[0].toUpperCase() + type.slice(1)}</option>
+                              ))}
+                            </select>
+                            <select
+                              aria-label="Objective course"
+                              value={newObjective.courseId ?? ""}
+                              onChange={(event) => setNewObjective({ ...newObjective, courseId: event.target.value || undefined })}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value="">No course link</option>
+                              {phaseCourses.map((course) => <option key={course._id} value={course._id}>{course.name}</option>)}
+                            </select>
+                          </div>
+                          <div className="flex gap-2">
+                            <Input
+                              aria-label="Objective title"
+                              placeholder="Objective or activity title"
+                              value={newObjective.title}
+                              onChange={(event) => setNewObjective({ ...newObjective, title: event.target.value })}
+                            />
+                            <Button
+                              type="button"
+                              disabled={!newObjective.title.trim()}
+                              onClick={() => {
+                                setPhaseEditValues({
+                                  ...phaseEditValues,
+                                  learningObjectives: [...phaseEditValues.learningObjectives, { ...newObjective, title: newObjective.title.trim() }],
+                                });
+                                setNewObjective({ type: "tutorial", title: "", courseId: "", description: "" });
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                          <Input
+                            aria-label="Objective description"
+                            placeholder="Description (optional)"
+                            value={newObjective.description ?? ""}
+                            onChange={(event) => setNewObjective({ ...newObjective, description: event.target.value })}
+                          />
+                          {phaseEditValues.learningObjectives.map((objective, index) => (
+                            <div key={`${objective.type}-${objective.title}-${index}`} className="flex items-center justify-between gap-2 text-sm">
+                              <span>{objective.type}: {objective.title}{objective.courseId ? ` (${phaseCourses.find((course) => course._id === objective.courseId)?.name ?? "course"})` : ""}</span>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setPhaseEditValues({
+                                  ...phaseEditValues,
+                                  learningObjectives: phaseEditValues.learningObjectives.filter((_, objectiveIndex) => objectiveIndex !== index),
+                                })}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                       <div className="grid gap-4 sm:grid-cols-[1fr_auto] items-end">
                         <div>

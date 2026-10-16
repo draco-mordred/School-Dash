@@ -1,9 +1,87 @@
 import { type Request, type Response } from 'express';
+import mongoose from 'mongoose';
+import type { AuthRequest } from '../middleware/auth';
 import RotationPlan from '../models/rotationPlan';
 import User from '../models/user';
+import ClassModel from '../models/classes';
+import AcademicClock from '../models/academicClock';
 import generateKrystaSchedule from '../services/krystaGenerator';
 import runRotationSnapshot from '../services/rotationRunner';
 import { attachSpinMetadataToTimeline, generatePostingSpinsForPayload } from '../utils/spinGenerator';
+import {
+  hasConfiguredAcademicClockPhases,
+  phaseRequiresPostingSchedule,
+  resolveAcademicClockPhase,
+} from '../utils/academicClockPhase';
+
+export const getClassActivePhaseSchedule = async (req: Request, res: Response) => {
+  try {
+    const { classId } = req.params;
+    const classDoc = await ClassModel.findById(classId)
+      .select('academicYear courses')
+      .populate('courses', 'name code')
+      .lean();
+    if (!classDoc) return res.status(404).json({ message: 'Class not found' });
+    const clock = await AcademicClock.findOne({
+      classId,
+      academicYear: classDoc.academicYear,
+    }).lean();
+    if (!clock) return res.status(404).json({ message: 'Academic clock not found for this class' });
+
+    const resolved = resolveAcademicClockPhase(clock);
+    const phaseConfig = resolved.phase as Record<string, any> | null;
+    const phaseDriven = hasConfiguredAcademicClockPhases(clock.phaseConfig);
+    const postingRequired = phaseRequiresPostingSchedule(phaseConfig);
+    const configuredScheduleId = phaseConfig?.postingScheduleId ?? phaseConfig?.postingId;
+    const scheduleId = configuredScheduleId ? String(configuredScheduleId) : null;
+    const postingName = phaseConfig?.postingName ? String(phaseConfig.postingName) : null;
+    const plan = scheduleId && mongoose.isValidObjectId(scheduleId)
+      ? await RotationPlan.findOne({ _id: scheduleId, class: classId }).lean()
+      : null;
+    const posting = plan?.postings?.find((item: any) => String(item.name) === postingName) ?? null;
+    const courseById = new Map(
+      ((classDoc as any).courses ?? []).map((course: any) => [String(course._id), course]),
+    );
+    const learningObjectives = (phaseConfig?.learningObjectives ?? []).map((objective: any) => ({
+      ...objective,
+      courseName: objective.courseId
+        ? courseById.get(String(objective.courseId))?.name ?? null
+        : null,
+      courseCode: objective.courseId
+        ? courseById.get(String(objective.courseId))?.code ?? null
+        : null,
+    }));
+
+    return res.json({
+      phaseId: resolved.phaseId,
+      phaseName: phaseConfig?.name ?? null,
+      startsAt: resolved.startsAt,
+      endsAt: resolved.endsAt,
+      isPhaseActive: Boolean(
+        resolved.phaseId &&
+        (!resolved.startsAt || !resolved.endsAt ||
+          (new Date() >= resolved.startsAt && new Date() < resolved.endsAt)),
+      ),
+      postingRequired: phaseDriven ? postingRequired : null,
+      postingConfigured: Boolean(scheduleId && postingName),
+      postingAvailable: Boolean(plan && posting),
+      scheduleId,
+      scheduleName: plan?.name ?? null,
+      postingName,
+      posting,
+      courseIds: phaseConfig?.courseIds ?? [],
+      learningObjectives,
+      courses: ((classDoc as any).courses ?? []).filter((course: any) =>
+        !Array.isArray(phaseConfig?.courseIds) ||
+        phaseConfig.courseIds.length === 0 ||
+        phaseConfig.courseIds.some((courseId: unknown) => String(courseId) === String(course._id)),
+      ),
+    });
+  } catch (err) {
+    console.error('getClassActivePhaseSchedule error', err);
+    return res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
 
 // POST /api/rotation-schedules
 export const createRotationSchedule = async (req: Request, res: Response) => {
@@ -102,6 +180,40 @@ export const listRotationSchedules = async (req: Request, res: Response) => {
   } catch (err) {
     console.error('listRotationSchedules error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};
+
+export const listMyStudentRotationSchedules = async (req: AuthRequest, res: Response) => {
+  try {
+    const studentId = String(req.user?._id ?? '');
+    if (!studentId) return res.status(401).json({ message: 'Not authorized' });
+
+    const schedules = await RotationPlan.find({
+      'meta.timeline.studentIds': { $in: [studentId, req.user?._id] },
+    }).sort({ createdAt: -1 }).lean();
+
+    const studentSchedules = schedules.flatMap((schedule: any) => {
+      const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
+      const studentTimeline = timeline.filter((window: any) =>
+        Array.isArray(window?.studentIds) && window.studentIds.some((id: unknown) => String(id) === studentId),
+      );
+
+      if (!studentTimeline.length) return [];
+
+      return [{
+        _id: schedule._id,
+        name: schedule.name,
+        postings: Array.isArray(schedule.postings)
+          ? schedule.postings.map((posting: any) => ({ name: posting?.name, startDate: posting?.startDate, endDate: posting?.endDate }))
+          : [],
+        meta: { timeline: studentTimeline },
+      }];
+    });
+
+    return res.json({ schedules: studentSchedules });
+  } catch (error) {
+    console.error('listMyStudentRotationSchedules error', error);
+    return res.status(500).json({ message: 'Unable to load student posting schedules' });
   }
 };
 
@@ -254,11 +366,95 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
     const { studentId } = req.params as any;
     if (!studentId) return res.status(400).json({ message: 'Missing studentId' });
 
-    const schedules = await RotationPlan.find({}).sort({ createdAt: -1 }).limit(200).lean();
     const now = new Date();
+    const student = await User.findById(studentId).select('studentClasses').lean();
+    const studentClassId = student?.studentClasses
+      ? String((student.studentClasses as any)?._id ?? student.studentClasses)
+      : null;
+    const classDoc = studentClassId
+      ? await ClassModel.findById(studentClassId)
+        .select('academicYear courses')
+        .populate('courses', 'name code')
+        .lean()
+      : null;
+    const clock = classDoc?.academicYear
+      ? await AcademicClock.findOne({
+        classId: studentClassId,
+        academicYear: classDoc.academicYear,
+      }).lean()
+      : null;
+    const activePhase = clock ? resolveAcademicClockPhase(clock, now) : null;
+    const phaseConfig = activePhase?.phase as Record<string, any> | null;
+    const scheduleId = phaseConfig?.postingScheduleId
+      ? String(phaseConfig.postingScheduleId)
+      : phaseConfig?.postingId
+        ? String(phaseConfig.postingId)
+        : null;
+    const postingName = phaseConfig?.postingName
+      ? String(phaseConfig.postingName)
+      : null;
+    const postingRequired = phaseRequiresPostingSchedule(phaseConfig);
+    const phaseDriven = hasConfiguredAcademicClockPhases(clock?.phaseConfig);
+    const hasPhasePostingConfiguration = postingRequired || Boolean(scheduleId || postingName);
+    const classCourses = (((classDoc as any)?.courses ?? []) as any[]);
+    const phaseCourseIds = Array.isArray(phaseConfig?.courseIds)
+      ? phaseConfig.courseIds.map(String)
+      : [];
+    const phaseCourses = classCourses.filter((course: any) =>
+      phaseCourseIds.length === 0 || phaseCourseIds.includes(String(course._id)),
+    );
+    const courseById = new Map(classCourses.map((course: any) => [String(course._id), course]));
+    const learningObjectives = (phaseConfig?.learningObjectives ?? []).map((objective: any) => ({
+      ...objective,
+      courseName: objective.courseId
+        ? courseById.get(String(objective.courseId))?.name ?? null
+        : null,
+      courseCode: objective.courseId
+        ? courseById.get(String(objective.courseId))?.code ?? null
+        : null,
+    }));
+    const phaseIsActive = !activePhase?.startsAt || !activePhase?.endsAt ||
+      (now >= activePhase.startsAt && now < activePhase.endsAt);
+    const phaseResponse = {
+      phaseId: activePhase?.phaseId ?? null,
+      phaseName: phaseConfig?.name ?? null,
+      phaseStartsAt: activePhase?.startsAt ?? null,
+      phaseEndsAt: activePhase?.endsAt ?? null,
+      postingRequired,
+      postingConfigured: hasPhasePostingConfiguration
+        ? Boolean(scheduleId && postingName)
+        : null,
+      phaseCourseIds,
+      phaseCourses,
+      learningObjectives,
+    };
+    if (phaseDriven && !hasPhasePostingConfiguration) {
+      return res.json({ current: [], ...phaseResponse });
+    }
+    if (phaseDriven && (!phaseIsActive || !scheduleId || !postingName)) {
+      return res.json({
+        current: [],
+        ...phaseResponse,
+      });
+    }
+    if (phaseDriven && !mongoose.isValidObjectId(scheduleId)) {
+      return res.json({
+        current: [],
+        ...phaseResponse,
+        postingConfigured: false,
+      });
+    }
+
+    const schedules = phaseDriven
+      ? await RotationPlan.find({ _id: scheduleId, class: studentClassId }).lean()
+      : await RotationPlan.find({}).sort({ createdAt: -1 }).limit(200).lean();
     const current: any[] = [];
 
     for (const s of schedules) {
+      if (
+        phaseDriven &&
+        !s.postings?.some((posting: any) => String(posting.name) === postingName)
+      ) continue;
       const timeline = (s.meta && s.meta.timeline) || [];
       for (let i = 0; i < timeline.length; i++) {
         const t = timeline[i];
@@ -268,19 +464,25 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
         if (students.some((st: any) => String(st) === String(studentId))) {
           if (start <= now && now < end) {
             // include minimal schedule info so clients can access postings/groups
+            const activePostings = phaseDriven
+              ? (s.postings ?? []).filter((posting: any) => String(posting.name) === postingName)
+              : s.postings ?? [];
             current.push({
               scheduleId: s._id,
-              postingName: s.postings?.[0]?.name || s.name,
+              postingName: postingName ?? s.postings?.[0]?.name ?? s.name,
               windowIndex: i,
               window: t,
-              schedule: { _id: s._id, postings: s.postings || [], meta: s.meta || {} },
+              schedule: { _id: s._id, postings: activePostings, meta: s.meta || {} },
             });
           }
         }
       }
     }
 
-    res.json({ current });
+    res.json({
+      current,
+      ...phaseResponse,
+    });
   } catch (err) {
     console.error('getStudentCurrentSchedule error', err);
     res.status(500).json({ message: 'Server error', error: String(err) });
@@ -407,10 +609,39 @@ export const listScheduleEvents = async (req: Request, res: Response) => {
     const startDate = start ? new Date(start) : null;
     const endDate = end ? new Date(end) : null;
 
-    const plans = await RotationPlan.find({ class: classId }).lean();
+    const planQuery: Record<string, unknown> = { class: classId };
+    let activePostingName: string | null = null;
+    if (req.query.activePhaseOnly === 'true') {
+      const classDoc = await ClassModel.findById(classId).select('academicYear').lean();
+      const clock = classDoc?.academicYear
+        ? await AcademicClock.findOne({
+          classId,
+          academicYear: classDoc.academicYear,
+        }).lean()
+        : null;
+      if (hasConfiguredAcademicClockPhases(clock?.phaseConfig)) {
+        const activePhase = resolveAcademicClockPhase(clock);
+        const phaseConfig = activePhase.phase as Record<string, any> | null;
+        if (!phaseRequiresPostingSchedule(phaseConfig)) {
+          return res.json({ events: [] });
+        }
+        const scheduleId = phaseConfig?.postingScheduleId ?? phaseConfig?.postingId;
+        activePostingName = phaseConfig?.postingName ? String(phaseConfig.postingName) : null;
+        if (!scheduleId || !mongoose.isValidObjectId(String(scheduleId))) {
+          return res.json({ events: [] });
+        }
+        planQuery._id = String(scheduleId);
+      }
+    }
+
+    const plans = await RotationPlan.find(planQuery).lean();
     const events: any[] = [];
 
     for (const p of plans) {
+      if (
+        activePostingName &&
+        !p.postings?.some((posting: any) => String(posting.name) === activePostingName)
+      ) continue;
       const timeline = (p.meta && p.meta.timeline) || [];
       for (let i = 0; i < timeline.length; i++) {
         const t = timeline[i];

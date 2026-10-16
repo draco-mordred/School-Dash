@@ -107,6 +107,18 @@ export type AcademicClockPhaseConfig = {
   duration: number;
   postingType: string | null;
   postingId?: mongoose.Types.ObjectId | null;
+  postingScheduleId?: mongoose.Types.ObjectId | null;
+  postingName?: string | null;
+  requiresPostingSchedule?: boolean;
+  timetablePhaseId?: string | null;
+  courseIds?: mongoose.Types.ObjectId[];
+  learningObjectives?: Array<{
+    courseId?: mongoose.Types.ObjectId | null;
+    type: "tutorial" | "presentation" | "assignment" | "research" | "seminar";
+    title: string;
+    description?: string;
+  }>;
+  missingScheduleAlertSignature?: string | null;
   color?: string;
   subPostings?: string[];
 };
@@ -165,6 +177,16 @@ export interface IAcademicClock extends Document {
       duration: number;
       postingType: string | null;
       postingId?: mongoose.Types.ObjectId | null;
+      postingScheduleId?: mongoose.Types.ObjectId | null;
+      postingName?: string | null;
+      courseIds?: mongoose.Types.ObjectId[];
+      learningObjectives?: Array<{
+        courseId?: mongoose.Types.ObjectId | null;
+        type: "tutorial" | "presentation" | "assignment" | "research" | "seminar";
+        title: string;
+        description?: string;
+      }>;
+      missingScheduleAlertSignature?: string | null;
       color?: string;
       subPostings?: string[];
     }

@@ -3,6 +3,9 @@ import { inngest } from "./client";
 import ClassModel from "../models/classes";
 import User, { type userRoles } from "../models/user";
 import Timetable from "../models/timetable";
+import AcademicClock from "../models/academicClock";
+import AcademicYear from "../models/academicYear";
+import RotationPlan from "../models/rotationPlan";
 import Exam from "../models/exam";
 // import Course from "../models/courses";
 import Attendance from "../models/attendance";
@@ -12,6 +15,9 @@ import { generateText } from "ai";
 import { logActivity } from "../utils/activitieslog";
 import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable";
 import { routeTaskToStaff } from "../services/mordredEngine";
+import { phaseRequiresPostingSchedule, resolveAcademicClockPhase } from "../utils/academicClockPhase";
+import { getTimetableForPhase, saveTimetableForPhase } from "../utils/phaseTimetable";
+import { createNotificationIfUnique } from "../utils/notificationUtils";
 // import { count } from "node:console";
 // export const inngest = new Inngest({ id: "my-app"});
 interface GenSettings {
@@ -51,6 +57,19 @@ export const generateTimeTable = inngest.createFunction(
       const classData = await ClassModel.findById(classIdValue).populate('courses') as unknown as { courses: any[]; name: string };
       if (!classData) throw new NonRetriableError(`Class not found`);
 
+      const clock = await AcademicClock.findOne({
+        classId: classIdValue,
+        academicYear: academicYearIdValue,
+      }).lean();
+      const activePhase = clock ? resolveAcademicClockPhase(clock) : null;
+      const phaseConfig = activePhase?.phase as Record<string, any> | null;
+      const selectedCourseIds = Array.isArray(phaseConfig?.courseIds)
+        ? new Set(phaseConfig.courseIds.map(String))
+        : new Set<string>();
+      const selectedCourses = selectedCourseIds.size
+        ? (classData.courses ?? []).filter((course: any) => selectedCourseIds.has(String(course?._id)))
+        : classData.courses ?? [];
+
       // Fetch teachers
       const allTeachersAndLecturers = await User.find({ role: "teacher" });
 
@@ -59,7 +78,7 @@ export const generateTimeTable = inngest.createFunction(
       // For AI purposes we therefore expose *subject* options (not top-level course docs).
       //
       // Attempt to find embedded subjects within each top-level course.
-      const topLevelCourses = (classData.courses ?? []) as any[];
+      const topLevelCourses = selectedCourses as any[];
 
       const embeddedSubjects = topLevelCourses.flatMap((c) =>
         ((c?.subjects ?? []) as any[]).map((s) => ({
@@ -95,8 +114,17 @@ export const generateTimeTable = inngest.createFunction(
         // expose embedded subjects as courses for AI naming consistency
         courses: embeddedSubjects.map((s) => ({ id: s.id, name: s.name, code: s.code })),
         lecturers: qualifiedTeachers,
+        clockPhase: activePhase?.phaseId ?? clock?.clockPhase ?? null,
+        timetableSourcePhaseId: phaseConfig?.timetablePhaseId ?? activePhase?.phaseId ?? null,
+        phaseCourseIds: Array.from(selectedCourseIds),
       };
     });
+    const generationSettings = {
+      ...settings,
+      clockPhase: contextData.clockPhase ?? settings?.clockPhase,
+      timetableSourcePhaseId: contextData.timetableSourcePhaseId,
+      phaseCourseIds: contextData.phaseCourseIds,
+    };
 
     // Detect if this is a clinical level class (400 or 500 level)
     const is400Level = /^400\s*level/i.test(contextData.className);
@@ -106,7 +134,7 @@ export const generateTimeTable = inngest.createFunction(
 
     // Timetable generation logic would go here
     const aiSchedule = await step.run("generate-timetable-logic", async () => {      if (is500Level) {
-        const plan = build500LevelTimetablePlan((settings as any)?.clockPhase, contextData.courses as any[]);
+        const plan = build500LevelTimetablePlan(generationSettings.clockPhase, contextData.courses as any[]);
         return {
           schedule: plan.map(({ day, periods }) => ({
             day,
@@ -267,11 +295,6 @@ export const generateTimeTable = inngest.createFunction(
 
     // Saved Timetable Template
     const savedTimetable = await step.run("save-timetable", async () => {
-      await Timetable.findOneAndDelete({
-        class: classIdValue,
-        academicYear: academicYearIdValue,
-      });
-   
         // Map AI output to MongoDB schema: courseId -> subject, lecturer stays lecturer
         const mappedSchedule = (aiSchedule.schedule ?? []).map((day: any) => ({
           day: day.day,
@@ -308,10 +331,16 @@ export const generateTimeTable = inngest.createFunction(
           }),
         }));
 
-        await Timetable.create({
-          class: classIdValue,
-          academicYear: academicYearIdValue,
+        const timetablePhaseId =
+          generationSettings.timetableSourcePhaseId === "legacy"
+            ? null
+            : generationSettings.timetableSourcePhaseId ?? generationSettings.clockPhase ?? null;
+        await saveTimetableForPhase(Timetable, {
+          classId: String(classIdValue),
+          academicYearId: String(academicYearIdValue),
+          phaseId: timetablePhaseId,
           schedule: mappedSchedule,
+          courseIds: generationSettings.phaseCourseIds,
         });
 
       const timetable = await Timetable.findOne({
@@ -319,13 +348,15 @@ export const generateTimeTable = inngest.createFunction(
         academicYear: academicYearIdValue,
       })
         .populate("schedule.periods.subject", "name code subjects.subjectID")
-        .populate("schedule.periods.lecturer", "name email idNumber");
+        .populate("schedule.periods.lecturer", "name email idNumber")
+        .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+        .populate("phaseSchedules.schedule.periods.lecturer", "name email idNumber");
 
       if (!timetable) {
         throw new NonRetriableError("Failed to save timetable");
       }
 
-      return { success: true, classId };
+      return { success: true, classId, phaseId: generationSettings.clockPhase };
     });
     // return { contextData, aiExam };
     return {
@@ -888,4 +919,148 @@ export const rotationSnapshotScheduler = inngest.createFunction(
 
     return { success: true };
   }
+);
+
+export const academicClockPhaseReconciliation = inngest.createFunction(
+  {
+    id: "academic-clock-phase-reconciliation",
+    triggers: { cron: "* * * * *" },
+  },
+  async ({ step }) => {
+    const result = await step.run("reconcile-class-phases-and-alert-missing-schedules", async () => {
+      const clocks = await AcademicClock.find({});
+      const administrators = await User.find({ role: "admin" }).select("_id role").lean();
+      let transitioned = 0;
+      let alertsSent = 0;
+
+      for (const clock of clocks) {
+        const phase = resolveAcademicClockPhase(clock);
+        if (!phase.phaseId || !phase.phase) continue;
+        const phaseConfig = phase.phase as Record<string, any>;
+        const phaseId = phase.phaseId;
+        const classId = String(clock.classId);
+        const academicYearId = String(clock.academicYear);
+        const [classDoc, timetable] = await Promise.all([
+          ClassModel.findById(classId).select("name classTeacher academicYear").lean(),
+          Timetable.findOne({ class: classId, academicYear: academicYearId }).lean(),
+        ]);
+        if (!classDoc) continue;
+
+        const timetableState = getTimetableForPhase(
+          timetable,
+          phaseId,
+          phaseConfig.timetablePhaseId ?? null,
+        );
+        const postingScheduleId = phaseConfig.postingScheduleId
+          ? String(phaseConfig.postingScheduleId)
+          : null;
+        const postingName = phaseConfig.postingName
+          ? String(phaseConfig.postingName)
+          : null;
+        const postingRequired = phaseRequiresPostingSchedule(phaseConfig);
+        const postingExpected = postingRequired || Boolean(postingScheduleId || postingName);
+        const rotationPlan = postingScheduleId
+          ? await RotationPlan.findOne({
+            _id: postingScheduleId,
+            class: classId,
+          }).select("_id postings.name").lean()
+          : null;
+        const postingAvailable = Boolean(
+          rotationPlan &&
+          postingName &&
+          rotationPlan.postings?.some((posting: any) => String(posting.name) === postingName),
+        );
+        const missing: string[] = [];
+        if (!timetableState.configured) missing.push("lecture timetable");
+        if (postingExpected && !postingAvailable) missing.push("clinical posting");
+
+        const signature = missing.length
+          ? JSON.stringify({
+            phaseId,
+            missing,
+            timetableSource: phaseConfig.timetablePhaseId ?? phaseId,
+            postingScheduleId,
+            postingName,
+          })
+          : null;
+        const previousSignature = phaseConfig.missingScheduleAlertSignature ?? null;
+        let clockChanged = false;
+        if (clock.clockPhase !== phaseId) {
+          clock.clockPhase = phaseId;
+          transitioned += 1;
+          clockChanged = true;
+        }
+
+        if (signature && signature !== previousSignature) {
+          const recipients: Array<{ userId: mongoose.Types.ObjectId; role: "admin" | "teacher" }> = [
+            ...administrators.map((admin) => ({
+              userId: admin._id,
+              role: "admin" as const,
+            })),
+          ];
+          if (classDoc.classTeacher) {
+            recipients.push({
+              userId: classDoc.classTeacher as mongoose.Types.ObjectId,
+              role: "teacher",
+            });
+          }
+          if (recipients.length === 0) {
+            console.warn(`Cannot send missing-schedule notification for class ${classId}: no administrator or class teacher is configured.`);
+          } else {
+            const message = `${classDoc.name} is entering ${phaseConfig.name ?? phaseId}, but the following schedule(s) are missing or invalid: ${missing.join(", ")}. Select or create the required schedule in the Academic Clock settings.`;
+            await Promise.all(recipients.map((recipient) =>
+              createNotificationIfUnique({
+                userId: recipient.userId,
+                role: recipient.role,
+                title: `Schedules needed for ${classDoc.name}`,
+                message,
+                type: "warning",
+                link: "/settings/academic-year",
+                metadata: {
+                  classId,
+                  academicYearId,
+                  phaseId,
+                  missingSchedules: missing,
+                },
+              }),
+            ));
+            phaseConfig.missingScheduleAlertSignature = signature;
+            alertsSent += recipients.length;
+            clockChanged = true;
+          }
+        } else if (!signature && previousSignature) {
+          phaseConfig.missingScheduleAlertSignature = null;
+          clockChanged = true;
+        }
+
+        if (clockChanged) {
+          clock.phaseConfig = {
+            ...(clock.phaseConfig ?? {}),
+            [phaseId]: phaseConfig,
+          };
+          await clock.save();
+          await AcademicYear.findByIdAndUpdate(
+            academicYearId,
+            {
+              $set: {
+                [`classClockData.${classId}`]: {
+                  classId: clock.classId,
+                  classLevel: clock.classLevel ?? null,
+                  clockStartDate: clock.clockStartDate,
+                  clockIsPaused: clock.clockIsPaused,
+                  clockPausedAt: clock.clockPausedAt,
+                  clockPhase: clock.clockPhase,
+                  phaseConfig: clock.phaseConfig,
+                },
+              },
+            },
+          );
+        }
+      }
+
+      return { clocksChecked: clocks.length, transitioned, alertsSent };
+    });
+
+    return { success: true, ...result };
+  },
 );

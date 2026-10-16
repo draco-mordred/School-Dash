@@ -6,6 +6,7 @@ import AcademicClock, {
 import AcademicYear from "../models/academicYear";
 import ClassModel from "../models/classes";
 import { logActivity } from "../utils/activitieslog";
+import { resolveAcademicClockPhase } from "../utils/academicClockPhase";
 
 export const createAcademicClock = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -107,6 +108,62 @@ export const getAcademicClocks = async (req: Request, res: Response): Promise<vo
   }
 };
 
+export const getActiveAcademicClockForClass = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { classId } = req.params;
+    const classDoc = await ClassModel.findById(classId)
+      .select("name academicYear")
+      .populate("academicYear", "name fromYear toYear isCurrent")
+      .lean();
+    if (!classDoc) {
+      res.status(404).json({ message: "Class not found" });
+      return;
+    }
+
+    const requestedAcademicYearId = req.query.academicYearId
+      ? String(req.query.academicYearId)
+      : typeof classDoc.academicYear === "object" && classDoc.academicYear
+        ? String((classDoc.academicYear as any)._id)
+        : String(classDoc.academicYear);
+    const clock = await AcademicClock.findOne({
+      classId,
+      academicYear: requestedAcademicYearId,
+    }).lean();
+    if (!clock) {
+      res.status(404).json({ message: "Academic clock not found for this class and year" });
+      return;
+    }
+
+    const resolved = resolveAcademicClockPhase(clock);
+    const phase = resolved.phase
+      ? {
+        id: resolved.phaseId,
+        name: resolved.phase.name ?? resolved.phaseId,
+        duration: Number(resolved.phase.duration ?? resolved.phase.durationMonths ?? 0),
+        startsAt: resolved.startsAt,
+        endsAt: resolved.endsAt,
+        config: resolved.phase,
+      }
+      : null;
+    res.json({
+      _id: clock._id,
+      classId: String(clock.classId),
+      className: classDoc.name,
+      academicYearId: requestedAcademicYearId,
+      academicYear: classDoc.academicYear,
+      clockStartDate: clock.clockStartDate ?? null,
+      clockPausedAt: clock.clockPausedAt ?? null,
+      clockIsPaused: Boolean(clock.clockIsPaused),
+      storedClockPhase: clock.clockPhase ?? null,
+      classLevel: clock.classLevel ?? null,
+      phaseConfig: clock.phaseConfig ?? {},
+      activePhase: phase,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
 export const getAcademicClockById = async (req: Request, res: Response): Promise<void> => {
   try {
     const academicClock = await AcademicClock.findById(req.params.id)
@@ -164,10 +221,12 @@ export const updateAcademicClock = async (req: Request, res: Response): Promise<
         ? req.body.classLevel
         : academicClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
 
-    if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) {
-      updateData.phaseConfig = req.body?.useTemplatePhaseConfig
-        ? buildPhaseConfigForClassLevel(resolvedClassLevel)
-        : {};
+    if (
+      resolvedClassLevel &&
+      req.body?.useTemplatePhaseConfig &&
+      !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")
+    ) {
+      updateData.phaseConfig = buildPhaseConfigForClassLevel(resolvedClassLevel);
     }
 
     if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "classLevel")) {

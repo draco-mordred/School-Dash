@@ -6,7 +6,35 @@ export interface AcademicClockPhaseDefinition {
   durationMonths: number;
   color: string;
   subPostings: string[];
+  postingType?: string | null;
+  postingId?: string | null;
+  requiresPostingSchedule?: boolean;
+  missingScheduleAlertSignature?: string | null;
+  postingScheduleId?: string | null;
+  postingName?: string | null;
+  timetablePhaseId?: string | null;
+  courseIds?: string[];
+  learningObjectives?: Array<{
+    courseId?: string | null;
+    type: "tutorial" | "presentation" | "assignment" | "research" | "seminar";
+    title: string;
+    description?: string;
+  }>;
 }
+
+export const doesPhaseRequirePostingSchedule = (
+  phase: Partial<Pick<AcademicClockPhaseDefinition, "name" | "postingType" | "requiresPostingSchedule" | "subPostings">> | null | undefined,
+) => {
+  if (typeof phase?.requiresPostingSchedule === "boolean") {
+    return phase.requiresPostingSchedule;
+  }
+  if (phase?.postingType) return true;
+  const description = [phase?.name, ...(phase?.subPostings ?? [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /clinical|posting|rotation|ward|medicine|surgery|pediatr|obstetric|gyn|specialty|pathology|elective|hospital|peds|o&g|pae/.test(description);
+};
 
 export interface AcademicClockPhasePlanEntry {
   id: AcademicClockPhase;
@@ -195,6 +223,17 @@ export const normalizePhasePlan = (
     subPostings: Array.isArray(phase?.subPostings)
       ? phase.subPostings.filter(Boolean)
       : [],
+    postingType: phase?.postingType ?? null,
+    postingId: phase?.postingId ?? null,
+    requiresPostingSchedule: doesPhaseRequirePostingSchedule(phase),
+    missingScheduleAlertSignature: phase?.missingScheduleAlertSignature ?? null,
+    postingScheduleId: phase?.postingScheduleId ?? null,
+    postingName: phase?.postingName ?? null,
+    timetablePhaseId: phase?.timetablePhaseId ?? null,
+    courseIds: Array.isArray(phase?.courseIds) ? phase.courseIds.map(String) : [],
+    learningObjectives: Array.isArray(phase?.learningObjectives)
+      ? phase.learningObjectives.map((objective) => ({ ...objective }))
+      : [],
   }));
 };
 
@@ -235,6 +274,10 @@ export const buildInitialPhasePlan = ({
     return existingPlan.map((phase) => ({
       ...phase,
       subPostings: [...(phase.subPostings ?? [])],
+      ...(phase.courseIds ? { courseIds: [...phase.courseIds] } : {}),
+      ...(phase.learningObjectives
+        ? { learningObjectives: phase.learningObjectives.map((objective) => ({ ...objective })) }
+        : {}),
     }));
   }
 
@@ -312,6 +355,7 @@ const normalizeClockPhaseConfig = (
       subPostings: Array.isArray(phase?.subPostings)
         ? phase.subPostings.filter(Boolean)
         : [],
+      ...pickPhaseAssociations(phase),
     }));
   }
 
@@ -331,6 +375,7 @@ const normalizeClockPhaseConfig = (
           subPostings: Array.isArray(phaseObj?.subPostings)
             ? phaseObj.subPostings.filter(Boolean)
             : [],
+          ...pickPhaseAssociations(phaseObj),
         });
         return acc;
       },
@@ -340,6 +385,20 @@ const normalizeClockPhaseConfig = (
 
   return [];
 };
+
+const pickPhaseAssociations = (phase: any) => ({
+  postingScheduleId: phase?.postingScheduleId ?? null,
+  postingType: phase?.postingType ?? null,
+  postingId: phase?.postingId ?? null,
+  requiresPostingSchedule: doesPhaseRequirePostingSchedule(phase),
+  missingScheduleAlertSignature: phase?.missingScheduleAlertSignature ?? null,
+  postingName: phase?.postingName ?? null,
+  timetablePhaseId: phase?.timetablePhaseId ?? null,
+  courseIds: Array.isArray(phase?.courseIds) ? phase.courseIds.map(String) : [],
+  learningObjectives: Array.isArray(phase?.learningObjectives)
+    ? phase.learningObjectives.map((objective: any) => ({ ...objective }))
+    : [],
+});
 
 export const resolveActiveAcademicClockPhase = (
   clock?: {

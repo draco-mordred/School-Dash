@@ -15,10 +15,18 @@ export interface IDaySchedule {
   periods: IPeriod[];
 }
 
+export interface IPhaseTimetable {
+  phaseId: string;
+  schedule: IDaySchedule[];
+  courseIds: mongoose.Types.ObjectId[];
+  updatedAt: Date;
+}
+
 export interface ITimetable extends Document {
   class: mongoose.Types.ObjectId;
   academicYear: mongoose.Types.ObjectId;
   schedule: IDaySchedule[];
+  phaseSchedules?: IPhaseTimetable[];
   createdAt: Date;
 }
 
@@ -51,6 +59,30 @@ const timetableSchema = new Schema(
         ]
       }
     ]
+    ,
+    phaseSchedules: [
+      {
+        phaseId: { type: String, required: true },
+        schedule: [
+          {
+            day: { type: String, required: true },
+            periods: [
+              {
+                subject: { type: mongoose.Schema.Types.ObjectId, ref: "Course", default: null },
+                lecturer: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+                startTime: String,
+                endTime: String,
+                isClinical: { type: Boolean, default: false },
+                isOptional: { type: Boolean, default: false },
+                displayLabel: { type: String, default: null },
+              },
+            ],
+          },
+        ],
+        courseIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Course" }],
+        updatedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true}
 );

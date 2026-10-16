@@ -37,6 +37,12 @@ import {
 import { Clock, Plus, CheckCircle2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  useAdminClassOptions,
+  useAdminClinicalSessions,
+  useAdminRotationSchedules,
+  useAdminUnitOptions,
+} from "@/lib/adminData";
 
 interface AttendanceRecord {
   student: { firstName?: string; lastName?: string; _id?: string } | null;
@@ -66,7 +72,9 @@ export const ClinicalAttendanceDashboard = () => {
   const [sessions, setSessions] = useState<ClinicalSession[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<ClinicalSession[]>([]);
   const [units, setUnits] = useState<Array<{ _id: string; name?: string; department?: string }>>([]);
-  const [loading, setLoading] = useState(false);
+  const sessionsResource = useAdminClinicalSessions();
+  const unitsResource = useAdminUnitOptions();
+  const loading = sessionsResource.isLoading;
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterUnit, setFilterUnit] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
@@ -75,39 +83,37 @@ export const ClinicalAttendanceDashboard = () => {
   );
 
   const fetchSessions = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get("/clinical-attendance/sessions");
-      setSessions(response.data.data || []);
-      setFilteredSessions(response.data.data || []);
-    } catch (error) {
-      console.error("Error fetching sessions:", error);
+    const snapshot = await sessionsResource.refetch();
+    if (snapshot.error) {
+      console.error("Error fetching sessions:", snapshot.error);
       toast.error("Failed to fetch clinical sessions");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUnits = async () => {
-    try {
-      const response = await api.get("/hospital-data/units?limit=200");
-      const unitsData = Array.isArray(response.data?.data)
-        ? response.data.data
-        : Array.isArray(response.data?.units)
-        ? response.data.units
-        : Array.isArray(response.data)
-        ? response.data
-        : [];
-      setUnits(unitsData);
-    } catch (error) {
-      console.error("Error fetching units:", error);
+    } else {
+      const records = (snapshot.data ?? []) as ClinicalSession[];
+      setSessions(records);
+      setFilteredSessions(records);
     }
   };
 
   useEffect(() => {
-    void fetchSessions();
-    void fetchUnits();
-  }, []);
+    if (sessionsResource.error) {
+      console.error("Error fetching sessions:", sessionsResource.error);
+      toast.error("Failed to fetch clinical sessions");
+    } else if (sessionsResource.data) {
+      const records = sessionsResource.data as ClinicalSession[];
+      setSessions(records);
+      setFilteredSessions(records);
+    }
+  }, [sessionsResource.data, sessionsResource.error]);
+
+  useEffect(() => {
+    if (unitsResource.error) {
+      console.error("Error fetching units:", unitsResource.error);
+      return;
+    }
+    if (unitsResource.data) {
+      setUnits(unitsResource.data as Array<{ _id: string; name?: string; department?: string }>);
+    }
+  }, [unitsResource.data, unitsResource.error]);
 
   useEffect(() => {
     let filtered = sessions;
@@ -366,48 +372,31 @@ const CreateSessionForm = ({
     clinicalRotation: "",
     groupId: "",
   });
+  const classesResource = useAdminClassOptions();
+  const unitsResource = useAdminUnitOptions();
+  const rotationSchedulesResource = useAdminRotationSchedules(formData.classId, 100);
 
   useEffect(() => {
-    const loadMetadata = async () => {
-      try {
-        const [unitsResponse, classesResponse] = await Promise.all([
-          api.get("/hospital-data/units?limit=200"),
-          api.get("/classes?limit=200"),
-        ]);
-
-        const unitsData = Array.isArray(unitsResponse.data?.data)
-          ? unitsResponse.data.data
-          : Array.isArray(unitsResponse.data?.units)
-          ? unitsResponse.data.units
-          : Array.isArray(unitsResponse.data)
-          ? unitsResponse.data
-          : [];
-
-        const classData = Array.isArray(classesResponse.data)
-          ? classesResponse.data
-          : Array.isArray(classesResponse.data?.classes)
-          ? classesResponse.data.classes
-          : Array.isArray(classesResponse.data?.data)
-          ? classesResponse.data.data
-          : [];
-
-        setHospitalUnits(unitsData);
-        setClasses(classData);
-
-        setUnits(unitsData);
-        if (!formData.unit && unitsData.length > 0) {
-          setFormData((current) => ({ ...current, unit: unitsData[0]._id }));
-        }
-        if (!formData.classId && classData.length > 0) {
-          setFormData((current) => ({ ...current, classId: classData[0]._id }));
-        }
-      } catch (error) {
-        console.error("Error fetching units or classes for attendance form:", error);
+    if (classesResource.error) {
+      console.error("Error fetching classes for attendance form:", classesResource.error);
+    } else if (classesResource.data) {
+      const classData = classesResource.data as Array<{ _id: string; name?: string; displayName?: string }>;
+      setClasses(classData);
+      if (!formData.classId && classData.length > 0) {
+        setFormData((current) => ({ ...current, classId: classData[0]._id }));
       }
-    };
-
-    void loadMetadata();
-  }, []);
+    }
+    if (unitsResource.error) {
+      console.error("Error fetching units for attendance form:", unitsResource.error);
+    } else if (unitsResource.data) {
+      const unitsData = unitsResource.data as Array<{ _id: string; name?: string; department?: string; departmentName?: string; departmentId?: string; departmentID?: string; departmentCode?: string }>;
+      setHospitalUnits(unitsData);
+      setUnits(unitsData);
+      if (!formData.unit && unitsData.length > 0) {
+        setFormData((current) => ({ ...current, unit: unitsData[0]._id }));
+      }
+    }
+  }, [classesResource.data, classesResource.error, formData.classId, formData.unit, unitsResource.data, unitsResource.error]);
 
   useEffect(() => {
     const loadScheduleMetadata = async () => {
@@ -417,19 +406,11 @@ const CreateSessionForm = ({
         setScheduleDepartments([]);
         return;
       }
+      if (rotationSchedulesResource.isLoading && !rotationSchedulesResource.data) return;
 
       try {
-        const response = await api.get("/rotation-schedules", {
-          params: { classId: formData.classId, page: 1, limit: 100 },
-        });
-
-        const scheduleList = Array.isArray(response.data?.schedules)
-          ? response.data.schedules
-          : Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response.data?.data)
-          ? response.data.data
-          : [];
+        if (rotationSchedulesResource.error) throw rotationSchedulesResource.error;
+        const scheduleList = (rotationSchedulesResource.data ?? []) as Array<Record<string, unknown>>;
 
         const nextPostings: Array<{ _id: string; name: string }> = [];
         const normalizeText = (value: unknown) => {
@@ -673,7 +654,7 @@ const CreateSessionForm = ({
     };
 
     void loadScheduleMetadata();
-  }, [formData.classId, formData.clinicalRotation, hospitalUnits]);
+  }, [formData.classId, formData.clinicalRotation, hospitalUnits, rotationSchedulesResource.data, rotationSchedulesResource.error, rotationSchedulesResource.isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

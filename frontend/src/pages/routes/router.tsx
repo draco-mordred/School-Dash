@@ -270,6 +270,10 @@ export const router = createBrowserRouter([
             element: <StudentAttendanceHistory />,
           },
           {
+            path: "rotation-schedule",
+            element: <StudentRotationHistory />,
+          },
+          {
             path: "logbook-entries",
             element: <LogbookEntries />,
           },

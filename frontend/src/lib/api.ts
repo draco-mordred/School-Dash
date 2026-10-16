@@ -44,6 +44,10 @@ api.interceptors.response.use(
     const method = (response.config?.method ?? "get").toLowerCase();
     const url = response.config?.url;
 
+    if (method !== "get" && url && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("app:mutation", { detail: { url, method } }));
+    }
+
     if (method === "get" && url && response.status >= 200 && response.status < 300) {
       writeOfflineCache(buildOfflineCacheKey(method, url, response.config?.params), response.data);
     }

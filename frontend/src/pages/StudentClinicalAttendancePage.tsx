@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -6,8 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QrCode, Clock3, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
-import { format } from "date-fns";
+import { format, isBefore, startOfDay } from "date-fns";
 import QRCode from "qrcode";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 interface ClinicalAttendanceSummary {
   _id: string;
@@ -19,6 +20,10 @@ interface ClinicalAttendanceSummary {
   unit?: { name?: string };
   supervisor?: { firstName?: string; lastName?: string };
   status?: string;
+  supervisorGroupLabel?: string;
+  department?: string;
+  supervisorName?: string;
+  supervisorEmail?: string;
   attendees?: Array<{
     student?: { _id?: string; firstName?: string; lastName?: string } | string;
     status?: string;
@@ -31,7 +36,7 @@ interface ClinicalAttendanceSummary {
 }
 
 interface StudentAttendanceState {
-  status: "present" | "absent" | "approved_absent" | "pending" | "unknown";
+  status: "present" | "absent" | "late" | "approved_absent" | "pending" | "on-leave" | "unknown";
   sessionTitle?: string;
   sessionId?: string;
   checkedAt?: string;
@@ -41,38 +46,46 @@ interface StudentAttendanceState {
   groupCode?: string;
 }
 
+interface StudentClinicalAssignment {
+  postingName: string;
+  groupLabel: string;
+  groupType: "unit" | "department";
+  departmentName: string;
+  unitName: string;
+  supervisorName: string;
+  startDate: string;
+  endDate: string;
+}
+
 export default function StudentClinicalAttendancePage() {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<ClinicalAttendanceSummary[]>([]);
+  const [assignment, setAssignment] = useState<StudentClinicalAssignment | null>(null);
+  const [activeSession, setActiveSession] = useState<ClinicalAttendanceSummary | null>(null);
   const [studentState, setStudentState] = useState<StudentAttendanceState | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [qrPayload, setQrPayload] = useState<string | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState<string | null>(null);
   const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
-  const loadAttendanceData = async () => {
+  const loadAttendanceData = async (showLoading = true) => {
     if (!user?._id) {
       return;
     }
 
     try {
-      setLoading(true);
-      const [sessionsRes, stateRes] = await Promise.all([
-        api.get("/clinical-attendance/sessions?status=ongoing,planned"),
-        api.get(`/clinical-attendance/student-record?studentId=${user._id}`),
-      ]);
-
-      const sessionList = Array.isArray(sessionsRes.data?.data) ? sessionsRes.data.data : [];
+      setLoading(showLoading);
+      const response = await api.get("/clinical-attendance/student-context");
+      const context = response.data?.data ?? {};
+      const sessionList = Array.isArray(context.sessions) ? context.sessions : [];
       setSessions(sessionList);
+      setAssignment(context.assignment ?? null);
+      setActiveSession(context.activeSession ?? null);
 
-      const sessionPayload = Array.isArray(stateRes.data?.data?.sessions)
-        ? stateRes.data.data.sessions
-        : [];
-
-      const latestSession = sessionPayload.find((session: any) => session?._id) ?? sessionPayload[0] ?? null;
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+      const latestSession = sessionList.find((session: ClinicalAttendanceSummary) => new Date(session.date).getTime() <= endOfToday.getTime()) ?? null;
       const attendeeRecord = latestSession?.attendees?.find((attendee: any) => {
         const studentId = attendee?.student?._id ?? attendee?.student;
         return studentId && String(studentId) === String(user._id);
@@ -80,11 +93,9 @@ export default function StudentClinicalAttendancePage() {
 
       const normalizedStatus = attendeeRecord?.status === "excused"
         ? "approved_absent"
-        : attendeeRecord?.status === "present"
-          ? "present"
-          : attendeeRecord?.status === "absent"
-            ? "absent"
-            : "pending";
+        : ["present", "absent", "late", "on-leave"].includes(attendeeRecord?.status)
+          ? attendeeRecord.status
+          : "pending";
 
       setStudentState(
         attendeeRecord
@@ -92,14 +103,14 @@ export default function StudentClinicalAttendancePage() {
               status: normalizedStatus as StudentAttendanceState["status"],
               sessionTitle: latestSession?.title ?? "Clinical activity",
               sessionId: latestSession?._id,
-              checkedAt: attendeeRecord.checkInTime ?? latestSession?.date,
+              checkedAt: attendeeRecord.checkInTime,
               supervisorName: attendeeRecord?.approvedByName
                 ? attendeeRecord.approvedByName
                 : latestSession?.supervisor?.firstName && latestSession?.supervisor?.lastName
                 ? `${latestSession.supervisor.firstName} ${latestSession.supervisor.lastName}`
                 : latestSession?.supervisor?.firstName ?? "Pending",
               notes: attendeeRecord.notes ?? "No notes yet",
-              groupLabel: latestSession?.supervisorGroupLabel || latestSession?.department || "Current group",
+              groupLabel: latestSession?.supervisorGroupLabel || latestSession?.department || context.assignment?.groupLabel || "Current group",
               groupCode: latestSession?.supervisorGroupCode || "",
             }
           : null
@@ -120,31 +131,75 @@ export default function StudentClinicalAttendancePage() {
 
   useEffect(() => {
     const refreshAttendance = () => {
-      void loadAttendanceData();
+      void loadAttendanceData(false);
     };
 
-    window.addEventListener("clinical-attendance-updated", refreshAttendance);
-    window.addEventListener("storage", (event) => {
+    const handleStorage = (event: StorageEvent) => {
       if (event.key === "clinical-attendance-last-update") {
         refreshAttendance();
       }
-    });
+    };
+    window.addEventListener("clinical-attendance-updated", refreshAttendance);
+    window.addEventListener("storage", handleStorage);
+    const refreshTimer = window.setInterval(refreshAttendance, 10_000);
 
     return () => {
       window.removeEventListener("clinical-attendance-updated", refreshAttendance);
+      window.removeEventListener("storage", handleStorage);
+      window.clearInterval(refreshTimer);
     };
   }, [user?._id]);
 
-  const activeSession = useMemo(() => sessions[0] ?? null, [sessions]);
-  const sortedSessions = useMemo(() => {
-    const nextSessions = [...sessions];
-    nextSessions.sort((left, right) => {
-      const leftDate = new Date(left.date).getTime();
-      const rightDate = new Date(right.date).getTime();
-      return sortDirection === "asc" ? leftDate - rightDate : rightDate - leftDate;
+  useEffect(() => {
+    setQrImageUrl(null);
+    setOtpCode(null);
+    setLastGeneratedAt(null);
+  }, [activeSession?._id]);
+
+  useEffect(() => {
+    const ownAttendance = activeSession?.attendees?.find((attendee) => {
+      const studentId = attendee?.student?._id ?? attendee?.student;
+      return String(studentId ?? "") === String(user?._id ?? "");
     });
-    return nextSessions;
-  }, [sessions, sortDirection]);
+    if (ownAttendance && ownAttendance.status !== "pending") {
+      setQrImageUrl(null);
+      setOtpCode(null);
+      setLastGeneratedAt(null);
+    }
+  }, [activeSession, user?._id]);
+
+  const today = startOfDay(new Date());
+  const sessionsByDate = new Map<string, ClinicalAttendanceSummary[]>();
+  sessions.forEach((session) => {
+    const dateKey = format(startOfDay(new Date(session.date)), "yyyy-MM-dd");
+    sessionsByDate.set(dateKey, [...(sessionsByDate.get(dateKey) ?? []), session]);
+  });
+  const postingStart = assignment ? startOfDay(new Date(assignment.startDate)) : null;
+  const postingEnd = assignment ? startOfDay(new Date(assignment.endDate)) : null;
+  const firstHistoryDate = postingStart ?? (sessions.length > 0
+    ? startOfDay(new Date(Math.min(...sessions.map((session) => new Date(session.date).getTime()))))
+    : null);
+  const lastHistoryDate = postingEnd ?? (sessions.length > 0
+    ? startOfDay(new Date(Math.max(...sessions.map((session) => new Date(session.date).getTime()))))
+    : null);
+  const historyRows: Array<{ key: string; date: Date; period: "Past" | "Today" | "Upcoming"; session: ClinicalAttendanceSummary | null }> = [];
+  if (firstHistoryDate && lastHistoryDate) {
+    const cursor = new Date(firstHistoryDate);
+    let daysAdded = 0;
+    while ((cursor < lastHistoryDate || (!assignment && cursor <= lastHistoryDate)) && daysAdded < 366) {
+      const date = new Date(cursor);
+      const dateKey = format(date, "yyyy-MM-dd");
+      const period = isBefore(date, today) ? "Past" : date.getTime() === today.getTime() ? "Today" : "Upcoming";
+      const daySessions = sessionsByDate.get(dateKey) ?? [];
+      if (daySessions.length > 0) {
+        daySessions.forEach((session) => historyRows.push({ key: session._id, date, period, session }));
+      } else {
+        historyRows.push({ key: dateKey, date, period, session: null });
+      }
+      cursor.setDate(cursor.getDate() + 1);
+      daysAdded += 1;
+    }
+  }
 
   const handleGenerateQr = async () => {
     if (!activeSession || !user?._id) {
@@ -155,8 +210,6 @@ export default function StudentClinicalAttendancePage() {
     try {
       setGenerating(true);
       const response = await api.post("/clinical-attendance/qr/generate", {
-        studentId: user._id,
-        studentIdNumber: user.idNumber,
         sessionId: activeSession._id,
       });
 
@@ -174,7 +227,6 @@ export default function StudentClinicalAttendancePage() {
         },
       });
 
-      setQrPayload(payload);
       setQrImageUrl(dataUrl);
       setOtpCode(response.data?.data?.otp ?? null);
       setLastGeneratedAt(new Date().toISOString());
@@ -195,6 +247,10 @@ export default function StudentClinicalAttendancePage() {
         return <Badge className="bg-blue-100 text-blue-800">Approved absent</Badge>;
       case "absent":
         return <Badge className="bg-red-100 text-red-800">Absent</Badge>;
+      case "late":
+        return <Badge className="bg-amber-100 text-amber-800">Late</Badge>;
+      case "on-leave":
+        return <Badge className="bg-blue-100 text-blue-800">On leave</Badge>;
       case "pending":
         return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
       default:
@@ -215,13 +271,13 @@ export default function StudentClinicalAttendancePage() {
         <Card>
           <CardHeader>
             <CardTitle>Your current attendance</CardTitle>
-            <CardDescription>Latest approval status from your supervisor.</CardDescription>
+            <CardDescription>Attendance for your current posting and team.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
               <div className="text-sm text-muted-foreground">Loading your attendance status…</div>
             ) : studentState ? (
-              <div className="rounded-lg border p-4">
+                <div className="rounded-lg border p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold">{studentState.sessionTitle ?? "Clinical activity"}</p>
@@ -257,19 +313,20 @@ export default function StudentClinicalAttendancePage() {
         <Card>
           <CardHeader>
             <CardTitle>Generate attendance QR</CardTitle>
-            <CardDescription>Show this to your supervisor to confirm your presence.</CardDescription>
+              <CardDescription>Available only during your team’s active clinical session.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-lg border bg-muted/40 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium">
+                <div className="flex items-center gap-2 text-sm font-medium">
                 <CalendarDays className="h-4 w-4" />
-                Active clinical session
+                {assignment ? `${assignment.postingName} · ${assignment.groupLabel}` : "Current posting"}
               </div>
               {activeSession ? (
                 <div className="mt-3 space-y-1 text-sm">
                   <p className="font-semibold">{activeSession.title}</p>
                   <p className="text-muted-foreground">{format(new Date(activeSession.date), "PPP")}</p>
-                  <p className="text-muted-foreground">{activeSession.unit?.name ?? "Unit pending"}</p>
+                  <p className="text-muted-foreground">{activeSession.unit?.name ?? activeSession.department ?? assignment?.unitName ?? assignment?.departmentName ?? "Unit pending"}</p>
+                  <p className="text-muted-foreground">Supervisor: {activeSession.supervisorName || assignment?.supervisorName || "Pending"}</p>
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-muted-foreground">No active session available.</p>
@@ -309,40 +366,43 @@ export default function StudentClinicalAttendancePage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2">
-            <CardTitle>Attendance approvals</CardTitle>
-            <select value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")} className="rounded-md border border-input px-2 py-1 text-sm">
-              <option value="desc">Newest first</option>
-              <option value="asc">Oldest first</option>
-            </select>
+            <CardTitle>Clinical attendance history</CardTitle>
           </div>
-          <CardDescription>Your supervisor approvals sorted by date.</CardDescription>
+          <CardDescription>{assignment ? `${assignment.postingName} · ${assignment.groupLabel}` : "No active posting assignment"}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {sortedSessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No clinical attendance approvals have been recorded yet.</p>
+          {historyRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No clinical posting days are available.</p>
           ) : (
-            sortedSessions.map((session) => {
-              const attendeeRecord = session.attendees?.find((attendee: any) => {
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Period</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Activity</TableHead>
+                  <TableHead>Supervisor</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyRows.map(({ key, date, period, session }) => {
+              const attendeeRecord = session?.attendees?.find((attendee: any) => {
                 const studentId = attendee?.student?._id ?? attendee?.student;
                 return studentId && String(studentId) === String(user?._id);
               });
-              const status = attendeeRecord?.status === "excused" ? "approved_absent" : attendeeRecord?.status === "present" ? "present" : attendeeRecord?.status === "absent" ? "absent" : "pending";
+              const status = attendeeRecord?.status === "excused" ? "approved_absent" : ["present", "absent", "late", "on-leave"].includes(attendeeRecord?.status) ? attendeeRecord?.status : "pending";
               return (
-                <div key={session._id} className="rounded-lg border p-3 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{session.title}</p>
-                      <p className="text-xs text-muted-foreground">{format(new Date(session.date), "PPP")}</p>
-                    </div>
-                    {getStatusBadge(status)}
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                    <span>Group: {session.supervisorGroupLabel || session.department || "Current group"}</span>
-                    <span>Supervisor: {session.supervisor?.firstName && session.supervisor?.lastName ? `${session.supervisor.firstName} ${session.supervisor.lastName}` : session.supervisor?.firstName || "Pending"}</span>
-                  </div>
-                </div>
+                <TableRow key={key}>
+                  <TableCell>{period}</TableCell>
+                  <TableCell>{format(date, "PPP")}</TableCell>
+                  <TableCell>{session?.title ?? "No session created"}</TableCell>
+                  <TableCell>{session?.supervisor?.firstName && session?.supervisor?.lastName ? `${session.supervisor.firstName} ${session.supervisor.lastName}` : session?.supervisor?.firstName || session?.supervisorName || assignment?.supervisorName || "Pending"}</TableCell>
+                  <TableCell>{session ? getStatusBadge(status) : <Badge variant="outline">No session</Badge>}</TableCell>
+                </TableRow>
               );
-            })
+                })}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

@@ -55,6 +55,24 @@ interface ActivitySubmissionFormProps {
   onSuccess?: () => void;
 }
 
+interface ActiveClinicalPhase {
+  phaseId: string | null;
+  phaseName: string | null;
+  phaseStartsAt: string | null;
+  phaseEndsAt: string | null;
+  postingRequired: boolean | null;
+  postingConfigured: boolean | null;
+  phaseCourseIds: string[];
+  phaseCourses: Array<{ _id: string; name: string; code?: string }>;
+  learningObjectives: Array<{
+    type: string;
+    title: string;
+    description?: string;
+    courseName?: string | null;
+    courseCode?: string | null;
+  }>;
+}
+
 export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmissionFormProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -66,6 +84,7 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
   const [loadingPostings, setLoadingPostings] = useState(false);
   const [loadingUnits, setLoadingUnits] = useState(false);
   const [postingError, setPostingError] = useState<string | null>(null);
+  const [activePhase, setActivePhase] = useState<ActiveClinicalPhase | null>(null);
 
   const form = useForm<ActivitySubmissionInput>({
     resolver: zodResolver(activitySubmissionSchema),
@@ -160,6 +179,17 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
       }
 
       const { data } = await api.get(`/rotation-schedules/student/${studentId}/current`);
+      setActivePhase({
+        phaseId: data.phaseId ?? null,
+        phaseName: data.phaseName ?? null,
+        phaseStartsAt: data.phaseStartsAt ?? null,
+        phaseEndsAt: data.phaseEndsAt ?? null,
+        postingRequired: typeof data.postingRequired === "boolean" ? data.postingRequired : null,
+        postingConfigured: data.postingConfigured ?? null,
+        phaseCourseIds: Array.isArray(data.phaseCourseIds) ? data.phaseCourseIds.map(String) : [],
+        phaseCourses: Array.isArray(data.phaseCourses) ? data.phaseCourses : [],
+        learningObjectives: Array.isArray(data.learningObjectives) ? data.learningObjectives : [],
+      });
       const currentPostings = Array.isArray(data.current) ? data.current : [];
       const mapped = currentPostings.map((item: any) => ({
         id: String(item.scheduleId ?? item.windowIndex ?? item._id ?? ""),
@@ -191,7 +221,15 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
         }
         await fetchUnitsForPosting(first, form.getValues("umbrellaCategory"));
       } else {
-        setPostingError("No active posting schedule found for your account.");
+        if (data.postingRequired && data.postingConfigured === false) {
+          setPostingError("A clinical posting schedule has not been configured for the active class phase.");
+        } else if (data.postingConfigured) {
+          setPostingError("No active posting is assigned to you for this class phase.");
+        } else if (data.postingRequired) {
+          setPostingError("No active posting schedule found for your account.");
+        } else {
+          setPostingError(null);
+        }
       }
     } catch (error) {
       console.error("Failed to load current postings:", error);
@@ -317,6 +355,53 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
         <CardTitle>Submit Clinical Activity</CardTitle>
       </CardHeader>
       <CardContent>
+        {activePhase && (
+          <section className="mb-6 space-y-3 rounded-lg border bg-muted/30 p-4" aria-label="Active class academic phase">
+            <div>
+              <h3 className="font-semibold">
+                Active class phase: {activePhase.phaseName ?? "Not available"}
+              </h3>
+              {activePhase.phaseStartsAt && activePhase.phaseEndsAt && (
+                <p className="text-sm text-muted-foreground">
+                  {format(new Date(activePhase.phaseStartsAt), "MMM d, yyyy")}
+                  {" – "}
+                  {format(new Date(activePhase.phaseEndsAt), "MMM d, yyyy")}
+                </p>
+              )}
+            </div>
+            {!activePhase.postingRequired && (
+              <p className="text-sm text-muted-foreground">
+                Clinical posting activities are not required during this class phase.
+              </p>
+            )}
+            {activePhase.phaseCourses.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium">Courses for this phase</h4>
+                <ul className="mt-1 flex flex-wrap gap-2">
+                  {activePhase.phaseCourses.map((course) => (
+                    <li key={course._id} className="rounded-full border px-2.5 py-1 text-xs">
+                      {course.code ? `${course.code} · ` : ""}{course.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {activePhase.learningObjectives.length > 0 && (
+              <div>
+                <h4 className="text-sm font-medium">Phase learning activities</h4>
+                <ul className="mt-1 list-inside list-disc space-y-1 text-sm">
+                  {activePhase.learningObjectives.map((objective, index) => (
+                    <li key={`${objective.type}-${objective.title}-${index}`}>
+                      <span className="capitalize">{objective.type}</span>: {objective.title}
+                      {objective.courseName ? ` · ${objective.courseName}` : ""}
+                      {objective.description ? ` — ${objective.description}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        )}
         {postingError ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {postingError}
@@ -584,7 +669,11 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
           )}
 
           {/* Submit Button */}
-          <Button type="submit" disabled={loading} className="w-full">
+          <Button
+            type="submit"
+            disabled={loading || loadingPostings || !selectedPostingId || activePhase?.postingRequired === false}
+            className="w-full"
+          >
             {loading ? "Submitting..." : "Submit Activity"}
           </Button>
         </form>

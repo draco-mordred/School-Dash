@@ -2,6 +2,7 @@ import * as express from "express";
 import {
   createAcademicClock,
   getAcademicClocks,
+  getActiveAcademicClockForClass,
   getAcademicClockById,
   updateAcademicClock,
   deleteAcademicClock,
@@ -22,6 +23,14 @@ academicClockRouter
     protect,
     authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]),
     getAcademicClocks
+  );
+
+academicClockRouter
+  .route("/class/:classId/active-phase")
+  .get(
+    protect,
+    authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]),
+    getActiveAcademicClockForClass
   );
 
 academicClockRouter

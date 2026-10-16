@@ -6,6 +6,10 @@ const QrOtpSchema = new mongoose.Schema(
     payload: { type: String, required: true },
     expiresAt: { type: Date, required: true, index: true },
     createdAt: { type: Date, default: () => new Date() },
+    approvalStatus: { type: String, enum: ["available", "processing", "consumed"], default: "available", index: true },
+    claimedAt: { type: Date, default: null },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    approvalResponse: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: false }
 );

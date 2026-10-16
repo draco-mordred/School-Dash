@@ -7,6 +7,7 @@ import {
   type WheelEvent,
 } from "react";
 import { api } from "@/lib/api";
+import { useAdminClassOptions, useAdminRotationEvents, useAdminTimetable } from "@/lib/adminData";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +32,6 @@ import {
 } from "@/components/ui/dialog";
 
 type ClassItem = { _id: string; name: string };
-type ApiClassItem = { _id: string; name: string };
 type ApiRotationEvent = {
   id?: string;
   scheduleId?: string;
@@ -189,7 +189,6 @@ const canCancelActivity = (event: PostingWindow) => {
 export default function ClinicalSchedules() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
-  const [loadingClasses, setLoadingClasses] = useState(false);
   const [events, setEvents] = useState<PostingWindow[]>([]);
   const [timetableClinicalPeriodTime, setTimetableClinicalPeriodTime] =
     useState<{ startTime: string; endTime: string } | null>(null);
@@ -208,6 +207,38 @@ export default function ClinicalSchedules() {
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(
     null,
   );
+  const classesResource = useAdminClassOptions();
+  const timetableResource = useAdminTimetable(selectedClass);
+  const scheduleRange = useMemo(() => {
+    if (!selectedClass) return null;
+    const current = new Date(currentDate);
+    if (Number.isNaN(current.getTime())) return null;
+    let start: Date;
+    let end: Date;
+    if (view === "day") {
+      start = new Date(current);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start);
+      end.setDate(end.getDate() + 1);
+    } else if (view === "week") {
+      const day = current.getDay();
+      start = new Date(current);
+      start.setDate(current.getDate() - day);
+      start.setHours(0, 0, 0, 0);
+      end = new Date(start);
+      end.setDate(start.getDate() + 7);
+    } else {
+      start = new Date(current.getFullYear(), current.getMonth(), 1);
+      end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    }
+    return { start, end };
+  }, [currentDate, selectedClass, view]);
+  const eventsResource = useAdminRotationEvents(
+    selectedClass,
+    scheduleRange?.start ?? null,
+    scheduleRange?.end ?? null,
+  );
+  const loadingClasses = classesResource.isLoading;
 
   // Popup & timetable state
   const [hoveredDay, setHoveredDay] = useState<Date | null>(null);
@@ -305,110 +336,67 @@ export default function ClinicalSchedules() {
   };
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoadingClasses(true);
-        const { data } = await api.get("/classes?page=1&limit=500");
-        const isClass = (item: unknown): item is ApiClassItem =>
-          typeof item === "object" &&
-          item !== null &&
-          typeof (item as Record<string, unknown>)._id === "string" &&
-          typeof (item as Record<string, unknown>).name === "string";
-
-        const list = Array.isArray(data?.classes)
-          ? data.classes
-              .filter(isClass)
-              .map((c: ApiClassItem) => ({ _id: c._id, name: c.name }))
-          : [];
-        list.sort((a: ClassItem, b: ClassItem) => a.name.localeCompare(b.name));
-        setClasses(list);
-        if (list.length > 0) setSelectedClass(list[0]._id);
-      } catch (err) {
-        console.error("Failed to load classes", err);
-      } finally {
-        setLoadingClasses(false);
-      }
-    };
-    load();
-  }, []);
+    if (classesResource.error) {
+      console.error("Failed to load classes", classesResource.error);
+      return;
+    }
+    if (!classesResource.data) return;
+    const list = classesResource.data
+      .filter((item): item is typeof item & { _id: string; name: string } =>
+        typeof item._id === "string" && typeof item.name === "string",
+      )
+      .map((item) => ({ _id: item._id, name: item.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    setClasses(list);
+    setSelectedClass((current) => current && list.some((item) => item._id === current)
+      ? current
+      : list[0]?._id ?? null);
+  }, [classesResource.data, classesResource.error]);
 
   useEffect(() => {
-    if (!selectedClass) return;
-    const loadRange = async () => {
-      try {
-        const timetableRes = await api.get(`/timetables/${selectedClass}`);
-        const timetableSchedule: schedule[] = Array.isArray(
-          timetableRes.data?.schedule,
-        )
-          ? timetableRes.data.schedule
-          : [];
-        setTimetableSchedule(timetableSchedule);
-        const firstClinical = timetableSchedule
-          .flatMap((day) => day.periods)
-          .find(
-            (period) =>
-              period.isClinical ||
-              period.displayLabel?.toLowerCase().includes("clinical"),
-          );
-        if (firstClinical && firstClinical.startTime && firstClinical.endTime) {
-          setTimetableClinicalPeriodTime({
-            startTime: firstClinical.startTime,
-            endTime: firstClinical.endTime,
-          });
-        } else {
-          setTimetableClinicalPeriodTime(null);
-        }
+    if (timetableResource.error) {
+      console.error("Failed to load class timetable", timetableResource.error);
+      setTimetableSchedule([]);
+      setTimetableClinicalPeriodTime(null);
+      return;
+    }
+    const rawSchedule = timetableResource.data?.schedule;
+    const nextSchedule = Array.isArray(rawSchedule) ? rawSchedule as schedule[] : [];
+    setTimetableSchedule(nextSchedule);
+    const firstClinical = nextSchedule
+      .flatMap((day) => day.periods)
+      .find((period) => period.isClinical || period.displayLabel?.toLowerCase().includes("clinical"));
+    setTimetableClinicalPeriodTime(
+      firstClinical?.startTime && firstClinical.endTime
+        ? { startTime: firstClinical.startTime, endTime: firstClinical.endTime }
+        : null,
+    );
+  }, [timetableResource.data, timetableResource.error]);
 
-        const cur = new Date(currentDate);
-        let start: Date, end: Date;
-        if (view === "day") {
-          start = new Date(cur.setHours(0, 0, 0, 0));
-          end = new Date(start);
-          end.setDate(end.getDate() + 1);
-        } else if (view === "week") {
-          const day = cur.getDay();
-          start = new Date(cur);
-          start.setDate(cur.getDate() - day);
-          start.setHours(0, 0, 0, 0);
-          end = new Date(start);
-          end.setDate(start.getDate() + 7);
-        } else {
-          start = new Date(cur.getFullYear(), cur.getMonth(), 1);
-          end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-        }
-
-        const qs = `?classId=${selectedClass}&start=${start.toISOString()}&end=${end.toISOString()}`;
-        const { data } = await api.get(`/rotation-schedules/events${qs}`);
-        const isRotationEvent = (item: unknown): item is ApiRotationEvent =>
-          typeof item === "object" &&
-          item !== null &&
-          typeof (item as Record<string, unknown>).id === "string" &&
-          typeof (item as Record<string, unknown>).startDate === "string" &&
-          typeof (item as Record<string, unknown>).endDate === "string";
-
-        const evt = Array.isArray(data?.events)
-          ? data.events.filter(isRotationEvent)
-          : [];
-        setEvents(
-          evt.map((e: ApiRotationEvent) => ({
-            id: e.id,
-            scheduleId: e.scheduleId,
-            postingId: e.postingId || e.postingName,
-            postingName: e.postingName,
-            startDate: e.startDate,
-            endDate: e.endDate,
-            status: e.status,
-            supervisorName: e.supervisorName,
-          })),
-        );
-      } catch (err) {
-        console.error("Failed to load rotation schedule events", err);
-        setEvents([]);
-        setTimetableClinicalPeriodTime(null);
-      }
-    };
-    loadRange();
-  }, [selectedClass, view, currentDate]);
+  useEffect(() => {
+    if (eventsResource.error) {
+      console.error("Failed to load rotation schedule events", eventsResource.error);
+      setEvents([]);
+      return;
+    }
+    if (!eventsResource.data) return;
+    const isRotationEvent = (item: unknown): item is ApiRotationEvent =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as Record<string, unknown>).id === "string" &&
+      typeof (item as Record<string, unknown>).startDate === "string" &&
+      typeof (item as Record<string, unknown>).endDate === "string";
+    setEvents(eventsResource.data.filter(isRotationEvent).map((event) => ({
+      id: event.id,
+      scheduleId: event.scheduleId,
+      postingId: event.postingId || event.postingName,
+      postingName: event.postingName,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      status: event.status,
+      supervisorName: event.supervisorName,
+    })));
+  }, [eventsResource.data, eventsResource.error]);
 
   const eventsWithTimetableTime = useMemo(() => {
     if (!timetableClinicalPeriodTime) return events;

@@ -14,6 +14,7 @@ import { getInstitutionIdentityReference } from "../../utils/clinicalAttendanceI
 import { resolveClinicalSessionPosting } from "../../utils/clinicalAttendancePosting";
 import { emitSystemEvent } from "../../events";
 import { getAvailableClinicalAttendanceGroupsForPosting } from "../../utils/clinicalAttendanceGroupSelection";
+import { resolveStudentClinicalAssignments } from "../../utils/clinicalAttendanceAssignment";
 
 const OTP_RATE_LIMIT_WINDOW_MS = 60_000;
 const OTP_RATE_LIMIT_MAX_REQUESTS = 8;
@@ -25,6 +26,31 @@ const cleanupExpiredOtpEntries = async () => {
   } catch {
     // ignore cleanup failures
   }
+};
+
+const requestUser = (req: Request) => (req as any).user;
+
+const requestUserId = (req: Request) => String(requestUser(req)?._id ?? "");
+
+const isStudentRequest = (req: Request) => String(requestUser(req)?.role ?? "").toLowerCase() === "student";
+
+const isExpectedStudent = (session: any, studentId: string) =>
+  (session?.expectedStudents ?? []).some((student: any) => String(student?._id ?? student) === studentId);
+
+const recalculateSessionCounts = (session: any) => {
+  session.presentCount = session.attendees.filter((attendee: any) => attendee.status === "present").length;
+  session.absentCount = session.attendees.filter((attendee: any) => attendee.status === "absent").length;
+  session.lateCount = session.attendees.filter((attendee: any) => attendee.status === "late").length;
+  session.excusedCount = session.attendees.filter((attendee: any) => attendee.status === "excused").length;
+};
+
+const serializeStudentAttendanceSession = (session: any, studentId: string) => {
+  const sessionData = typeof session?.toObject === "function" ? session.toObject() : { ...session };
+  delete sessionData.expectedStudents;
+  sessionData.attendees = (sessionData.attendees ?? []).filter((attendee: any) =>
+    String(attendee?.student?._id ?? attendee?.student) === studentId
+  );
+  return sessionData;
 };
 
 const expirePendingAttendancesIfNeeded = async (session: any) => {
@@ -40,6 +66,17 @@ const expirePendingAttendancesIfNeeded = async (session: any) => {
   }
 
   let changed = false;
+  const attendeeIds = new Set((session.attendees ?? []).map((attendee: any) => String(attendee.student?._id ?? attendee.student)));
+  for (const studentId of session.expectedStudents ?? []) {
+    if (!attendeeIds.has(String(studentId))) {
+      session.attendees.push({
+        student: studentId,
+        status: "absent",
+        notes: "Marked absent after session window expired",
+      } as any);
+      changed = true;
+    }
+  }
   for (const attendee of session.attendees ?? []) {
     if (attendee?.status === "pending") {
       attendee.status = "absent";
@@ -48,20 +85,24 @@ const expirePendingAttendancesIfNeeded = async (session: any) => {
     }
   }
 
+  if (session.status === "ongoing") {
+    session.status = "completed";
+    session.endTime = expiryTime;
+    if (!session.duration && session.startTime) {
+      session.duration = Math.max(0, Math.round((expiryTime.getTime() - new Date(session.startTime).getTime()) / 60000));
+    }
+    changed = true;
+  }
   if (!changed) {
     return false;
   }
-
-  session.presentCount = session.attendees.filter((a: any) => a.status === "present").length;
-  session.absentCount = session.attendees.filter((a: any) => a.status === "absent").length;
-  session.lateCount = session.attendees.filter((a: any) => a.status === "late").length;
-  session.excusedCount = session.attendees.filter((a: any) => a.status === "excused").length;
+  recalculateSessionCounts(session);
   await session.save();
   return true;
 };
 
 const enforceOtpRateLimit = (req: Request) => {
-  const key = `${req.ip ?? "unknown"}:${(req as any).userId ?? "anonymous"}`;
+  const key = `${req.ip ?? "unknown"}:${requestUserId(req) || "anonymous"}`;
   const now = Date.now();
   const bucket = otpRateLimitStore.get(key);
 
@@ -94,8 +135,6 @@ export const createClinicalAttendanceSession = async (
       unit,
       location,
       room,
-      supervisor,
-      expectedStudents,
       checkInMethod,
       requiresApproval,
       clinicalRotation,
@@ -105,24 +144,35 @@ export const createClinicalAttendanceSession = async (
       groupId,
     } = req.body;
     const { department } = req.body;
-    const selectedGroup = req.body.groupId || req.body.supervisorGroupId || null;
+    const selectedGroupId = groupId || req.body.supervisorGroupId || null;
 
     const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true }).select("_id").lean();
-    const activeAcademicYearId = academicYear || currentAcademicYear?._id?.toString() || "";
-    const currentUserId = (req as any).user?._id?.toString();
+    let activeAcademicYearId = academicYear || currentAcademicYear?._id?.toString() || "";
+    const currentUserId = requestUserId(req);
+    const classRoster: string[] = [];
+
+    if (!classId || !clinicalRotation || !selectedGroupId || !currentUserId) {
+      return res.status(400).json({ success: false, message: "A class, active posting, and supervised group are required" });
+    }
 
     let resolvedUnitId = unit || "";
     let derivedUnitIds: string[] = [];
     let resolvedUnitLabel = "";
 
     if (classId) {
-      const classDoc = await ClassModel.findById(classId).select("_id academicYear").lean();
+      const classDoc = await ClassModel.findById(classId).select("_id academicYear students").lean();
       if (!classDoc) {
         return res.status(404).json({
           success: false,
           message: "Class not found",
         });
       }
+      const classAcademicYearId = String((classDoc as any).academicYear ?? "");
+      if (academicYear && classAcademicYearId && String(academicYear) !== classAcademicYearId) {
+        return res.status(400).json({ success: false, message: "The selected academic year does not match the class" });
+      }
+      if (classAcademicYearId) activeAcademicYearId = classAcademicYearId;
+      classRoster.push(...((classDoc as any).students ?? []).map((studentId: any) => String(studentId?._id ?? studentId)));
 
       const schedules = await RotationPlan.find({ class: classId }).select("postings meta").lean();
       const postingUnitNames = new Set<string>();
@@ -229,17 +279,34 @@ export const createClinicalAttendanceSession = async (
       }
     }
 
-    let resolvedSupervisorId = supervisor || "";
-    if (groupId && currentUserId && clinicalRotation) {
-      const matchingSchedule = await RotationPlan.findOne({ class: classId, "postings._id": clinicalRotation }).select("postings meta").lean();
-      const matchingPosting = Array.isArray(matchingSchedule?.postings)
-        ? matchingSchedule.postings.find((posting: any) => String(posting?._id) === String(clinicalRotation))
-        : null;
-      const selection = getAvailableClinicalAttendanceGroupsForPosting(matchingPosting || null, matchingSchedule, new Date(date || new Date()), (req as any).user || currentUserId);
-      const selectedGroup = selection.groups.find((group) => group.id === groupId);
-      if (selectedGroup?.supervisorId) {
-        resolvedSupervisorId = selectedGroup.supervisorId;
-      }
+    const matchingSchedule = await RotationPlan.findOne({
+      class: classId,
+      $or: [{ _id: clinicalRotation }, { "postings._id": clinicalRotation }],
+    }).select("_id class postings meta").lean();
+    const matchingPostings = Array.isArray(matchingSchedule?.postings) ? matchingSchedule.postings : [];
+    const matchingPosting = matchingPostings.find((posting: any) => String(posting?._id) === String(clinicalRotation))
+      ?? (String(matchingSchedule?._id) === String(clinicalRotation) && matchingPostings.length === 1 ? matchingPostings[0] : null);
+    if (!matchingSchedule || !matchingPosting) {
+      return res.status(400).json({ success: false, message: "The selected posting does not belong to this class" });
+    }
+
+    const activityStart = new Date(startTime);
+    const selection = getAvailableClinicalAttendanceGroupsForPosting(matchingPosting, matchingSchedule, activityStart, requestUser(req));
+    const supervisedGroup = selection.groups.find((group) => group.id === selectedGroupId);
+    if (!supervisedGroup) {
+      return res.status(403).json({ success: false, message: "You are not the assigned supervisor for this posting group" });
+    }
+    const resolvedSupervisorId = currentUserId;
+    const teamStudentIds = [...new Set(classRoster.flatMap((studentId) => {
+      const studentAssignments = resolveStudentClinicalAssignments([matchingSchedule], studentId, activityStart);
+      if (studentAssignments.length !== 1) return [];
+      const assignment = studentAssignments[0];
+      return assignment.postingId === String(matchingPosting?._id) && assignment.groupId === supervisedGroup.id
+        ? assignment.studentIds
+        : [];
+    }))];
+    if (teamStudentIds.length === 0) {
+      return res.status(400).json({ success: false, message: "No students are assigned to this active posting group" });
     }
 
     if (!activityType || !title || !date || !startTime || (!resolvedUnitId && !department) || !resolvedSupervisorId || !clinicalRotation) {
@@ -292,10 +359,6 @@ export const createClinicalAttendanceSession = async (
       });
     }
 
-    const selectedGroupLabel = typeof req.body.supervisorGroupLabel === "string" ? req.body.supervisorGroupLabel : "";
-    const selectedGroupCode = typeof req.body.supervisorGroupCode === "string" ? req.body.supervisorGroupCode : "";
-    const selectedGroupType = typeof req.body.supervisorGroupType === "string" ? req.body.supervisorGroupType : "";
-
     const clinicalAttendance = new ClinicalAttendance({
       activityType,
       title,
@@ -311,18 +374,20 @@ export const createClinicalAttendanceSession = async (
       supervisor: resolvedSupervisorId,
       supervisorName: supervisorExists?.name ? String(supervisorExists.name).trim() : "",
       supervisorEmail: supervisorExists?.email || "",
-      supervisorGroupId: selectedGroup || null,
-      supervisorGroupLabel: selectedGroupLabel || "",
-      supervisorGroupCode: selectedGroupCode || "",
-      supervisorGroupType: selectedGroupType || "",
-      expectedStudents: expectedStudents || [],
+      supervisorGroupId: supervisedGroup.id,
+      supervisorGroupLabel: supervisedGroup.label,
+      supervisorGroupCode: supervisedGroup.code,
+      supervisorGroupType: supervisedGroup.type,
+      expectedStudents: teamStudentIds,
+      attendees: teamStudentIds.map((studentId) => ({ student: studentId, status: "pending" })),
       checkInMethod: checkInMethod || "manual",
       requiresApproval: requiresApproval || false,
-      clinicalRotation: clinicalRotation || null,
+      clinicalRotation: matchingPosting._id,
+      classId,
       academicYear: activeAcademicYearId,
       learningOutcomes: learningOutcomes || [],
       createdBy: (req as any).user?._id,
-      status: "planned",
+      status: activityStart <= new Date() && (!endTime || new Date(endTime) > new Date()) ? "ongoing" : "planned",
     });
 
     await clinicalAttendance.save();
@@ -357,19 +422,23 @@ export const createClinicalAttendanceSession = async (
 
 export const getAvailableClinicalAttendanceGroups = async (req: Request, res: Response) => {
   try {
-    const { classId, postingId, userId, userName, userEmail } = req.query as Record<string, string | undefined>;
+    const { classId, postingId } = req.query as Record<string, string | undefined>;
     if (!classId || !postingId) {
       return res.status(400).json({ success: false, message: "classId and postingId are required" });
     }
 
     const schedule = await RotationPlan.findOne({ class: classId, $or: [{ _id: postingId }, { "postings._id": postingId }] }).select("postings meta").lean();
-    const posting = Array.isArray(schedule?.postings)
+    const schedulePostings = Array.isArray(schedule?.postings) ? schedule.postings : [];
+    const posting = schedulePostings
       ? schedule.postings.find((entry: any) => String(entry?._id) === String(postingId)) || null
       : null;
-    const selection = getAvailableClinicalAttendanceGroupsForPosting(posting, schedule, new Date(), {
-      _id: userId || (req as any).user?._id?.toString(),
-      name: userName || (req as any).user?.name || "",
-      email: userEmail || (req as any).user?.email || "",
+    const selectedPosting = posting || (String(schedule?._id) === String(postingId) && schedulePostings.length === 1 ? schedulePostings[0] : null);
+    const selection = getAvailableClinicalAttendanceGroupsForPosting(selectedPosting, schedule, new Date(), {
+      _id: (req as any).user?._id?.toString(),
+      firstName: (req as any).user?.firstName,
+      lastName: (req as any).user?.lastName,
+      name: (req as any).user?.name || "",
+      email: (req as any).user?.email || "",
     });
 
     return res.status(200).json({
@@ -389,7 +458,8 @@ export const getAvailableClinicalAttendanceGroups = async (req: Request, res: Re
 
 export const checkInStudent = async (req: Request, res: Response) => {
   try {
-    const { sessionId, studentId, notes } = req.body;
+    const { sessionId, notes } = req.body;
+    const studentId = isStudentRequest(req) ? requestUserId(req) : String(req.body.studentId ?? "");
 
     if (!sessionId || !studentId) {
       return res.status(400).json({
@@ -404,6 +474,13 @@ export const checkInStudent = async (req: Request, res: Response) => {
         success: false,
         message: "Clinical attendance session not found",
       });
+    }
+
+    if (isStudentRequest(req) && (!studentId || !isExpectedStudent(session, studentId))) {
+      return res.status(403).json({ success: false, message: "You are not assigned to this clinical session" });
+    }
+    if (!isStudentRequest(req) && String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role) !== "admin") {
+      return res.status(403).json({ success: false, message: "Only the assigned supervisor can manage this session" });
     }
 
     const existingRecord = session.attendees.find(
@@ -434,6 +511,9 @@ export const checkInStudent = async (req: Request, res: Response) => {
       } as any);
     }
 
+    session.status = session.status === "planned" ? "ongoing" : session.status;
+    recalculateSessionCounts(session);
+
     await session.save();
 
     emitSystemEvent("clinicalAttendance.student.checkedIn", {
@@ -460,7 +540,8 @@ export const checkInStudent = async (req: Request, res: Response) => {
 
 export const checkOutStudent = async (req: Request, res: Response) => {
   try {
-    const { sessionId, studentId } = req.body;
+    const { sessionId } = req.body;
+    const studentId = isStudentRequest(req) ? requestUserId(req) : String(req.body.studentId ?? "");
 
     if (!sessionId || !studentId) {
       return res.status(400).json({
@@ -477,6 +558,10 @@ export const checkOutStudent = async (req: Request, res: Response) => {
       });
     }
 
+    if (String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
+      return res.status(403).json({ success: false, message: "Only the assigned supervisor can update attendance" });
+    }
+
     const attendeeRecord = session.attendees.find(
       (attendee) => attendee.student.toString() === studentId
     );
@@ -488,6 +573,10 @@ export const checkOutStudent = async (req: Request, res: Response) => {
       });
     }
 
+    if (attendeeRecord.checkOutTime) {
+      return res.status(400).json({ success: false, message: "Student already checked out" });
+    }
+
     const checkOutTime = new Date();
     attendeeRecord.checkOutTime = checkOutTime;
 
@@ -497,13 +586,7 @@ export const checkOutStudent = async (req: Request, res: Response) => {
       attendeeRecord.duration = Math.round(durationMs / 60000);
     }
 
-    if (!session.endTime) {
-      session.endTime = checkOutTime;
-      const durationMs =
-        checkOutTime.getTime() - session.startTime.getTime();
-      session.duration = Math.round(durationMs / 60000);
-    }
-
+    recalculateSessionCounts(session);
     await session.save();
 
     emitSystemEvent("clinicalAttendance.student.checkedOut", {
@@ -553,6 +636,11 @@ export const getClinicalAttendanceSessions = async (
       academicYear: typeof academicYear === "string" ? academicYear : undefined,
     });
 
+    const studentId = isStudentRequest(req) ? requestUserId(req) : "";
+    if (studentId) {
+      filter.$and = [...(filter.$and ?? []), { $or: [{ expectedStudents: studentId }, { "attendees.student": studentId }] }];
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
 
     const sessions = await ClinicalAttendance.find(filter)
@@ -570,11 +658,15 @@ export const getClinicalAttendanceSessions = async (
       await expirePendingAttendancesIfNeeded(session);
     }
 
+    const responseSessions = studentId
+      ? sessions.map((session: any) => serializeStudentAttendanceSession(session, studentId))
+      : sessions;
+
     const total = await ClinicalAttendance.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      data: sessions,
+      data: responseSessions,
       pagination: {
         total,
         page: Number(page),
@@ -603,7 +695,8 @@ export const generateQrAttendancePayload = async (
       return res.status(429).json({ success: false, message: "Too many OTP requests. Please wait a moment and try again." });
     }
 
-    const { studentId, studentIdNumber, sessionId } = req.body;
+    const studentId = requestUserId(req);
+    const { sessionId } = req.body;
 
     if (!studentId || !sessionId) {
       return res.status(400).json({
@@ -620,6 +713,17 @@ export const generateQrAttendancePayload = async (
       });
     }
 
+    const now = new Date();
+    const effectiveEndTime = session.endTime
+      ? new Date(session.endTime)
+      : new Date(new Date(session.startTime).getTime() + 2 * 60 * 60 * 1000);
+    if (session.status !== "ongoing" || new Date(session.date).toDateString() !== now.toDateString() ||
+        new Date(session.startTime).getTime() > now.getTime() ||
+        effectiveEndTime.getTime() <= now.getTime() ||
+        !isExpectedStudent(session, studentId)) {
+      return res.status(403).json({ success: false, message: "QR generation is only available for your active clinical session" });
+    }
+
     const student = await User.findById(studentId);
     if (!student) {
       return res.status(404).json({
@@ -628,11 +732,30 @@ export const generateQrAttendancePayload = async (
       });
     }
 
-    const now = new Date();
-    const validityMinutes = Math.max(30, Math.min(120, Math.round(((session.endTime ? new Date(session.endTime).getTime() : now.getTime() + 60 * 60 * 1000) - now.getTime()) / 60000 / 2)));
+    if (!session.classId || !session.clinicalRotation) {
+      return res.status(403).json({ success: false, message: "This session is not linked to an active class posting" });
+    }
+    const attendanceRecord = session.attendees.find((attendee: any) => String(attendee.student?._id ?? attendee.student) === studentId);
+    if (attendanceRecord && attendanceRecord.status !== "pending") {
+      return res.status(409).json({ success: false, message: "Your attendance has already been finalized for this session" });
+    }
+    const studentClassId = String((student as any).studentClasses ?? "");
+    if (studentClassId !== String(session.classId)) {
+      return res.status(403).json({ success: false, message: "This session does not belong to your class" });
+    }
+    const schedules = await RotationPlan.find({ class: studentClassId }).select("_id class postings meta").lean();
+    const assignment = resolveStudentClinicalAssignments(schedules, studentId, new Date()).find((entry) =>
+      [entry.postingId, entry.scheduleId].includes(String(session.clinicalRotation)) &&
+      entry.groupId === String(session.supervisorGroupId)
+    );
+    if (!assignment) {
+      return res.status(403).json({ success: false, message: "You are not assigned to this active posting group" });
+    }
+
+    const validityMinutes = Math.max(1, Math.min(120, Math.floor((effectiveEndTime.getTime() - now.getTime()) / 60000)));
     const identityReference = getInstitutionIdentityReference({
       inn: student.inn,
-      idNumber: studentIdNumber || student.idNumber,
+      idNumber: student.idNumber,
       email: student.email,
     });
     const payload = {
@@ -648,24 +771,17 @@ export const generateQrAttendancePayload = async (
 
     const signedPayload = createSignedQrPayload(payload);
 
-    let otp = String(Math.floor(100000 + Math.random() * 900000));
-    try {
-      await QrOtpModel.create({ otp, payload: signedPayload, expiresAt: new Date(payload.expiresAt) });
-    } catch (err) {
-      let attempts = 0;
-      let created = false;
-      while (attempts < 3 && !created) {
-        attempts += 1;
-        const next = String(Math.floor(100000 + Math.random() * 900000));
-        try {
-          await QrOtpModel.create({ otp: next, payload: signedPayload, expiresAt: new Date(payload.expiresAt) });
-          otp = next;
-          created = true;
-        } catch {
-          // continue
-        }
+    let otp = "";
+    for (let attempt = 0; attempt < 4 && !otp; attempt += 1) {
+      const candidate = String(crypto.randomInt(100000, 1000000));
+      try {
+        await QrOtpModel.create({ otp: candidate, payload: signedPayload, expiresAt: new Date(payload.expiresAt) });
+        otp = candidate;
+      } catch (error: any) {
+        if (error?.code !== 11000) throw error;
       }
     }
+    if (!otp) throw new Error("Unable to reserve a unique attendance OTP");
 
     emitSystemEvent("clinicalAttendance.qr.generated", {
       sessionId: session._id.toString(),
@@ -706,7 +822,11 @@ export const approveQrAttendance = async (
       return res.status(429).json({ success: false, message: "Too many approval attempts. Please wait a moment and try again." });
     }
 
-    const { qrPayload, status = "present", notes = "" } = req.body;
+    const { qrPayload, sessionId: selectedSessionId, status = "present", notes = "" } = req.body;
+
+    if (!["present", "absent", "approved_absent"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Unsupported attendance status" });
+    }
 
     if (!qrPayload) {
       return res.status(400).json({
@@ -716,26 +836,35 @@ export const approveQrAttendance = async (
     }
 
     let parsedPayload: any;
+    let otpRecord: any;
     const otpMatch = typeof qrPayload === "string" && /^\d{6}$/.test(qrPayload.trim());
     if (otpMatch) {
-      const found = await QrOtpModel.findOne({ otp: qrPayload.trim(), expiresAt: { $gt: new Date() } } as any).lean();
-      if (!found) {
+      otpRecord = await QrOtpModel.findOne({ otp: qrPayload.trim() }).lean();
+      if (!otpRecord || new Date(otpRecord.expiresAt).getTime() <= Date.now()) {
         return res.status(404).json({ success: false, message: "OTP not found or expired" });
       }
-      try {
-        parsedPayload = verifySignedQrPayload(found.payload);
-        if (!parsedPayload) {
-          return res.status(400).json({ success: false, message: "Invalid signed OTP payload stored on server" });
-        }
-        await QrOtpModel.deleteOne({ _id: found._id }).catch(() => {});
-      } catch (err) {
-        return res.status(400).json({ success: false, message: "Invalid OTP payload stored on server" });
-      }
+      parsedPayload = verifySignedQrPayload(otpRecord.payload);
+      if (!parsedPayload) return res.status(400).json({ success: false, message: "Invalid signed OTP payload stored on server" });
     } else {
       parsedPayload = verifySignedQrPayload(qrPayload);
       if (!parsedPayload) {
         return res.status(400).json({ success: false, message: "Invalid or tampered QR payload" });
       }
+      otpRecord = await QrOtpModel.findOne({ payload: qrPayload }).lean();
+      if (!otpRecord || new Date(otpRecord.expiresAt).getTime() <= Date.now()) {
+        return res.status(410).json({ success: false, message: "Attendance QR has expired or was already used" });
+      }
+    }
+
+    if (otpRecord.approvalStatus === "consumed") {
+      if (String(otpRecord.approvedBy ?? "") !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
+        return res.status(403).json({ success: false, message: "Only the approving supervisor can retry this approval" });
+      }
+      if (otpRecord.approvalResponse) return res.status(200).json(otpRecord.approvalResponse);
+      return res.status(409).json({ success: false, message: "This attendance token has already been used" });
+    }
+    if (otpRecord.approvalStatus === "processing" && Date.now() - new Date(otpRecord.claimedAt ?? 0).getTime() < 120_000) {
+      return res.status(409).json({ success: false, message: "This attendance approval is already being processed" });
     }
 
     const now = new Date();
@@ -755,6 +884,20 @@ export const approveQrAttendance = async (
       });
     }
 
+    const authenticatedUser = requestUser(req);
+    if (String(authenticatedUser?._id ?? "") !== String(session.supervisor) && String(authenticatedUser?.role ?? "").toLowerCase() !== "admin") {
+      return res.status(403).json({ success: false, message: "Only the assigned supervisor can approve this session" });
+    }
+    if (selectedSessionId && String(selectedSessionId) !== String(session._id)) {
+      return res.status(409).json({ success: false, message: "The scanned QR belongs to a different session" });
+    }
+    if (session.status !== "ongoing") {
+      return res.status(409).json({ success: false, message: "This clinical session is not active" });
+    }
+    if (session.expectedStudents?.length && !isExpectedStudent(session, String(parsedPayload.studentId))) {
+      return res.status(403).json({ success: false, message: "This student is not assigned to the clinical session" });
+    }
+
     const student = await User.findById(parsedPayload.studentId);
     if (!student) {
       return res.status(404).json({
@@ -768,7 +911,44 @@ export const approveQrAttendance = async (
     );
 
     const checkInTime = new Date();
-    const normalizedStatus = status === "approved_absent" ? "excused" : status === "absent" ? "absent" : status === "pending" ? "pending" : "present";
+    if (existingRecord && existingRecord.status !== "pending") {
+      if (existingRecord.approvalNonce === parsedPayload.nonce && String(existingRecord.approvedBy ?? "") === requestUserId(req)) {
+        const approvalResponse = {
+          success: true,
+          message: "Attendance approved successfully",
+          data: {
+            studentId: student._id,
+            studentIdNumber: parsedPayload.studentIdNumber,
+            sessionId: session._id,
+            status: existingRecord.status,
+            checkedAt: existingRecord.approvedAt ?? existingRecord.checkInTime,
+          },
+        };
+        await QrOtpModel.updateOne(
+          { _id: otpRecord._id, approvalStatus: "processing" },
+          { $set: { approvalStatus: "consumed", approvedBy: requestUser(req)?._id, approvalResponse } }
+        );
+        return res.status(200).json(approvalResponse);
+      }
+      return res.status(409).json({ success: false, message: "Attendance is already finalized for this student" });
+    }
+    const normalizedStatus = status === "approved_absent" ? "excused" : status;
+
+    const claimedOtp = await QrOtpModel.findOneAndUpdate(
+      {
+        _id: otpRecord._id,
+        expiresAt: { $gt: now },
+        $or: [
+          { approvalStatus: { $in: [null, "available"] } },
+          { approvalStatus: "processing", claimedAt: { $lt: new Date(now.getTime() - 120_000) } },
+        ],
+      },
+      { $set: { approvalStatus: "processing", claimedAt: now } },
+      { new: true }
+    ).lean();
+    if (!claimedOtp) {
+      return res.status(409).json({ success: false, message: "This attendance token is already being processed or has been used" });
+    }
 
     if (existingRecord) {
       existingRecord.status = normalizedStatus;
@@ -778,6 +958,7 @@ export const approveQrAttendance = async (
       existingRecord.approvedByName = ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : existingRecord.approvedByName || '';
       existingRecord.approvedByEmail = (req as any).user?.email || existingRecord.approvedByEmail || '';
       existingRecord.approvedAt = checkInTime;
+      existingRecord.approvalNonce = parsedPayload.nonce;
     } else {
       session.attendees.push({
         student: parsedPayload.studentId,
@@ -788,21 +969,21 @@ export const approveQrAttendance = async (
         approvedByName: ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : '',
         approvedByEmail: (req as any).user?.email || '',
         approvedAt: checkInTime,
+        approvalNonce: parsedPayload.nonce,
       } as any);
     }
 
-    if (normalizedStatus === "pending") {
-      session.status = "ongoing";
-    } else {
-      session.status = session.status === "planned" ? "ongoing" : session.status;
+    recalculateSessionCounts(session);
+
+    try {
+      await session.save();
+    } catch (error) {
+      await QrOtpModel.updateOne(
+        { _id: otpRecord._id, approvalStatus: "processing" },
+        { $set: { approvalStatus: "available", claimedAt: null } }
+      ).catch(() => {});
+      throw error;
     }
-
-    session.presentCount = session.attendees.filter((a) => a.status === "present").length;
-    session.absentCount = session.attendees.filter((a) => a.status === "absent").length;
-    session.lateCount = session.attendees.filter((a) => a.status === "late").length;
-    session.excusedCount = session.attendees.filter((a) => a.status === "excused").length;
-
-    await session.save();
 
     emitSystemEvent("clinicalAttendance.qr.approved", {
       sessionId: session._id.toString(),
@@ -812,7 +993,7 @@ export const approveQrAttendance = async (
       approvedAt: checkInTime.toISOString(),
     });
 
-    res.status(200).json({
+    const approvalResponse = {
       success: true,
       message: "Attendance approved successfully",
       data: {
@@ -822,7 +1003,12 @@ export const approveQrAttendance = async (
         status: normalizedStatus,
         checkedAt: checkInTime,
       },
-    });
+    };
+    await QrOtpModel.updateOne(
+      { _id: otpRecord._id, approvalStatus: "processing" },
+      { $set: { approvalStatus: "consumed", approvedBy: requestUser(req)?._id, approvalResponse } }
+    );
+    res.status(200).json(approvalResponse);
   } catch (error: any) {
     console.error("Error approving QR attendance:", error);
     res.status(500).json({
@@ -833,12 +1019,70 @@ export const approveQrAttendance = async (
   }
 };
 
+export const getStudentClinicalAttendanceContext = async (req: Request, res: Response) => {
+  try {
+    const studentId = requestUserId(req);
+    const student = await User.findById(studentId).select("studentClasses").lean();
+    const classId = String((student as any)?.studentClasses ?? "");
+    if (!classId) {
+      return res.status(200).json({ success: true, data: { assignment: null, activeSession: null, sessions: [] } });
+    }
+
+    const schedules = await RotationPlan.find({ class: classId }).select("_id class name postings meta").lean();
+    const assignments = resolveStudentClinicalAssignments(schedules, studentId, new Date());
+    if (assignments.length > 1) {
+      return res.status(409).json({ success: false, message: "Multiple active clinical posting groups are assigned to your account" });
+    }
+    const assignment = assignments[0] ?? null;
+    if (!assignment) {
+      return res.status(200).json({ success: true, data: { assignment: null, activeSession: null, sessions: [] } });
+    }
+
+    const postingIds = [...new Set([assignment.postingId, assignment.scheduleId].filter(Boolean))];
+    const sessions = await ClinicalAttendance.find({
+      clinicalRotation: { $in: postingIds },
+      $or: [{ expectedStudents: studentId }, { "attendees.student": studentId }],
+    })
+      .populate([
+        { path: "unit", select: "name" },
+        { path: "supervisor", select: "firstName lastName name" },
+        { path: "attendees.student", select: "firstName lastName" },
+      ])
+      .sort({ date: -1 });
+
+    for (const session of sessions) {
+      await expirePendingAttendancesIfNeeded(session);
+    }
+
+    const studentSessions = sessions.map((session: any) => serializeStudentAttendanceSession(session, studentId));
+
+    const now = new Date();
+    const activeSession = studentSessions.find((session: any) =>
+      session.status === "ongoing" &&
+      String(session.supervisorGroupId ?? "") === assignment.groupId &&
+      new Date(session.date).toDateString() === now.toDateString() &&
+      new Date(session.startTime).getTime() <= now.getTime() &&
+      (!session.endTime || new Date(session.endTime).getTime() > now.getTime())
+    ) ?? null;
+
+    const { studentIds: _studentIds, ...publicAssignment } = assignment;
+    return res.status(200).json({
+      success: true,
+      data: { assignment: publicAssignment, activeSession, sessions: studentSessions },
+    });
+  } catch (error: any) {
+    console.error("Error fetching student clinical attendance context:", error);
+    return res.status(500).json({ success: false, message: "Unable to load your clinical attendance" });
+  }
+};
+
 export const getStudentAttendanceRecord = async (
   req: Request,
   res: Response
 ) => {
   try {
-    const { studentId, academicYear, unit } = req.query;
+    const { academicYear, unit } = req.query;
+    const studentId = isStudentRequest(req) ? requestUserId(req) : String(req.query.studentId ?? "");
 
     if (!studentId) {
       return res.status(400).json({
@@ -865,6 +1109,10 @@ export const getStudentAttendanceRecord = async (
       await expirePendingAttendancesIfNeeded(session);
     }
 
+    const responseSessions = isStudentRequest(req)
+      ? sessions.map((session: any) => serializeStudentAttendanceSession(session, studentId))
+      : sessions;
+
     let present = 0,
       absent = 0,
       late = 0,
@@ -887,7 +1135,7 @@ export const getStudentAttendanceRecord = async (
     res.status(200).json({
       success: true,
       data: {
-        sessions,
+        sessions: responseSessions,
         statistics: {
           present,
           absent,
@@ -915,6 +1163,10 @@ export const updateStudentAttendanceStatus = async (
   try {
     const { sessionId, studentId, status, notes } = req.body;
 
+    if (!["present", "absent", "late", "excused", "on-leave", "pending"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Unsupported attendance status" });
+    }
+
     if (!sessionId || !studentId || !status) {
       return res.status(400).json({
         success: false,
@@ -931,6 +1183,10 @@ export const updateStudentAttendanceStatus = async (
       });
     }
 
+    if (String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
+      return res.status(403).json({ success: false, message: "Only the assigned supervisor can update attendance" });
+    }
+
     const attendeeRecord = session.attendees.find(
       (attendee) => attendee.student.toString() === studentId
     );
@@ -944,19 +1200,11 @@ export const updateStudentAttendanceStatus = async (
 
     attendeeRecord.status = status;
     if (notes) attendeeRecord.notes = notes;
-
-    session.presentCount = session.attendees.filter(
-      (a) => a.status === "present"
-    ).length;
-    session.absentCount = session.attendees.filter(
-      (a) => a.status === "absent"
-    ).length;
-    session.lateCount = session.attendees.filter(
-      (a) => a.status === "late"
-    ).length;
-    session.excusedCount = session.attendees.filter(
-      (a) => a.status === "excused"
-    ).length;
+    if (["present", "late"].includes(status) && !attendeeRecord.checkInTime) attendeeRecord.checkInTime = new Date();
+    if (["absent", "excused", "on-leave", "pending"].includes(status)) attendeeRecord.checkInTime = null;
+    attendeeRecord.approvedBy = requestUser(req)?._id ?? attendeeRecord.approvedBy;
+    attendeeRecord.approvedAt = new Date();
+    recalculateSessionCounts(session);
 
     await session.save();
 
@@ -1001,6 +1249,22 @@ export const endClinicalSession = async (req: Request, res: Response) => {
       });
     }
 
+    if (String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
+      return res.status(403).json({ success: false, message: "Only the assigned supervisor can end this session" });
+    }
+
+    const existingStudentIds = new Set(session.attendees.map((attendee: any) => String(attendee.student?._id ?? attendee.student)));
+    for (const studentId of session.expectedStudents ?? []) {
+      if (!existingStudentIds.has(String(studentId))) {
+        session.attendees.push({ student: studentId, status: "absent", notes: "Marked absent when session ended" } as any);
+      }
+    }
+    session.attendees.forEach((attendee: any) => {
+      if (attendee.status === "pending") {
+        attendee.status = "absent";
+        attendee.notes = attendee.notes || "Marked absent when session ended";
+      }
+    });
     session.status = "completed";
     session.endTime = new Date();
 
@@ -1014,18 +1278,7 @@ export const endClinicalSession = async (req: Request, res: Response) => {
     if (proceduresPerformed) session.proceduresPerformed = proceduresPerformed;
     if (patientCount) session.patientCount = patientCount;
 
-    session.presentCount = session.attendees.filter(
-      (a) => a.status === "present"
-    ).length;
-    session.absentCount = session.attendees.filter(
-      (a) => a.status === "absent"
-    ).length;
-    session.lateCount = session.attendees.filter(
-      (a) => a.status === "late"
-    ).length;
-    session.excusedCount = session.attendees.filter(
-      (a) => a.status === "excused"
-    ).length;
+    recalculateSessionCounts(session);
 
     await session.save();
 

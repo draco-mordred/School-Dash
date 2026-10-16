@@ -3,9 +3,12 @@ import { logActivity } from "../utils/activitieslog";
 import { inngest } from "../inngest";
 import Timetable from "../models/timetable";
 import ClassModel from "../models/classes";
+import AcademicClock from "../models/academicClock";
 import User from "../models/user";
 import mongoose from "mongoose";
 import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable";
+import { resolveAcademicClockPhase } from "../utils/academicClockPhase";
+import { getTimetableForPhase, saveTimetableForPhase } from "../utils/phaseTimetable";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin
@@ -80,7 +83,21 @@ export const getTimetable = async (
   res: Response
 ) => {
   try {
-    const timetable = await Timetable.findOne({ class: req.params.classId })
+    const classDoc = await ClassModel.findById(req.params.classId)
+      .select("academicYear courses")
+      .populate("courses", "name code")
+      .lean();
+    if (!classDoc) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+    const query: Record<string, unknown> = { class: req.params.classId };
+    if (classDoc?.academicYear) query.academicYear = classDoc.academicYear;
+    const clock = classDoc?.academicYear
+      ? await AcademicClock.findOne({ classId: req.params.classId, academicYear: classDoc.academicYear }).lean()
+      : null;
+    const phase = clock ? resolveAcademicClockPhase(clock) : null;
+    const phaseConfig = phase?.phase as Record<string, any> | null;
+    const timetable = await Timetable.findOne(query)
     .populate({
       path: "schedule.periods.subject",
       select: "name code courseID subjects.name subjects.code subjects.subjectID subjects.date subjects.startTime subjects.endTime subjects.lecturer",
@@ -89,12 +106,55 @@ export const getTimetable = async (
         select: "name email",
       },
     })
-    .populate("schedule.periods.lecturer", "name email");
+    .populate("schedule.periods.lecturer", "name email")
+    .populate({
+      path: "phaseSchedules.schedule.periods.subject",
+      select: "name code courseID subjects.name subjects.code subjects.subjectID subjects.date subjects.startTime subjects.endTime subjects.lecturer",
+      populate: {
+        path: "subjects.lecturer",
+        select: "name email",
+      },
+    })
+    .populate("phaseSchedules.schedule.periods.lecturer", "name email");
 
+    const phaseScheduleId = phaseConfig?.timetablePhaseId ?? phase?.phaseId ?? null;
+    const storedPhaseSchedule = timetable?.phaseSchedules?.find(
+      (entry: any) => entry.phaseId === phaseScheduleId,
+    );
+    const phaseCourseIds: string[] = Array.isArray(phaseConfig?.courseIds)
+      ? phaseConfig.courseIds.map(String)
+      : (storedPhaseSchedule?.courseIds ?? []).map(String);
+    const allClassCourses = ((classDoc as any).courses ?? []) as Array<Record<string, any>>;
+    const phaseCourses = allClassCourses.filter((course) =>
+      phaseCourseIds.length === 0 || phaseCourseIds.includes(String(course._id)),
+    );
     if (!timetable) {
-      return res.status(404).json({ message: "Timetable not found!" });
+      return res.json({
+        schedule: [],
+        phaseId: phase?.phaseId ?? null,
+        phaseName: phaseConfig?.name ?? null,
+        phaseStartsAt: phase?.startsAt ?? null,
+        phaseEndsAt: phase?.endsAt ?? null,
+        phaseCourseIds,
+        phaseCourses,
+        scheduleConfigured: false,
+      });
     }
-    res.json({ schedule: timetable.schedule })
+    const selected = getTimetableForPhase(
+      timetable,
+      phase?.phaseId ?? null,
+      phaseConfig?.timetablePhaseId ?? null,
+    );
+    res.json({
+      schedule: selected.schedule,
+      phaseId: phase?.phaseId ?? null,
+      phaseName: phaseConfig?.name ?? null,
+      phaseStartsAt: phase?.startsAt ?? null,
+      phaseEndsAt: phase?.endsAt ?? null,
+      phaseCourseIds,
+      phaseCourses,
+      scheduleConfigured: selected.configured,
+    })
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -107,34 +167,41 @@ export const addPeriod = async (req: Request, res: Response) => {
   try {
     const { classId } = req.params;
     const { day, period } = req.body;
+    const clockContext = await getClassClockContext(classId);
 
     if (!day || !period || !period.subject || !period.startTime || !period.endTime) {
       res.status(400).json({ message: "day and period (subject, startTime, endTime) are required" });
       return;
     }
 
-    const timetable = await Timetable.findOne({ class: classId });
+    const timetable = await Timetable.findOne({
+      class: classId,
+      ...(clockContext.academicYearId ? { academicYear: clockContext.academicYearId } : {}),
+    });
     if (!timetable) {
       res.status(404).json({ message: "Timetable not found for this class" });
       return;
     }
 
-    const dayIndex = timetable.schedule.findIndex(
+    const schedule = [...getEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId)];
+    const dayIndex = schedule.findIndex(
       (d) => d.day.toLowerCase() === day.toLowerCase()
     );
 
     if (dayIndex === -1) {
       // Create a new day entry
-      timetable.schedule.push({ day, periods: [period] });
+      schedule.push({ day, periods: [period] });
     } else {
-      timetable.schedule[dayIndex].periods.push(period);
+      schedule[dayIndex].periods.push(period);
     }
 
-    await timetable.save();
+    await saveEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId, schedule);
 
     const updated = await Timetable.findById(timetable._id)
       .populate("schedule.periods.subject", "name code subjects.subjectID")
-      .populate("schedule.periods.lecturer", "name email");
+      .populate("schedule.periods.lecturer", "name email")
+      .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+      .populate("phaseSchedules.schedule.periods.lecturer", "name email");
 
     await logActivity({
       userId: (req as any).user._id,
@@ -142,10 +209,65 @@ export const addPeriod = async (req: Request, res: Response) => {
       details: `Class ${classId}, day ${day}, subject ${period.subject}`,
     });
 
-    res.status(201).json({ schedule: updated?.schedule });
+    res.status(201).json({
+      schedule: updated ? getEditableSchedule(updated, clockContext.phaseId, clockContext.sourcePhaseId) : schedule,
+      phaseId: clockContext.phaseId,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
+};
+
+const getClassClockContext = async (classId: string) => {
+  const classDoc = await ClassModel.findById(classId).select("academicYear").lean();
+  const academicYearId = classDoc?.academicYear ? String(classDoc.academicYear) : "";
+  const clock = academicYearId
+    ? await AcademicClock.findOne({ classId, academicYear: academicYearId }).lean()
+    : null;
+  const phase = clock ? resolveAcademicClockPhase(clock) : null;
+  const phaseConfig = phase?.phase as Record<string, any> | null;
+
+  return {
+    academicYearId,
+    phaseId: phase?.phaseId ?? null,
+    phaseConfig,
+    sourcePhaseId: phaseConfig?.timetablePhaseId ?? null,
+  };
+};
+
+const getEditableSchedule = (timetable: any, phaseId: string | null, sourcePhaseId: string | null) => {
+  const source = sourcePhaseId || phaseId;
+  if (!phaseId || source === "legacy") return timetable.schedule;
+
+  const phaseEntry = (timetable.phaseSchedules ?? []).find((entry: any) => entry.phaseId === source);
+  return phaseEntry?.schedule ?? [];
+};
+
+const saveEditableSchedule = async (
+  timetable: any,
+  phaseId: string | null,
+  sourcePhaseId: string | null,
+  schedule: any[],
+) => {
+  const source = sourcePhaseId || phaseId;
+  if (!phaseId || source === "legacy") {
+    timetable.schedule = schedule;
+    await timetable.save();
+    return;
+  }
+
+  const phaseSchedules = [...(timetable.phaseSchedules ?? [])];
+  const index = phaseSchedules.findIndex((entry: any) => entry.phaseId === source);
+  const entry = {
+    phaseId: source,
+    schedule,
+    courseIds: timetable.phaseSchedules?.[index]?.courseIds ?? [],
+    updatedAt: new Date(),
+  };
+  if (index === -1) phaseSchedules.push(entry);
+  else phaseSchedules[index] = entry;
+  timetable.phaseSchedules = phaseSchedules;
+  await timetable.save();
 };
 
 // @desc    Update a period in the timetable
@@ -155,24 +277,29 @@ export const updatePeriod = async (req: Request, res: Response) => {
   try {
     const { classId } = req.params;
     const { dayIndex, periodIndex, period } = req.body;
+    const clockContext = await getClassClockContext(classId);
 
     if (dayIndex === undefined || periodIndex === undefined || !period) {
       res.status(400).json({ message: "dayIndex, periodIndex, and period are required" });
       return;
     }
 
-    const timetable = await Timetable.findOne({ class: classId });
+    const timetable = await Timetable.findOne({
+      class: classId,
+      ...(clockContext.academicYearId ? { academicYear: clockContext.academicYearId } : {}),
+    });
     if (!timetable) {
       res.status(404).json({ message: "Timetable not found for this class" });
       return;
     }
 
-    if (dayIndex < 0 || dayIndex >= timetable.schedule.length) {
+    const schedule = [...getEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId)];
+    if (dayIndex < 0 || dayIndex >= schedule.length) {
       res.status(400).json({ message: "Invalid dayIndex" });
       return;
     }
 
-    const daySchedule = timetable.schedule[dayIndex];
+    const daySchedule = schedule[dayIndex];
     if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
       res.status(400).json({ message: "Invalid periodIndex" });
       return;
@@ -183,11 +310,13 @@ export const updatePeriod = async (req: Request, res: Response) => {
       ...period,
     };
 
-    await timetable.save();
+    await saveEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId, schedule);
 
     const updated = await Timetable.findById(timetable._id)
       .populate("schedule.periods.subject", "name code subjects.subjectID")
-      .populate("schedule.periods.lecturer", "name email");
+      .populate("schedule.periods.lecturer", "name email")
+      .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+      .populate("phaseSchedules.schedule.periods.lecturer", "name email");
 
     await logActivity({
       userId: (req as any).user._id,
@@ -195,7 +324,10 @@ export const updatePeriod = async (req: Request, res: Response) => {
       details: `Class ${classId}, day ${dayIndex}, period ${periodIndex}`,
     });
 
-    res.status(200).json({ schedule: updated?.schedule });
+    res.status(200).json({
+      schedule: updated ? getEditableSchedule(updated, clockContext.phaseId, clockContext.sourcePhaseId) : schedule,
+      phaseId: clockContext.phaseId,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -208,35 +340,42 @@ export const deletePeriod = async (req: Request, res: Response) => {
   try {
     const { classId } = req.params;
     const { dayIndex, periodIndex } = req.body;
+    const clockContext = await getClassClockContext(classId);
 
     if (dayIndex === undefined || periodIndex === undefined) {
       res.status(400).json({ message: "dayIndex and periodIndex are required" });
       return;
     }
 
-    const timetable = await Timetable.findOne({ class: classId });
+    const timetable = await Timetable.findOne({
+      class: classId,
+      ...(clockContext.academicYearId ? { academicYear: clockContext.academicYearId } : {}),
+    });
     if (!timetable) {
       res.status(404).json({ message: "Timetable not found for this class" });
       return;
     }
 
-    if (dayIndex < 0 || dayIndex >= timetable.schedule.length) {
+    const schedule = [...getEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId)];
+    if (dayIndex < 0 || dayIndex >= schedule.length) {
       res.status(400).json({ message: "Invalid dayIndex" });
       return;
     }
 
-    const daySchedule = timetable.schedule[dayIndex];
+    const daySchedule = schedule[dayIndex];
     if (periodIndex < 0 || periodIndex >= daySchedule?.periods.length) {
       res.status(400).json({ message: "Invalid periodIndex" });
       return;
     }
 
     daySchedule?.periods.splice(periodIndex, 1);
-    await timetable.save();
+    await saveEditableSchedule(timetable, clockContext.phaseId, clockContext.sourcePhaseId, schedule);
 
     const updated = await Timetable.findById(timetable._id)
       .populate("schedule.periods.subject", "name code subjects.subjectID")
-      .populate("schedule.periods.lecturer", "name email");
+      .populate("schedule.periods.lecturer", "name email")
+      .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+      .populate("phaseSchedules.schedule.periods.lecturer", "name email");
 
     await logActivity({
       userId: (req as any).user._id,
@@ -244,13 +383,23 @@ export const deletePeriod = async (req: Request, res: Response) => {
       details: `Class ${classId}, day ${dayIndex}, period ${periodIndex}`,
     });
 
-    res.status(200).json({ schedule: updated?.schedule });
+    res.status(200).json({
+      schedule: updated ? getEditableSchedule(updated, clockContext.phaseId, clockContext.sourcePhaseId) : schedule,
+      phaseId: clockContext.phaseId,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
 };
 
 async function fastGenerateAndSave(classId: string, academicYearId: string, settings: any) {
+  const clockContext = await getClassClockContext(classId);
+  const phaseSettings = {
+    ...settings,
+    clockPhase: clockContext.phaseId ?? settings?.clockPhase,
+    timetableSourcePhaseId: clockContext.sourcePhaseId ?? clockContext.phaseId,
+    phaseCourseIds: clockContext.phaseConfig?.courseIds ?? [],
+  };
   // settings: { startTime: '08:00', endTime: '16:00', periods: number }
   // Check if this is a 400 Level class
   const is400Level = /^400\s*level/i.test(settings?.className || "");
@@ -258,19 +407,25 @@ async function fastGenerateAndSave(classId: string, academicYearId: string, sett
 
   if (is400Level) {
     // Special schedule for 400 Level classes
-    return await generate400LevelSchedule(classId, academicYearId, settings);
+    return await generate400LevelSchedule(classId, academicYearId, phaseSettings);
   }
 
   if (is500Level) {
     // Phase-based schedule for 500 Level classes
-    return await generate500LevelSchedule(classId, academicYearId, settings);
+    return await generate500LevelSchedule(classId, academicYearId, phaseSettings);
   }
 
   // Simple round-robin assignment: gather courses and lecturers, then fill days x periods
   const cls = await ClassModel.findById(classId).populate("courses");
   if (!cls) throw new Error("Class not found");
 
-  const courses: any[] = (cls.courses || []).map((c: any) => ({ id: String(c._id), name: c.name }));
+  const selectedCourseIds = Array.isArray(phaseSettings.phaseCourseIds)
+    ? new Set(phaseSettings.phaseCourseIds.map(String))
+    : new Set<string>();
+  const allCourses: any[] = (cls.courses || []).map((c: any) => ({ id: String(c._id), name: c.name }));
+  const courses = selectedCourseIds.size > 0
+    ? allCourses.filter((course) => selectedCourseIds.has(course.id))
+    : allCourses;
   // Fetch lecturers and map by course id (teacherSubject)
   const teachers = await User.find({ role: "teacher" }).select("_id name teacherSubject");
   const teachersByCourse: Record<string, string[]> = {};
@@ -342,14 +497,30 @@ async function fastGenerateAndSave(classId: string, academicYearId: string, sett
   }
 
   // Persist
-  await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
-  await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
+  await saveTimetableForPhase(Timetable, {
+    classId,
+    academicYearId,
+    phaseId: getTimetableSavePhaseId(phaseSettings),
+    schedule,
+    courseIds: courses.map((course) => course.id),
+  });
   const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
     .populate("schedule.periods.subject", "name code subjects.subjectID")
-    .populate("schedule.periods.lecturer", "name email idNumber");
+    .populate("schedule.periods.lecturer", "name email idNumber")
+    .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+    .populate("phaseSchedules.schedule.periods.lecturer", "name email idNumber");
 
-  return { success: true, schedule: saved?.schedule ?? schedule };
+  const savedPhaseId = getTimetableSavePhaseId(phaseSettings);
+  const savedSchedule = savedPhaseId
+    ? saved?.phaseSchedules?.find((entry: any) => entry.phaseId === savedPhaseId)?.schedule
+    : saved?.schedule;
+  return { success: true, schedule: savedSchedule ?? schedule, phaseId: clockContext.phaseId };
 }
+
+const getTimetableSavePhaseId = (settings: any): string | null =>
+  settings?.timetableSourcePhaseId === "legacy"
+    ? null
+    : settings?.timetableSourcePhaseId ?? settings?.clockPhase ?? null;
 
 // Specialized schedule generator for 500 Level classes (phase-based)
 async function generate500LevelSchedule(classId: string, academicYearId: string, settings: any) {
@@ -358,8 +529,8 @@ async function generate500LevelSchedule(classId: string, academicYearId: string,
 
   const academicYearDoc = await (await import("../models/academicYear")).default.findById(academicYearId);
   const clockPhase =
-    academicYearDoc?.clockPhase ??
     (settings?.clockPhase as string | undefined) ??
+    academicYearDoc?.clockPhase ??
     "phase1";
 
   console.log(`[500-Level Timetable] Generating for class: ${cls.name}, phase: ${clockPhase}, from DB: ${academicYearDoc?.clockPhase ?? "N/A"}, from settings: ${settings?.clockPhase ?? "N/A"}`);
@@ -380,11 +551,17 @@ async function generate500LevelSchedule(classId: string, academicYearId: string,
     return list.length ? list[0] : null;
   };
 
-  const plan = build500LevelTimetablePlan(clockPhase, cls.courses as any[]);
+  const selectedCourseIds = new Set(
+    Array.isArray(settings?.phaseCourseIds) ? settings.phaseCourseIds.map(String) : [],
+  );
+  const phaseCourses = selectedCourseIds.size
+    ? cls.courses.filter((course: any) => selectedCourseIds.has(String(course?._id ?? course)))
+    : cls.courses;
+  const plan = build500LevelTimetablePlan(clockPhase, phaseCourses as any[]);
   const schedule = plan.map(({ day, periods }) => ({
     day,
     periods: periods.map((period) => {
-      const course = period.courseCode ? resolve500LevelCourse(cls.courses as any[], period.courseCode) : null;
+      const course = period.courseCode ? resolve500LevelCourse(phaseCourses as any[], period.courseCode) : null;
       const courseDbId = course?._id ? String(course._id) : null;
       const lecturerId = getLecturerForCourseId(courseDbId);
 
@@ -399,14 +576,25 @@ async function generate500LevelSchedule(classId: string, academicYearId: string,
     }),
   }));
 
-  await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
-  await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
+  await saveTimetableForPhase(Timetable, {
+    classId,
+    academicYearId,
+    phaseId: getTimetableSavePhaseId(settings),
+    schedule,
+    courseIds: Array.isArray(settings?.phaseCourseIds) ? settings.phaseCourseIds : [],
+  });
 
   const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
     .populate("schedule.periods.subject", "name code subjects.subjectID")
-    .populate("schedule.periods.lecturer", "name email idNumber");
+    .populate("schedule.periods.lecturer", "name email idNumber")
+    .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+    .populate("phaseSchedules.schedule.periods.lecturer", "name email idNumber");
 
-  return { success: true, schedule: saved?.schedule ?? schedule };
+  const savedPhaseId = getTimetableSavePhaseId(settings);
+  const savedSchedule = savedPhaseId
+    ? saved?.phaseSchedules?.find((entry: any) => entry.phaseId === savedPhaseId)?.schedule
+    : saved?.schedule;
+  return { success: true, schedule: savedSchedule ?? schedule, phaseId: settings?.clockPhase ?? null };
 }
 
 // Specialized schedule generator for 400 Level classes
@@ -642,12 +830,36 @@ async function generate400LevelSchedule(classId: string, academicYearId: string,
     }
   ];
 
+  const selectedCourseIds = new Set(
+    Array.isArray(settings?.phaseCourseIds) ? settings.phaseCourseIds.map(String) : [],
+  );
+  if (selectedCourseIds.size) {
+    for (const day of schedule) {
+      day.periods = day.periods.filter(
+        (period: any) => period.isClinical || !period.subject || selectedCourseIds.has(String(period.subject)),
+      );
+    }
+  }
+
   // Persist
-  await Timetable.findOneAndDelete({ class: classId, academicYear: academicYearId });
-  await Timetable.create({ class: classId, academicYear: academicYearId, schedule });
+  await saveTimetableForPhase(Timetable, {
+    classId,
+    academicYearId,
+    phaseId: getTimetableSavePhaseId(settings),
+    schedule,
+    courseIds: selectedCourseIds.size
+      ? [...selectedCourseIds]
+      : cls.courses.map((course: any) => String(course?._id ?? course)),
+  });
   const saved = await Timetable.findOne({ class: classId, academicYear: academicYearId })
     .populate("schedule.periods.subject", "name code subjects.subjectID")
-    .populate("schedule.periods.lecturer", "name email idNumber");
+    .populate("schedule.periods.lecturer", "name email idNumber")
+    .populate("phaseSchedules.schedule.periods.subject", "name code subjects.subjectID")
+    .populate("phaseSchedules.schedule.periods.lecturer", "name email idNumber");
 
-  return { success: true, schedule: saved?.schedule ?? schedule };
+  const savedPhaseId = getTimetableSavePhaseId(settings);
+  const savedSchedule = savedPhaseId
+    ? saved?.phaseSchedules?.find((entry: any) => entry.phaseId === savedPhaseId)?.schedule
+    : saved?.schedule;
+  return { success: true, schedule: savedSchedule ?? schedule, phaseId: settings?.clockPhase ?? null };
 }

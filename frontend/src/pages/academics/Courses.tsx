@@ -15,6 +15,7 @@ import { z } from "zod";
 import * as XLSX from "xlsx";
 
 import { api } from "@/lib/api";
+import { useAdminClassOptions, useAdminCollection } from "@/lib/adminData";
 import { useAuth } from "@/hooks/useAuth";
 import type { Class, courses, user } from "@/types";
 
@@ -153,6 +154,7 @@ export default function Courses() {
     Boolean(user) && !["student", "parent"].includes(user?.role ?? "");
 
   const [classes, setClasses] = useState<Class[]>([]);
+  const classesResource = useAdminClassOptions();
   const [loadingState, setLoadingState] = useState<LoadingState>("idle");
   const [expandedCourseId, setExpandedCourseId] = useState<string | null>(null);
 
@@ -166,11 +168,16 @@ export default function Courses() {
   const [editingCourse, setEditingCourse] = useState<courses | null>(null);
   const [allCourses, setAllCourses] = useState<courses[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(false);
+  const allCoursesResource = useAdminCollection<courses>(
+    "admin:top-level-courses",
+    "/courses?topLevel=true&page=1&limit=500",
+    "courses",
+    ["courses"],
+  );
   const [creatingCourse, setCreatingCourse] = useState(false);
   const [updatingCourse, setUpdatingCourse] = useState(false);
   const [deduplicating, setDeduplicating] = useState(false);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [departments, setDepartments] = useState<
     { _id: string; name: string; departmentID: string; code: string }[]
   >([]);
@@ -270,6 +277,28 @@ export default function Courses() {
 
   // Filter units by selected department
   const selectedCourseDepartmentId = createForm.watch("department");
+  const [teacherDepartmentId, setTeacherDepartmentId] = useState<string>();
+  const teacherQuery = new URLSearchParams({
+    page: "1",
+    limit: "500",
+    role: "teacher",
+  });
+  if (teacherDepartmentId) teacherQuery.set("department", teacherDepartmentId);
+  const teacherQueryString = teacherQuery.toString();
+  const teachersResource = useAdminCollection<
+    user & {
+      department?:
+        | string
+        | { _id?: string; name?: string; code?: string; departmentID?: string };
+    }
+  >(
+    `admin:teachers:${teacherQueryString}`,
+    `/users?${teacherQueryString}`,
+    "users",
+    ["users"],
+    createCourseOpen,
+  );
+  const loadingTeachers = teachersResource.isLoading;
 
   const filteredUnits = useMemo(() => {
     const selectedDept = selectedCourseDepartmentId;
@@ -338,79 +367,71 @@ export default function Courses() {
   }, [allCourses, selectedCourses]);
 
   const fetchClasses = useCallback(async () => {
-    try {
-      setLoadingState("loading");
-      const { data } = (await api.get(`/classes?page=1&limit=200`)) as {
-        data: { classes: Class[] };
-      };
-      const loaded = data?.classes ?? [];
-      setClasses(loaded);
-      if (!selectedClassId && loaded.length > 0) {
-        setSelectedClassId(loaded[0]._id);
-      }
-      setLoadingState("idle");
-    } catch (e) {
-      console.error(e);
+    if (classesResource.error) {
+      console.error(classesResource.error);
       setLoadingState("error");
       toast.error("Failed to load classes");
+      return;
     }
-  }, [selectedClassId]);
+    if (classesResource.data) {
+      const loaded = classesResource.data as Class[];
+      setClasses(loaded);
+      if (loaded.length > 0) {
+        setSelectedClassId((currentId) => currentId || loaded[0]._id);
+      }
+      setLoadingState("idle");
+    } else {
+      setLoadingState("loading");
+    }
+  }, [classesResource.data, classesResource.error]);
 
   useEffect(() => {
     void fetchClasses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchClasses]);
 
   const fetchAllCourses = useCallback(async () => {
-    try {
-      setLoadingCourses(true);
-      const { data } = await api.get("/courses?topLevel=true&page=1&limit=500");
-      setAllCourses(data.courses ?? []);
-    } catch {
+    setLoadingCourses(true);
+    const snapshot = await allCoursesResource.refetch();
+    if (snapshot.error) {
+      console.error("Failed to load courses", snapshot.error);
       toast.error("Failed to load courses");
-    } finally {
       setLoadingCourses(false);
+      return;
     }
-  }, []);
+    setAllCourses(snapshot.data ?? []);
+    setLoadingCourses(false);
+  }, [allCoursesResource.refetch]);
 
-  const fetchTeachers = useCallback(async (departmentId?: string) => {
-    try {
-      setLoadingTeachers(true);
-      const query = new URLSearchParams({
-        page: "1",
-        limit: "500",
-        role: "teacher",
-      });
-      if (departmentId) {
-        query.set("department", departmentId);
-      }
-      const { data } = await api.get(`/users?${query.toString()}`);
-      const allUsers = (data.users ?? []) as Array<
-        user & {
-          department?:
-            | string
-            | {
-                _id?: string;
-                name?: string;
-                code?: string;
-                departmentID?: string;
-              };
-        }
-      >;
-      setTeachers(
-        allUsers.map((u) => ({
-          _id: u._id,
-          name: u.name,
-          email: u.email,
-          department: u.department,
-        })),
-      );
-    } catch {
-      toast.error("Failed to load teachers");
-    } finally {
-      setLoadingTeachers(false);
+  useEffect(() => {
+    if (allCoursesResource.error) {
+      console.error("Failed to load courses", allCoursesResource.error);
+      return;
     }
-  }, []);
+    if (allCoursesResource.data) setAllCourses(allCoursesResource.data);
+  }, [allCoursesResource.data, allCoursesResource.error]);
+
+  const fetchTeachers = useCallback((departmentId?: string) => {
+    const nextDepartmentId = departmentId || undefined;
+    if (nextDepartmentId === teacherDepartmentId) void teachersResource.refetch();
+    setTeacherDepartmentId(nextDepartmentId);
+  }, [teacherDepartmentId, teachersResource.refetch]);
+
+  useEffect(() => {
+    if (teachersResource.error) {
+      console.error("Failed to load teachers", teachersResource.error);
+      toast.error("Failed to load teachers");
+      setTeachers([]);
+      return;
+    }
+    if (teachersResource.data) {
+      setTeachers(teachersResource.data.map((teacher) => ({
+        _id: teacher._id,
+        name: teacher.name,
+        email: teacher.email,
+        department: teacher.department,
+      })));
+    }
+  }, [teachersResource.data, teachersResource.error]);
 
   const fetchCourseMeta = useCallback(async () => {
     try {

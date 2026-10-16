@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import {
@@ -11,9 +12,16 @@ interface OfflineModeContextValue {
   isOnline: boolean;
 }
 
+type NetworkNotice = {
+  status: "offline" | "online";
+  id: number;
+};
+
 const OfflineModeContext = createContext<OfflineModeContextValue>({
   isOnline: typeof navigator !== "undefined" ? navigator.onLine : true,
 });
+
+const NETWORK_NOTICE_DURATION_MS = 2800;
 
 const replayOfflineMutations = async () => {
   const queue = readOfflineMutationQueue();
@@ -42,34 +50,31 @@ const replayOfflineMutations = async () => {
 
   const remainingQueue = readOfflineMutationQueue();
   if (remainingQueue.length === 0) {
-    toast.success("Connection restored. Offline changes have been synchronized.");
+    toast.success("Offline changes synchronized.");
     clearOfflineMutationQueue();
   }
 };
 
 export const OfflineModeProvider = ({ children }: { children: React.ReactNode }) => {
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
-  const hasShownOfflineToast = useRef(false);
-  const hasShownOnlineToast = useRef(false);
+  const [networkNotice, setNetworkNotice] = useState<NetworkNotice | null>(() =>
+    typeof navigator !== "undefined" && !navigator.onLine
+      ? { status: "offline", id: 0 }
+      : null,
+  );
+  const noticeId = useRef(0);
 
   useEffect(() => {
     const handleOnlineStatus = () => {
       const nextOnlineState = navigator.onLine;
       setIsOnline(nextOnlineState);
+      setNetworkNotice({
+        status: nextOnlineState ? "online" : "offline",
+        id: ++noticeId.current,
+      });
 
       if (nextOnlineState) {
-        hasShownOfflineToast.current = false;
-        if (!hasShownOnlineToast.current) {
-          hasShownOnlineToast.current = true;
-          void replayOfflineMutations();
-          toast.success("Internet connection restored.");
-        }
-      } else {
-        hasShownOnlineToast.current = false;
-        if (!hasShownOfflineToast.current) {
-          hasShownOfflineToast.current = true;
-          toast.error("Internet connection lost.");
-        }
+        void replayOfflineMutations();
       }
     };
 
@@ -82,14 +87,41 @@ export const OfflineModeProvider = ({ children }: { children: React.ReactNode })
     };
   }, []);
 
+  useEffect(() => {
+    if (!networkNotice) return;
+    const timeout = window.setTimeout(
+      () => setNetworkNotice((current) => current?.id === networkNotice.id ? null : current),
+      NETWORK_NOTICE_DURATION_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [networkNotice]);
+
   const value = useMemo(() => ({ isOnline }), [isOnline]);
 
   return (
     <OfflineModeContext.Provider value={value}>
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-[100] flex justify-center px-4 pt-4">
-        {!isOnline && (
-          <div className="rounded-full border border-destructive/40 bg-background/95 px-4 py-2 text-sm font-medium text-destructive shadow-lg backdrop-blur-sm">
-            Internet connection lost
+      <div className="pointer-events-none fixed right-0 top-4 z-[100] flex justify-end overflow-hidden px-4">
+        {networkNotice && (
+          <div
+            key={networkNotice.id}
+            role="status"
+            aria-live="polite"
+            className={`network-status-notice flex items-center gap-3 rounded-full border bg-background/95 px-4 py-3 text-sm font-medium shadow-lg backdrop-blur-sm ${
+              networkNotice.status === "offline"
+                ? "border-destructive/40 text-destructive"
+                : "border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+            }`}
+          >
+            {networkNotice.status === "offline" ? (
+              <WifiOff className="network-status-icon h-5 w-5 shrink-0" aria-hidden="true" />
+            ) : (
+              <Wifi className="network-status-icon h-5 w-5 shrink-0" aria-hidden="true" />
+            )}
+            <span>
+              {networkNotice.status === "offline"
+                ? "Connection lost"
+                : "Connection restored"}
+            </span>
           </div>
         )}
       </div>
