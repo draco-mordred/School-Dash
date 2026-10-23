@@ -967,36 +967,40 @@ export const getClassesAttendanceStatus = async (req: Request, res: Response) =>
       .select("name academicYear courses")
       .sort({ name: 1 });
 
-    const classesWithStatus = await Promise.all(
-      classes.map(async (cls) => {
-        const [timetable, attendanceStats] = await Promise.all([
-          Timetable.findOne({ class: cls._id }).select("_id"),
-          Attendance.aggregate([
-            { $match: { class: cls._id } },
-            {
-              $group: {
-                _id: "$status",
-                count: { $sum: 1 },
-              },
-            },
-          ]),
-        ]);
+    // Batched: one timetable query + one aggregation instead of N x 2 queries
+    const [timetables, attendanceStats] = await Promise.all([
+      Timetable.find({ class: { $in: classes.map((cls: any) => cls._id) } }).select("class"),
+      Attendance.aggregate([
+        {
+          $group: {
+            _id: { class: "$class", status: "$status" },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
 
-        const statusMap: Record<string, number> = {};
-        attendanceStats.forEach((s: any) => { statusMap[s._id] = s.count; });
+    const timetableClassIds = new Set(timetables.map((t: any) => String(t.class)));
+    const statsByClass = new Map<string, Record<string, number>>();
+    attendanceStats.forEach((s: any) => {
+      const key = String(s._id.class);
+      if (!statsByClass.has(key)) statsByClass.set(key, {});
+      statsByClass.get(key)![s._id.status] = s.count;
+    });
 
-        return {
-          classId: cls._id,
-          className: cls.name,
-          academicYear: cls.academicYear?.name ?? "N/A",
-          timetableStatus: !!timetable ? "active" : "not set",
-          present: statusMap.present ?? 0,
-          absent: statusMap.absent ?? 0,
-          late: statusMap.late ?? 0,
-          excused: statusMap.excused ?? 0,
-        };
-      })
-    );
+    const classesWithStatus = classes.map((cls: any) => {
+      const statusMap = statsByClass.get(String(cls._id)) ?? {};
+      return {
+        classId: cls._id,
+        className: cls.name,
+        academicYear: cls.academicYear?.name ?? "N/A",
+        timetableStatus: timetableClassIds.has(String(cls._id)) ? "active" : "not set",
+        present: statusMap.present ?? 0,
+        absent: statusMap.absent ?? 0,
+        late: statusMap.late ?? 0,
+        excused: statusMap.excused ?? 0,
+      };
+    });
 
     res.json({ classes: classesWithStatus });
   } catch (error) {
