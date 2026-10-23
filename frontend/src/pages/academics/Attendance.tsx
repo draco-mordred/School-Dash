@@ -651,7 +651,7 @@ export default function Attendance() {
               <CardHeader>
                 <CardTitle className="text-sm font-medium">Saved Sessions</CardTitle>
                 <CardDescription className="text-xs">
-                  Active teacher attendance sessions
+                  Saved attendance sessions
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -733,6 +733,7 @@ export default function Attendance() {
               <SavedListsTable
                 allLists={allLists}
                 loading={loading}
+                onSessionDeleted={() => void fetchAttendance()}
                 onEditSession={({ records, course, class: cls }) => {
                   setSessionRecords(records as SessionRecord[]);
                   const classId = cls?._id ?? "";
@@ -748,7 +749,7 @@ export default function Attendance() {
               />
             </div>
             <div className="space-y-4">
-              <TimetableStatusCard />
+              <TimetableStatusCard classes={classes} academicYears={academicYears} />
               <LatestWeekTable />
             </div>
           </div>
@@ -1491,7 +1492,13 @@ export default function Attendance() {
 }
 
 // ─── Timetable Status Card ──────────────────────────────────────────
-function TimetableStatusCard() {
+function TimetableStatusCard({
+  classes: classesProp,
+  academicYears: yearsProp,
+}: {
+  classes?: Class[];
+  academicYears?: AcademicYear[];
+} = {}) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [classStatuses, setClassStatuses] = useState<
@@ -1502,14 +1509,21 @@ function TimetableStatusCard() {
   useEffect(() => {
     const fetchStatuses = async () => {
       try {
-        const [clsRes, yearRes] = await Promise.all([
-          api.get("/classes?page=1&limit=500"),
-          api.get("/academic-years"),
-        ]);
-        const clsData = (clsRes.data.classes ?? []) as Class[];
-        const years = Array.isArray(yearRes.data.years)
-          ? (yearRes.data.years as AcademicYear[])
-          : (yearRes.data as AcademicYear[]);
+        let clsData: Class[];
+        let years: AcademicYear[];
+        if (classesProp?.length && yearsProp?.length) {
+          clsData = classesProp;
+          years = yearsProp;
+        } else {
+          const [clsRes, yearRes] = await Promise.all([
+            api.get("/classes?page=1&limit=500"),
+            api.get("/academic-years"),
+          ]);
+          clsData = (clsRes.data.classes ?? []) as Class[];
+          years = Array.isArray(yearRes.data.years)
+            ? (yearRes.data.years as AcademicYear[])
+            : (yearRes.data as AcademicYear[]);
+        }
         const current = years.find((y) => y.isCurrent);
         if (!current?._id || clsData.length === 0) {
           setLoading(false);
@@ -1692,9 +1706,11 @@ function SavedListsTable({
   allLists,
   loading,
   onEditSession,
+  onSessionDeleted,
 }: {
   allLists: SessionRecord[];
   loading: boolean;
+  onSessionDeleted?: () => void;
   onEditSession: (session: {
     records: SessionRecord[];
     course?: { name: string; code?: string; _id?: string };
@@ -2072,7 +2088,7 @@ function SavedListsTable({
                                                     }
                                                     await api.delete(`/attendance/session?${params.toString()}`);
                                                     toast.success("Attendance session deleted");
-                                                    window.location.reload();
+                                                    onSessionDeleted?.();
                                                   } catch {
                                                     toast.error("Failed to delete attendance session");
                                                   }

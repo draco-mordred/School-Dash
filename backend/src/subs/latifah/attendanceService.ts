@@ -7,6 +7,7 @@ import { logActivity } from "../../utils/activitieslog";
 import { inngest } from "../../inngest";
 import Class from "../../models/classes";
 import { createNotificationAndEmitEvent } from "../tinasha/notificationService";
+import { emitSystemEvent } from "../../events";
 
 export const generateAttendanceForClassSession = async (req: Request, res: Response) => {
   try {
@@ -193,8 +194,10 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       return;
     }
 
+    const filter = userRole === "admin" ? {} : { lecturer: userId };
+
     const stats = await Attendance.aggregate([
-      { $match: { lecturer: userId } },
+      { $match: filter },
       {
         $group: {
           _id: "$status",
@@ -203,7 +206,7 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       },
     ]);
 
-    const records = await Attendance.find({ lecturer: userId })
+    const records = await Attendance.find(filter)
       .populate("course", "name code courseID subjects")
       .populate("subject", "name code subjectID subjectUID")
       .populate("class", "name")
