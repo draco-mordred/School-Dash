@@ -118,9 +118,6 @@ export default function Attendance() {
 
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [chartMode, setChartMode] = useState<"byStatus" | "bySubject">(
-    "bySubject",
-  );
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [classAttendanceData, setClassAttendanceData] = useState<AttendanceClassStatus[]>([]);
 
@@ -139,6 +136,18 @@ export default function Attendance() {
         return true;
       })
       .slice(0, 10);
+  }, [records]);
+
+  // Aggregated stats for the overview KPI cards
+  const overviewStats = useMemo(() => {
+    const counts: Record<string, number> = { present: 0, absent: 0, late: 0, excused: 0 };
+    records.forEach((r) => {
+      if (r.status in counts) counts[r.status] += 1;
+    });
+    const total = records.length;
+    const presentRate =
+      total > 0 ? Math.round(((counts.present + counts.late) / total) * 100) : 0;
+    return { total, counts, presentRate };
   }, [records]);
 
   // Session management state
@@ -604,38 +613,24 @@ export default function Attendance() {
           <p className="text-muted-foreground">
             {isStudent
               ? "Your attendance summary"
-              : "Attendance overview and session management"}
+              : user?.role === "admin"
+                ? "Institution-wide attendance overview and session management"
+                : "Attendance overview and session management"}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {!isStudent && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void fetchClassesAndYears();
-                  setIsSessionOpen(true);
-                }}
-              >
-                <Plus className="mr-2 h-4 w-4" /> Generate Session
-              </Button>
-              <Select
-                value={chartMode}
-                onValueChange={(v) =>
-                  setChartMode(v as "byStatus" | "bySubject")
-                }
-              >
-                <SelectTrigger className="w-52">
-                  <SelectValue placeholder="Chart mode" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="byStatus">By Status</SelectItem>
-                  <SelectItem value="bySubject">By Subject</SelectItem>
-                </SelectContent>
-              </Select>
-            </>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void fetchClassesAndYears();
+                setIsSessionOpen(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" /> Generate Session
+            </Button>
           )}
 
           <Button variant="outline" onClick={() => void fetchAttendance()}>
@@ -646,84 +641,72 @@ export default function Attendance() {
 
       {!isStudent ? (
         <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Saved Sessions</CardTitle>
-                <CardDescription className="text-xs">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs">Sessions</CardDescription>
+                <CardTitle className="text-3xl font-bold tabular-nums">
+                  {teacherSessionSummary.sessionCount}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
                   Saved attendance sessions
-                </CardDescription>
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs">Classes covered</CardDescription>
+                <CardTitle className="text-3xl font-bold tabular-nums">
+                  {teacherSessionSummary.classCount}
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Sessions</span>
-                    <span className="font-semibold">{teacherSessionSummary.sessionCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Classes</span>
-                    <span className="font-semibold">{teacherSessionSummary.classCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Courses</span>
-                    <span className="font-semibold">{teacherSessionSummary.courseCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Records</span>
-                    <span className="font-semibold">{teacherSessionSummary.recordCount}</span>
-                  </div>
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
+                  {classAttendanceData.length} with recorded attendance
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs">Attendance records</CardDescription>
+                <CardTitle className="text-3xl font-bold tabular-nums">
+                  {teacherSessionSummary.recordCount}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
+                  Entries across all saved sessions
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardDescription className="text-xs">Present rate</CardDescription>
+                <CardTitle className="text-3xl font-bold tabular-nums">
+                  {overviewStats.presentRate}%
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-green-500" />
+                    {overviewStats.counts.present}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-red-500" />
+                    {overviewStats.counts.absent}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-yellow-500" />
+                    {overviewStats.counts.late}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+                    {overviewStats.counts.excused}
+                  </span>
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Session Actions</CardTitle>
-                <CardDescription className="text-xs">
-                  Generate or manage attendance sessions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => {
-                    void fetchClassesAndYears();
-                    setIsSessionOpen(true);
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" /> Generate Session
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => void fetchAttendance()}
-                >
-                  <RotateCcw className="mr-2 h-4 w-4" /> Refresh data
-                </Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">View Options</CardTitle>
-                <CardDescription className="text-xs">
-                  Chart mode for attendance summaries
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Select
-                  value={chartMode}
-                  onValueChange={(v) =>
-                    setChartMode(v as "byStatus" | "bySubject")
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Chart mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="byStatus">By Status</SelectItem>
-                    <SelectItem value="bySubject">By Subject</SelectItem>
-                  </SelectContent>
-                </Select>
               </CardContent>
             </Card>
           </div>
@@ -766,9 +749,7 @@ export default function Attendance() {
               <div>
                 <CardTitle>Attendance Chart</CardTitle>
                 <CardDescription>
-                  {isStudent || chartMode === "byStatus"
-                    ? "Counts grouped by status"
-                    : "Present/Absent/Late/Excused grouped by subject"}
+                  Attendance status distribution by class
                 </CardDescription>
               </div>
             </div>
