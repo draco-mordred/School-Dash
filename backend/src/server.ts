@@ -20,6 +20,9 @@ import courseRouter from "./routes/courses.ts";
 import "./models/postings"; // ensure postings models are registered
 import "./models/clinicalRotation"; // register ClinicalRotation mongoose model
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
+import "./models/proximityCheckin"; // ensure ProximityCheckin mongoose model is registered
+import "./models/complianceRule"; // ensure ComplianceRule mongoose model is registered
+import "./models/complianceLog"; // ensure ComplianceLog mongoose model is registered
 import { serve } from "inngest/express";
 import { inngest } from "./inngest";
 import {
@@ -29,6 +32,11 @@ import {
   bulkCreateUsers,
   rotationNotify,
   academicClockPhaseReconciliation,
+  processOfflineProximityCheckin,
+  processOfflineComplianceCheck,
+  scheduledKrystaLatifahSync,
+  processPendingCheckins,
+  notifyOfflineStatus,
 } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
@@ -44,6 +52,8 @@ import setupRouter from "./routes/setup";
 import mordredAIRouter from "./routes/mordred"; // import the mordredRouter
 import clinicalAttendanceRouter from "./routes/clinicalAttendance"; // import clinical attendance routes
 import activityNotificationRouter from "./routes/activityNotification"; // import activity notification routes
+import proximityCheckinRouter from "./routes/proximityCheckin"; // import proximity checkin routes
+import complianceRouter from "./routes/compliance"; // import compliance routes
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 
@@ -289,9 +299,16 @@ const mountRoutes = (prefix: string) => {
       bulkCreateUsers,
       rotationNotify,
       academicClockPhaseReconciliation,
+      processOfflineProximityCheckin,
+      processOfflineComplianceCheck,
+      scheduledKrystaLatifahSync,
+      processPendingCheckins,
+      notifyOfflineStatus,
     ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);
+  app.use(`${prefix}/proximity`, proximityCheckinRouter);
+  app.use(`${prefix}/compliance`, complianceRouter);
 };
 
 for (const prefix of routePrefixes) {

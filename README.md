@@ -1,119 +1,64 @@
-# School Dash
+# MedLog LMS — Backend Monolith v2.0
 
-A monorepo for the School Dash application with a React/Vite frontend and a TypeScript/Express backend.
+An enterprise-grade, event-driven Medical Learning Management System (LMS) built with Node.js, Express, TypeScript, and MongoDB. The platform utilizes a specialized role-based architecture, powered by an asynchronous nervous system for real-time task orchestration.
 
-## Project Structure
+## Core architecture
+The backend is organized around a set of internal subsystems with dedicated responsibilities for clinical operations, academic attendance, evaluation, reporting, AI intelligence, security, configuration, and asynchronous orchestration.
 
-- `frontend/` - React application built with Vite and TypeScript
-- `backend/` - Express backend, TypeScript, MongoDB, serverless support for Vercel
-- `api/` - generated Vercel serverless entrypoint for the backend
-- `build.js` - root helper that bundles the backend serverless function and copies it into `api/index.js`
-- `vercel.json` - Vercel rewrite rules and deployment configuration
+> Core subsystem codenames are intentionally maintained as an internal reference. See `backend/INTERNAL_SYSTEMS.md` for the hidden architecture map.
 
-## Getting Started
+---
 
-### Install dependencies
+## 📂 Codebase Repository Structure
 
-From the repository root:
+This monorepo contains the backend monolith in `backend/`, a frontend client in `frontend/`, and a Vercel serverless bridge in `api/`.
 
-```bash
-npm install
+```text
+backend/
+├── api/                     # Serverless entrypoint for deployment
+├── config/                  # A.D.A.M. System configuration and DB connection helpers
+├── constants/               # Domain constants used across engines
+├── controllers/             # Business control plane for clinical, attendance, exam, user, and reporting flows
+├── inngest/                 # T.I.N.A.S.H.A. event handlers and async workflows
+├── middleware/              # V.A.L. security and route protection logic
+├── models/                  # MongoDB schemas for users, classes, attendance, postings, and more
+├── routes/                  # API endpoints organized by domain
+├── services/                # Core engine logic for KRYSTA, LATIFAH, MARCUS, and MORDRED subsystems
+├── utils/                   # Shared helpers and utilities
+└── workers/                 # Background task workers and async processors
 ```
 
-Then install frontend and backend dependencies if you need to work inside each package separately:
+## ⚙️ Asynchronous Cross-System Workflow Example
+
+1. **L.A.T.I.F.A.H.** registers a completed lecture session.
+2. **L.A.T.I.F.A.H.** fires a telemetry signal into the backend event bus.
+3. **T.I.N.A.S.H.A.** picks up the event and triggers Inngest background pipelines.
+4. **M.A.R.C.U.S.** can consume those logs to match attendance records against exam eligibility.
+
+## 🚀 Local Environment Execution
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Configure your local runtime profile (`backend/.env`):
+   ```env
+   NODE_ENV=development
+   PORT=5000
+   LOCAL_CLIENT_URL=http://localhost:5173
+   CLIENT_URL=http://localhost:5173
+   MEDLOG_MONGO_URL=your-mongodb-connection-string
+   JWT_SECRET=some-dev-secret
+   ```
+3. Run the backend:
+   ```bash
+   cd backend && npm run dev
+   ```
+
+## 🔧 Useful Commands
 
 ```bash
-cd frontend && npm install
-cd ../backend && npm install
-```
-
-## Local Development
-
-### Backend
-
-From `backend/`:
-
-```bash
-npm run dev
-```
-
-This starts the backend in watch mode using Bun and Nodemon. The backend expects local environment variables in `backend/.env`.
-
-### Frontend
-
-From `frontend/`:
-
-```bash
-npm run dev
-```
-
-The frontend uses Vite. In development, it proxies API requests to the backend.
-
-## Backend Build and Vercel Deployment
-
-### Build for Vercel
-
-From the repository root:
-
-```bash
-npm run vercel-build
-```
-
-This runs `build.js` to bundle the backend serverless entrypoint from `backend/api/index.ts` into `backend/dist/index.js`, then copies it to `api/index.js`.
-
-It also builds the frontend via the root `package.json` script.
-
-### Vercel Behavior
-
-- `api/index.js` is the serverless function entrypoint for the backend
-- `vercel.json` rewrites `/api/*` to the backend function
-- frontend static assets are served from `frontend/dist`
-
-## Important Environment Variables
-
-The backend requires these environment variables:
-
-- `MEDLOG_MONGO_URL` or `MONGODB_URI` - MongoDB connection string
-- `JWT_SECRET` - JSON Web Token secret
-- `CLIENT_URL` - frontend URL used for CORS and redirects
-- `FRONTEND_URL` - frontend URL used for redirect generation
-- `NODE_ENV` - should be `development` locally and `production` in Vercel
-- `GOOGLE_GENERATIVE_AI_API_KEY` - optional AI feature key
-
-### Local environment
-
-Create a `backend/.env` file with values similar to this:
-
-```ini
-NODE_ENV=development
-PORT=5000
-LOCAL_CLIENT_URL=http://localhost:5173
-CLIENT_URL=http://localhost:5173
-MEDLOG_MONGO_URL=your-mongodb-connection-string
-JWT_SECRET=some-dev-secret
-```
-
-### Production environment
-
-Set these in Vercel project settings:
-
-- `NODE_ENV=production`
-- `MEDLOG_MONGO_URL` or `MONGODB_URI`
-- `JWT_SECRET`
-- `CLIENT_URL=https://your-frontend.vercel.app`
-- `FRONTEND_URL=https://your-frontend.vercel.app`
-
-## Notes
-
-- The backend uses serverless entrypoint `backend/api/index.ts` and bundles it with `esbuild`.
-- The generated backend function file is `api/index.js`.
-- Local backend route prefix is `/api`, while Vercel serverless function receives routes at the root path after rewrites.
-- Keep `backend/ChatGPT Image Jul 9, 2026, 04_20_31 AM.png` and other image files out of commits unless they are intentionally part of the repo.
-
-## Useful Commands
-
-```bash
-# Build backend and frontend for deployment
+# Build the root monorepo for deployment
 npm run vercel-build
 
 # Frontend development
@@ -126,7 +71,9 @@ cd backend && npm run dev
 cd backend && npm run build:vercel
 ```
 
-## Additional docs
+## 📌 Notes
 
-- `backend/README.md` contains backend-specific install and run notes
-- `DEPLOYMENT_VERIFICATION.md` documents deployment and build verification status
+- The backend is bundled into `api/index.js` for Vercel deployment.
+- Use `backend/api/index.ts` as the serverless bridge entrypoint.
+- `frontend/` contains the React/Vite client.
+- `backend/README.md` covers backend-specific install and run instructions.

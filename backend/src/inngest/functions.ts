@@ -1064,3 +1064,196 @@ export const academicClockPhaseReconciliation = inngest.createFunction(
     return { success: true, ...result };
   },
 );
+
+// ============================================================================
+// KRYSTA-LATIFAH Sync Inngest Functions
+// ============================================================================
+
+import ProximityCheckin from "../models/proximityCheckin";
+import ComplianceLog from "../models/complianceLog";
+import { processProximityCheckin, validateCompliance } from "../subs/tinasha/krystaLatifahSync";
+
+/**
+ * Process offline proximity checkin (for network recovery)
+ * This function is triggered when a checkin was queued offline and needs to be synced
+ */
+export const processOfflineProximityCheckin = inngest.createFunction(
+  {
+    id: "Process-Offline-Proximity-Checkin",
+    triggers: {
+      event: "krysta-latifah/checkin.offline",
+    },
+  },
+  async ({ event, step }) => {
+    const { checkinData, userId } = event.data as {
+      checkinData: any;
+      userId: string;
+    };
+
+    if (!checkinData || !userId) {
+      throw new NonRetriableError("checkinData and userId are required");
+    }
+
+    await step.run("process-checkin", async () => {
+      return await processProximityCheckin(checkinData, userId);
+    });
+
+    return { success: true, message: "Offline checkin processed" };
+  }
+);
+
+/**
+ * Process offline compliance check
+ * This function is triggered when compliance checks were queued offline
+ */
+export const processOfflineComplianceCheck = inngest.createFunction(
+  {
+    id: "Process-Offline-Compliance-Check",
+    triggers: {
+      event: "krysta-latifah/compliance.offline",
+    },
+  },
+  async ({ event, step }) => {
+    const { studentId, classId, academicYearId } = event.data as {
+      studentId: string;
+      classId: string;
+      academicYearId: string;
+    };
+
+    if (!studentId || !classId || !academicYearId) {
+      throw new NonRetriableError("studentId, classId, and academicYearId are required");
+    }
+
+    const result = await step.run("validate-compliance", async () => {
+      return await validateCompliance({
+        student: new mongoose.Types.ObjectId(studentId),
+        classId: new mongoose.Types.ObjectId(classId),
+        academicYear: new mongoose.Types.ObjectId(academicYearId),
+      });
+    });
+
+    return { success: true, ...result };
+  }
+);
+
+/**
+ * Scheduled sync job - runs every hour to sync pending checkins
+ */
+export const scheduledKrystaLatifahSync = inngest.createFunction(
+  {
+    id: "Scheduled-KRYSTA-LATIFAH-Sync",
+    triggers: {
+      cron: "0 * * * *", // Every hour
+    },
+  },
+  async ({ event, step }) => {
+    const { syncAllClasses } = await import("../subs/tinasha/krystaLatifahSync");
+    
+    await step.run("run-sync", async () => {
+      await syncAllClasses();
+    });
+
+    return { success: true, message: "Scheduled KRYSTA-LATIFAH sync completed" };
+  }
+);
+
+/**
+ * Process pending proximity checkins from offline queue
+ */
+export const processPendingCheckins = inngest.createFunction(
+  {
+    id: "Process-Pending-Checkins",
+    triggers: {
+      cron: "*/5 * * * *", // Every 5 minutes
+    },
+  },
+  async ({ event, step }) => {
+    const ProximityCheckin = (await import("../models/proximityCheckin")).default;
+    
+    const pendingCheckins = await step.run("find-pending", async () => {
+      return await ProximityCheckin.find({
+        syncStatus: "pending",
+      }).limit(100);
+    });
+
+    let processed = 0;
+    const results: any[] = [];
+
+    for (const checkin of pendingCheckins) {
+      try {
+        await step.run(`process-checkin-${checkin._id}`, async () => {
+          // For pending checkins, we need to process them as if they just came in
+          const { processProximityCheckin } = await import("../subs/tinasha/krystaLatifahSync");
+          
+          const result = await processProximityCheckin(
+            {
+              student: checkin.student,
+              studentIdNumber: checkin.studentIdNumber,
+              locationType: checkin.locationType,
+              locationName: checkin.locationName,
+              classroomId: checkin.classroomId,
+              clinicalUnitId: checkin.clinicalUnitId,
+              gpsCoordinates: checkin.gpsCoordinates,
+              checkinMethod: checkin.checkinMethod,
+              classId: checkin.classId,
+              academicYear: checkin.academicYear,
+              lectureSessionId: checkin.lectureSessionId,
+              clinicalSessionId: checkin.clinicalSessionId,
+              timetablePeriodId: checkin.timetablePeriodId,
+            },
+            checkin.createdBy
+          );
+          
+          results.push({ checkinId: checkin._id, success: result.success });
+          processed++;
+        });
+      } catch (error) {
+        console.error(`Failed to process pending checkin ${checkin._id}:`, error);
+        results.push({ checkinId: checkin._id, success: false, error: String(error) });
+      }
+    }
+
+    return {
+      success: true,
+      processed,
+      total: pendingCheckins.length,
+      results,
+    };
+  }
+);
+
+/**
+ * Notify staff about prolonged offline status
+ */
+export const notifyOfflineStatus = inngest.createFunction(
+  {
+    id: "Notify-Offline-Status",
+    triggers: {
+      cron: "0 */2 * * *", // Every 2 hours
+    },
+  },
+  async ({ event, step }) => {
+    const ProximityCheckin = (await import("../models/proximityCheckin")).default;
+    const User = (await import("../models/user")).default;
+    
+    const pendingCheckins = await step.run("count-pending", async () => {
+      return await ProximityCheckin.countDocuments({
+        syncStatus: "pending",
+        createdAt: { $lt: new Date(Date.now() - 2 * 60 * 60 * 1000) }, // Older than 2 hours
+      });
+    });
+
+    if (pendingCheckins > 0) {
+      await step.run("notify-admins", async () => {
+        const admins = await User.find({ role: "admin" }).select("_id");
+        
+        for (const admin of admins) {
+          // In production, this would send actual notifications
+          console.log(`⚠️ Offline Alert: ${pendingCheckins} checkins pending sync for > 2 hours. Admin ${admin._id} notified.`);
+        }
+      });
+    }
+
+    return { success: true, pendingCheckins };
+  }
+);

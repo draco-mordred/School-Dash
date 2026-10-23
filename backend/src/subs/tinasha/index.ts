@@ -4,6 +4,7 @@ export const TINASHA_SYSTEM = {
 };
 
 export * from "./notificationService";
+export * from "./krystaLatifahSync";
 
 export default {
   TINASHA_SYSTEM,
