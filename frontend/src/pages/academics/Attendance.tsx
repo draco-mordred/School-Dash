@@ -121,8 +121,10 @@ export default function Attendance() {
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [classAttendanceData, setClassAttendanceData] = useState<AttendanceClassStatus[]>([]);
 
-  // Deduplicated latest records (one per course+lecturer pair)
+  // Deduplicated latest records — admins see one entry per session
+  // (class+course+subject+date); teachers see one per course+lecturer pair
   const latestRecordsDeduplicated = useMemo(() => {
+    const isAdmin = user?.role === "admin";
     const seen = new Set<string>();
     return records
       .filter((r) => {
@@ -130,13 +132,19 @@ export default function Attendance() {
           typeof r.course === "object" ? r.course?._id : r.course;
         const lecturerId =
           typeof r.lecturer === "object" ? r.lecturer?._id : r.lecturer;
-        const key = `${courseId ?? ""}-${lecturerId ?? ""}`;
+        const classId =
+          typeof r.class === "object" ? r.class?._id : r.class;
+        const subjectId =
+          typeof r.subject === "object" ? r.subject?._id : r.subject;
+        const key = isAdmin
+          ? `${classId ?? ""}-${courseId ?? ""}-${subjectId ?? ""}-${String(r.date ?? "")}`
+          : `${courseId ?? ""}-${lecturerId ?? ""}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
       })
       .slice(0, 10);
-  }, [records]);
+  }, [records, user?.role]);
 
   // Aggregated stats for the overview KPI cards
   const overviewStats = useMemo(() => {
@@ -359,6 +367,13 @@ export default function Attendance() {
       !selectedAcademicYearId
     ) {
       toast.error("Please select class, course, subject, academic year, and date");
+      return;
+    }
+
+    const selectedDate = new Date(sessionDate);
+    const day = selectedDate.getDay();
+    if (Number.isNaN(day) || day === 0 || day === 6) {
+      toast.error("Attendance cannot be generated on weekends. Please pick a weekday.");
       return;
     }
 
@@ -646,7 +661,11 @@ export default function Attendance() {
               <CardHeader className="pb-2">
                 <CardDescription className="text-xs">Sessions</CardDescription>
                 <CardTitle className="text-3xl font-bold tabular-nums">
-                  {teacherSessionSummary.sessionCount}
+                  {loading ? (
+                    <Skeleton className="h-9 w-20" />
+                  ) : (
+                    teacherSessionSummary.sessionCount
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -659,7 +678,11 @@ export default function Attendance() {
               <CardHeader className="pb-2">
                 <CardDescription className="text-xs">Classes covered</CardDescription>
                 <CardTitle className="text-3xl font-bold tabular-nums">
-                  {teacherSessionSummary.classCount}
+                  {loading ? (
+                    <Skeleton className="h-9 w-20" />
+                  ) : (
+                    teacherSessionSummary.classCount
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -672,7 +695,11 @@ export default function Attendance() {
               <CardHeader className="pb-2">
                 <CardDescription className="text-xs">Attendance records</CardDescription>
                 <CardTitle className="text-3xl font-bold tabular-nums">
-                  {teacherSessionSummary.recordCount}
+                  {loading ? (
+                    <Skeleton className="h-9 w-20" />
+                  ) : (
+                    teacherSessionSummary.recordCount
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -685,7 +712,11 @@ export default function Attendance() {
               <CardHeader className="pb-2">
                 <CardDescription className="text-xs">Present rate</CardDescription>
                 <CardTitle className="text-3xl font-bold tabular-nums">
-                  {overviewStats.presentRate}%
+                  {loading ? (
+                    <Skeleton className="h-9 w-20" />
+                  ) : (
+                    `${overviewStats.presentRate}%`
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
@@ -877,7 +908,11 @@ export default function Attendance() {
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                        <span>Lecturer: {r.lecturer?.name ?? "—"}</span>
+                        <span>
+                          {r.student?.name
+                            ? `Student: ${r.student.name}`
+                            : `Lecturer: ${r.lecturer?.name ?? "—"}`}
+                        </span>
                         {r.status === "excused" && (
                           <span
                             className={
