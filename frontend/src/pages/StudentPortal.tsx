@@ -270,7 +270,23 @@ export default function StudentPortal() {
               },
             }
           : null;
-        const sessions = Array.isArray(sessionsRes.data?.data) ? sessionsRes.data.data : [];
+        const allSessions = Array.isArray(sessionsRes.data?.data) ? sessionsRes.data.data : [];
+        const activePostingIds = new Set<string>();
+        if (currentScheduleEntry?.scheduleId) {
+          activePostingIds.add(String(currentScheduleEntry.scheduleId));
+        }
+        const activePostings = Array.isArray(currentScheduleEntry?.schedule?.postings)
+          ? currentScheduleEntry.schedule.postings
+          : [];
+        activePostings.forEach((activePosting: any) => {
+          if (activePosting?._id) activePostingIds.add(String(activePosting._id));
+        });
+        const phaseDriven = postingRes.data?.phaseDriven === true;
+        const sessions = phaseDriven
+          ? allSessions.filter((session: any) => activePostingIds.has(String(session?.clinicalRotation ?? "")))
+          : currentScheduleEntry && activePostingIds.size > 0
+            ? allSessions.filter((session: any) => activePostingIds.has(String(session?.clinicalRotation ?? "")))
+            : allSessions;
 
         const startDate = posting?.rotation?.startDate ? new Date(posting.rotation.startDate) : null;
         const endDate = posting?.rotation?.endDate ? new Date(posting.rotation.endDate) : null;
@@ -310,7 +326,7 @@ export default function StudentPortal() {
           return true;
         });
 
-        const fallbackSessions = relevantSessions.length ? relevantSessions : sessions;
+        const fallbackSessions = relevantSessions;
         const grouped = new Map<string, PostingProgressRow>();
 
         const currentUnitName = posting?.unit?.name ?? currentScheduleEntry?.postingName ?? "Current unit";

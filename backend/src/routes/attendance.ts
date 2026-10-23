@@ -4,6 +4,8 @@ import {
   recordAttendance,
   getMyAttendanceSummary,
   approveExcusedAbsence,
+  requestExcusedAbsence,
+  getPendingExcuseRequests,
   getCourseClassAttendance,
   getStudentAttendanceRecords,
   triggerAttendanceGeneration,
@@ -32,7 +34,21 @@ attendanceRouter.post(
 attendanceRouter.get("/me", protect, getMyAttendanceSummary);
 attendanceRouter.get("/me/summary", protect, getMyAttendanceSummary);
 
-attendanceRouter.post(  
+attendanceRouter.post(
+  "/:attendanceId/excuse-request",
+  protect,
+  authorize(["student"]),
+  requestExcusedAbsence
+);
+
+attendanceRouter.get(
+  "/excuse-requests/pending",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  getPendingExcuseRequests
+);
+
+attendanceRouter.post(
   "/approve-excused/:attendanceId",
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),

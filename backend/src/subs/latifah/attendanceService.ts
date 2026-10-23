@@ -170,6 +170,12 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
     const userRole = (req as any).user.role;
+    const requestedPage = Number.parseInt(String(req.query.page ?? "1"), 10);
+    const requestedLimit = Number.parseInt(String(req.query.limit ?? "50"), 10);
+    const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(requestedLimit, 1), 100)
+      : 50;
 
     if (userRole === "student") {
       const stats = await Attendance.aggregate([
@@ -182,15 +188,82 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
         },
       ]);
 
+      const attendedExpression = {
+        $or: [
+          { $in: ["$status", ["present", "late"]] },
+          {
+            $and: [
+              { $eq: ["$status", "excused"] },
+              {
+                $or: [
+                  { $eq: ["$excuseRequestStatus", "approved"] },
+                  { $ne: [{ $ifNull: ["$approvedBy", null] }, null] },
+                  { $eq: ["$hodApproval", "approved"] },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+      const [attendanceSummary, total] = await Promise.all([
+        Attendance.aggregate([
+          { $match: { student: userId } },
+          {
+            $group: {
+              _id: { course: "$course", subject: "$subject" },
+              totalSessions: { $sum: 1 },
+              attendedSessions: {
+                $sum: { $cond: [attendedExpression, 1, 0] },
+              },
+              lastAttendanceDate: { $max: "$date" },
+            },
+          },
+        ]),
+        Attendance.countDocuments({ student: userId }),
+      ]);
+
+      const courseIds = [...new Set(attendanceSummary.map((item: any) => String(item._id.course)))];
+      const courses = await Course.find({ _id: { $in: courseIds } })
+        .select("name code subjects")
+        .lean();
+      const coursesById = new Map(courses.map((course: any) => [String(course._id), course]));
+
       const records = await Attendance.find({ student: userId })
         .populate("course", "name code courseID subjects")
         .populate("subject", "name code subjectID subjectUID")
         .populate("class", "name")
         .populate("lecturer", "name email")
+        .populate("approvedBy", "name email")
+        .populate("excuseReviewedBy", "name email")
         .sort({ date: -1 })
-        .limit(50);
+        .skip((page - 1) * limit)
+        .limit(limit);
 
-      res.json({ stats, records });
+      const subjectSummary = attendanceSummary.map((item: any) => {
+        const course = coursesById.get(String(item._id.course));
+        const subject = course?.subjects?.find(
+          (candidate: any) => String(candidate._id) === String(item._id.subject),
+        );
+        return {
+          courseId: String(item._id.course),
+          subjectId: item._id.subject ? String(item._id.subject) : null,
+          courseName: course?.name ?? "Unassigned course",
+          courseCode: course?.code,
+          subjectName: subject?.name ?? (item._id.subject ? "Unassigned subject" : "Unassigned subject"),
+          totalSessions: item.totalSessions,
+          attendedSessions: item.attendedSessions,
+          lastAttendanceDate: item.lastAttendanceDate,
+        };
+      });
+
+      res.json({
+        stats,
+        records,
+        total,
+        page,
+        limit,
+        subjectSummary,
+      });
       return;
     }
 
@@ -214,9 +287,11 @@ export const getMyAttendanceSummary = async (req: Request, res: Response) => {
       .populate("lecturer", "name email")
       .populate("approvedBy", "name email")
       .sort({ date: -1 })
-      .limit(50);
+      .skip((page - 1) * limit)
+      .limit(limit);
 
-    res.json({ stats, records });
+    const total = await Attendance.countDocuments(filter);
+    res.json({ stats, records, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
@@ -429,26 +504,113 @@ export const approveExcusedAbsence = async (req: Request, res: Response) => {
   try {
     const { attendanceId } = req.params;
     const userId = (req as any).user._id;
+    const { decision, reviewNote = "" } = req.body ?? {};
     const attendanceRecord = await Attendance.findById(attendanceId);
 
     if (!attendanceRecord) {
       return res.status(404).json({ message: "Attendance record not found" });
     };
-    if (attendanceRecord.status !== "excused") {
-      return res.status(400).json({ message: "Only excused absences can be approved" });
+    const normalizedDecision = decision ?? "approved";
+    if (!["approved", "rejected"].includes(normalizedDecision)) {
+      return res.status(400).json({ message: "decision must be approved or rejected" });
     }
-    attendanceRecord.approvedBy = userId;
+    if (normalizedDecision === "rejected" && attendanceRecord.excuseRequestStatus !== "pending") {
+      return res.status(400).json({ message: "Only pending excuse requests can be rejected" });
+    }
+    if (
+      normalizedDecision === "approved" &&
+      attendanceRecord.excuseRequestStatus !== "pending" &&
+      attendanceRecord.status !== "excused"
+    ) {
+      return res.status(400).json({ message: "Only pending requests or excused absences can be approved" });
+    }
+    if (typeof reviewNote !== "string" || reviewNote.length > 1000) {
+      return res.status(400).json({ message: "reviewNote must be 1000 characters or fewer" });
+    }
+    attendanceRecord.excuseRequestStatus = normalizedDecision;
+    attendanceRecord.excuseReviewNote = reviewNote.trim();
+    attendanceRecord.excuseReviewedBy = userId;
+    attendanceRecord.excuseReviewedAt = new Date();
+    if (normalizedDecision === "approved") {
+      attendanceRecord.status = "excused";
+      attendanceRecord.approvedBy = userId;
+      attendanceRecord.hodApproval = "approved";
+      attendanceRecord.hodApprovalDate = new Date();
+    } else {
+      attendanceRecord.hodApproval = "not-approved";
+      attendanceRecord.hodApprovalDate = new Date();
+    }
     await attendanceRecord.save();
     await logActivity({
       userId,
-      action: "Approved excused absence",
-      details: `Approved excused absence for attendance record ID: ${attendanceId}`,
+      action: normalizedDecision === "approved" ? "Approved excused absence" : "Rejected excused absence",
+      details: `${normalizedDecision === "approved" ? "Approved" : "Rejected"} excused absence for attendance record ID: ${attendanceId}`,
     });
-    res.json({ message: "Excused absence approved successfully", attendanceRecord });
+    res.json({ message: `Excuse request ${normalizedDecision}`, attendanceRecord });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
   };
+};
+
+export const requestExcusedAbsence = async (req: Request, res: Response) => {
+  try {
+    const { attendanceId } = req.params;
+    const userId = (req as any).user._id;
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (!reason || reason.length > 1000) {
+      return res.status(400).json({ message: "A reason of 1 to 1000 characters is required" });
+    }
+
+    const attendanceRecord = await Attendance.findOne({
+      _id: attendanceId,
+      student: userId,
+    });
+    if (!attendanceRecord) {
+      return res.status(404).json({ message: "Attendance record not found" });
+    }
+    if (attendanceRecord.status !== "absent") {
+      return res.status(400).json({ message: "Only absences can be submitted for excuse approval" });
+    }
+    if (attendanceRecord.excuseRequestStatus === "pending") {
+      return res.status(409).json({ message: "An excuse request is already pending" });
+    }
+
+    attendanceRecord.excuseRequestStatus = "pending";
+    attendanceRecord.excuseReason = reason;
+    attendanceRecord.excuseReviewNote = "";
+    attendanceRecord.excuseReviewedBy = null;
+    attendanceRecord.excuseReviewedAt = null;
+    attendanceRecord.hodApproval = null;
+    attendanceRecord.hodApprovalDate = null;
+    await attendanceRecord.save();
+    await logActivity({
+      userId,
+      action: "Requested excused absence",
+      details: `Submitted an excuse request for attendance record ID: ${attendanceId}`,
+    });
+    res.status(201).json({ message: "Excuse request submitted", attendanceRecord });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
+};
+
+export const getPendingExcuseRequests = async (_req: Request, res: Response) => {
+  try {
+    const records = await Attendance.find({ excuseRequestStatus: "pending" })
+      .populate("student", "name email idNumber")
+      .populate("course", "name code")
+      .populate("subject", "name code subjectID subjectUID")
+      .populate("class", "name")
+      .populate("lecturer", "name email")
+      .sort({ updatedAt: 1 })
+      .limit(100);
+    res.json({ records });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server error", error });
+  }
 };
 
 export const getStudentAttendanceRecords = async (req: Request, res: Response) => {
@@ -908,4 +1070,3 @@ export const getWeeklyCourseAttendance = async (req: Request, res: Response) => 
     res.status(500).json({ message: "Server error", error });
   }
 };
-

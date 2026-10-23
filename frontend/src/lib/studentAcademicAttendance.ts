@@ -1,6 +1,11 @@
 export interface AcademicAttendanceRecordLike {
   _id?: string;
   status?: string | null;
+  excuseRequestStatus?: string | null;
+  approvedBy?: string | { _id?: string } | null;
+  excuseReason?: string | null;
+  hodApproval?: "approved" | "not-approved" | null;
+  excuseReviewNote?: string | null;
   course?: {
     _id?: string;
     name?: string;
@@ -66,7 +71,18 @@ export interface AcademicAttendanceSummary {
   requiresAttention: boolean;
 }
 
-const ATTENDED_STATUSES = new Set(["present", "late", "excused", "approved_absent"]);
+export interface AcademicAttendanceAggregate {
+  courseId: string;
+  subjectId?: string | null;
+  courseName: string;
+  courseCode?: string;
+  subjectName: string;
+  totalSessions: number;
+  attendedSessions: number;
+  lastAttendanceDate?: string | null;
+}
+
+const ATTENDED_STATUSES = new Set(["present", "late", "approved_absent"]);
 
 const resolveCourseKey = (record: AcademicAttendanceRecordLike) => {
   const courseId = record.course?._id;
@@ -110,6 +126,7 @@ export const buildAcademicAttendanceSummary = (
   records: AcademicAttendanceRecordLike[],
   threshold = 75,
   courseCatalog: AcademicCourseCatalogLike[] = [],
+  aggregates?: AcademicAttendanceAggregate[],
 ): AcademicAttendanceSummary => {
   const courseMap = new Map<string, CourseAttendanceSummary>();
 
@@ -158,67 +175,118 @@ export const buildAcademicAttendanceSummary = (
 
   courseCatalog.forEach(seedCourseFromCatalog);
 
-  records.forEach((record) => {
-    const courseKey = resolveCourseKey(record);
-    const courseName = record.course?.name ?? "Unassigned course";
-    const courseCode = record.course?.code;
-    const subjectKey = resolveSubjectKey(record);
-    const subjectName = resolveSubjectName(record);
-
-    let course = courseMap.get(courseKey);
-    if (!course) {
-      course = {
-        courseId: courseKey,
-        courseName,
-        courseCode,
-        totalSessions: 0,
-        attendedSessions: 0,
-        attendancePercent: 0,
-        subjectCount: 0,
-        subjects: [],
-        requiresAttention: false,
-      };
-      courseMap.set(courseKey, course);
-    }
-
-    let subject = course.subjects.find((entry) => entry.subjectId === subjectKey);
-    if (!subject) {
-      subject = {
-        subjectId: subjectKey,
-        subjectName,
-        totalSessions: 0,
-        attendedSessions: 0,
-        attendancePercent: 0,
-        lastAttendanceDate: null,
-        lecturerNames: [],
-      };
-      course.subjects.push(subject);
-    }
-
-    subject.totalSessions += 1;
-
-    const lecturerName = resolveLecturerName(record);
-    if (lecturerName && !subject.lecturerNames?.includes(lecturerName)) {
-      subject.lecturerNames = [...(subject.lecturerNames ?? []), lecturerName];
-    }
-
-    const recordDate = record.date ? new Date(record.date) : null;
-    if (recordDate && recordDate.getTime()) {
-      const previousDate = subject.lastAttendanceDate ? new Date(subject.lastAttendanceDate) : null;
-      if (!previousDate || recordDate.getTime() > previousDate.getTime()) {
-        subject.lastAttendanceDate = recordDate.toISOString();
+  if (aggregates) {
+    aggregates.forEach((aggregate) => {
+      const courseKey = String(aggregate.courseId);
+      let course = courseMap.get(courseKey);
+      if (!course) {
+        course = {
+          courseId: courseKey,
+          courseName: aggregate.courseName,
+          courseCode: aggregate.courseCode,
+          totalSessions: 0,
+          attendedSessions: 0,
+          attendancePercent: 0,
+          subjectCount: 0,
+          subjects: [],
+          requiresAttention: false,
+        };
+        courseMap.set(courseKey, course);
       }
-    }
-    course.totalSessions += 1;
 
-    const isAttended = ATTENDED_STATUSES.has(String(record.status ?? "").trim().toLowerCase());
-    if (isAttended) {
-      subject.attendedSessions += 1;
-      course.attendedSessions += 1;
-    }
+      const subjectId = aggregate.subjectId ? String(aggregate.subjectId) : "subject:unassigned";
+      let subject = course.subjects.find((entry) => entry.subjectId === subjectId);
+      if (!subject) {
+        subject = {
+          subjectId,
+          subjectName: aggregate.subjectName,
+          totalSessions: 0,
+          attendedSessions: 0,
+          attendancePercent: 0,
+          lastAttendanceDate: null,
+          lecturerNames: [],
+        };
+        course.subjects.push(subject);
+      }
+      subject.totalSessions = aggregate.totalSessions;
+      subject.attendedSessions = aggregate.attendedSessions;
+      subject.lastAttendanceDate = aggregate.lastAttendanceDate ?? null;
+    });
 
-    course.subjectCount = course.subjects.length;
-  });
+    courseMap.forEach((course) => {
+      course.subjectCount = course.subjects.length;
+      course.totalSessions = course.subjects.reduce((sum, subject) => sum + subject.totalSessions, 0);
+      course.attendedSessions = course.subjects.reduce((sum, subject) => sum + subject.attendedSessions, 0);
+    });
+  } else {
+    records.forEach((record) => {
+      const courseKey = resolveCourseKey(record);
+      const courseName = record.course?.name ?? "Unassigned course";
+      const courseCode = record.course?.code;
+      const subjectKey = resolveSubjectKey(record);
+      const subjectName = resolveSubjectName(record);
+
+      let course = courseMap.get(courseKey);
+      if (!course) {
+        course = {
+          courseId: courseKey,
+          courseName,
+          courseCode,
+          totalSessions: 0,
+          attendedSessions: 0,
+          attendancePercent: 0,
+          subjectCount: 0,
+          subjects: [],
+          requiresAttention: false,
+        };
+        courseMap.set(courseKey, course);
+      }
+
+      let subject = course.subjects.find((entry) => entry.subjectId === subjectKey);
+      if (!subject) {
+        subject = {
+          subjectId: subjectKey,
+          subjectName,
+          totalSessions: 0,
+          attendedSessions: 0,
+          attendancePercent: 0,
+          lastAttendanceDate: null,
+          lecturerNames: [],
+        };
+        course.subjects.push(subject);
+      }
+
+      subject.totalSessions += 1;
+
+      const lecturerName = resolveLecturerName(record);
+      if (lecturerName && !subject.lecturerNames?.includes(lecturerName)) {
+        subject.lecturerNames = [...(subject.lecturerNames ?? []), lecturerName];
+      }
+
+      const recordDate = record.date ? new Date(record.date) : null;
+      if (recordDate && recordDate.getTime()) {
+        const previousDate = subject.lastAttendanceDate ? new Date(subject.lastAttendanceDate) : null;
+        if (!previousDate || recordDate.getTime() > previousDate.getTime()) {
+          subject.lastAttendanceDate = recordDate.toISOString();
+        }
+      }
+      course.totalSessions += 1;
+
+      const status = String(record.status ?? "").trim().toLowerCase();
+      const isAttended = ATTENDED_STATUSES.has(status) ||
+        (status === "excused" && (
+          record.excuseRequestStatus === "approved" ||
+          Boolean(record.approvedBy) ||
+          record.hodApproval === "approved"
+        ));
+      if (isAttended) {
+        subject.attendedSessions += 1;
+        course.attendedSessions += 1;
+      }
+
+      course.subjectCount = course.subjects.length;
+    });
+  }
 
   const courses = Array.from(courseMap.values()).map((course) => {
     const subjects = course.subjects.map((subject) => {

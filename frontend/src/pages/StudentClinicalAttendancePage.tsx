@@ -35,6 +35,12 @@ interface ClinicalAttendanceSummary {
   lateCount?: number;
 }
 
+const getAttendanceStudentId = (
+  attendee: NonNullable<ClinicalAttendanceSummary["attendees"]>[number] | undefined
+) => typeof attendee?.student === "string"
+  ? attendee.student
+  : attendee?.student?._id ?? "";
+
 interface StudentAttendanceState {
   status: "present" | "absent" | "late" | "approved_absent" | "pending" | "on-leave" | "unknown";
   sessionTitle?: string;
@@ -57,13 +63,24 @@ interface StudentClinicalAssignment {
   endDate: string;
 }
 
+interface StudentClinicalPhase {
+  phaseId: string | null;
+  phaseName: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  postingRequired: boolean;
+  postingConfigured: boolean;
+}
+
 export default function StudentClinicalAttendancePage() {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<ClinicalAttendanceSummary[]>([]);
   const [assignment, setAssignment] = useState<StudentClinicalAssignment | null>(null);
+  const [activePhase, setActivePhase] = useState<StudentClinicalPhase | null>(null);
   const [activeSession, setActiveSession] = useState<ClinicalAttendanceSummary | null>(null);
   const [studentState, setStudentState] = useState<StudentAttendanceState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState<string | null>(null);
@@ -82,12 +99,20 @@ export default function StudentClinicalAttendancePage() {
       setSessions(sessionList);
       setAssignment(context.assignment ?? null);
       setActiveSession(context.activeSession ?? null);
+      setActivePhase(context.activePhase ?? null);
+      setLoadError(null);
 
       const endOfToday = new Date();
       endOfToday.setHours(23, 59, 59, 999);
-      const latestSession = sessionList.find((session: ClinicalAttendanceSummary) => new Date(session.date).getTime() <= endOfToday.getTime()) ?? null;
+      const latestSession = sessionList.find((session: ClinicalAttendanceSummary) =>
+        new Date(session.date).getTime() <= endOfToday.getTime() &&
+        session.attendees?.some((attendee: any) => {
+          const studentId = getAttendanceStudentId(attendee);
+          return studentId && String(studentId) === String(user._id);
+        })
+      ) ?? null;
       const attendeeRecord = latestSession?.attendees?.find((attendee: any) => {
-        const studentId = attendee?.student?._id ?? attendee?.student;
+        const studentId = getAttendanceStudentId(attendee);
         return studentId && String(studentId) === String(user._id);
       });
 
@@ -117,6 +142,7 @@ export default function StudentClinicalAttendancePage() {
       );
     } catch (error) {
       console.error("Unable to load student clinical attendance", error);
+      setLoadError("Unable to load your clinical attendance details. Please try again.");
       toast.error("Unable to load your clinical attendance details right now.");
     } finally {
       setLoading(false);
@@ -126,6 +152,8 @@ export default function StudentClinicalAttendancePage() {
   useEffect(() => {
     if (user?._id) {
       void loadAttendanceData();
+    } else {
+      setLoading(false);
     }
   }, [user?._id]);
 
@@ -158,7 +186,7 @@ export default function StudentClinicalAttendancePage() {
 
   useEffect(() => {
     const ownAttendance = activeSession?.attendees?.find((attendee) => {
-      const studentId = attendee?.student?._id ?? attendee?.student;
+      const studentId = getAttendanceStudentId(attendee);
       return String(studentId ?? "") === String(user?._id ?? "");
     });
     if (ownAttendance && ownAttendance.status !== "pending") {
@@ -239,6 +267,12 @@ export default function StudentClinicalAttendancePage() {
     }
   };
 
+  const activeAttendance = activeSession?.attendees?.find((attendee) => {
+    const studentId = getAttendanceStudentId(attendee);
+    return String(studentId ?? "") === String(user?._id ?? "");
+  });
+  const attendanceFinalized = Boolean(activeAttendance && activeAttendance.status !== "pending");
+
   const getStatusBadge = (status?: string) => {
     switch (status) {
       case "present":
@@ -265,7 +299,20 @@ export default function StudentClinicalAttendancePage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Review your attendance status for the current posting and generate a QR code for supervisor approval.
         </p>
+        {activePhase?.phaseName ? (
+          <p className="mt-1 text-sm font-medium">Active class phase: {activePhase.phaseName}</p>
+        ) : null}
       </div>
+
+      {loadError ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">
+          <span>{loadError}</span>
+          <Button variant="outline" size="sm" onClick={() => void loadAttendanceData()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
         <Card>
@@ -355,10 +402,13 @@ export default function StudentClinicalAttendancePage() {
               )}
             </div>
 
-            <Button onClick={handleGenerateQr} disabled={generating || !activeSession} className="w-full">
+            <Button onClick={handleGenerateQr} disabled={generating || !activeSession || attendanceFinalized} className="w-full">
               {generating ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
-              {generating ? "Generating QR..." : "Generate attendance QR"}
+              {generating ? "Generating QR..." : attendanceFinalized ? "Attendance already recorded" : "Generate attendance QR"}
             </Button>
+            {attendanceFinalized ? (
+              <p className="text-center text-xs text-muted-foreground">Your attendance for this session has been finalized.</p>
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -387,10 +437,10 @@ export default function StudentClinicalAttendancePage() {
               <TableBody>
                 {historyRows.map(({ key, date, period, session }) => {
               const attendeeRecord = session?.attendees?.find((attendee: any) => {
-                const studentId = attendee?.student?._id ?? attendee?.student;
+                const studentId = getAttendanceStudentId(attendee);
                 return studentId && String(studentId) === String(user?._id);
               });
-              const status = attendeeRecord?.status === "excused" ? "approved_absent" : ["present", "absent", "late", "on-leave"].includes(attendeeRecord?.status) ? attendeeRecord?.status : "pending";
+              const status = attendeeRecord?.status === "excused" ? "approved_absent" : ["present", "absent", "late", "on-leave"].includes(attendeeRecord?.status ?? "") ? attendeeRecord?.status : "pending";
               return (
                 <TableRow key={key}>
                   <TableCell>{period}</TableCell>
@@ -418,7 +468,7 @@ export default function StudentClinicalAttendancePage() {
           </div>
           <div className="flex gap-3">
             <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
-            <span>If the network is unstable, the approval is queued locally and synced later when the connection is stronger.</span>
+            <span>Your supervisor may queue an approval while offline. The QR/OTP can expire before sync; if that happens, ask your supervisor to scan a newly generated code.</span>
           </div>
           <div className="flex gap-3">
             <Clock3 className="mt-0.5 h-4 w-4 text-blue-600" />

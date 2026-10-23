@@ -74,5 +74,22 @@ describe("Student clinical attendance page", () => {
     mocks.get.mockResolvedValue({ data: makeContext(true, "present") });
     window.dispatchEvent(new Event("clinical-attendance-updated"));
     await waitFor(() => expect(screen.queryByAltText("Attendance QR code")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Attendance already recorded" })).toBeDisabled();
+  });
+
+  it("disables QR generation when attendance is already finalized", async () => {
+    mocks.get.mockResolvedValue({ data: makeContext(true, "present") });
+    render(<StudentClinicalAttendancePage />);
+
+    expect(await screen.findByRole("button", { name: "Attendance already recorded" })).toBeDisabled();
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it("shows a recoverable error state when attendance cannot be loaded", async () => {
+    mocks.get.mockRejectedValue(new Error("network error"));
+    render(<StudentClinicalAttendancePage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load your clinical attendance details.");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 });

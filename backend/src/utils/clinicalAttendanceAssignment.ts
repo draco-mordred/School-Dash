@@ -16,6 +16,48 @@ export interface StudentClinicalAssignment {
   endDate: Date;
 }
 
+export interface ClinicalAttendancePhaseContext {
+  configured: boolean;
+  phaseId: string | null;
+  phaseName: string | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  postingRequired: boolean;
+  postingScheduleId: string | null;
+  postingName: string | null;
+}
+
+export const isPostingInAcademicClockPhase = (
+  scheduleId: string,
+  postingId: string,
+  postingName: string,
+  phase: ClinicalAttendancePhaseContext
+) => {
+  if (!phase.configured) return true;
+  if (!phase.postingRequired || (!phase.postingScheduleId && !phase.postingName)) return false;
+
+  const normalize = (value: string | null | undefined) => String(value ?? "").trim().toLowerCase();
+  const matchesReference = phase.postingScheduleId === scheduleId ||
+    phase.postingScheduleId === postingId;
+  const matchesName = !phase.postingName || normalize(postingName) === normalize(phase.postingName);
+  return matchesReference && matchesName;
+};
+
+export const filterAssignmentsToAcademicClockPhase = (
+  assignments: readonly StudentClinicalAssignment[],
+  phase: ClinicalAttendancePhaseContext
+) => {
+  if (!phase.configured) return [...assignments];
+  return assignments.filter((assignment) => {
+    return isPostingInAcademicClockPhase(
+      assignment.scheduleId,
+      assignment.postingId,
+      assignment.postingName,
+      phase
+    );
+  });
+};
+
 const toDate = (value: unknown) => {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -61,7 +103,8 @@ const matchesPostingWindow = (window: any, posting: any, postingCount: number) =
 export const resolveStudentClinicalAssignments = (
   schedules: readonly any[],
   studentId: string,
-  at = new Date()
+  at = new Date(),
+  phase?: ClinicalAttendancePhaseContext
 ): StudentClinicalAssignment[] => {
   const assignments: StudentClinicalAssignment[] = [];
   const normalizedStudentId = String(studentId);
@@ -75,8 +118,21 @@ export const resolveStudentClinicalAssignments = (
     ];
 
     postings.forEach((posting: any, postingIndex: number) => {
-      const postingStart = toDate(posting?.startDate ?? schedule?.startDate);
-      const postingEnd = toDate(posting?.endDate ?? schedule?.endDate);
+      const scheduleId = idOf(schedule?._id);
+      const postingId = idOf(posting?._id) || `${scheduleId}:${postingIndex}`;
+      const postingName = String(posting?.name ?? schedule?.name ?? "Clinical posting");
+      const mappedToClockPhase = Boolean(phase?.configured && isPostingInAcademicClockPhase(
+        scheduleId,
+        postingId,
+        postingName,
+        phase
+      ));
+      const postingStart = mappedToClockPhase && phase?.startsAt
+        ? phase.startsAt
+        : toDate(posting?.startDate ?? schedule?.startDate);
+      const postingEnd = mappedToClockPhase && phase?.endsAt
+        ? phase.endsAt
+        : toDate(posting?.endDate ?? schedule?.endDate);
       const groups = Array.isArray(posting?.groups) ? posting.groups : [];
       const activeTimelineExists = timeline.some((window: any) =>
         matchesPostingWindow(window, posting, postings.length) && isActive(window?.startDate, window?.endDate, at)
@@ -84,7 +140,9 @@ export const resolveStudentClinicalAssignments = (
       const activeGroupAssignmentExists = groups.some((group: any) =>
         (Array.isArray(group?.assigned) ? group.assigned : []).some((window: any) => isActive(window?.startDate, window?.endDate, at))
       );
-      const postingIsActive = postingStart && postingEnd
+      const postingIsActive = mappedToClockPhase
+        ? true
+        : postingStart && postingEnd
         ? postingStart <= at && at < postingEnd
         : activeTimelineExists || activeGroupAssignmentExists;
       if (!postingIsActive) return;
@@ -119,8 +177,8 @@ export const resolveStudentClinicalAssignments = (
         return [{
           classId,
           scheduleId: idOf(schedule?._id),
-          postingId: idOf(posting?._id) || `${idOf(schedule?._id)}:${postingIndex}`,
-          postingName: String(posting?.name ?? schedule?.name ?? "Clinical posting"),
+          postingId,
+          postingName,
           groupId: `${unitName || window?.unitId ? "unit" : "department"}:${teamIndex}`,
           groupLabel: String(window?.unitGroupLabel || window?.departmentGroupLabel || data?.name || data?.label || unitName || departmentName || `Group ${groupIndex + 1}`),
           groupType: unitName || window?.unitId ? "unit" as const : "department" as const,
@@ -155,8 +213,8 @@ export const resolveStudentClinicalAssignments = (
         assignments.push({
           classId,
           scheduleId: idOf(schedule?._id),
-          postingId: idOf(posting?._id) || `${idOf(schedule?._id)}:${postingIndex}`,
-          postingName: String(posting?.name ?? schedule?.name ?? "Clinical posting"),
+          postingId,
+          postingName,
           groupId: `${isUnitWindow ? "unit" : "department"}:${groupIndex}`,
           groupLabel: String(window?.unitGroupLabel || window?.departmentGroupLabel || unitName || departmentName || data?.name || `Group ${groupIndex + 1}`),
           groupType: unitName || window?.unitId ? "unit" : "department",

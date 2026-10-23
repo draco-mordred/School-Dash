@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export type AttendanceStatus = "present" | "absent" | "late" | "excused";
+export type ExcuseRequestStatus = "none" | "pending" | "approved" | "rejected";
 
 export interface IAttendance extends Document {
   student?: mongoose.Types.ObjectId;
@@ -13,6 +14,11 @@ export interface IAttendance extends Document {
   dayOfWeek: "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
   status: AttendanceStatus;
   notes?: string;
+  excuseRequestStatus?: ExcuseRequestStatus;
+  excuseReason?: string;
+  excuseReviewNote?: string;
+  excuseReviewedBy?: mongoose.Types.ObjectId | null;
+  excuseReviewedAt?: Date | null;
   approvedBy?: mongoose.Types.ObjectId; // For excused absences, who approved it (e.g., admin or teacher)
   lecturerApproval?: "approved" | "not-approved" | null;
   lecturerApprovalDate?: Date | null;
@@ -70,6 +76,32 @@ const AttendanceSchema = new Schema(
     notes: {
       type: String,
       default: "",
+    },
+    excuseRequestStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+    },
+    excuseReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+    excuseReviewNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+    excuseReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    excuseReviewedAt: {
+      type: Date,
+      default: null,
     },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,

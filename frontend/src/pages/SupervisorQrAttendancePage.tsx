@@ -24,6 +24,11 @@ import jsQR from "jsqr";
 import { BrowserQRCodeReader } from "@zxing/library";
 import { format } from "date-fns";
 import {
+  doesPhaseRequirePostingSchedule,
+  resolveActiveAcademicClockPhase,
+} from "@/lib/academicClock";
+import { loadSupervisorAttendanceSupportOptions } from "@/lib/supervisorAttendanceSupportOptions";
+import {
   Dialog,
   DialogTrigger,
   DialogContent,
@@ -32,24 +37,128 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
+const APPROVAL_QUEUE_STORAGE_KEY = "clinical-attendance-pending-approvals";
+const LAST_SYNC_STORAGE_KEY = "clinical-attendance-last-update";
+
+const isRetryableApprovalFailure = (status: number | undefined, message: string) =>
+  status === undefined ||
+  status === 408 ||
+  status === 429 ||
+  status >= 500 ||
+  (status === 409 && /already being processed/i.test(message));
+
+interface PendingApproval {
+  id: string;
+  studentIdNumber: string;
+  sessionId: string;
+  sessionTitle: string;
+  status: string;
+  createdAt: string;
+  notes: string;
+  qrPayload: string;
+}
+
+interface SessionAttendee {
+  student?: string | {
+    _id?: string;
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    inn?: string;
+    INN?: string;
+    idNumber?: string;
+  };
+  status?: string;
+  notes?: string;
+}
+
+interface ClinicalSessionSummary {
+  _id: string;
+  title: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  status: string;
+  supervisorName?: string;
+  supervisorGroupCode?: string;
+  supervisorGroupLabel?: string;
+  supervisor?: { firstName?: string; lastName?: string; name?: string };
+  unit?: { name?: string };
+  attendees?: SessionAttendee[];
+  presentCount?: number;
+  absentCount?: number;
+  lateCount?: number;
+}
+
+interface RotationPostingLike {
+  _id?: string;
+  name?: string;
+  groups?: Array<Record<string, any>>;
+  meta?: Record<string, any>;
+}
+
+interface RotationScheduleLike {
+  _id?: string;
+  name?: string;
+  phaseId?: string;
+  phaseName?: string;
+  postingPhase?: string;
+  postings?: RotationPostingLike[];
+  meta?: Record<string, any>;
+}
+
+interface PostingOption {
+  _id: string;
+  name: string;
+  scheduleName: string;
+}
+
+interface ClinicalUnitOption {
+  _id: string;
+  name?: string;
+  department?: string;
+  departmentName?: string;
+  departmentId?: string;
+  departmentID?: string;
+  departmentCode?: string;
+}
+
+interface AvailableSupervisorGroup {
+  id: string;
+  label: string;
+  code?: string;
+  type?: string;
+}
+
+interface ClinicalSessionForm {
+  classId: string;
+  activityType: string;
+  clinicalRotation: string;
+  unit: string;
+  department: string;
+  title: string;
+  description: string;
+  date: string;
+  startTime: string;
+  location: string;
+}
+
 export default function SupervisorQrAttendancePage() {
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
   const { user } = useAuth();
 
   // UI state and refs
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<ClinicalSessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>("");
   const [classes, setClasses] = useState<any[]>([]);
   const [currentAcademicYearId, setCurrentAcademicYearId] = useState<string | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<string>("");
-  const [newSessionForm, setNewSessionForm] = useState<any>({ classId: "", activityType: "ward_round", clinicalRotation: "", unit: "", department: "", title: "", description: "", date: "", startTime: "", location: "" });
-  const [units, setUnits] = useState<any[]>([]);
-  const [postings, setPostings] = useState<any[]>([]);
+  const [newSessionForm, setNewSessionForm] = useState<ClinicalSessionForm>({ classId: "", activityType: "ward_round", clinicalRotation: "", unit: "", department: "", title: "", description: "", date: "", startTime: "", location: "" });
+  const [postings, setPostings] = useState<PostingOption[]>([]);
   const [shouldUseDepartmentFallback, setShouldUseDepartmentFallback] = useState<boolean>(false);
-  const [selectedClock, setSelectedClock] = useState<any | null>(null);
   const [timelineMissing, setTimelineMissing] = useState<boolean>(false);
   const [selectedPostingDepartment, setSelectedPostingDepartment] = useState<string>("");
-  const [availableSupervisorGroups, setAvailableSupervisorGroups] = useState<any[]>([]);
+  const [availableSupervisorGroups, setAvailableSupervisorGroups] = useState<AvailableSupervisorGroup[]>([]);
   const [groupSelectionMessage, setGroupSelectionMessage] = useState<string>("");
   const [selectedSupervisorGroupId, setSelectedSupervisorGroupId] = useState<string>("");
   const [creatingSession, setCreatingSession] = useState<boolean>(false);
@@ -59,10 +168,9 @@ export default function SupervisorQrAttendancePage() {
   const [showCameraModal, setShowCameraModal] = useState<boolean>(false);
   const [mirrorPreview, setMirrorPreview] = useState<boolean>(false);
   const feedbackTimeoutRef = useRef<number | null>(null);
-  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
   const [approvalSort, setApprovalSort] = useState<"asc" | "desc">("desc");
-  const [loading, setLoading] = useState<boolean>(false);
-  const [canAccess, setCanAccess] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [qrInput, setQrInput] = useState<string>("");
   const [rawQrPayload, setRawQrPayload] = useState<string | null>(null);
@@ -100,8 +208,17 @@ export default function SupervisorQrAttendancePage() {
   const [notes, setNotes] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerActiveRef = useRef<boolean>(false);
+  const [scanFeedback, setScanFeedback] = useState<{ type: "info" | "success"; message: string } | null>(null);
 
-  const readQueue = () => {
+  const showFeedback = (feedback: { type: "info" | "success"; message: string }) => {
+    setScanFeedback(feedback);
+    if (feedbackTimeoutRef.current) {
+      window.clearTimeout(feedbackTimeoutRef.current);
+    }
+    feedbackTimeoutRef.current = window.setTimeout(() => setScanFeedback(null), 3_000);
+  };
+
+  const readQueue = (): PendingApproval[] => {
     if (typeof window === "undefined") {
       return [] as PendingApproval[];
     }
@@ -172,7 +289,11 @@ export default function SupervisorQrAttendancePage() {
           }
         }
 
-        remaining.push(item);
+        if (isRetryableApprovalFailure(status, message)) {
+          remaining.push(item);
+        } else {
+          toast.error(message || "A queued approval was rejected and removed. Ask the student to generate a fresh code if needed.");
+        }
       }
     }
 
@@ -210,9 +331,10 @@ export default function SupervisorQrAttendancePage() {
 
   useEffect(() => {
     const fetchSessions = async () => {
+      setLoading(true);
       try {
         const response = await api.get("/clinical-attendance/sessions?status=ongoing,planned");
-        const sessionList = response.data?.data ?? [];
+        const sessionList: ClinicalSessionSummary[] = response.data?.data ?? [];
         setSessions(sessionList);
         if (!selectedSessionId && sessionList.length > 0) {
           setSelectedSessionId(sessionList[0]._id);
@@ -220,6 +342,8 @@ export default function SupervisorQrAttendancePage() {
       } catch (error) {
         console.error("Failed to load clinical sessions", error);
         toast.error("Unable to load clinical sessions right now.");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -246,15 +370,15 @@ export default function SupervisorQrAttendancePage() {
       const queueItems = readQueue();
       setPendingApprovals(queueItems);
       void syncPendingQueue();
+    } else {
+      setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
     const loadClassPostingUnits = async () => {
       if (!selectedClassId) {
-        setUnits([]);
         setPostings([]);
-        setSelectedClock(null);
         return;
       }
 
@@ -271,7 +395,7 @@ export default function SupervisorQrAttendancePage() {
           }),
         ]);
 
-        const nextUnits = Array.isArray(unitsResponse.data?.data)
+        const nextUnits: ClinicalUnitOption[] = Array.isArray(unitsResponse.data?.data)
           ? unitsResponse.data.data
           : Array.isArray(unitsResponse.data?.units)
             ? unitsResponse.data.units
@@ -296,6 +420,25 @@ export default function SupervisorQrAttendancePage() {
           if (!nextClock) return true;
           const activePhase = resolveActiveAcademicClockPhase(nextClock, schedule?.name ?? "", new Date());
           const phaseId = activePhase?.phaseId;
+          const phaseConfig = activePhase.phasePlan.find((phase) => phase.id === phaseId);
+          const configuredClockPhases = Array.isArray(nextClock.phaseConfig)
+            ? nextClock.phaseConfig.length > 0
+            : Boolean(nextClock.phaseConfig && typeof nextClock.phaseConfig === "object" && Object.keys(nextClock.phaseConfig).length > 0);
+          if (configuredClockPhases) {
+            if (!phaseConfig || !doesPhaseRequirePostingSchedule(phaseConfig)) return false;
+            const reference = String(phaseConfig.postingScheduleId ?? phaseConfig.postingId ?? "");
+            if (!reference) return false;
+            const matchesPosting = (posting: any) => {
+              const matchesReference = reference === String(schedule?._id ?? "") ||
+                reference === String(posting?._id ?? "");
+              const matchesName = !phaseConfig.postingName ||
+                String(posting?.name ?? "").trim().toLowerCase() === String(phaseConfig.postingName).trim().toLowerCase();
+              return matchesReference && matchesName;
+            };
+            return reference === String(schedule?._id ?? "")
+              ? !phaseConfig.postingName || schedule?.postings?.some(matchesPosting)
+              : schedule?.postings?.some(matchesPosting) ?? false;
+          }
           const schedulePhase = schedule?.phaseId || schedule?.phaseName || schedule?.postingPhase || schedule?.meta?.phaseId;
           return !phaseId || !schedulePhase || phaseId === schedulePhase;
         });
@@ -338,7 +481,25 @@ export default function SupervisorQrAttendancePage() {
 
         phaseAwareSchedules.forEach((schedule: RotationScheduleLike) => {
           const scheduleId = String(schedule?._id ?? "");
-          const postings = Array.isArray(schedule?.postings) && schedule.postings.length > 0 ? schedule.postings : [{ _id: scheduleId, name: schedule?.name }];
+          const availablePostings = Array.isArray(schedule?.postings) && schedule.postings.length > 0
+            ? schedule.postings
+            : [{ _id: scheduleId, name: schedule?.name }];
+          const activePhase = nextClock
+            ? resolveActiveAcademicClockPhase(nextClock, schedule?.name ?? "", new Date())
+            : null;
+          const phaseConfig = activePhase?.phasePlan.find((phase) => phase.id === activePhase.phaseId);
+          const configuredClockPhases = Array.isArray(nextClock?.phaseConfig)
+            ? nextClock.phaseConfig.length > 0
+            : Boolean(nextClock?.phaseConfig && typeof nextClock.phaseConfig === "object" && Object.keys(nextClock.phaseConfig).length > 0);
+          const postings = configuredClockPhases && phaseConfig
+            ? availablePostings.filter((posting) => {
+                const reference = String(phaseConfig.postingScheduleId ?? phaseConfig.postingId ?? "");
+                const matchesReference = reference === scheduleId || reference === String(posting?._id ?? "");
+                const matchesName = !phaseConfig.postingName ||
+                  String(posting?.name ?? "").trim().toLowerCase() === String(phaseConfig.postingName).trim().toLowerCase();
+                return matchesReference && matchesName;
+              })
+            : availablePostings;
           postings.forEach((posting: RotationPostingLike) => {
             const postingId = String(posting?._id ?? scheduleId);
             const postingName = posting?.name || schedule?.name || "Unnamed posting";
@@ -478,33 +639,26 @@ export default function SupervisorQrAttendancePage() {
         const shouldUseDepartmentFallback = matchedUnits.length === 0 && departmentFallbackOptions.length > 0;
 
         setPostings(nextPostingOptions);
-        setSelectedClock(nextClock);
         if (!newSessionForm.classId && selectedClassId) {
           setNewSessionForm((current) => ({ ...current, classId: selectedClassId }));
         }
 
         if (matchedUnits.length > 0) {
-          setUnits(matchedUnits);
           setShouldUseDepartmentFallback(false);
           if (!newSessionForm.unit || !matchedUnits.some((unit: ClinicalUnitOption) => String(unit._id) === String(newSessionForm.unit))) {
             setNewSessionForm((current) => ({ ...current, unit: matchedUnits[0]._id }));
           }
         } else if (shouldUseDepartmentFallback && matchedDepartmentUnits.length > 0) {
-          setUnits(matchedDepartmentUnits);
           setShouldUseDepartmentFallback(true);
           if (!newSessionForm.unit || !matchedDepartmentUnits.some((unit: ClinicalUnitOption) => String(unit._id) === String(newSessionForm.unit))) {
             setNewSessionForm((current) => ({ ...current, unit: matchedDepartmentUnits[0]._id }));
           }
         } else {
-          setUnits(nextUnits);
           setShouldUseDepartmentFallback(false);
           if (!newSessionForm.unit && nextUnits.length > 0) {
             setNewSessionForm((current) => ({ ...current, unit: nextUnits[0]._id }));
           }
         }
-
-        // expose posting-level departments for optional department select UI
-        setDepartmentsForPosting(departmentFallbackOptions);
 
         if (nextPostingOptions.length > 0) {
           const postingId = newSessionForm.clinicalRotation || nextPostingOptions[0]._id;
@@ -561,9 +715,7 @@ export default function SupervisorQrAttendancePage() {
         }
       } catch (error) {
         console.error("Failed to resolve units from the selected class posting schedule", error);
-        setUnits([]);
         setPostings([]);
-        setSelectedClock(null);
       }
     };
 
@@ -604,7 +756,7 @@ export default function SupervisorQrAttendancePage() {
   }, [selectedSession]);
 
   const approvalGroups = useMemo(() => {
-    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: { student?: { _id?: string; firstName?: string; lastName?: string } | string; status?: string; notes?: string }; status: string }>>();
+    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: SessionAttendee; status: string }>>();
 
     sessions.forEach((session) => {
       const groupKey = session.supervisorGroupLabel || "Unassigned group";
@@ -630,7 +782,7 @@ export default function SupervisorQrAttendancePage() {
   }, [sessions, approvalSort]);
 
   const awaitingApprovalGroups = useMemo(() => {
-    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: { student?: { _id?: string; firstName?: string; lastName?: string } | string; status?: string; notes?: string }; status: string }>>();
+    const groups = new Map<string, Array<{ session: ClinicalSessionSummary; attendee: SessionAttendee; status: string }>>();
 
     sessions.forEach((session) => {
       const groupKey = session.supervisorGroupLabel || "Unassigned group";
@@ -672,7 +824,7 @@ export default function SupervisorQrAttendancePage() {
   const refreshSessions = async () => {
     try {
       const response = await api.get("/clinical-attendance/sessions?status=ongoing,planned");
-      const sessionList = response.data?.data ?? [];
+      const sessionList: ClinicalSessionSummary[] = response.data?.data ?? [];
       setSessions(sessionList);
       if (sessionList.length > 0 && !sessionList.some((session: ClinicalSessionSummary) => session._id === selectedSessionId)) {
         setSelectedSessionId(sessionList[0]._id);
@@ -816,8 +968,10 @@ export default function SupervisorQrAttendancePage() {
             const scanFrame = async () => {
               if (!active || !scannerActiveRef.current || !videoRef.current) return;
               try {
-                const barcodes = await detector.detect?.(videoRef.current);
-                const detectedCode = barcodes[0]?.rawValue;
+                const activeDetector = detector;
+                if (!activeDetector?.detect) return;
+                const barcodes = await activeDetector.detect(videoRef.current);
+                const detectedCode = barcodes?.[0]?.rawValue;
                 if (detectedCode) {
                   setRawQrPayload(detectedCode);
                   setQrDisplay(parseQrPayloadForLabel(detectedCode));
@@ -959,8 +1113,6 @@ export default function SupervisorQrAttendancePage() {
         ? queuedApprovals
         : [queueItem, ...queuedApprovals];
       persistQueue(nextQueue);
-      window.localStorage.setItem(LAST_SYNC_STORAGE_KEY, String(Date.now()));
-      window.dispatchEvent(new Event("clinical-attendance-updated"));
       toast.success("Approval queued for sync. The student will update when the sync completes.");
       return;
     }
@@ -984,6 +1136,8 @@ export default function SupervisorQrAttendancePage() {
       // If OTP expired, don't re-queue — inform user to request a fresh OTP
       if (status === 410 || /otp not found|expired/i.test(message)) {
         toast.error(message || "OTP not found or expired. Ask the student to provide a fresh QR/OTP.");
+      } else if (!isRetryableApprovalFailure(status, message)) {
+        toast.error(message || "This attendance approval was rejected and was not queued.");
       } else {
         const queuedApprovals = readQueue();
         const nextQueue = queuedApprovals.some((item) => item.qrPayload === payload)
@@ -1033,19 +1187,6 @@ export default function SupervisorQrAttendancePage() {
       <div className="flex min-h-[50vh] items-center justify-center">
         <div className="text-sm text-muted-foreground">Loading supervisor attendance screen…</div>
       </div>
-    );
-  }
-
-  if (!canAccess) {
-    return (
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle>Access restricted</CardTitle>
-          <CardDescription>
-            This supervisor QR attendance screen is available to admins and clinical staff only.
-          </CardDescription>
-        </CardHeader>
-      </Card>
     );
   }
 
@@ -1310,6 +1451,14 @@ export default function SupervisorQrAttendancePage() {
             <form onSubmit={handleApproveAttendance} className="space-y-4">
               <div>
                 <label className="mb-2 block text-sm font-medium">Student QR payload</label>
+                {scanFeedback ? (
+                  <p
+                    role="status"
+                    className={`mb-2 text-sm ${scanFeedback.type === "success" ? "text-green-700" : "text-muted-foreground"}`}
+                  >
+                    {scanFeedback.message}
+                  </p>
+                ) : null}
                 <textarea
                   value={qrDisplay || qrInput}
                   onChange={(event) => handleQrInputChange(event.target.value)}

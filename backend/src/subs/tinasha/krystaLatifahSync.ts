@@ -601,25 +601,35 @@ const checkMinimumAttendance = async (
   });
   
   // Count present lectures
-  const presentLectures = await Attendance.countDocuments({
+  const attendedLectures = await Attendance.countDocuments({
     class: classId,
     academicYear,
     student,
-    status: "present",
+    $or: [
+      { status: { $in: ["present", "late"] } },
+      {
+        status: "excused",
+        $or: [
+          { excuseRequestStatus: "approved" },
+          { approvedBy: { $ne: null } },
+          { hodApproval: "approved" },
+        ],
+      },
+    ],
   });
   
-  const percentage = totalLectures > 0 ? (presentLectures / totalLectures) * 100 : 100;
+  const percentage = totalLectures > 0 ? (attendedLectures / totalLectures) * 100 : 100;
   
-  if (percentage < minPercentage || presentLectures < minCount) {
+  if (percentage < minPercentage || attendedLectures < minCount) {
     violations.push({
       logType: "minimum_attendance_violation",
       ruleName: rule.name,
       severity: rule.severity,
       title: `Minimum lecture attendance not met`,
-      message: `Student has only ${Math.round(percentage)}% lecture attendance (${presentLectures}/${totalLectures}). Minimum required: ${minPercentage}% or ${minCount} lectures`,
+      message: `Student has only ${Math.round(percentage)}% lecture attendance (${attendedLectures}/${totalLectures}). Minimum required: ${minPercentage}% or ${minCount} lectures`,
       details: {
         totalLectures,
-        presentLectures,
+        attendedLectures,
         percentage,
         minPercentage,
         minCount,

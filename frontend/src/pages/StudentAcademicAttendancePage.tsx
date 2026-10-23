@@ -7,6 +7,7 @@ import {
   sortCourseSummaries,
   sortSubjectSummaries,
   type AcademicAttendanceRecordLike,
+  type AcademicAttendanceAggregate,
   type AcademicCourseCatalogLike,
   type CourseAttendanceSummary,
   type SubjectAttendanceSummary,
@@ -49,6 +50,11 @@ export default function StudentAcademicAttendancePage() {
   const { user } = useAuth();
   const { institution, loading: institutionLoading } = useInstitution();
   const [records, setRecords] = useState<AcademicAttendanceRecordLike[]>([]);
+  const [attendanceTotal, setAttendanceTotal] = useState(0);
+  const [attendanceAggregates, setAttendanceAggregates] = useState<AcademicAttendanceAggregate[] | undefined>();
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [excuseReasons, setExcuseReasons] = useState<Record<string, string>>({});
+  const [submittingExcuseId, setSubmittingExcuseId] = useState<string | null>(null);
   const [courseCatalog, setCourseCatalog] = useState<AcademicCourseCatalogLike[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -84,12 +90,16 @@ export default function StudentAcademicAttendancePage() {
       }
       setError(null);
       const [attendanceResponse, courseResponse] = await Promise.all([
-        api.get("/attendance/me"),
+        api.get("/attendance/me", { params: { page: attendancePage, limit: 25 } }),
         api.get("/courses", { params: { topLevel: true } }),
       ]);
       const nextRecords = Array.isArray(attendanceResponse.data?.records) ? attendanceResponse.data.records : [];
       const nextCourseCatalog = Array.isArray(courseResponse.data?.courses) ? courseResponse.data.courses : [];
       setRecords(nextRecords);
+      setAttendanceTotal(Number(attendanceResponse.data?.total ?? nextRecords.length));
+      setAttendanceAggregates(
+        Array.isArray(attendanceResponse.data?.subjectSummary) ? attendanceResponse.data.subjectSummary : undefined,
+      );
       setCourseCatalog(nextCourseCatalog);
       setAlertInsight(null);
       alertTriggeredRef.current = false;
@@ -100,7 +110,7 @@ export default function StudentAcademicAttendancePage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?._id]);
+  }, [attendancePage, user?._id]);
 
   useEffect(() => {
     if (user?._id) {
@@ -128,7 +138,10 @@ export default function StudentAcademicAttendancePage() {
     return () => window.clearInterval(timer);
   }, [autoRefreshEnabled, loadAttendanceData, user?._id]);
 
-  const summary = useMemo(() => buildAcademicAttendanceSummary(records, threshold, courseCatalog), [courseCatalog, records, threshold]);
+  const summary = useMemo(
+    () => buildAcademicAttendanceSummary(records, threshold, courseCatalog, attendanceAggregates),
+    [attendanceAggregates, courseCatalog, records, threshold],
+  );
 
   const sortedCourses = useMemo(() => sortCourseSummaries(summary.courses, courseSort), [courseSort, summary.courses]);
 
@@ -254,6 +267,26 @@ export default function StudentAcademicAttendancePage() {
         </CardContent>
       </Card>
     );
+  };
+
+  const submitExcuseRequest = async (attendanceId: string) => {
+    const reason = excuseReasons[attendanceId]?.trim();
+    if (!reason) {
+      setError("Enter a reason before submitting an excuse request.");
+      return;
+    }
+    try {
+      setSubmittingExcuseId(attendanceId);
+      setError(null);
+      await api.post(`/attendance/${attendanceId}/excuse-request`, { reason });
+      setExcuseReasons((current) => ({ ...current, [attendanceId]: "" }));
+      await loadAttendanceData(false);
+    } catch (err: any) {
+      console.error("Unable to submit excuse request", err);
+      setError(err?.response?.data?.message || "Unable to submit your excuse request.");
+    } finally {
+      setSubmittingExcuseId(null);
+    }
   };
 
   return (
@@ -385,6 +418,101 @@ export default function StudentAcademicAttendancePage() {
           {sortedCourses.map((course) => renderCourseCard(course))}
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent attendance records</CardTitle>
+          <CardDescription>
+            {attendanceTotal} records • Excused absences count toward attendance only after approval.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {records.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No attendance records found.</p>
+          ) : records.map((record) => {
+            const recordId = String(record._id ?? "");
+            const requestStatus = String(record.excuseRequestStatus ?? "none");
+            const canRequest = record.status === "absent" && requestStatus !== "pending";
+            return (
+              <div key={recordId} className="space-y-2 rounded-lg border p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="font-medium">
+                      {typeof record.course === "object" && record.course
+                        ? record.course.name ?? record.course.code ?? "Course"
+                        : "Course"}
+                      {typeof record.subject === "object" && record.subject
+                        ? ` • ${record.subject.name ?? record.subject.code ?? "Subject"}`
+                        : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatAttendanceDate(record.date ? String(record.date) : null) ?? "Date unavailable"}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="capitalize">{record.status ?? "unknown"}</Badge>
+                </div>
+                {record.status === "absent" && (
+                  <div className="space-y-2">
+                    {requestStatus === "pending" ? (
+                      <p className="text-sm text-amber-700">
+                        Excuse request pending review{record.excuseReason ? `: ${record.excuseReason}` : ""}
+                      </p>
+                    ) : requestStatus === "approved" ? (
+                      <p className="text-sm text-emerald-700">Excuse request approved</p>
+                    ) : requestStatus === "rejected" ? (
+                      <p className="text-sm text-destructive">
+                        Excuse request rejected{record.excuseReviewNote ? `: ${record.excuseReviewNote}` : ""}
+                      </p>
+                    ) : null}
+                    {canRequest && (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <input
+                          className="min-h-10 flex-1 rounded-md border bg-background px-3 text-sm"
+                          maxLength={1000}
+                          placeholder="Reason for requesting an excused absence"
+                          value={excuseReasons[recordId] ?? ""}
+                          onChange={(event) => setExcuseReasons((current) => ({
+                            ...current,
+                            [recordId]: event.target.value,
+                          }))}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => void submitExcuseRequest(recordId)}
+                          disabled={submittingExcuseId === recordId}
+                        >
+                          {submittingExcuseId === recordId ? "Submitting…" : "Request approval"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={attendancePage <= 1 || loading}
+              onClick={() => setAttendancePage((page) => Math.max(1, page - 1))}
+            >
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {attendancePage} of {Math.max(1, Math.ceil(attendanceTotal / 25))}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={attendancePage * 25 >= attendanceTotal || loading}
+              onClick={() => setAttendancePage((page) => page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
