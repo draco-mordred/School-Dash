@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 6dc464f10130f4f40735f69cf3453202167bc0a0)
 import mongoose from "mongoose";
 import { inngest } from "./client";
 import ClassModel from "../models/classes";
@@ -8,7 +9,6 @@ import AcademicYear from "../models/academicYear";
 import RotationPlan from "../models/rotationPlan";
 import Exam from "../models/exam";
 // import Course from "../models/courses";
-import Attendance from "../models/attendance";
 import { NonRetriableError } from "inngest";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { generateText } from "ai";
@@ -455,139 +455,49 @@ export const generateAttendance = inngest.createFunction(
     }
   },
   async ({ event, step }) => {
-    const { courseId, classId, academicYearId, date } = event.data as {
+    const { courseId, classId, academicYearId, date, subjectId, userId } = event.data as {
       courseId: string;
       classId: string;
       academicYearId: string;
       date: string;
+      subjectId: string;
+      userId?: string;
     };
 
-    if (!courseId || !classId || !academicYearId || !date) {
-      throw new NonRetriableError("courseId, classId, academicYearId, and date are required");
+    if (!courseId || !classId || !academicYearId || !date || !subjectId) {
+      throw new NonRetriableError("courseId, classId, academicYearId, subjectId, and date are required");
     }
 
-    const dayMap = {
-      0: "Sunday",
-      1: "Monday",
-      2: "Tuesday",
-      3: "Wednesday",
-      4: "Thursday",
-      5: "Friday",
-      6: "Saturday",
-    } as const;
-    const dateObj = new Date(date);
-    if (Number.isNaN(dateObj.getTime())) {
-      throw new NonRetriableError("Invalid date format");
-    }
-    const dayName = dayMap[dateObj.getDay()];
-
-    // Reject weekends
-    if (dayName === "Saturday" || dayName === "Sunday") {
-      throw new NonRetriableError("Attendance cannot be generated on weekends (Saturday/Sunday)");
-    }
-
-    // Step 1: Fetch class students
-    const classData = await step.run("fetch-class-students", async () => {
-      const cls = await ClassModel.findById(classId).populate("students", "_id name");
-      if (!cls) throw new NonRetriableError(`Class not found: ${classId}`);
-      return cls;
-    });
-
-    const studentIds = (classData as any).students.map((s: any) => s._id);
-
-    // Step 2: Fetch timetable for class/academicYear
-    const timetableData = await step.run("fetch-timetable-schedule", async () => {
-      const timetable = await Timetable.findOne({
-        class: classId,
-        academicYear: academicYearId,
-      }).populate("schedule.periods.subject", "_id name code")
-        .populate("schedule.periods.lecturer", "_id name");
-
-      if (!timetable) {
-        throw new NonRetriableError(`NO_TIMETABLE: No timetable found for this class. Please generate a timetable first.`);
+    // Single shared generation core (LATIFAH) — the same code path used by the
+    // direct HTTP fallback, so subject resolution, the weekend/duplicate guards,
+    // lecturer notification and the attendance.session.generated event can never
+    // drift between the Inngest path and the direct path.
+    const result = await step.run("generate-attendance", async () => {
+      const {
+        generateSessionRecords,
+        AttendanceGenerationError,
+      } = await import("../subs/latifah/attendanceGeneration");
+      try {
+        return await generateSessionRecords({
+          courseId,
+          classId,
+          academicYearId,
+          date,
+          subjectId,
+          requesterId: userId,
+        });
+      } catch (err) {
+        if (err instanceof AttendanceGenerationError) {
+          throw new NonRetriableError("[" + err.code + "] " + err.message);
+        }
+        throw err;
       }
-
-      const daySchedule = timetable.schedule.find(
-        (d: any) => d.day?.toLowerCase() === dayName?.toLowerCase()
-      );
-
-      if (!daySchedule) {
-        throw new NonRetriableError(`NO_SCHEDULE: No schedule found for ${dayName}. The timetable exists but has no periods on this day.`);
-      }
-
-      const courseStr = courseId.toString();
-      const matchingPeriods = daySchedule.periods.filter(
-        (p: any) => p.subject?._id?.toString() === courseStr
-      );
-
-      if (matchingPeriods.length === 0) {
-        const availableSubjects = daySchedule.periods
-          .map((p: any) => p.subject?.name ?? p.subject?.code ?? "Unknown")
-          .filter(Boolean);
-        const hint = availableSubjects.length > 0
-          ? ` Available courses on ${dayName}: ${[...new Set(availableSubjects)].join(", ")}.`
-          : "";
-        throw new NonRetriableError(
-          `NO_PERIOD: No period found for the selected course on ${dayName}. Please verify the course was added to the ${dayName} schedule in the timetable.${hint}`
-        );
-      }
-
-      return { daySchedule, matchingPeriods };
-    });
-
-    const { matchingPeriods } = timetableData as { matchingPeriods: any[] };
-
-    // Step 3: Remove any existing attendance for this class, course, and date
-    const duplicateCheck = await step.run("check-duplicate", async () => {
-      const startOfDay = new Date(dateObj);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setDate(endOfDay.getDate() + 1);
-
-      const deleted = await Attendance.deleteMany({
-        class: classId,
-        course: courseId,
-        date: { $gte: startOfDay, $lt: endOfDay },
-      });
-
-      return { deletedCount: deleted.deletedCount };
-    });
-
-    // Step 4: Create Attendance records for each student
-    const createdRecords = await step.run("create-attendance-records", async () => {
-      const lecturer = matchingPeriods[0]?.lecturer?._id ?? null;
-
-      const records = await Promise.all(
-        studentIds.map((studentId: mongoose.Types.ObjectId) =>
-          Attendance.create({
-            student: studentId,
-            lecturer,
-            course: courseId,
-            class: classId,
-            academicYear: academicYearId,
-            date: dateObj,
-            dayOfWeek: dayName,
-            status: "present",
-          })
-        )
-      );
-
-      return records;
-    });
-
-    // Step 5: Log activity
-    await step.run("log-activity", async () => {
-      await logActivity({
-        userId: (event.data as any).userId ?? "system",
-        action: "Generated attendance list",
-        details: `Attendance list generated for ${(classData as any).name} on ${new Date(date).toDateString()}, course ${courseId}. ${studentIds.length} student(s).`,
-      });
     });
 
     return {
       success: true,
-      message: `Attendance list generated for ${(classData as any).name} on ${dayName}`,
-      count: studentIds.length,
+      message: result.message,
+      count: result.studentCount,
     };
   }
 );

@@ -1,3 +1,5 @@
+successfully downloaded text file (SHA: 4bbdb1412cc9a629a4f06d06b10b19dfe6a63685)
+successfully downloaded text file (SHA: d7836ed7bee17458169cf9badb4fc49754df6d0a)
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import Attendance from "../../models/attendance";
@@ -7,120 +9,30 @@ import { logActivity } from "../../utils/activitieslog";
 import { inngest } from "../../inngest";
 import Class from "../../models/classes";
 import { createNotificationAndEmitEvent } from "../tinasha/notificationService";
-import { emitSystemEvent } from "../../events";
+import { emitSystemEvent, subscribeSystemEvent } from "../../events";
+import { AttendanceGenerationError, generateSessionRecords } from "./attendanceGeneration";
 
+export {
+  AttendanceGenerationError,
+  generateSessionRecords,
+  validateAttendanceGenerationInput,
+} from "./attendanceGeneration";
+
+// Thin HTTP wrapper around the shared generation core (see attendanceGeneration.ts).
+// Kept as the direct fallback used in local development when Inngest is unavailable.
 export const generateAttendanceForClassSession = async (req: Request, res: Response) => {
   try {
-    const { courseId, classId, academicYearId, date, subjectId } = req.body;
-    const requester = (req as any).user._id;
-    if (!courseId || !classId || !academicYearId || !date || !subjectId) {
-      return res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
-    }
-    const dateObj = new Date(date);
-    const dayMap: Record<number, string> = {
-      0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
-      4: "Thursday", 5: "Friday", 6: "Saturday",
-    };
-    const dayName = dayMap[dateObj.getDay()];
-    if (dayName === "Saturday" || dayName === "Sunday") {
-      return res.status(400).json({ message: "Attendance cannot be generated on weekends." });
-    }
-
-    const course = await Course.findById(courseId).populate({
-      path: "subjects.lecturer",
-      select: "_id name email departmentRole",
+    const result = await generateSessionRecords({
+      ...(req.body as any),
+      requesterId: (req as any).user?._id?.toString(),
     });
-    if (!course) {
-      return res.status(404).json({ message: "Course not found." });
+    res
+      .status(201)
+      .json({ message: result.message, attendanceRecords: result.attendanceRecords });
+  } catch (error: any) {
+    if (error instanceof AttendanceGenerationError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
     }
-
-    const matchingSubject = (course.subjects ?? []).find((subject: any) => {
-      return (
-        String(subject._id) === String(subjectId) ||
-        String(subject.subjectUID) === String(subjectId) ||
-        String(subject.subjectID) === String(subjectId) ||
-        String(subject.name) === String(subjectId) ||
-        String(subject.code ?? "") === String(subjectId)
-      );
-    });
-
-    if (!matchingSubject) {
-      return res.status(404).json({ message: "Subject not found in selected course." });
-    }
-
-    const classDoc = await Class.findById(classId).populate("students", "_id");
-    if (!classDoc) {
-      return res.status(404).json({ message: "Class not found." });
-    }
-
-    const subjectLecturerId = Array.isArray(matchingSubject.lecturer)
-      ? matchingSubject.lecturer[0]?._id ?? matchingSubject.lecturer[0]
-      : null;
-    const lecturer = subjectLecturerId ?? requester;
-
-    const startOfDay = new Date(dateObj);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
-    const existing = await Attendance.findOne({
-      class: classId,
-      course: courseId,
-      subject: matchingSubject._id,
-      date: { $gte: startOfDay, $lt: endOfDay },
-    });
-    if (existing) {
-      return res.status(409).json({ message: "Attendance records already exist for this class, course, subject, and date." });
-    }
-
-    const studentIds = (classDoc.students ?? []).map((student: any) => student._id ?? student);
-    const attendanceRecords = await Promise.all(studentIds.map(async (studentId: any) => {
-      const record = await Attendance.create({
-        student: studentId,
-        lecturer,
-        course: courseId,
-        subject: matchingSubject._id,
-        class: classId,
-        academicYear: academicYearId,
-        date: dateObj,
-        dayOfWeek: dayName,
-        status: "present",
-      });
-      return record;
-    }));
-
-    await logActivity({
-      userId: lecturer,
-      action: "Generated attendance for class session",
-      details: `Generated attendance for course ID: ${courseId}, subject ID: ${String(matchingSubject._id)}, class ID: ${classId} on ${new Date(date).toDateString()}`,
-    });
-
-    if (lecturer) {
-      try {
-        await createNotificationAndEmitEvent({
-          userId: typeof lecturer === "string" ? new mongoose.Types.ObjectId(lecturer) : lecturer,
-          role: "teacher",
-          title: "Attendance session prepared",
-          message: `Attendance for ${matchingSubject.name ?? matchingSubject.code ?? "the selected subject"} on ${dateObj.toDateString()} for ${classDoc.name} has been generated and is ready for review.`,
-          type: "attendance",
-          link: "/attendance",
-          actorRole: "admin",
-        });
-      } catch (err) {
-        console.warn("Failed to send attendance notification to lecturer", err);
-      }
-    }
-
-    emitSystemEvent("attendance.session.generated", {
-      classId,
-      courseId,
-      subjectId: String(matchingSubject._id),
-      lecturer: String(lecturer),
-      date: dateObj.toISOString(),
-      studentCount: studentIds.length,
-    });
-
-    res.status(201).json({ message: "Attendance generated for class session", attendanceRecords });
-  } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
   }
@@ -128,19 +40,31 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
 
 export const recordAttendance = async (req: Request, res: Response) => {
   try {
-    const { student, course, class: classId, academicYear, status, notes } = req.body;
+    const { student, course, class: classId, academicYear, status, notes, subject: subjectId, date } = req.body;
     const lecturer = (req as any).user._id;
 
     if (!student || !course || !classId || !academicYear || !status) {
       return res.status(400).json({ message: "Missing required attendance fields." });
     }
 
+    // Keep manual records consistent with generated ones: store the subject
+    // (when provided) and always derive dayOfWeek so week/subject views include them.
+    const dateObj = date ? new Date(date) : new Date();
+    const dayMap: Record<number, string> = {
+      0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
+      4: "Thursday", 5: "Friday", 6: "Saturday",
+    };
+    const dayName = dayMap[dateObj.getDay()];
+
     const record = await Attendance.create({
       student,
       lecturer,
       course,
+      ...(subjectId ? { subject: subjectId } : {}),
       class: classId,
       academicYear,
+      date: dateObj,
+      dayOfWeek: dayName,
       status,
       notes,
     });
@@ -155,6 +79,7 @@ export const recordAttendance = async (req: Request, res: Response) => {
       attendanceId: String(record._id),
       student: String(student),
       lecturer: String(lecturer),
+      course: String(course),
       status,
       date: record.date.toISOString(),
     });
@@ -393,7 +318,8 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
       date: { $gte: monday, $lte: friday },
     }).select("status course date dayOfWeek lecturer");
 
-    const totalAttended = await Attendance.countDocuments({ student: userId, status: { $in: ["present", "late", "excused"] } });
+    // Attended = present + late (matches the overview KPI rule; excused is tracked separately)
+    const totalAttended = await Attendance.countDocuments({ student: userId, status: { $in: ["present", "late"] } });
     const totalClasses = await Attendance.countDocuments({ student: userId });
 
     const attendanceMap = new Map<string, string>();
@@ -439,8 +365,10 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
 export const getCourseClassAttendance = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
+    // Role-aware scoping: admins see institution-wide data, others only their own records
+    const filter = (req as any).user.role === "admin" ? {} : { lecturer: userId };
     const summary = await Attendance.aggregate([
-      { $match: { lecturer: userId } },
+      { $match: filter },
       { $group: {
         _id: { course: "$course", class: "$class" },
         present: {
@@ -524,22 +452,9 @@ export const approveExcusedAbsence = async (req: Request, res: Response) => {
     ) {
       return res.status(400).json({ message: "Only pending requests or excused absences can be approved" });
     }
-    if (typeof reviewNote !== "string" || reviewNote.length > 1000) {
-      return res.status(400).json({ message: "reviewNote must be 1000 characters or fewer" });
-    }
-    attendanceRecord.excuseRequestStatus = normalizedDecision;
-    attendanceRecord.excuseReviewNote = reviewNote.trim();
-    attendanceRecord.excuseReviewedBy = userId;
-    attendanceRecord.excuseReviewedAt = new Date();
-    if (normalizedDecision === "approved") {
-      attendanceRecord.status = "excused";
-      attendanceRecord.approvedBy = userId;
-      attendanceRecord.hodApproval = "approved";
-      attendanceRecord.hodApprovalDate = new Date();
-    } else {
-      attendanceRecord.hodApproval = "not-approved";
-      attendanceRecord.hodApprovalDate = new Date();
-    }
+    attendanceRecord.approvedBy = userId;
+    attendanceRecord.hodApproval = "approved";
+    attendanceRecord.hodApprovalDate = new Date();
     await attendanceRecord.save();
     await logActivity({
       userId,
@@ -703,12 +618,29 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
         if (hodApproval !== undefined) {
           updateData.hodApproval = hodApproval;
           updateData.hodApprovalDate = new Date();
+          // Keep the student-visible approval state (approvedBy) in sync:
+          // the student view reads approvedBy, not hodApproval.
+          if (hodApproval === "approved") {
+            updateData.approvedBy = userId;
+          } else {
+            updateData.approvedBy = null;
+          }
         }
         const record = await Attendance.findByIdAndUpdate(
           attendanceId,
           updateData,
           { returnDocument: 'after', runValidators: true }
         );
+        if (record && status !== undefined && existing.status !== status) {
+          emitSystemEvent("attendance.status.changed", {
+            attendanceId: String(record._id),
+            student: String(record.student ?? ""),
+            course: String(record.course ?? ""),
+            date: record.date instanceof Date ? record.date.toISOString() : String(record.date ?? ""),
+            previousStatus: String(existing.status ?? ""),
+            status,
+          });
+        }
         return record;
       })
     );
@@ -919,8 +851,10 @@ export const getAllAttendanceLists = async (req: Request, res: Response) => {
 export const getSubjectsAttendance = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
+    // Role-aware scoping: admins see institution-wide data, others only their own records
+    const filter = (req as any).user.role === "admin" ? {} : { lecturer: userId };
     const summary = await Attendance.aggregate([
-      { $match: { lecturer: userId } },
+      { $match: filter },
       {
         $group: {
           _id: "$course",
@@ -1074,3 +1008,57 @@ export const getWeeklyCourseAttendance = async (req: Request, res: Response) => 
     res.status(500).json({ message: "Server error", error });
   }
 };
+
+
+
+// ── TINASHA wiring: student notifications for attendance events ──
+// Notifies a student when they are marked absent or excused.
+// createNotificationIfUnique has a 5-minute duplicate window, so toggling
+// a status back and forth will not spam the student.
+const notifyStudentOfAttendance = async (payload: {
+  student?: string;
+  course?: string;
+  status?: string;
+  date?: string;
+}) => {
+  const { student, course, status, date } = payload;
+  if (!student) return;
+  if (status !== "absent" && status !== "excused") return;
+
+  let courseLabel = "your class";
+  if (course) {
+    try {
+      const courseDoc = await Course.findById(course).select("name code");
+      if (courseDoc) courseLabel = courseDoc.name ?? courseDoc.code ?? courseLabel;
+    } catch {
+      // fall back to the generic label
+    }
+  }
+
+  const dateLabel = date ? new Date(date).toDateString() : new Date().toDateString();
+
+  await createNotificationAndEmitEvent({
+    userId: new mongoose.Types.ObjectId(student),
+    role: "student",
+    title: status === "absent" ? "Marked absent" : "Excused absence recorded",
+    message: `You were marked ${status} for ${courseLabel} on ${dateLabel}. If this is incorrect, contact your lecturer.`,
+    type: "attendance",
+    link: "/attendance",
+  });
+};
+
+subscribeSystemEvent("attendance.recorded", async (payload) => {
+  try {
+    await notifyStudentOfAttendance(payload.data as any);
+  } catch (error) {
+    console.error("attendance.recorded handler failed:", error);
+  }
+});
+
+subscribeSystemEvent("attendance.status.changed", async (payload) => {
+  try {
+    await notifyStudentOfAttendance(payload.data as any);
+  } catch (error) {
+    console.error("attendance.status.changed handler failed:", error);
+  }
+});

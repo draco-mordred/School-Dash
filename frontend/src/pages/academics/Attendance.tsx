@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -122,22 +123,19 @@ const STATUS_OPTIONS: {
 
 export default function Attendance() {
   const { user } = useAuth();
-  if (user?.role === "student") {
-    return <StudentAcademicAttendancePage />;
-  }
-
-  return <AttendanceManagement />;
-}
-
-function AttendanceManagement() {
-  const { user } = useAuth();
+  const navigate = useNavigate();
   const isStudent = user?.role === "student";
   const isTeacherOrAdmin = user?.role === "admin" || user?.role === "teacher";
+  const isParent = user?.role === "parent";
+  const isClinical = user?.role === "unitconsultant" || user?.role === "unitresident";
 
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [classAttendanceData, setClassAttendanceData] = useState<AttendanceClassStatus[]>([]);
+  const [parentChildren, setParentChildren] = useState<
+    { child: { _id: string; name?: string }; records: AttendanceRecord[] }[]
+  >([]);
 
   // Deduplicated latest records — admins see one entry per session
   // (class+course+subject+date); teachers see one per course+lecturer pair
@@ -208,6 +206,19 @@ function AttendanceManagement() {
       if (isStudent) {
         const { data } = await api.get("/attendance/me");
         setRecords((data.records ?? []) as AttendanceRecord[]);
+      } else if (isParent) {
+        const children = ((user as any)?.parentStudents ?? []) as { _id: string; name?: string }[];
+        const results = await Promise.all(
+          children.map(async (child) => {
+            try {
+              const { data } = await api.get(`/attendance/students/${child._id}`);
+              return { child, records: (data.records ?? []) as AttendanceRecord[] };
+            } catch {
+              return { child, records: [] as AttendanceRecord[] };
+            }
+          })
+        );
+        setParentChildren(results);
       } else {
         const [meRes, listsRes, statusRes] = await Promise.all([
           api.get("/attendance/me"),
@@ -271,6 +282,7 @@ function AttendanceManagement() {
   };
 
   useEffect(() => {
+    if (isClinical) return;
     const loadData = async () => {
       await fetchAttendance();
       if (isTeacherOrAdmin) {
@@ -634,6 +646,18 @@ function AttendanceManagement() {
     );
   }
 
+  // Clinical staff (unit consultants/residents) work in the clinical
+  // attendance workspace, not lecture attendance.
+  useEffect(() => {
+    if (isClinical) {
+      navigate("/attendance/clinical", { replace: true });
+    }
+  }, [isClinical, navigate]);
+
+  if (isClinical) {
+    return null;
+  }
+
   return (
     <div
       data-tour="student-attendance"
@@ -646,14 +670,16 @@ function AttendanceManagement() {
           <p className="text-muted-foreground">
             {isStudent
               ? "Your attendance summary"
-              : user?.role === "admin"
-                ? "Institution-wide attendance overview and session management"
-                : "Attendance overview and session management"}
+              : isParent
+                ? "Your children's attendance overview"
+                : user?.role === "admin"
+                  ? "Institution-wide attendance overview and session management"
+                  : "Attendance overview and session management"}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {!isStudent && (
+          {!isStudent && !isParent && (
             <Button
               variant="outline"
               size="sm"
@@ -672,11 +698,9 @@ function AttendanceManagement() {
         </div>
       </div>
 
-      {["admin", "teacher", "unitconsultant", "unitresident"].includes(user?.role ?? "") && (
-        <PendingExcuseRequests />
-      )}
-
-      {!isStudent ? (
+      {isParent ? (
+        <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
+      ) : !isStudent ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Card>
@@ -794,6 +818,7 @@ function AttendanceManagement() {
         <StudentRecordsByClass records={records} loading={loading} />
       )}
 
+      {!isParent && (
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -961,6 +986,7 @@ function AttendanceManagement() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Generate Session Modal */}
       <Modal
@@ -1917,7 +1943,73 @@ function SavedListsTable({
     });
   }, [allLists]);
 
-  const [openClass, setOpenClass] = useState<string | null>(null);
+  const [openClasses, setOpenClasses] = useState<Set<string>>(new Set());
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const toggleClass = (classId: string) => {
+    setOpenClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+    setAllExpanded(false);
+  };
+
+  // Search filters by class, course, subject, session name, day and date.
+  // A matching class keeps its whole subtree; otherwise only matching
+  // course/subject/session branches are kept.
+  const filteredByClass = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return byClass;
+    const matches = (text?: string) => (text ?? "").toLowerCase().includes(q);
+    const matchesDate = (iso: string) => {
+      const d = new Date(iso);
+      return (
+        matches(d.toLocaleDateString("en-US")) ||
+        matches(d.toISOString().slice(0, 10))
+      );
+    };
+    return byClass
+      .map((cls) => {
+        if (matches(cls.className)) return cls;
+        const courses = cls.courses
+          .map((course) => {
+            if (matches(course.courseName) || matches(course.courseCode)) return course;
+            const subjects = course.subjects
+              .map((subject) => {
+                if (matches(subject.subjectName) || matches(subject.subjectCode)) return subject;
+                const sessions = subject.sessions.filter(
+                  (session) =>
+                    matches(session.sessionName) ||
+                    matches(session.dayOfWeek) ||
+                    matches(session.lecturer?.name) ||
+                    matchesDate(session.date),
+                );
+                if (sessions.length === 0) return null;
+                return { ...subject, sessions };
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== null);
+            if (subjects.length === 0) return null;
+            return { ...course, subjects };
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null);
+        if (courses.length === 0) return null;
+        return { ...cls, courses };
+      })
+      .filter((cls): cls is NonNullable<typeof cls> => cls !== null);
+  }, [byClass, search]);
+
+  const toggleExpandAll = () => {
+    if (allExpanded) {
+      setOpenClasses(new Set());
+      setAllExpanded(false);
+    } else {
+      setOpenClasses(new Set(filteredByClass.map((cls) => cls.classId)));
+      setAllExpanded(true);
+    }
+  };
 
   return (
     <Card>
@@ -1927,24 +2019,40 @@ function SavedListsTable({
           Saved Attendance Lists
         </CardTitle>
         <CardDescription>
-          Saved attendance sessions — click a class card to expand its sessions
+          Saved attendance sessions — search, or click a class card to expand its sessions
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setAllExpanded(false);
+            }}
+            placeholder="Search by class, course, subject, lecturer or date…"
+            className="h-8 max-w-xs"
+          />
+          <Button variant="outline" size="sm" className="h-8" onClick={toggleExpandAll}>
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </Button>
+        </div>
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-16 w-full" />
             ))}
           </div>
-        ) : byClass.length === 0 ? (
+        ) : filteredByClass.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No saved attendance lists yet. Generate a session first.
+            {search.trim()
+              ? "No sessions match your search."
+              : "No saved attendance lists yet. Generate a session first."}
           </p>
         ) : (
           <div className="space-y-3">
-            {byClass.map((cls) => {
-              const isOpen = openClass === cls.classId;
+            {filteredByClass.map((cls) => {
+              const isOpen = openClasses.has(cls.classId);
               const totalSessions = cls.courses.reduce(
                 (sum, course) =>
                   sum + course.subjects.reduce((subjectTotal, subject) => subjectTotal + subject.sessions.length, 0),
@@ -1989,7 +2097,7 @@ function SavedListsTable({
                 <div key={cls.classId} className="border rounded-lg overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => setOpenClass(isOpen ? null : cls.classId)}
+                    onClick={() => toggleClass(cls.classId)}
                     className="w-full bg-muted/40 hover:bg-muted/60 transition-colors px-4 py-3 text-left flex items-center gap-3"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -2430,6 +2538,109 @@ function StudentRecordsByClass({
 }
 
 // ─── Latest Week Mon–Fri Table ──────────────────────────────────────
+function ParentChildrenOverview({
+  childrenData,
+  loading,
+}: {
+  childrenData: { child: { _id: string; name?: string }; records: AttendanceRecord[] }[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {[1, 2].map((i) => (
+          <Skeleton key={i} className="h-32 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (childrenData.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No linked student records found for your account.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {childrenData.map(({ child, records }) => {
+        const counts: Record<string, number> = { present: 0, absent: 0, late: 0, excused: 0 };
+        records.forEach((r) => {
+          if (r.status in counts) counts[r.status] += 1;
+        });
+        const total = records.length;
+        const rate = total > 0 ? Math.round(((counts.present + counts.late) / total) * 100) : 0;
+        return (
+          <Card key={child._id}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <CardTitle className="text-lg font-semibold">{child.name ?? "Student"}</CardTitle>
+                  <CardDescription className="text-xs">Attendance summary</CardDescription>
+                </div>
+                <span className="text-2xl font-bold tabular-nums">{rate}%</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />Present: {counts.present}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Absent: {counts.absent}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-500" />Late: {counts.late}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Excused: {counts.excused}</span>
+              </div>
+              {records.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No attendance records yet.</p>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Class</th>
+                        <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {records.slice(0, 10).map((r) => (
+                        <tr key={r._id} className="border-t">
+                          <td className="px-2 py-1.5">{r.course?.name ?? "—"}</td>
+                          <td className="px-2 py-1.5">{r.class && typeof r.class !== "string" ? r.class.name : "—"}</td>
+                          <td className="px-2 py-1.5 text-center">
+                            <span
+                              className={
+                                "px-1.5 py-0.5 rounded-full capitalize text-xs font-medium " +
+                                (r.status === "present"
+                                  ? "bg-green-500/15 text-green-600"
+                                  : r.status === "absent"
+                                    ? "bg-red-500/15 text-red-600"
+                                    : r.status === "late"
+                                      ? "bg-yellow-500/15 text-yellow-600"
+                                      : "bg-blue-500/15 text-blue-600")
+                              }
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5">{new Date(r.date).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 function LatestWeekTable() {
   const [records, setRecords] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
