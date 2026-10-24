@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -1929,7 +1930,73 @@ function SavedListsTable({
     });
   }, [allLists]);
 
-  const [openClass, setOpenClass] = useState<string | null>(null);
+  const [openClasses, setOpenClasses] = useState<Set<string>>(new Set());
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const toggleClass = (classId: string) => {
+    setOpenClasses((prev) => {
+      const next = new Set(prev);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+    setAllExpanded(false);
+  };
+
+  // Search filters by class, course, subject, session name, day and date.
+  // A matching class keeps its whole subtree; otherwise only matching
+  // course/subject/session branches are kept.
+  const filteredByClass = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return byClass;
+    const matches = (text?: string) => (text ?? "").toLowerCase().includes(q);
+    const matchesDate = (iso: string) => {
+      const d = new Date(iso);
+      return (
+        matches(d.toLocaleDateString("en-US")) ||
+        matches(d.toISOString().slice(0, 10))
+      );
+    };
+    return byClass
+      .map((cls) => {
+        if (matches(cls.className)) return cls;
+        const courses = cls.courses
+          .map((course) => {
+            if (matches(course.courseName) || matches(course.courseCode)) return course;
+            const subjects = course.subjects
+              .map((subject) => {
+                if (matches(subject.subjectName) || matches(subject.subjectCode)) return subject;
+                const sessions = subject.sessions.filter(
+                  (session) =>
+                    matches(session.sessionName) ||
+                    matches(session.dayOfWeek) ||
+                    matches(session.lecturer?.name) ||
+                    matchesDate(session.date),
+                );
+                if (sessions.length === 0) return null;
+                return { ...subject, sessions };
+              })
+              .filter((s): s is NonNullable<typeof s> => s !== null);
+            if (subjects.length === 0) return null;
+            return { ...course, subjects };
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null);
+        if (courses.length === 0) return null;
+        return { ...cls, courses };
+      })
+      .filter((cls): cls is NonNullable<typeof cls> => cls !== null);
+  }, [byClass, search]);
+
+  const toggleExpandAll = () => {
+    if (allExpanded) {
+      setOpenClasses(new Set());
+      setAllExpanded(false);
+    } else {
+      setOpenClasses(new Set(filteredByClass.map((cls) => cls.classId)));
+      setAllExpanded(true);
+    }
+  };
 
   return (
     <Card>
@@ -1939,24 +2006,40 @@ function SavedListsTable({
           Saved Attendance Lists
         </CardTitle>
         <CardDescription>
-          Saved attendance sessions — click a class card to expand its sessions
+          Saved attendance sessions — search, or click a class card to expand its sessions
         </CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <Input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setAllExpanded(false);
+            }}
+            placeholder="Search by class, course, subject, lecturer or date…"
+            className="h-8 max-w-xs"
+          />
+          <Button variant="outline" size="sm" className="h-8" onClick={toggleExpandAll}>
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </Button>
+        </div>
         {loading ? (
           <div className="space-y-2">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-16 w-full" />
             ))}
           </div>
-        ) : byClass.length === 0 ? (
+        ) : filteredByClass.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No saved attendance lists yet. Generate a session first.
+            {search.trim()
+              ? "No sessions match your search."
+              : "No saved attendance lists yet. Generate a session first."}
           </p>
         ) : (
           <div className="space-y-3">
-            {byClass.map((cls) => {
-              const isOpen = openClass === cls.classId;
+            {filteredByClass.map((cls) => {
+              const isOpen = openClasses.has(cls.classId);
               const totalSessions = cls.courses.reduce(
                 (sum, course) =>
                   sum + course.subjects.reduce((subjectTotal, subject) => subjectTotal + subject.sessions.length, 0),
@@ -2001,7 +2084,7 @@ function SavedListsTable({
                 <div key={cls.classId} className="border rounded-lg overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => setOpenClass(isOpen ? null : cls.classId)}
+                    onClick={() => toggleClass(cls.classId)}
                     className="w-full bg-muted/40 hover:bg-muted/60 transition-colors px-4 py-3 text-left flex items-center gap-3"
                   >
                     <div className="flex items-center gap-2 flex-1 min-w-0">
