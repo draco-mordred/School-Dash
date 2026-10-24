@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: d7836ed7bee17458169cf9badb4fc49754df6d0a)
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import Attendance from "../../models/attendance";
@@ -8,119 +9,29 @@ import { inngest } from "../../inngest";
 import Class from "../../models/classes";
 import { createNotificationAndEmitEvent } from "../tinasha/notificationService";
 import { emitSystemEvent, subscribeSystemEvent } from "../../events";
+import { AttendanceGenerationError, generateSessionRecords } from "./attendanceGeneration";
 
+export {
+  AttendanceGenerationError,
+  generateSessionRecords,
+  validateAttendanceGenerationInput,
+} from "./attendanceGeneration";
+
+// Thin HTTP wrapper around the shared generation core (see attendanceGeneration.ts).
+// Kept as the direct fallback used in local development when Inngest is unavailable.
 export const generateAttendanceForClassSession = async (req: Request, res: Response) => {
   try {
-    const { courseId, classId, academicYearId, date, subjectId } = req.body;
-    const requester = (req as any).user._id;
-    if (!courseId || !classId || !academicYearId || !date || !subjectId) {
-      return res.status(400).json({ message: "courseId, classId, academicYearId, subjectId, and date are required." });
-    }
-    const dateObj = new Date(date);
-    const dayMap: Record<number, string> = {
-      0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
-      4: "Thursday", 5: "Friday", 6: "Saturday",
-    };
-    const dayName = dayMap[dateObj.getDay()];
-    if (dayName === "Saturday" || dayName === "Sunday") {
-      return res.status(400).json({ message: "Attendance cannot be generated on weekends." });
-    }
-
-    const course = await Course.findById(courseId).populate({
-      path: "subjects.lecturer",
-      select: "_id name email departmentRole",
+    const result = await generateSessionRecords({
+      ...(req.body as any),
+      requesterId: (req as any).user?._id?.toString(),
     });
-    if (!course) {
-      return res.status(404).json({ message: "Course not found." });
+    res
+      .status(201)
+      .json({ message: result.message, attendanceRecords: result.attendanceRecords });
+  } catch (error: any) {
+    if (error instanceof AttendanceGenerationError) {
+      return res.status(error.status).json({ message: error.message, code: error.code });
     }
-
-    const matchingSubject = (course.subjects ?? []).find((subject: any) => {
-      return (
-        String(subject._id) === String(subjectId) ||
-        String(subject.subjectUID) === String(subjectId) ||
-        String(subject.subjectID) === String(subjectId) ||
-        String(subject.name) === String(subjectId) ||
-        String(subject.code ?? "") === String(subjectId)
-      );
-    });
-
-    if (!matchingSubject) {
-      return res.status(404).json({ message: "Subject not found in selected course." });
-    }
-
-    const classDoc = await Class.findById(classId).populate("students", "_id");
-    if (!classDoc) {
-      return res.status(404).json({ message: "Class not found." });
-    }
-
-    const subjectLecturerId = Array.isArray(matchingSubject.lecturer)
-      ? matchingSubject.lecturer[0]?._id ?? matchingSubject.lecturer[0]
-      : null;
-    const lecturer = subjectLecturerId ?? requester;
-
-    const startOfDay = new Date(dateObj);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(startOfDay);
-    endOfDay.setDate(endOfDay.getDate() + 1);
-    const existing = await Attendance.findOne({
-      class: classId,
-      course: courseId,
-      subject: matchingSubject._id,
-      date: { $gte: startOfDay, $lt: endOfDay },
-    });
-    if (existing) {
-      return res.status(409).json({ message: "Attendance records already exist for this class, course, subject, and date." });
-    }
-
-    const studentIds = (classDoc.students ?? []).map((student: any) => student._id ?? student);
-    const attendanceRecords = await Promise.all(studentIds.map(async (studentId: any) => {
-      const record = await Attendance.create({
-        student: studentId,
-        lecturer,
-        course: courseId,
-        subject: matchingSubject._id,
-        class: classId,
-        academicYear: academicYearId,
-        date: dateObj,
-        dayOfWeek: dayName,
-        status: "present",
-      });
-      return record;
-    }));
-
-    await logActivity({
-      userId: lecturer,
-      action: "Generated attendance for class session",
-      details: `Generated attendance for course ID: ${courseId}, subject ID: ${String(matchingSubject._id)}, class ID: ${classId} on ${new Date(date).toDateString()}`,
-    });
-
-    if (lecturer) {
-      try {
-        await createNotificationAndEmitEvent({
-          userId: typeof lecturer === "string" ? new mongoose.Types.ObjectId(lecturer) : lecturer,
-          role: "teacher",
-          title: "Attendance session prepared",
-          message: `Attendance for ${matchingSubject.name ?? matchingSubject.code ?? "the selected subject"} on ${dateObj.toDateString()} for ${classDoc.name} has been generated and is ready for review.`,
-          type: "attendance",
-          link: "/attendance",
-          actorRole: "admin",
-        });
-      } catch (err) {
-        console.warn("Failed to send attendance notification to lecturer", err);
-      }
-    }
-
-    emitSystemEvent("attendance.session.generated", {
-      classId,
-      courseId,
-      subjectId: String(matchingSubject._id),
-      lecturer: String(lecturer),
-      date: dateObj.toISOString(),
-      studentCount: studentIds.length,
-    });
-
-    res.status(201).json({ message: "Attendance generated for class session", attendanceRecords });
-  } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error", error });
   }
