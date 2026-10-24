@@ -128,19 +128,31 @@ export const generateAttendanceForClassSession = async (req: Request, res: Respo
 
 export const recordAttendance = async (req: Request, res: Response) => {
   try {
-    const { student, course, class: classId, academicYear, status, notes } = req.body;
+    const { student, course, class: classId, academicYear, status, notes, subject: subjectId, date } = req.body;
     const lecturer = (req as any).user._id;
 
     if (!student || !course || !classId || !academicYear || !status) {
       return res.status(400).json({ message: "Missing required attendance fields." });
     }
 
+    // Keep manual records consistent with generated ones: store the subject
+    // (when provided) and always derive dayOfWeek so week/subject views include them.
+    const dateObj = date ? new Date(date) : new Date();
+    const dayMap: Record<number, string> = {
+      0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
+      4: "Thursday", 5: "Friday", 6: "Saturday",
+    };
+    const dayName = dayMap[dateObj.getDay()];
+
     const record = await Attendance.create({
       student,
       lecturer,
       course,
+      ...(subjectId ? { subject: subjectId } : {}),
       class: classId,
       academicYear,
+      date: dateObj,
+      dayOfWeek: dayName,
       status,
       notes,
     });
@@ -438,6 +450,8 @@ export const approveExcusedAbsence = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "Only excused absences can be approved" });
     }
     attendanceRecord.approvedBy = userId;
+    attendanceRecord.hodApproval = "approved";
+    attendanceRecord.hodApprovalDate = new Date();
     await attendanceRecord.save();
     await logActivity({
       userId,
@@ -541,6 +555,13 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
         if (hodApproval !== undefined) {
           updateData.hodApproval = hodApproval;
           updateData.hodApprovalDate = new Date();
+          // Keep the student-visible approval state (approvedBy) in sync:
+          // the student view reads approvedBy, not hodApproval.
+          if (hodApproval === "approved") {
+            updateData.approvedBy = userId;
+          } else {
+            updateData.approvedBy = null;
+          }
         }
         const record = await Attendance.findByIdAndUpdate(
           attendanceId,
