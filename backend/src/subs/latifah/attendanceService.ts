@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 4bbdb1412cc9a629a4f06d06b10b19dfe6a63685)
 successfully downloaded text file (SHA: d7836ed7bee17458169cf9badb4fc49754df6d0a)
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
@@ -242,7 +243,8 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
       date: { $gte: monday, $lte: friday },
     }).select("status course date dayOfWeek lecturer");
 
-    const totalAttended = await Attendance.countDocuments({ student: userId, status: { $in: ["present", "late", "excused"] } });
+    // Attended = present + late (matches the overview KPI rule; excused is tracked separately)
+    const totalAttended = await Attendance.countDocuments({ student: userId, status: { $in: ["present", "late"] } });
     const totalClasses = await Attendance.countDocuments({ student: userId });
 
     const attendanceMap = new Map<string, string>();
@@ -288,8 +290,10 @@ export const getStudentNotificationsSummary = async (req: Request, res: Response
 export const getCourseClassAttendance = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
+    // Role-aware scoping: admins see institution-wide data, others only their own records
+    const filter = (req as any).user.role === "admin" ? {} : { lecturer: userId };
     const summary = await Attendance.aggregate([
-      { $match: { lecturer: userId } },
+      { $match: filter },
       { $group: {
         _id: { course: "$course", class: "$class" },
         present: {
@@ -700,8 +704,10 @@ export const getAllAttendanceLists = async (req: Request, res: Response) => {
 export const getSubjectsAttendance = async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user._id;
+    // Role-aware scoping: admins see institution-wide data, others only their own records
+    const filter = (req as any).user.role === "admin" ? {} : { lecturer: userId };
     const summary = await Attendance.aggregate([
-      { $match: { lecturer: userId } },
+      { $match: filter },
       {
         $group: {
           _id: "$course",
