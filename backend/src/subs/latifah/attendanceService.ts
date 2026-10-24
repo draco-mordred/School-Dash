@@ -7,7 +7,7 @@ import { logActivity } from "../../utils/activitieslog";
 import { inngest } from "../../inngest";
 import Class from "../../models/classes";
 import { createNotificationAndEmitEvent } from "../tinasha/notificationService";
-import { emitSystemEvent } from "../../events";
+import { emitSystemEvent, subscribeSystemEvent } from "../../events";
 
 export const generateAttendanceForClassSession = async (req: Request, res: Response) => {
   try {
@@ -167,6 +167,7 @@ export const recordAttendance = async (req: Request, res: Response) => {
       attendanceId: String(record._id),
       student: String(student),
       lecturer: String(lecturer),
+      course: String(course),
       status,
       date: record.date.toISOString(),
     });
@@ -568,6 +569,16 @@ export const bulkUpdateAttendance = async (req: Request, res: Response) => {
           updateData,
           { returnDocument: 'after', runValidators: true }
         );
+        if (record && status !== undefined && existing.status !== status) {
+          emitSystemEvent("attendance.status.changed", {
+            attendanceId: String(record._id),
+            student: String(record.student ?? ""),
+            course: String(record.course ?? ""),
+            date: record.date instanceof Date ? record.date.toISOString() : String(record.date ?? ""),
+            previousStatus: String(existing.status ?? ""),
+            status,
+          });
+        }
         return record;
       })
     );
@@ -934,3 +945,56 @@ export const getWeeklyCourseAttendance = async (req: Request, res: Response) => 
   }
 };
 
+
+
+// ── TINASHA wiring: student notifications for attendance events ──
+// Notifies a student when they are marked absent or excused.
+// createNotificationIfUnique has a 5-minute duplicate window, so toggling
+// a status back and forth will not spam the student.
+const notifyStudentOfAttendance = async (payload: {
+  student?: string;
+  course?: string;
+  status?: string;
+  date?: string;
+}) => {
+  const { student, course, status, date } = payload;
+  if (!student) return;
+  if (status !== "absent" && status !== "excused") return;
+
+  let courseLabel = "your class";
+  if (course) {
+    try {
+      const courseDoc = await Course.findById(course).select("name code");
+      if (courseDoc) courseLabel = courseDoc.name ?? courseDoc.code ?? courseLabel;
+    } catch {
+      // fall back to the generic label
+    }
+  }
+
+  const dateLabel = date ? new Date(date).toDateString() : new Date().toDateString();
+
+  await createNotificationAndEmitEvent({
+    userId: new mongoose.Types.ObjectId(student),
+    role: "student",
+    title: status === "absent" ? "Marked absent" : "Excused absence recorded",
+    message: `You were marked ${status} for ${courseLabel} on ${dateLabel}. If this is incorrect, contact your lecturer.`,
+    type: "attendance",
+    link: "/attendance",
+  });
+};
+
+subscribeSystemEvent("attendance.recorded", async (payload) => {
+  try {
+    await notifyStudentOfAttendance(payload.data as any);
+  } catch (error) {
+    console.error("attendance.recorded handler failed:", error);
+  }
+});
+
+subscribeSystemEvent("attendance.status.changed", async (payload) => {
+  try {
+    await notifyStudentOfAttendance(payload.data as any);
+  } catch (error) {
+    console.error("attendance.status.changed handler failed:", error);
+  }
+});
