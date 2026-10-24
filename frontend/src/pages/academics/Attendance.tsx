@@ -113,13 +113,19 @@ const STATUS_OPTIONS: {
 
 export default function Attendance() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isStudent = user?.role === "student";
   const isTeacherOrAdmin = user?.role === "admin" || user?.role === "teacher";
+  const isParent = user?.role === "parent";
+  const isClinical = user?.role === "unitconsultant" || user?.role === "unitresident";
 
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [allLists, setAllLists] = useState<SessionRecord[]>([]);
   const [classAttendanceData, setClassAttendanceData] = useState<AttendanceClassStatus[]>([]);
+  const [parentChildren, setParentChildren] = useState<
+    { child: { _id: string; name?: string }; records: AttendanceRecord[] }[]
+  >([]);
 
   // Deduplicated latest records — admins see one entry per session
   // (class+course+subject+date); teachers see one per course+lecturer pair
@@ -190,6 +196,19 @@ export default function Attendance() {
       if (isStudent) {
         const { data } = await api.get("/attendance/me");
         setRecords((data.records ?? []) as AttendanceRecord[]);
+      } else if (isParent) {
+        const children = ((user as any)?.parentStudents ?? []) as { _id: string; name?: string }[];
+        const results = await Promise.all(
+          children.map(async (child) => {
+            try {
+              const { data } = await api.get(`/attendance/students/${child._id}`);
+              return { child, records: (data.records ?? []) as AttendanceRecord[] };
+            } catch {
+              return { child, records: [] as AttendanceRecord[] };
+            }
+          })
+        );
+        setParentChildren(results);
       } else {
         const [meRes, listsRes, statusRes] = await Promise.all([
           api.get("/attendance/me"),
@@ -253,6 +272,7 @@ export default function Attendance() {
   };
 
   useEffect(() => {
+    if (isClinical) return;
     const loadData = async () => {
       await fetchAttendance();
       if (isTeacherOrAdmin) {
@@ -616,6 +636,18 @@ export default function Attendance() {
     );
   }
 
+  // Clinical staff (unit consultants/residents) work in the clinical
+  // attendance workspace, not lecture attendance.
+  useEffect(() => {
+    if (isClinical) {
+      navigate("/attendance/clinical", { replace: true });
+    }
+  }, [isClinical, navigate]);
+
+  if (isClinical) {
+    return null;
+  }
+
   return (
     <div
       data-tour="student-attendance"
@@ -628,14 +660,16 @@ export default function Attendance() {
           <p className="text-muted-foreground">
             {isStudent
               ? "Your attendance summary"
-              : user?.role === "admin"
-                ? "Institution-wide attendance overview and session management"
-                : "Attendance overview and session management"}
+              : isParent
+                ? "Your children's attendance overview"
+                : user?.role === "admin"
+                  ? "Institution-wide attendance overview and session management"
+                  : "Attendance overview and session management"}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {!isStudent && (
+          {!isStudent && !isParent && (
             <Button
               variant="outline"
               size="sm"
@@ -654,7 +688,9 @@ export default function Attendance() {
         </div>
       </div>
 
-      {!isStudent ? (
+      {isParent ? (
+        <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
+      ) : !isStudent ? (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Card>
@@ -772,6 +808,7 @@ export default function Attendance() {
         <StudentRecordsByClass records={records} loading={loading} />
       )}
 
+      {!isParent && (
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -935,6 +972,7 @@ export default function Attendance() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Generate Session Modal */}
       <Modal
@@ -2400,6 +2438,109 @@ function StudentRecordsByClass({
 }
 
 // ─── Latest Week Mon–Fri Table ──────────────────────────────────────
+function ParentChildrenOverview({
+  childrenData,
+  loading,
+}: {
+  childrenData: { child: { _id: string; name?: string }; records: AttendanceRecord[] }[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {[1, 2].map((i) => (
+          <Skeleton key={i} className="h-32 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (childrenData.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          No linked student records found for your account.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {childrenData.map(({ child, records }) => {
+        const counts: Record<string, number> = { present: 0, absent: 0, late: 0, excused: 0 };
+        records.forEach((r) => {
+          if (r.status in counts) counts[r.status] += 1;
+        });
+        const total = records.length;
+        const rate = total > 0 ? Math.round(((counts.present + counts.late) / total) * 100) : 0;
+        return (
+          <Card key={child._id}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <CardTitle className="text-lg font-semibold">{child.name ?? "Student"}</CardTitle>
+                  <CardDescription className="text-xs">Attendance summary</CardDescription>
+                </div>
+                <span className="text-2xl font-bold tabular-nums">{rate}%</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />Present: {counts.present}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />Absent: {counts.absent}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-500" />Late: {counts.late}</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />Excused: {counts.excused}</span>
+              </div>
+              {records.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No attendance records yet.</p>
+              ) : (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Subject</th>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Class</th>
+                        <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Status</th>
+                        <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {records.slice(0, 10).map((r) => (
+                        <tr key={r._id} className="border-t">
+                          <td className="px-2 py-1.5">{r.course?.name ?? "—"}</td>
+                          <td className="px-2 py-1.5">{r.class && typeof r.class !== "string" ? r.class.name : "—"}</td>
+                          <td className="px-2 py-1.5 text-center">
+                            <span
+                              className={
+                                "px-1.5 py-0.5 rounded-full capitalize text-xs font-medium " +
+                                (r.status === "present"
+                                  ? "bg-green-500/15 text-green-600"
+                                  : r.status === "absent"
+                                    ? "bg-red-500/15 text-red-600"
+                                    : r.status === "late"
+                                      ? "bg-yellow-500/15 text-yellow-600"
+                                      : "bg-blue-500/15 text-blue-600")
+                              }
+                            >
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5">{new Date(r.date).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 function LatestWeekTable() {
   const [records, setRecords] = useState<SessionRecord[]>([]);
   const [loading, setLoading] = useState(true);
