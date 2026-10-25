@@ -165,7 +165,6 @@ const AcademicClockSchema = new Schema({
     },
     clockPhase: {
         type: String,
-        enum: ["phase1", "phase2", "phase3", "phase4"],
         default: null,
     },
     phaseConfig: {
