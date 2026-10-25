@@ -329,7 +329,7 @@ const buildFolderTreeFromDrive = async (
   rootFolderName: string,
   accessToken: string,
 ) => {
-  const items = await recursivelyCollectDriveItems(rootFolderId, accessToken, new Set([rootFolderId]));
+  const items = await recursivelyCollectDriveItems(rootFolderId, accessToken, new Set());
 
   const localParents = new Map<string, any[]>();
   for (const item of items) {
