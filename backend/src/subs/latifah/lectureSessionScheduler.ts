@@ -18,6 +18,7 @@ import {
   processPendingVerifications,
   processSessionVerifications,
 } from "./proximityVerification";
+import { runClinicalSessionNudges } from "./clinicalPostingResolver";
 
 // Phase B — Auto Lecture Attendance scheduler.
 //
@@ -497,12 +498,18 @@ export const runLectureAttendanceTick = async (now = new Date()) => {
   // after students tapped, or records left pending at tap time).
   const reverified = await processPendingVerifications(now);
 
+  // 5. Phase H3: nudge clinical supervisors to create their attendance
+  //    session (15 min before the scheduled timetable end, then every
+  //    30 min, capped 4h after the end). Runs on weekends too (D10).
+  const clinicalNudges = await runClinicalSessionNudges(now);
+
   return {
     remindersSent,
     opened,
     staleClosed,
     closed: closeRes.modifiedCount ?? 0,
     proximityReverified: reverified.processed,
+    clinicalNudges: clinicalNudges.nudged.length,
     openErrors,
   };
 };
