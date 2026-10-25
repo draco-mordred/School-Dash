@@ -85,6 +85,26 @@ const COURSE_FOLDER_ALIASES: Record<string, string[]> = {
     "obstetricsandgynaec",
     "obg",
   ],
+  obstetricsandgynaecology: [
+    // British-spelling canonical entry so "Obstetrics and Gynaecology"
+    // course names match directly, plus the usual short forms.
+    "obstetrics and gynaecology",
+    "obstetricsandgynecology",
+    "obgyn",
+    "obsgyn",
+    "obgynae",
+    "obsgynae",
+    "og",
+    "o g",
+    "oandg",
+    "oandgyn",
+    "obstetrics",
+    "obstetric",
+    "gynaecology",
+    "gynecology",
+    "obstetricsandgynaec",
+    "obg",
+  ],
   surgery: ["surg", "general surgery"],
   psychiatry: ["psych", "psy", "psychiatrices"],
   ent: [
