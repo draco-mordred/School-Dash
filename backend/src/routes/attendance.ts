@@ -34,6 +34,7 @@ import {
   getComplaints,
   resolveComplaint,
 } from "../controllers/attendanceComplaints";
+import { getUnifiedAttendance } from "../controllers/attendanceUnified";
 
 const attendanceRouter = express.Router();
 
@@ -198,6 +199,14 @@ attendanceRouter.get(
   protect,
   authorize(["student"]),
   getStudentNotificationsSummary
+);
+
+// Phase K (D16): central unified attendance read endpoint.
+attendanceRouter.get(
+  "/unified",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]),
+  getUnifiedAttendance
 );
 
 export default attendanceRouter;
