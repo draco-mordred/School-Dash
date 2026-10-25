@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
+import mongoose from "mongoose";
+import { createNotificationIfUnique } from "../../utils/notificationUtils";
 import ClinicalAttendance from "../../models/clinicalAttendance";
 import User from "../../models/user";
 import HospitalUnitModel from "../../models/hospitalUnit";
@@ -405,6 +407,32 @@ export const createClinicalAttendanceSession = async (
       supervisor: resolvedSupervisorId.toString(),
     });
 
+    // Phase I2: dashboard notification for every expected student so they
+    // know the session is open and can generate their QR/OTP.
+    const notifyStudent = async (studentId: string) => {
+      try {
+        if (!mongoose.Types.ObjectId.isValid(studentId)) return;
+        await createNotificationIfUnique({
+          userId: new mongoose.Types.ObjectId(studentId),
+          role: "student",
+          title: "Clinical attendance session open",
+          message:
+            String(title) +
+            " is open for your group" +
+            (supervisedGroup.label ? " (" + supervisedGroup.label + ")" : "") +
+            ". Open the Clinical Attendance page and generate your QR code for your supervisor.",
+          type: "attendance",
+          metadata: {
+            clinicalSessionId: clinicalAttendance._id.toString(),
+            classId: classId || null,
+          },
+        });
+      } catch (notifyError: any) {
+        console.warn("Failed to notify student of clinical session:", notifyError?.message ?? notifyError);
+      }
+    };
+    await Promise.all(teamStudentIds.map((studentId) => notifyStudent(studentId)));
+
     res.status(201).json({
       success: true,
       message: "Clinical attendance session created successfully",
@@ -750,6 +778,24 @@ export const generateQrAttendancePayload = async (
     );
     if (!assignment) {
       return res.status(403).json({ success: false, message: "You are not assigned to this active posting group" });
+    }
+
+    // Phase I4: GPS corroboration — the QR/OTP is the authoritative
+    // in-person proof; the student GPS at generation is a supporting
+    // signal stored on their attendee record. Optional: generation still
+    // proceeds without it if the student denies location access.
+    const rawCoords =
+      typeof req.body.coords === "object" && req.body.coords !== null ? req.body.coords : null;
+    const gpsLat = Number((rawCoords as any)?.lat);
+    const gpsLng = Number((rawCoords as any)?.lng);
+    if (rawCoords && Number.isFinite(gpsLat) && Number.isFinite(gpsLng)) {
+      const gpsAttendee = session.attendees.find(
+        (attendee: any) => String(attendee.student?._id ?? attendee.student) === studentId,
+      );
+      if (gpsAttendee) {
+        (gpsAttendee as any).gps = { lat: gpsLat, lng: gpsLng, capturedAt: now };
+        await session.save();
+      }
     }
 
     const validityMinutes = Math.max(1, Math.min(120, Math.floor((effectiveEndTime.getTime() - now.getTime()) / 60000)));

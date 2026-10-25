@@ -209,8 +209,26 @@ export default function StudentClinicalAttendancePage() {
 
     try {
       setGenerating(true);
+      // Phase I4: capture GPS as a supporting signal. Optional — the QR
+      // still generates if the student denies location access.
+      let coords: { lat: number; lng: number } | null = null;
+      try {
+        coords = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+          if (!("geolocation" in navigator)) return resolve(null);
+          navigator.geolocation.getCurrentPosition(
+            (position) =>
+              resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+            () => resolve(null),
+            { timeout: 8000 },
+          );
+        });
+      } catch {
+        coords = null;
+      }
+
       const response = await api.post("/clinical-attendance/qr/generate", {
         sessionId: activeSession._id,
+        coords,
       });
 
       const payload = response.data?.data?.qrPayload ?? response.data?.qrPayload ?? null;

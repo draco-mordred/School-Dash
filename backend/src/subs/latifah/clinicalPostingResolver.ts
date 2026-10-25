@@ -20,9 +20,10 @@ import { Notification } from "../../models/notification";
 //     Clinical weekend activities are allowed (D10) — this does NOT skip
 //     weekends.
 //
-// Convention for Phase I: ClinicalAttendance.supervisorGroupId stores the
-// RotationPlan group NAME, so the nudge "session already created" check
-// is supervisor + group + day.
+// Nudge "session already created" check: KRYSTA stores supervisorGroupId
+// as "unit:<index>" / "department:<index>" (see
+// clinicalAttendanceGroupSelection), NOT the group name — so the check
+// matches any session created by the supervisor today, group-agnostic.
 
 export const NUDGE_LEAD_MS = 15 * 60 * 1000;
 export const NUDGE_INTERVAL_MS = 30 * 60 * 1000;
@@ -221,8 +222,8 @@ export const runClinicalSessionNudges = async (now: Date = new Date()) => {
           if (!supervisorOid) continue;
           const sessionExists = await ClinicalAttendance.findOne({
             supervisor: supervisorOid,
-            supervisorGroupId: team.groupName,
             date: { $gte: dayStart, $lt: dayEnd },
+            status: { $ne: "cancelled" },
           }).lean();
           if (sessionExists) continue;
           const nudgeIndex = currentNudgeIndex(now, scheduledEnd);

@@ -124,6 +124,17 @@ const AttendanceRecordSchema = new Schema(
       type: String,
       default: "",
     },
+    // Phase I4: GPS corroboration captured when the student generates
+    // their QR/OTP. Supporting signal only — the supervisor-scanned
+    // QR/OTP is the authoritative in-person proof.
+    gps: {
+      type: {
+        lat: { type: Number, default: null },
+        lng: { type: Number, default: null },
+        capturedAt: { type: Date, default: null },
+      },
+      default: null,
+    },
   },
   { _id: true }
 );
