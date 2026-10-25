@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Class, courses } from "@/types";
 import { useNavigate } from "react-router-dom";
 import StudentAcademicAttendancePage from "@/pages/StudentAcademicAttendancePage";
+import LecturerSessionCardComponent from "@/components/attendance/LecturerSessionCard";
 
 import {
   Card,
@@ -697,7 +698,7 @@ export default function Attendance() {
         </div>
       </div>
 
-      <LecturerSessionCard />
+      <LecturerSessionCardComponent />
 
       {isParent ? (
         <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
