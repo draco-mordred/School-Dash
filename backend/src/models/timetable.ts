@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: c39015380f327b569cd56dadedbe88b18977a89e)
+
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPeriod {

@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: 5f8c6b0c62888d67663ee56c8e7570074a6ae554)
+
 import mongoose from "mongoose";
 import Timetable from "../../models/timetable";
 import AcademicClock from "../../models/academicClock";

@@ -1,7 +1,4 @@
-successfully downloaded text file (SHA: 8f817137bd9baffc3589c059fb5da3e2903fc1e5)
-successfully downloaded text file (SHA: 7388d7c55b9c860305fc5a5349742330d5a77dea)
-successfully downloaded text file (SHA: adfa55b51ac26effccf88b391eb08058f21761ce)
-successfully downloaded text file (SHA: 2965560db104d02fe9e5290021aeca6018ddc494)
+
 // console.log("Hello via Bun!");
 
 //let's create a simple server

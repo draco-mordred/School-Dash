@@ -1,4 +1,3 @@
-successfully downloaded text file (SHA: a52cae74550a773b3d40bcec48bf7ba553c1cf73)
 import mongoose, { Schema, Document } from "mongoose";
 
 // One auto-generated lecture attendance session per

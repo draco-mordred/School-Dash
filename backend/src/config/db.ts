@@ -1,4 +1,4 @@
-// successfully downloaded text file (SHA: c68c46f5fc83f47aab88da9df5fc8fe2970ffba7)
+
 import mongoose from "mongoose";
 
 // Connect db here

@@ -1,8 +1,7 @@
-successfully downloaded text file (SHA: 02d02ffb911cbf360533afa273d8b226bdb0380e)
+
 import mongoose, { Schema, Document } from "mongoose";
 
 export type AttendanceStatus = "present" | "absent" | "late" | "excused" | "unverified";
-export type AttendanceStatus = "present" | "absent" | "late" | "excused";
 export type ExcuseRequestStatus = "none" | "pending" | "approved" | "rejected";
 
 export interface IAttendance extends Document {
@@ -124,6 +123,7 @@ const AttendanceSchema = new Schema(
     escalatedToAdmin: {
       type: Boolean,
       default: false,
+    },
     excuseRequestStatus: {
       type: String,
       enum: ["none", "pending", "approved", "rejected"],
