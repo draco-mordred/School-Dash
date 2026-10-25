@@ -2,6 +2,7 @@ import { type Request, type Response } from "express";
 import ClassModel from "../models/classes";
 import UserModel from "../models/user";
 import { logActivity } from "../utils/activitieslog";
+import { resolveSharedDriveAccessToken } from "../utils/driveAccessToken";
 import {
   classDriveMaterialsService,
   extractGoogleDriveFolderId,
@@ -65,24 +66,13 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
     const coursesToSync = courseIdFilter
       ? courseDocs.filter((course: any) => String(course?._id) === courseIdFilter)
       : courseDocs;
-    const currentUser = (req as any).user?._id
-      ? await UserModel.findById((req as any).user._id).select("googleDriveAccount").lean()
-      : null;
-    // Prefer the signed-in user's Drive token; otherwise fall back to the most
-    // recently connected admin account so students can browse class materials
-    // without connecting their own Google account. The token is used server-side
-    // only and is never included in the response.
-    let userAccessToken = currentUser?.googleDriveAccount?.accessToken ?? null;
-    if (!userAccessToken) {
-      const sharedAdmin = await UserModel.findOne({
-        role: "admin",
-        "googleDriveAccount.accessToken": { $ne: null },
-      })
-        .sort({ "googleDriveAccount.connectedAt": -1 })
-        .select("googleDriveAccount.accessToken")
-        .lean();
-      userAccessToken = (sharedAdmin as any)?.googleDriveAccount?.accessToken ?? null;
-    }
+    // Resolve a usable Drive token: the signed-in user's own account, else the
+    // most recently connected admin (shared class materials access), else the
+    // server env token. Expired tokens are refreshed server-side automatically.
+    // The token is used here only and is never included in the response.
+    const userAccessToken = await resolveSharedDriveAccessToken(
+      (req as any).user?._id ? String((req as any).user._id) : null,
+    );
 
     if (!rootUrl) {
       return res.json({
