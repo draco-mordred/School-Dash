@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
+// successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -612,6 +612,13 @@ export default function Attendance() {
     });
   }, [sessionDate]);
 
+  // Clinical staff use the clinical attendance workspace rather than lecture attendance.
+  useEffect(() => {
+    if (isClinical) {
+      navigate("/attendance/clinical", { replace: true });
+    }
+  }, [isClinical, navigate]);
+
   if (loading) {
     return (
       <div className="p-6 space-y-4">
@@ -645,14 +652,6 @@ export default function Attendance() {
       </div>
     );
   }
-
-  // Clinical staff (unit consultants/residents) work in the clinical
-  // attendance workspace, not lecture attendance.
-  useEffect(() => {
-    if (isClinical) {
-      navigate("/attendance/clinical", { replace: true });
-    }
-  }, [isClinical, navigate]);
 
   if (isClinical) {
     return null;
