@@ -14,6 +14,9 @@ import {
   generateQrAttendancePayload,
   approveQrAttendance,
   getStudentClinicalAttendanceContext,
+  submitClinicalAttendanceComplaint,
+  getClinicalAttendanceComplaints,
+  resolveClinicalAttendanceComplaint,
 } from "../controllers/clinicalAttendance";
 
 const clinicalAttendanceRouter = express.Router();
@@ -104,6 +107,29 @@ clinicalAttendanceRouter.post(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   endClinicalSession
+);
+
+// Phase J (D14/D15): clinical attendance complaints. Students report an
+// issue straight to the session supervisor; the supervisor resolves it.
+clinicalAttendanceRouter.post(
+  "/complaint",
+  protect,
+  authorize(["student"]),
+  submitClinicalAttendanceComplaint
+);
+
+clinicalAttendanceRouter.get(
+  "/complaints",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student"]),
+  getClinicalAttendanceComplaints
+);
+
+clinicalAttendanceRouter.post(
+  "/complaints/resolve",
+  protect,
+  authorize(["teacher", "unitconsultant", "unitresident"]),
+  resolveClinicalAttendanceComplaint
 );
 
 // Generate attendance report

@@ -1326,6 +1326,11 @@ export const endClinicalSession = async (req: Request, res: Response) => {
 
     recalculateSessionCounts(session);
 
+    // Phase J1b (D14): after submit the session stays in a 20-minute
+    // complaint grace window — unparsed students are prompted and can
+    // raise an issue directly with the supervisor.
+    session.complaintGraceUntil = new Date(session.endTime.getTime() + 20 * 60 * 1000);
+
     await session.save();
 
     emitSystemEvent("clinicalAttendance.session.completed", {
@@ -1333,6 +1338,30 @@ export const endClinicalSession = async (req: Request, res: Response) => {
       durationMinutes: session.duration,
       endTime: session.endTime.toISOString(),
     });
+
+    // Phase J1: notify every student of their final status. Auto-absent
+    // students are pointed at the complaint window. Notification failures
+    // never block the submit response.
+    const notifyFinalStatus = async (attendee: any) => {
+      try {
+        const notifyStudentId = String(attendee.student?._id ?? attendee.student);
+        if (!mongoose.Types.ObjectId.isValid(notifyStudentId)) return;
+        const wasAbsent = attendee.status === "absent";
+        await createNotificationIfUnique({
+          userId: new mongoose.Types.ObjectId(notifyStudentId),
+          role: "student",
+          title: wasAbsent ? "Clinical attendance: marked absent" : "Clinical attendance recorded",
+          message: wasAbsent
+            ? "You were marked absent for " + String(session.title) + ". If this is wrong, report the issue to your supervisor from the Clinical Attendance page before the end of the day."
+            : "Your attendance for " + String(session.title) + " was recorded as " + String(attendee.status) + ".",
+          type: "attendance",
+          metadata: { clinicalSessionId: String(session._id) },
+        });
+      } catch (notifyError: any) {
+        console.warn("Failed to notify student of final clinical status:", notifyError?.message ?? notifyError);
+      }
+    };
+    await Promise.all((session.attendees ?? []).map((attendee: any) => notifyFinalStatus(attendee)));
 
     res.status(200).json({
       success: true,
@@ -1344,6 +1373,230 @@ export const endClinicalSession = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Error ending clinical session",
+      error: error.message,
+    });
+  }
+};
+
+// Phase J — clinical attendance complaints (D14/D15). After the supervisor
+// submits the list, unparsed students are prompted and can raise an issue
+// directly with the session supervisor; unresolved complaints become final
+// at day-close (see runClinicalComplaintFinalizer in the attendance tick).
+export const submitClinicalAttendanceComplaint = async (req: Request, res: Response) => {
+  try {
+    const { sessionId, reason } = req.body;
+    const studentId = requestUserId(req);
+    const trimmedReason = String(reason ?? "").trim();
+
+    if (!sessionId || !trimmedReason) {
+      return res.status(400).json({ success: false, message: "Missing required fields: sessionId, reason" });
+    }
+    if (!isStudentRequest(req)) {
+      return res.status(403).json({ success: false, message: "Only students can raise a clinical attendance complaint" });
+    }
+
+    const session = await ClinicalAttendance.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Clinical attendance session not found" });
+    }
+    if (!isExpectedStudent(session, studentId)) {
+      return res.status(403).json({ success: false, message: "You are not assigned to this clinical session" });
+    }
+
+    const attendeeRecord = session.attendees.find((attendee: any) => String(attendee.student?._id ?? attendee.student) === studentId);
+    if (!attendeeRecord) {
+      return res.status(404).json({ success: false, message: "You have no attendance record for this session" });
+    }
+    const existingComplaint = (attendeeRecord as any).complaint;
+    if (existingComplaint && existingComplaint.status === "open") {
+      return res.status(409).json({ success: false, message: "You already have an open complaint for this session" });
+    }
+
+    // Complaints are accepted from submit until the end of the session day.
+    // The 20-minute grace window is when students are prompted (D14), but
+    // the supervisor can resolve at any point before day-close (D15).
+    const sessionDayEnd = new Date(new Date(session.date).getTime());
+    sessionDayEnd.setHours(23, 59, 59, 999);
+    if (new Date().getTime() > sessionDayEnd.getTime()) {
+      return res.status(410).json({ success: false, message: "The complaint window for this session has closed" });
+    }
+
+    (attendeeRecord as any).complaint = {
+      reason: trimmedReason,
+      raisedAt: new Date(),
+      status: "open",
+      resolution: "",
+      resolvedAt: null,
+      resolvedBy: null,
+    };
+    await session.save();
+
+    try {
+      const supervisorUser = await User.findById(session.supervisor).select("role").lean();
+      await createNotificationIfUnique({
+        userId: new mongoose.Types.ObjectId(String(session.supervisor)),
+        role: String((supervisorUser as any)?.role ?? "teacher"),
+        title: "Clinical attendance complaint",
+        message: "A student reported an issue with their attendance for " + String(session.title) + ". Review it on your clinical attendance page.",
+        type: "attendance",
+        metadata: { clinicalSessionId: String(session._id), studentId },
+      });
+    } catch (notifyError: any) {
+      console.warn("Failed to notify supervisor of clinical complaint:", notifyError?.message ?? notifyError);
+    }
+
+    emitSystemEvent("clinicalAttendance.complaint.submitted", {
+      sessionId,
+      studentId,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Complaint submitted to your supervisor",
+      data: session,
+    });
+  } catch (error: any) {
+    console.error("Error submitting clinical complaint:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error submitting clinical complaint",
+      error: error.message,
+    });
+  }
+};
+
+export const getClinicalAttendanceComplaints = async (req: Request, res: Response) => {
+  try {
+    const role = String(requestUser(req)?.role ?? "").toLowerCase();
+    const userId = requestUserId(req);
+
+    const filter: any = { "attendees.complaint.status": { $in: ["open", "resolved", "dismissed"] } };
+    if (role === "student") {
+      filter["attendees.student"] = userId;
+    } else if (role !== "admin") {
+      filter.supervisor = userId;
+    }
+
+    const sessions = await ClinicalAttendance.find(filter)
+      .populate("supervisor", "firstName lastName name email")
+      .populate("attendees.student", "firstName lastName name inn idNumber")
+      .sort({ date: -1 });
+
+    const complaints: any[] = [];
+    for (const session of sessions) {
+      for (const attendee of session.attendees ?? []) {
+        const complaint = (attendee as any).complaint;
+        if (!complaint || !["open", "resolved", "dismissed"].includes(complaint.status)) continue;
+        if (role === "student" && String(attendee.student?._id ?? attendee.student) !== userId) continue;
+        complaints.push({
+          sessionId: session._id,
+          sessionTitle: session.title,
+          sessionDate: session.date,
+          activityType: session.activityType,
+          supervisor: session.supervisor,
+          student: attendee.student,
+          attendanceStatus: attendee.status,
+          complaint: {
+            reason: complaint.reason,
+            raisedAt: complaint.raisedAt,
+            status: complaint.status,
+            resolution: complaint.resolution,
+            resolvedAt: complaint.resolvedAt,
+          },
+        });
+      }
+    }
+
+    res.status(200).json({ success: true, data: complaints });
+  } catch (error: any) {
+    console.error("Error fetching clinical complaints:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching clinical complaints",
+      error: error.message,
+    });
+  }
+};
+
+export const resolveClinicalAttendanceComplaint = async (req: Request, res: Response) => {
+  try {
+    const { sessionId, studentId, status, note } = req.body;
+
+    if (!sessionId || !studentId || !status) {
+      return res.status(400).json({ success: false, message: "Missing required fields: sessionId, studentId, status" });
+    }
+    if (!["present", "late", "excused", "dismissed"].includes(status)) {
+      return res.status(400).json({ success: false, message: "Unsupported complaint resolution" });
+    }
+
+    const session = await ClinicalAttendance.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Clinical attendance session not found" });
+    }
+    // D14: complaints are resolved by the session supervisor only.
+    if (String(session.supervisor) !== requestUserId(req)) {
+      return res.status(403).json({ success: false, message: "Only the session supervisor can resolve clinical complaints" });
+    }
+
+    const attendeeRecord = session.attendees.find((attendee: any) => String(attendee.student?._id ?? attendee.student) === String(studentId));
+    if (!attendeeRecord) {
+      return res.status(404).json({ success: false, message: "Student not found in this session" });
+    }
+    const complaint = (attendeeRecord as any).complaint;
+    if (!complaint || complaint.status !== "open") {
+      return res.status(409).json({ success: false, message: "There is no open complaint for this student" });
+    }
+
+    if (status === "dismissed") {
+      complaint.status = "dismissed";
+      complaint.resolution = note || "Complaint dismissed — the recorded attendance stands";
+    } else {
+      attendeeRecord.status = status;
+      if (!attendeeRecord.checkInTime) attendeeRecord.checkInTime = new Date();
+      attendeeRecord.approvedBy = requestUser(req)?._id ?? attendeeRecord.approvedBy ?? null;
+      attendeeRecord.approvedAt = new Date();
+      complaint.status = "resolved";
+      complaint.resolution = note || "Complaint resolved by supervisor";
+    }
+    complaint.resolvedAt = new Date();
+    complaint.resolvedBy = requestUser(req)?._id ?? null;
+    recalculateSessionCounts(session);
+    await session.save();
+
+    try {
+      await createNotificationIfUnique({
+        userId: new mongoose.Types.ObjectId(String(studentId)),
+        role: "student",
+        title: "Clinical attendance complaint " + (complaint.status === "resolved" ? "resolved" : "closed"),
+        message:
+          "Your complaint for " + String(session.title) + " was " +
+          (complaint.status === "resolved"
+            ? "resolved — your attendance is now " + String(attendeeRecord.status) + "."
+            : "not upheld. The recorded attendance stands as final."),
+        type: "attendance",
+        metadata: { clinicalSessionId: String(session._id) },
+      });
+    } catch (notifyError: any) {
+      console.warn("Failed to notify student of complaint resolution:", notifyError?.message ?? notifyError);
+    }
+
+    emitSystemEvent("clinicalAttendance.complaint.resolved", {
+      sessionId,
+      studentId,
+      status: complaint.status,
+      attendanceStatus: attendeeRecord.status,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Complaint resolved successfully",
+      data: session,
+    });
+  } catch (error: any) {
+    console.error("Error resolving clinical complaint:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error resolving clinical complaint",
       error: error.message,
     });
   }

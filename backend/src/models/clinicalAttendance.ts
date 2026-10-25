@@ -18,6 +18,17 @@ export interface IAttendanceRecord {
   checkOutTime?: Date;
   duration?: number; // in minutes
   notes?: string;
+  // Phase J (D14/D15): complaint raised by the student after the supervisor
+  // submits the attendance list. Unresolved complaints become final at
+  // day-close.
+  complaint?: {
+    reason: string;
+    raisedAt?: Date;
+    status: "open" | "resolved" | "dismissed";
+    resolution?: string;
+    resolvedAt?: Date;
+    resolvedBy?: mongoose.Types.ObjectId;
+  };
 }
 
 export interface IClinicalAttendance extends Document {
@@ -54,6 +65,7 @@ export interface IClinicalAttendance extends Document {
   requiresApproval: boolean;
   approvedBy?: mongoose.Types.ObjectId;
   approvalDate?: Date;
+  complaintGraceUntil?: Date;
 
   // Clinical Rotation
   clinicalRotation?: mongoose.Types.ObjectId;
@@ -132,6 +144,20 @@ const AttendanceRecordSchema = new Schema(
         lat: { type: Number, default: null },
         lng: { type: Number, default: null },
         capturedAt: { type: Date, default: null },
+      },
+      default: null,
+    },
+    // Phase J (D14/D15): student complaint raised after the supervisor
+    // submits the attendance list. Unresolved complaints become final at
+    // day-close.
+    complaint: {
+      type: {
+        reason: { type: String, default: "" },
+        raisedAt: { type: Date, default: null },
+        status: { type: String, enum: ["open", "resolved", "dismissed"], default: null },
+        resolution: { type: String, default: "" },
+        resolvedAt: { type: Date, default: null },
+        resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
       },
       default: null,
     },
@@ -256,6 +282,11 @@ const ClinicalAttendanceSchema = new Schema(
       default: null,
     },
     approvalDate: {
+      type: Date,
+      default: null,
+    },
+    // Phase J1b (D14): 20-minute post-submit complaint grace window.
+    complaintGraceUntil: {
       type: Date,
       default: null,
     },

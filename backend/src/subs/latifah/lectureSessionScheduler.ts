@@ -6,6 +6,7 @@ import Course from "../../models/courses";
 import Class from "../../models/classes";
 import LectureSession from "../../models/lectureSession";
 import Attendance from "../../models/attendance";
+import ClinicalAttendance from "../../models/clinicalAttendance";
 import Venue from "../../models/venue";
 import { resolveAcademicClockPhase } from "../../utils/academicClockPhase";
 import { getTimetableForPhase } from "../../utils/phaseTimetable";
@@ -437,6 +438,65 @@ const openLectureSession = async (session: any, now: Date) => {
   );
 };
 
+// Phase J4 (D15): day-close finality for clinical complaints. Open
+// complaints on completed clinical sessions become final at 19:00 of the
+// session day — the recorded attendance stands and the student is told.
+export const runClinicalComplaintFinalizer = async (now = new Date()) => {
+  const lookbackStart = new Date(now);
+  lookbackStart.setDate(lookbackStart.getDate() - 2);
+  lookbackStart.setHours(0, 0, 0, 0);
+  const sessions = await ClinicalAttendance.find({
+    status: "completed",
+    date: { $gte: lookbackStart, $lte: now },
+    "attendees.complaint.status": "open",
+  }).lean<any[]>();
+
+  let finalized = 0;
+  let notified = 0;
+  for (const session of sessions) {
+    const sessionClose = new Date(new Date(session.date).getTime());
+    sessionClose.setHours(19, 0, 0, 0);
+    if (now.getTime() < sessionClose.getTime()) continue; // day not closed yet
+
+    for (const attendee of session.attendees ?? []) {
+      const complaint = (attendee as any).complaint;
+      if (!complaint || complaint.status !== "open") continue;
+      await ClinicalAttendance.updateOne(
+        {
+          _id: session._id,
+          "attendees._id": (attendee as any)._id,
+          "attendees.complaint.status": "open",
+        },
+        {
+          $set: {
+            "attendees.$.complaint.status": "dismissed",
+            "attendees.$.complaint.resolution": "Not resolved by day-close — the recorded attendance is final",
+            "attendees.$.complaint.resolvedAt": now,
+          },
+        },
+      );
+      finalized += 1;
+      const uid = String((attendee as any).student?._id ?? (attendee as any).student);
+      if (IS_OBJECT_ID(uid)) {
+        try {
+          await createNotificationIfUnique({
+            userId: new mongoose.Types.ObjectId(uid),
+            role: "student",
+            title: "Clinical complaint closed",
+            message: "Your complaint for " + String(session.title) + " was not resolved by day-close. The recorded attendance stands as final.",
+            type: "attendance",
+            metadata: { clinicalSessionId: String(session._id) },
+          });
+          notified += 1;
+        } catch (err) {
+          notifySessionError("clinical complaint finalizer for student " + uid, err);
+        }
+      }
+    }
+  }
+  return { finalized, notified };
+};
+
 export const runLectureAttendanceTick = async (now = new Date()) => {
   // 1. Pre-lecture reminders: once per session, when start is within an hour
   //    (or already past). Skip sessions whose window is already over.
@@ -503,6 +563,9 @@ export const runLectureAttendanceTick = async (now = new Date()) => {
   //    30 min, capped 4h after the end). Runs on weekends too (D10).
   const clinicalNudges = await runClinicalSessionNudges(now);
 
+  // 6. Phase J4 (D15): finalize open clinical complaints at day-close.
+  const clinicalFinalized = await runClinicalComplaintFinalizer(now);
+
   return {
     remindersSent,
     opened,
@@ -510,6 +573,7 @@ export const runLectureAttendanceTick = async (now = new Date()) => {
     closed: closeRes.modifiedCount ?? 0,
     proximityReverified: reverified.processed,
     clinicalNudges: clinicalNudges.nudged.length,
+    clinicalComplaintsFinalized: clinicalFinalized.finalized,
     openErrors,
   };
 };
