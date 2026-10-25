@@ -13,7 +13,9 @@ import {
 // Phase C — student tap check-in for auto-generated lecture sessions (D3).
 // Server-authoritative window: the SERVER clock decides whether the tap
 // lands inside [triggerAt, closesAt]; clientTimestamp is stored for audit
-// only (offline grace handling arrives in Phase F).
+// only. Phase F: offline-buffered taps are accepted within a 15-minute
+// grace window after close when their CLIENT timestamp was in-window,
+// and are tagged submissionSource "offline-retry".
 
 const IS_OBJECT_ID = (v: unknown) =>
   typeof v === "string" && /^[a-fA-F0-9]{24}$/.test(v);
@@ -95,7 +97,7 @@ export const getActiveSessions = async (req: Request, res: Response) => {
         alreadyTapped:
           !!record &&
           ["present", "absent"].includes(String(record.status)) &&
-          record.submissionSource === "tap",
+          ["tap", "offline-retry"].includes(String(record.submissionSource)),
       });
     }
 
@@ -152,34 +154,66 @@ export const submitCheckIn = async (req: Request, res: Response) => {
     if (!classId || String(session.class) !== String(classId)) {
       return res.status(403).json({ success: false, message: "This session does not belong to your class" });
     }
-    if (session.status !== "open") {
-      return res.status(400).json({
-        success: false,
-        message: "This attendance window is not open",
-        code: "WINDOW_NOT_OPEN",
-      });
-    }
-
-    // Server-authoritative window check (client clock is never trusted).
+    // Server-authoritative window check. For a LIVE tap the server clock
+    // alone decides. Phase F2: a tap buffered offline may arrive after
+    // the window closed — accept it only when the CLIENT timestamp was
+    // inside [triggerAt, closesAt] and the server is still within the
+    // grace cap (closesAt + 15 min). Tag those as "offline-retry".
     const now = new Date();
     const triggerAt = session.window?.triggerAt ? new Date(session.window.triggerAt) : null;
     const closesAt = session.window?.closesAt ? new Date(session.window.closesAt) : null;
     if (!triggerAt || !closesAt) {
       return res.status(400).json({ success: false, message: "Session window is misconfigured" });
     }
-    if (now.getTime() < triggerAt.getTime()) {
-      return res.status(400).json({
-        success: false,
-        message: "The attendance window has not opened yet",
-        code: "WINDOW_NOT_OPEN",
-      });
+    const OFFLINE_GRACE_MS = 15 * 60 * 1000;
+    const clientTs = typeof clientTimestamp === "string" ? Date.parse(clientTimestamp) : NaN;
+    let offlineRetry = false;
+    if (session.status !== "open") {
+      const withinGrace =
+        session.status === "closed" &&
+        Number.isFinite(clientTs) &&
+        now.getTime() <= closesAt.getTime() + OFFLINE_GRACE_MS;
+      if (!withinGrace) {
+        return res.status(400).json({
+          success: false,
+          message: "This attendance window is not open",
+          code: "WINDOW_NOT_OPEN",
+        });
+      }
+      offlineRetry = true;
     }
-    if (now.getTime() > closesAt.getTime()) {
-      return res.status(400).json({
-        success: false,
-        message: "The attendance window has closed",
-        code: "WINDOW_CLOSED",
-      });
+    if (offlineRetry) {
+      // Client clock decides in-window-ness for buffered taps; the server
+      // clock only enforced the grace cap above.
+      if (clientTs < triggerAt.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "This tap was recorded before the attendance window opened",
+          code: "WINDOW_NOT_OPEN",
+        });
+      }
+      if (clientTs > closesAt.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "This tap was recorded after the attendance window closed",
+          code: "WINDOW_CLOSED",
+        });
+      }
+    } else {
+      if (now.getTime() < triggerAt.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "The attendance window has not opened yet",
+          code: "WINDOW_NOT_OPEN",
+        });
+      }
+      if (now.getTime() > closesAt.getTime()) {
+        return res.status(400).json({
+          success: false,
+          message: "The attendance window has closed",
+          code: "WINDOW_CLOSED",
+        });
+      }
     }
 
     const record = await Attendance.findOne({
@@ -196,7 +230,7 @@ export const submitCheckIn = async (req: Request, res: Response) => {
     // Idempotency: a previous tap is never overwritten by a second one.
     if (
       ["present", "absent"].includes(String(record.status)) &&
-      record.submissionSource === "tap"
+      ["tap", "offline-retry"].includes(String(record.submissionSource))
     ) {
       return res.status(200).json({ success: true, alreadyCheckedIn: true, data: record });
     }
@@ -224,7 +258,7 @@ export const submitCheckIn = async (req: Request, res: Response) => {
     if (choice === "absent") {
       record.absenceReason = reason;
     }
-    record.submissionSource = "tap";
+    record.submissionSource = offlineRetry ? "offline-retry" : "tap";
     // D2: verify immediately as the submission arrives — student<->venue
     // distance first, then lecturer presence. Provisional (lecturer-absent)
     // records are re-verified by the tick and the 18:00 sweeper.

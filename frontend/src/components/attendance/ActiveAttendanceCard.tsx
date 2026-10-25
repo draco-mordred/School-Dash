@@ -11,6 +11,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Clock, MapPin } from "lucide-react";
+import {
+  clearOfflineTapsForSession,
+  enqueueOfflineTap,
+  getOfflineTaps,
+  getRetryableOfflineTaps,
+  markOfflineTapFailed,
+  newTapKey,
+  removeOfflineTap,
+  type OfflineTap,
+} from "@/lib/attendanceOfflineQueue";
 
 type ActiveSession = {
   _id: string;
@@ -38,6 +48,7 @@ const ActiveAttendanceCard = () => {
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [absentFor, setAbsentFor] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [offlineTaps, setOfflineTaps] = useState<OfflineTap[]>([]);
   const mountedRef = useRef(true);
 
   const loadSessions = useCallback(async () => {
@@ -53,17 +64,67 @@ const ActiveAttendanceCard = () => {
     }
   }, []);
 
+  // Phase F1: replay buffered offline taps. Non-network server rejections
+  // (e.g. the grace window expired) are permanent — drop the tap and tell
+  // the student; only connection failures are retried with backoff.
+  const flushOfflineQueue = useCallback(async () => {
+    const pending = getRetryableOfflineTaps();
+    if (pending.length === 0) return;
+    let syncedAny = false;
+    for (const tap of pending) {
+      try {
+        const { data } = await api.post("/attendance/check-in", {
+          session: tap.session,
+          choice: tap.choice,
+          absenceReason: tap.absenceReason,
+          coords: tap.coords,
+          clientTimestamp: tap.clientTimestamp,
+          idempotencyKey: tap.id,
+        });
+        removeOfflineTap(tap.id);
+        syncedAny = true;
+        if (data?.alreadyCheckedIn) {
+          toast("Your offline attendance was already recorded");
+        } else {
+          toast.success(
+            "Offline attendance synced — " +
+              (tap.choice === "present" ? "marked present" : "absence recorded"),
+          );
+        }
+      } catch (e: any) {
+        if (e?.response) {
+          removeOfflineTap(tap.id);
+          toast.error(
+            e?.response?.data?.message || "Offline attendance could not be synced",
+          );
+        } else {
+          markOfflineTapFailed(tap.id);
+        }
+      }
+    }
+    setOfflineTaps(getOfflineTaps());
+    if (syncedAny) await loadSessions();
+  }, [loadSessions]);
+
   useEffect(() => {
     mountedRef.current = true;
+    setOfflineTaps(getOfflineTaps());
     void loadSessions();
-    const poll = window.setInterval(() => void loadSessions(), 30000);
+    void flushOfflineQueue();
+    const poll = window.setInterval(() => {
+      void loadSessions();
+      void flushOfflineQueue();
+    }, 30000);
     const clock = window.setInterval(() => setNow(Date.now()), 1000);
+    const onOnline = () => void flushOfflineQueue();
+    window.addEventListener("online", onOnline);
     return () => {
       mountedRef.current = false;
       window.clearInterval(poll);
       window.clearInterval(clock);
+      window.removeEventListener("online", onOnline);
     };
-  }, [loadSessions]);
+  }, [loadSessions, flushOfflineQueue]);
 
   const getCoords = (): Promise<{ lat: number; lng: number } | null> =>
     new Promise((resolve) => {
@@ -96,23 +157,44 @@ const ActiveAttendanceCard = () => {
     try {
       setSubmittingId(sessionId);
       const coords = await getCoords();
+      const tappedAt = new Date().toISOString();
       const { data } = await api.post("/attendance/check-in", {
         session: sessionId,
         choice,
         absenceReason: choice === "absent" ? reason.trim() : undefined,
         coords,
-        clientTimestamp: new Date().toISOString(),
+        clientTimestamp: tappedAt,
+        idempotencyKey: newTapKey(),
       });
       if (data?.alreadyCheckedIn) {
         toast("You have already checked in for this session");
       } else {
         toast.success(choice === "present" ? "Marked present" : "Absence recorded");
       }
+      clearOfflineTapsForSession(sessionId);
       setAbsentFor(null);
       setReason("");
       await loadSessions();
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || "Failed to submit attendance");
+      if (!e?.response) {
+        // Phase F1: no connectivity — buffer the tap and replay on reconnect.
+        enqueueOfflineTap({
+          id: newTapKey(),
+          session: sessionId,
+          choice,
+          absenceReason: choice === "absent" ? reason.trim() : undefined,
+          coords,
+          clientTimestamp: new Date().toISOString(),
+        });
+        setOfflineTaps(getOfflineTaps());
+        toast(
+          "No connection — attendance saved offline and will sync automatically",
+        );
+        setAbsentFor(null);
+        setReason("");
+      } else {
+        toast.error(e?.response?.data?.message || "Failed to submit attendance");
+      }
     } finally {
       setSubmittingId(null);
     }
@@ -209,22 +291,29 @@ const ActiveAttendanceCard = () => {
                   </div>
                 </div>
               ) : (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => void submit(session._id, "present")}
-                    disabled={submittingId === session._id}
-                  >
-                    Present
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void submit(session._id, "absent")}
-                    disabled={submittingId === session._id}
-                  >
-                    Absent
-                  </Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void submit(session._id, "present")}
+                      disabled={submittingId === session._id}
+                    >
+                      Present
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void submit(session._id, "absent")}
+                      disabled={submittingId === session._id}
+                    >
+                      Absent
+                    </Button>
+                  </div>
+                  {offlineTaps.some((t) => t.session === session._id) ? (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                      Saved offline — will sync automatically when you are back online.
+                    </p>
+                  ) : null}
                 </div>
               )}
             </div>
