@@ -154,7 +154,16 @@ export const planLectureSessionsForDay = async (dayDate = new Date()) => {
   const errors: string[] = [];
 
   const timetables = await Timetable.find({}).lean<any[]>();
+  // Phase G2 pilot gate: when AUTO_ATTENDANCE_PILOT_CLASSES is set to a
+  // comma-separated list of class ids, only those classes get planned
+  // auto sessions; unset = every class (current behaviour). Lets the
+  // pilot run on one class without touching the rest of the school.
+  const pilotEnv = String(process.env.AUTO_ATTENDANCE_PILOT_CLASSES ?? "").trim();
+  const pilotClasses = new Set(
+    pilotEnv ? pilotEnv.split(",").map((s) => s.trim()).filter(Boolean) : [],
+  );
   for (const timetable of timetables) {
+    if (pilotClasses.size > 0 && !pilotClasses.has(String(timetable.class))) continue;
     try {
       const clock = await AcademicClock.findOne({
         class: timetable.class,
