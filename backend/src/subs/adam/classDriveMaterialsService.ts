@@ -53,20 +53,67 @@ const getDriveMimeGroup = (mimeType?: string) => {
   return driveMimeGroups[mimeType] ?? "other";
 };
 
-const matchesCourseName = (courseName: string, folderName: string) => {
+const compactName = (value: string) => normalizeDriveName(value).replace(/\s+/g, "");
+
+const acronymOf = (value: string) =>
+  normalizeDriveName(value)
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => token[0])
+    .join("");
+
+export const matchesCourseName = (
+  courseOrName: string | { name?: string; code?: string },
+  folderName: string,
+) => {
+  const courseName =
+    typeof courseOrName === "string"
+      ? courseOrName
+      : String(courseOrName?.name ?? "");
+  const courseCode =
+    typeof courseOrName === "string" ? "" : String(courseOrName?.code ?? "");
+
   const normalizedCourse = normalizeDriveName(courseName);
   const normalizedFolder = normalizeDriveName(folderName);
 
   if (!normalizedCourse || !normalizedFolder) return false;
 
+  // Exact (normalized) match
   if (normalizedCourse === normalizedFolder) return true;
+  // Containment either way ("Medical Biochemistry" vs "Biochemistry")
   if (normalizedCourse.includes(normalizedFolder) || normalizedFolder.includes(normalizedCourse)) return true;
-
+  // Token overlap (fuzzy partial-name match)
   const courseTokens = normalizedCourse.split(" ").filter(Boolean);
   const folderTokens = normalizedFolder.split(" ").filter(Boolean);
   const overlap = courseTokens.filter((token) => folderTokens.includes(token));
+  if (overlap.length >= Math.max(1, Math.min(courseTokens.length, folderTokens.length) - 1)) return true;
 
-  return overlap.length >= Math.max(1, Math.min(courseTokens.length, folderTokens.length) - 1);
+  // Course code match: folder named "ANAT 101", "ANAT101" or "ANAT" vs code "ANAT 101"
+  const normalizedCode = normalizeDriveName(courseCode).replace(/\s+/g, "");
+  if (normalizedCode.length >= 2) {
+    const compactFolder = compactName(folderName);
+    const compactCourse = compactName(courseName);
+    if (
+      normalizedFolder === normalizedCode ||
+      compactFolder === normalizedCode ||
+      (compactFolder.length >= normalizedCode.length &&
+        compactFolder.includes(normalizedCode)) ||
+      (normalizedCode.length >= compactCourse.length &&
+        normalizedCode.includes(compactCourse))
+    ) {
+      return true;
+    }
+  }
+
+  // Acronym match: "Medical Biochemistry" <-> "MB", "mb", "MB-2025"
+  const courseAcronym = acronymOf(courseName);
+  const folderAcronym = acronymOf(folderName);
+  const compactFolder = compactName(folderName);
+  const compactCourse = compactName(courseName);
+  if (courseAcronym.length >= 2 && (compactFolder === courseAcronym || courseAcronym === folderName.toLowerCase().replace(/[^a-z0-9]/g, ""))) return true;
+  if (folderAcronym.length >= 2 && (compactCourse === folderAcronym || folderAcronym === courseName.toLowerCase().replace(/[^a-z0-9]/g, ""))) return true;
+
+  return false;
 };
 
 const listDriveFolderChildren = async (folderId: string, accessToken: string) => {
@@ -140,7 +187,7 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
 
     const courseMaterials = courseDocs
       .map((course) => {
-        const folderMatch = folders.find((folder) => matchesCourseName(course?.name ?? "", folder?.name ?? ""));
+        const folderMatch = folders.find((folder) => matchesCourseName({ name: course?.name ?? "", code: (course as any)?.code ?? "" }, folder?.name ?? ""));
         if (!folderMatch) return null;
 
         const folderTree = new Set<string>([folderMatch.id]);
