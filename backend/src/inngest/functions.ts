@@ -1214,3 +1214,18 @@ export const lectureAttendanceSlaSweeper = inngest.createFunction(
     return { success: true, ...result };
   }
 );
+
+// Day-close + auto-escalation (19:00 daily, server timezone — set
+// TZ=Africa/Lagos): escalates the day's lecture records to the admin audit
+// (D13) — verified records saved as final, still-unverified records flagged
+// with the full trail.
+export const lectureAttendanceDayClose = inngest.createFunction(
+  { id: "Lecture-Attendance-Day-Close", triggers: { cron: "0 19 * * *" } },
+  async ({ step }) => {
+    const result = await step.run("run-day-close-escalation", async () => {
+      const { runDayCloseEscalation } = await import("../subs/latifah/lectureSessionScheduler");
+      return await runDayCloseEscalation(new Date());
+    });
+    return { success: true, ...result };
+  }
+);

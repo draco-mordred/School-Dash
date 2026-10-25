@@ -1,5 +1,5 @@
 import { type Request, type Response } from "express";
-import { getAttendanceFor } from "../services/attendanceReader";
+import { getAttendanceFor, summarizeAttendance } from "../services/attendanceReader";
 
 const requestUser = (req: Request) => (req as any).user;
 
@@ -11,7 +11,7 @@ export const getUnifiedAttendance = async (req: Request, res: Response) => {
   try {
     const user = requestUser(req);
     const role = String(user?.role ?? "").toLowerCase();
-    const { studentId, classId, scope, startDate, endDate } = req.query;
+    const { studentId, classId, scope, startDate, endDate, escalated } = req.query;
 
     let targetStudent: string | undefined = studentId ? String(studentId) : undefined;
 
@@ -42,10 +42,23 @@ export const getUnifiedAttendance = async (req: Request, res: Response) => {
       scope: normalizedScope,
     });
 
+    // Phase L (D13): admin-only escalation audit filter.
+    let records = result.records;
+    const escalatedOnly = String(escalated ?? "") === "true" || String(escalated ?? "") === "1";
+    if (escalatedOnly) {
+      if (role !== "admin") {
+        return res.status(403).json({
+          success: false,
+          message: "Only admins can view the escalation audit",
+        });
+      }
+      records = records.filter((record) => record.escalatedToAdmin);
+    }
+
     return res.status(200).json({
       success: true,
-      data: result.records,
-      summary: result.summary,
+      data: records,
+      summary: escalatedOnly ? summarizeAttendance(records) : result.summary,
       period: {
         start: startDate ? new Date(String(startDate)).toISOString() : null,
         end: endDate ? new Date(String(endDate)).toISOString() : null,

@@ -158,3 +158,17 @@ describe("Phase K - summarizeAttendance (D12 KPI math)", () => {
     expect(summary.attendanceRate).toBe(0);
   });
 });
+
+describe("Phase L - escalation audit flag (D13)", () => {
+  test("lecture record carries escalatedToAdmin", () => {
+    const escalated = normalizeLectureRecord(lectureRecord({ escalatedToAdmin: true }));
+    expect(escalated.escalatedToAdmin).toBe(true);
+    const notEscalated = normalizeLectureRecord(lectureRecord({}));
+    expect(notEscalated.escalatedToAdmin).toBe(false);
+  });
+
+  test("clinical entries are never flagged as admin-escalated", () => {
+    const normalized = normalizeClinicalEntry(clinicalSession(), clinicalAttendee());
+    expect(normalized.escalatedToAdmin).toBe(false);
+  });
+});

@@ -48,6 +48,7 @@ import {
   lectureAttendancePlanner,
   lectureAttendanceTick,
   lectureAttendanceSlaSweeper,
+  lectureAttendanceDayClose,
 } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
@@ -319,6 +320,7 @@ const mountRoutes = (prefix: string) => {
       lectureAttendancePlanner,
       lectureAttendanceTick,
       lectureAttendanceSlaSweeper,
+      lectureAttendanceDayClose,
     ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);

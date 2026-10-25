@@ -23,6 +23,9 @@ export interface NormalizedAttendanceRecord {
   label: string;
   detail: string;
   sessionId: string | null;
+  // Phase L (D13): true once the day-close job escalated the record to the
+  // admin audit (lecture records only).
+  escalatedToAdmin: boolean;
 }
 
 export interface AttendanceQuery {
@@ -67,6 +70,7 @@ export const normalizeLectureRecord = (record: any): NormalizedAttendanceRecord 
     label: labelParts.join(" - ") || "Lecture",
     detail: String(record?.absenceReason ?? ""),
     sessionId: record?.session ? String(record?.session?._id ?? record?.session) : null,
+    escalatedToAdmin: Boolean(record?.escalatedToAdmin),
   };
 };
 
@@ -85,6 +89,7 @@ export const normalizeClinicalEntry = (session: any, attendee: any): NormalizedA
     label: String(title),
     detail: [groupLabel, attendee?.notes].filter(Boolean).join(" - "),
     sessionId: session?._id ? String(session._id) : null,
+    escalatedToAdmin: false,
   };
 };
 

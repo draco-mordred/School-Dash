@@ -7,6 +7,7 @@ import Class from "../../models/classes";
 import LectureSession from "../../models/lectureSession";
 import Attendance from "../../models/attendance";
 import ClinicalAttendance from "../../models/clinicalAttendance";
+import User from "../../models/user";
 import Venue from "../../models/venue";
 import { resolveAcademicClockPhase } from "../../utils/academicClockPhase";
 import { getTimetableForPhase } from "../../utils/phaseTimetable";
@@ -495,6 +496,60 @@ export const runClinicalComplaintFinalizer = async (now = new Date()) => {
     }
   }
   return { finalized, notified };
+};
+
+// Phase L (D13): 19:00 day-close + auto-escalation. Every lecture record
+// for the day is escalated to the admin and saved; verified records are
+// final (auto-escalated, read-only admin audit per D8) and records still
+// "unverified" are explicitly flagged so admins can see the full trail.
+// Clinical day-close finality (D15) is runClinicalComplaintFinalizer above.
+export const runDayCloseEscalation = async (now = new Date()) => {
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+
+  const dayRecords = await Attendance.find({
+    date: { $gte: startOfDay, $lt: endOfDay },
+    escalatedToAdmin: { $ne: true },
+    status: { $in: ["present", "late", "absent", "excused", "unverified"] },
+  }).lean<any[]>();
+
+  let escalated = 0;
+  let unverifiedEscalated = 0;
+  for (const record of dayRecords) {
+    if (record.status === "unverified") unverifiedEscalated += 1;
+    await Attendance.updateOne(
+      { _id: record._id, escalatedToAdmin: { $ne: true } },
+      { $set: { escalatedToAdmin: true } },
+    );
+    escalated += 1;
+  }
+
+  // One read-only audit summary per admin per day (idempotent via key).
+  const dayKey = startOfDay.toISOString().slice(0, 10);
+  const admins = await User.find({ role: "admin" }).select("_id").lean<any[]>();
+  let adminNotifications = 0;
+  for (const admin of admins) {
+    try {
+      await createNotificationIfUnique({
+        userId: new mongoose.Types.ObjectId(String(admin._id)),
+        role: "admin",
+        title: "Attendance day-close audit",
+        message:
+          String(escalated) + " record(s) auto-escalated for " + dayKey + " (" +
+          String(unverifiedEscalated) + " still unverified — see the attendance audit).",
+        type: "attendance",
+        link: "/attendance",
+        metadata: { dayCloseKey: "day-close-" + dayKey },
+      });
+      adminNotifications += 1;
+    } catch (err) {
+      notifySessionError("day-close admin notification for " + String(admin._id), err);
+    }
+  }
+
+  return { escalated, unverifiedEscalated, adminNotifications };
 };
 
 export const runLectureAttendanceTick = async (now = new Date()) => {
