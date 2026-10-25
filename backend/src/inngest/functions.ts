@@ -834,7 +834,7 @@ export const rotationSnapshotScheduler = inngest.createFunction(
 export const academicClockPhaseReconciliation = inngest.createFunction(
   {
     id: "academic-clock-phase-reconciliation",
-    triggers: { cron: "* * * * *" },
+    triggers: { cron: "*/15 * * * *" },
   },
   async ({ step }) => {
     const result = await step.run("reconcile-class-phases-and-alert-missing-schedules", async () => {
