@@ -388,33 +388,43 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
             arr.findIndex((other: any) => other.id === folder.id) === index,
         );
 
-        const buildFolderSection = (folderMatch: any) => {
-          const childIds = parentMap.get(folderMatch.id) ?? [];
+        // Build the FULL nested tree for a folder: every subfolder at every
+        // depth (each with its own subfolders and root files), so the UI can
+        // render the whole hierarchy down to the very last file. A `seen`
+        // set guards against pathological cycles in Drive data.
+        const buildFolderNode = (nodeFolderId: string, nodeName: string, seen: Set<string>) => {
+          if (seen.has(nodeFolderId)) {
+            return { id: nodeFolderId, name: nodeName, subfolders: [], rootFiles: [] };
+          }
+          seen.add(nodeFolderId);
+
+          const childIds = parentMap.get(nodeFolderId) ?? [];
           const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
 
-          const courseSubfolders = childItems
-            .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
-            .map((sub: any) => ({
-              id: sub.id,
-              name: sub.name,
-              items: subtreeFiles(sub.id).map(toFileItem),
-            }));
-
-          const courseRootFiles = childItems
-            .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
-            .sort(byModifiedDesc)
-            .map(toFileItem);
-
           return {
-            id: folderMatch.id,
-            name: folderMatch.name,
-            url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
-            subfolders: courseSubfolders,
-            rootFiles: courseRootFiles,
+            id: nodeFolderId,
+            name: nodeName,
+            subfolders: childItems
+              .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
+              .map((sub: any) => buildFolderNode(sub.id, sub.name, seen)),
+            rootFiles: childItems
+              .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
+              .sort(byModifiedDesc)
+              .map(toFileItem),
           };
         };
 
-        const matchedFolders = dedupedMatches.map(buildFolderSection);
+        const matchedFolders = dedupedMatches.map((folderMatch: any) => ({
+          ...buildFolderNode(folderMatch.id, folderMatch.name, new Set([folderMatch.id])),
+          url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
+        }));
+
+        // Legacy flat shape (first matched folder) kept for backward compatibility
+        const legacyFolders = ((matchedFolders[0] as any)?.subfolders ?? []).map((sub: any) => ({
+          id: sub.id,
+          name: sub.name,
+          items: subtreeFiles(sub.id).map(toFileItem),
+        }));
 
         const allFiles = dedupedMatches.flatMap((folderMatch: any) => subtreeFiles(folderMatch.id));
 
@@ -432,7 +442,7 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
           folderName: matchedFolders[0]?.name ?? "",
           folderUrl: matchedFolders[0]?.url ?? "",
           matchedFolders,
-          folders: matchedFolders[0]?.subfolders ?? [],
+          folders: legacyFolders,
           rootFiles: matchedFolders[0]?.rootFiles ?? [],
           files: Object.entries(groupedFiles)
             .map(([group, items]) => ({
