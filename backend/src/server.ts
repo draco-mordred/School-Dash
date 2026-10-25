@@ -196,7 +196,14 @@ app.use(
  
 //Health cheack route to check if the server is running
 app.get("/", (req: Request, res: Response) => {
-  res.status(200).json({ status: "ok", message: "Server is healthy!" });
+  res.status(200).json({
+    status: "ok",
+    message: "Server is healthy!",
+    // Deploy stamp: Render injects RENDER_GIT_COMMIT on every deploy.
+    // GET / should show the latest merged main commit (materials fixes).
+    commit: process.env.RENDER_GIT_COMMIT ?? "unknown",
+    env: process.env.NODE_ENV ?? "unset",
+  });
 });
 
 // Request timeout middleware - Vercel has 30 second timeout, set client timeout to 25 seconds
