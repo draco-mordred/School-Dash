@@ -363,63 +363,41 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
         );
         if (!matchingFolders.length) return null;
 
-        const compactCourseName = compactName(course?.name ?? "");
-        const compactCourseCode = compactName((course as any)?.code ?? "");
+        // Keep ALL folders that match the course name/code/acronym (deduped by id)
+        const dedupedMatches = matchingFolders.filter(
+          (folder: any, index: number, arr: any[]) =>
+            arr.findIndex((other: any) => other.id === folder.id) === index,
+        );
 
-        const depthOf = (id: string): number => {
-          let steps = 0;
-          let current: string | undefined = id;
-          const guard = new Set<string>();
-          while (current && current !== folderId && !guard.has(current)) {
-            guard.add(current);
-            const item = byId.get(current);
-            const parentId = item?.parents?.[0];
-            if (!parentId) break;
-            current = parentId;
-            steps += 1;
-          }
-          return steps;
+        const buildFolderSection = (folderMatch: any) => {
+          const childIds = parentMap.get(folderMatch.id) ?? [];
+          const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
+
+          const courseSubfolders = childItems
+            .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
+            .map((sub: any) => ({
+              id: sub.id,
+              name: sub.name,
+              items: subtreeFiles(sub.id).map(toFileItem),
+            }));
+
+          const courseRootFiles = childItems
+            .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
+            .sort(byModifiedDesc)
+            .map(toFileItem);
+
+          return {
+            id: folderMatch.id,
+            name: folderMatch.name,
+            url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
+            subfolders: courseSubfolders,
+            rootFiles: courseRootFiles,
+          };
         };
 
-        let folderMatch: any;
-        if (matchingFolders.length === 1) {
-          folderMatch = matchingFolders[0];
-        } else {
-          // Multiple folders match the name/acronym — pick the best one:
-          // exact name equality wins, then shallowest (closest to the class
-          // root folder), then the folder containing the most files. This
-          // prevents a stray 1-file folder deep in the tree from hijacking
-          // the course match.
-          const scored = matchingFolders.map((folder) => {
-            const compactFolderName = compactName(folder?.name ?? "");
-            let score = 0;
-            if (compactFolderName && compactFolderName === compactCourseName) score += 100;
-            if (compactCourseCode && compactFolderName === compactCourseCode) score += 60;
-            score -= depthOf(folder.id) * 2;
-            score += Math.min(20, subtreeFiles(folder.id).length);
-            return { folder, score };
-          });
-          scored.sort((a, b) => b.score - a.score);
-          folderMatch = scored[0].folder;
-        }
+        const matchedFolders = dedupedMatches.map(buildFolderSection);
 
-        const childIds = parentMap.get(folderMatch.id) ?? [];
-        const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
-
-        const courseSubfolders = childItems
-          .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
-          .map((sub: any) => ({
-            id: sub.id,
-            name: sub.name,
-            items: subtreeFiles(sub.id).map(toFileItem),
-          }));
-
-        const courseRootFiles = childItems
-          .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
-          .sort(byModifiedDesc)
-          .map(toFileItem);
-
-        const allFiles = subtreeFiles(folderMatch.id);
+        const allFiles = dedupedMatches.flatMap((folderMatch: any) => subtreeFiles(folderMatch.id));
 
         const groupedFiles = allFiles.reduce((acc: Record<string, any[]>, file) => {
           const group = getDriveMimeGroup(file.mimeType);
@@ -431,11 +409,12 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
         return {
           courseId: String(course?._id ?? ""),
           courseName: course?.name ?? "Untitled course",
-          folderId: folderMatch.id,
-          folderName: folderMatch.name,
-          folderUrl: `https://drive.google.com/drive/folders/${folderMatch.id}`,
-          folders: courseSubfolders,
-          rootFiles: courseRootFiles,
+          folderId: matchedFolders[0]?.id ?? "",
+          folderName: matchedFolders[0]?.name ?? "",
+          folderUrl: matchedFolders[0]?.url ?? "",
+          matchedFolders,
+          folders: matchedFolders[0]?.subfolders ?? [],
+          rootFiles: matchedFolders[0]?.rootFiles ?? [],
           files: Object.entries(groupedFiles)
             .map(([group, items]) => ({
               group,
