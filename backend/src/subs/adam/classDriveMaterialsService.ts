@@ -437,8 +437,9 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
       return out.sort(byModifiedDesc);
     };
 
-    const courseMaterials = courseDocs
-      .map((course) => {
+    const courseMaterials = (
+      await Promise.all(
+        courseDocs.map(async (course) => {
         const courseKey = { name: course?.name ?? "", code: (course as any)?.code ?? "" };
         const matchingFolders = folders.filter((folder) =>
           matchesCourseName(courseKey, folder?.name ?? ""),
@@ -505,8 +506,9 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
             }))
             .sort((a, b) => a.group.localeCompare(b.group)),
         };
-      })
-      .filter(Boolean);
+        }),
+      )
+    ).filter(Boolean);
 
     return {
       synced: true,
