@@ -82,8 +82,23 @@ const FileRow = ({ file, driveLink }: { file: any; driveLink: string }) => (
   </div>
 );
 
+// Normalize any folder node shape (nested tree "rootFiles" or legacy flat
+// "items") into the tree shape, so the renderer works with payloads from
+// both current and previously deployed backends.
+const normalizeFolderNode = (node: any): any => ({
+  ...node,
+  rootFiles: Array.isArray(node?.rootFiles)
+    ? node.rootFiles
+    : Array.isArray(node?.items)
+      ? node.items
+      : [],
+  subfolders: Array.isArray(node?.subfolders)
+    ? node.subfolders.map((sub: any) => normalizeFolderNode(sub))
+    : [],
+});
+
 const countFolderFiles = (node: any): number =>
-  (node?.rootFiles?.length ?? 0) +
+  (Array.isArray(node?.rootFiles) ? node.rootFiles.length : Array.isArray(node?.items) ? node.items.length : 0) +
   (node?.subfolders ?? []).reduce((acc: number, sub: any) => acc + countFolderFiles(sub), 0);
 
 const countNestedFolders = (node: any): number =>
@@ -103,6 +118,7 @@ const FolderNodeSection = ({
   driveLink: string;
 }) => {
   const isOpen = Boolean(openSubfolders[nodeKey]);
+  const nodeFiles = Array.isArray(node?.rootFiles) ? node.rootFiles : Array.isArray(node?.items) ? node.items : [];
   const fileCount = countFolderFiles(node);
   const nestedCount = countNestedFolders(node);
 
@@ -145,7 +161,7 @@ const FolderNodeSection = ({
               driveLink={driveLink}
             />
           ))}
-          {(node?.rootFiles ?? []).map((file: any) => (
+          {nodeFiles.map((file: any) => (
             <FileRow key={file.id} file={file} driveLink={driveLink} />
           ))}
           {fileCount === 0 && nestedCount === 0 && (
@@ -628,7 +644,7 @@ const ClassCourseMaterialsPage = () => {
             const driveLink = course.driveLink || resourceLinks[courseId] || classData?.cloudStorage?.rootUrl || "";
             const match = courseMaterials.find((entry: any) => String(entry?.courseId) === courseId) ?? null;
             const matchedFolders: any[] = Array.isArray(match?.matchedFolders) && match.matchedFolders.length
-              ? match.matchedFolders
+              ? match.matchedFolders.map(normalizeFolderNode)
               : match?.folderId
                 ? [{
                     id: match.folderId,
