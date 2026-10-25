@@ -43,7 +43,59 @@ export const createAcademicClock = async (req: Request, res: Response): Promise<
 
     const existingClock = await AcademicClock.findOne({ academicYear: academicYearId, classId });
     if (existingClock) {
-      res.status(409).json({ message: "Academic clock already exists for this class and academic year" });
+      // Idempotent create: a clock already exists for this class + year, so
+      // apply the submitted updates instead of failing with a 409. This keeps
+      // saves from being lost when the client could not resolve the clock id.
+      const idempotentUpdates = [
+        "clockStartDate",
+        "clockIsPaused",
+        "clockPausedAt",
+        "clockPhase",
+        "classLevel",
+        "phaseConfig",
+      ];
+      const updateData: any = {};
+      idempotentUpdates.forEach((field) => {
+        if (field in req.body) {
+          updateData[field] = req.body[field];
+        }
+      });
+      const idempotentClassLevel =
+        classLevel ?? existingClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
+      if (idempotentClassLevel) {
+        updateData.classLevel = idempotentClassLevel;
+      }
+
+      const updatedExistingClock = await AcademicClock.findByIdAndUpdate(
+        existingClock._id,
+        updateData,
+        { returnDocument: "after", runValidators: true },
+      );
+
+      await AcademicYear.findByIdAndUpdate(
+        academicYearId,
+        {
+          $set: {
+            [`classClockData.${String(classId)}`]: {
+              classId,
+              classLevel: updatedExistingClock?.classLevel ?? null,
+              clockStartDate: updatedExistingClock?.clockStartDate ?? null,
+              clockIsPaused: updatedExistingClock?.clockIsPaused ?? false,
+              clockPausedAt: updatedExistingClock?.clockPausedAt ?? null,
+              clockPhase: updatedExistingClock?.clockPhase ?? null,
+              phaseConfig: updatedExistingClock?.phaseConfig ?? {},
+            },
+          },
+        },
+        { returnDocument: 'after' }
+      );
+
+      await logActivity({
+        userId: (req as any).user?._id,
+        action: `Updated existing academic clock for class ${classId} on academic year ${academicYear.name}`,
+      });
+
+      res.status(200).json(updatedExistingClock);
       return;
     }
 
