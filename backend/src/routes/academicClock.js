@@ -1,5 +1,5 @@
 import * as express from "express";
-import { createAcademicClock, getAcademicClocks, getAcademicClockById, updateAcademicClock, deleteAcademicClock, deleteAcademicClockByClass, } from "../controllers/academicClock";
+import { createAcademicClock, getAcademicClocks, getActiveAcademicClockForClass, getAcademicClockById, updateAcademicClock, deleteAcademicClock, deleteAcademicClockByClass, } from "../controllers/academicClock";
 import { completeAcademicClockByClass } from "../controllers/academicClockComplete";
 import { authorize, protect } from "../middleware/auth";
 const academicClockRouter = express.Router();
@@ -9,6 +9,9 @@ academicClockRouter
 academicClockRouter
     .route("/")
     .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]), getAcademicClocks);
+academicClockRouter
+    .route("/class/:classId/active-phase")
+    .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]), getActiveAcademicClockForClass);
 academicClockRouter
     .route("/:id")
     .get(protect, authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]), getAcademicClockById);
