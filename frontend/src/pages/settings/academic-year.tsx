@@ -290,6 +290,23 @@ const AcademicYear = () => {
     }));
   }, []);
 
+  // Sub-postings -> course sync: exact, case-insensitive name match between each
+  // comma-separated sub-posting and the class's course names. Matching courses are
+  // auto-checked as suggestions in the phase editor; the admin confirms by saving.
+  const getSubPostingMatchedCourseIds = (subPostingsText: string, courses: PhaseCourseOption[]): string[] => {
+    const names = subPostingsText
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    if (!names.length || !courses.length) return [];
+    const matched: string[] = [];
+    for (const course of courses) {
+      const courseName = (course.name ?? "").trim().toLowerCase();
+      if (courseName && names.includes(courseName)) matched.push(course._id);
+    }
+    return matched;
+  };
+
   const openPhaseEditor = (phase: AcademicClockPhaseDefinition) => {
     setSelectedPhaseId(phase.id);
     setEditingPhaseId(phase.id);
@@ -302,7 +319,10 @@ const AcademicYear = () => {
       postingScheduleId: phase.postingScheduleId ?? "",
       postingName: phase.postingName ?? "",
       timetablePhaseId: phase.timetablePhaseId ?? "",
-      courseIds: phase.courseIds ?? [],
+      courseIds: Array.from(new Set([
+        ...(phase.courseIds ?? []),
+        ...getSubPostingMatchedCourseIds(phase.subPostings.join(", "), phaseCourses),
+      ])),
       learningObjectives: phase.learningObjectives ?? [],
     });
     setIsPhaseModalOpen(true);
@@ -344,9 +364,36 @@ const AcademicYear = () => {
         : phase,
     );
 
+    const previousPhase = classPhasePlan.find((phase) => phase.id === editingPhaseId);
+    const coursesChanged = previousPhase
+      ? JSON.stringify([...(previousPhase.courseIds ?? [])].sort()) !==
+        JSON.stringify([...(phaseEditValues.courseIds)].sort())
+      : true;
+
     try {
       await persistPhasePlan(updatedPlan);
       setClassPhasePlan(updatedPlan);
+
+      const activeYearId = activeYear ? (activeYear._id ?? activeYear.id) : undefined;
+      if (coursesChanged && selectedClockClassId && activeYearId) {
+        if (clockPhase === editingPhaseId) {
+          try {
+            await api.post("/timetable/generate", {
+              classId: selectedClockClassId,
+              academicYearId: activeYearId,
+              settings: { fast: true, startTime: "08:00", endTime: "17:00", periods: 5 },
+            });
+            toast.success("Phase saved. Timetable regenerated with the selected courses.");
+          } catch {
+            toast.error("Phase saved, but timetable regeneration failed. Regenerate from the Timetable page.");
+          }
+        } else {
+          toast.success("Phase saved. Its timetable will be generated when this phase becomes active.");
+        }
+      } else {
+        toast.success("Phase saved.");
+      }
+
       closePhaseEditor();
     } catch {
       toast.error("Failed to save phase changes.");
@@ -1010,10 +1057,21 @@ const AcademicYear = () => {
                         <Textarea
                           id="phase-subpostings"
                           value={phaseEditValues.subPostings}
-                          onChange={(event) => setPhaseEditValues({ ...phaseEditValues, subPostings: event.target.value })}
+                          onChange={(event) => {
+                            const nextSubPostings = event.target.value;
+                            const matchedIds = getSubPostingMatchedCourseIds(nextSubPostings, phaseCourses);
+                            setPhaseEditValues((current) => ({
+                              ...current,
+                              subPostings: nextSubPostings,
+                              courseIds: Array.from(new Set([...current.courseIds, ...matchedIds])),
+                            }));
+                          }}
                           rows={3}
                           className="mt-2"
                         />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Courses whose names match a sub-posting (exact, case-insensitive) are auto-checked below. Uncheck any you do not want before saving.
+                        </p>
                       </div>
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div>
