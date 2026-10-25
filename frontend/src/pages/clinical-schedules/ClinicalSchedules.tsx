@@ -7,8 +7,21 @@ import {
   type WheelEvent,
 } from "react";
 import { api } from "@/lib/api";
-import { useAdminClassOptions, useAdminRotationEvents, useAdminTimetable } from "@/lib/adminData";
+import { toast } from "sonner";
+import {
+  invalidateAdminData,
+  useAdminClassOptions,
+  useAdminRotationEvents,
+  useAdminTimetable,
+} from "@/lib/adminData";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +53,7 @@ type ApiRotationEvent = {
   startDate?: string;
   endDate?: string;
   status?: KnownStatus;
+  completed?: boolean;
   supervisorName?: string;
 };
 type PostingWindow = {
@@ -130,6 +144,12 @@ const statusMetadata: Record<
     dotClass: "bg-violet-500",
     borderClass: "border-violet-500",
   },
+  upcoming: {
+    label: "Upcoming",
+    badgeClasses: "bg-indigo-100 text-indigo-700 border-indigo-200",
+    dotClass: "bg-indigo-500",
+    borderClass: "border-indigo-500",
+  },
   default: {
     label: "Scheduled",
     badgeClasses: "bg-slate-100 text-slate-700 border-slate-200",
@@ -142,6 +162,7 @@ const statusOptions = [
   { key: "planned", label: "Planned" },
   { key: "ongoing", label: "Ongoing" },
   { key: "active", label: "Active" },
+  { key: "upcoming", label: "Upcoming" },
   { key: "assigned", label: "Assigned" },
   { key: "completed", label: "Completed" },
   { key: "cancelled", label: "Cancelled" },
@@ -153,6 +174,7 @@ type KnownStatus =
   | "active"
   | "completed"
   | "assigned"
+  | "upcoming"
   | "cancelled"
   | "default";
 
@@ -170,8 +192,9 @@ const computeEventStatus = (event: PostingWindow): KnownStatus => {
   const rawStatus = String(event.status || "").toLowerCase();
 
   if (rawStatus === "cancelled" || rawStatus === "canceled") return "cancelled";
-  if (rawStatus === "completed") return "completed";
+  if (rawStatus === "completed" || event.completed) return "completed";
   if (rawStatus === "assigned") return "assigned";
+  if (rawStatus === "upcoming") return "upcoming";
   if (now >= start && now <= end) return "active";
   if (end < now) return "completed";
   if (rawStatus === "planned") return "planned";
@@ -202,6 +225,42 @@ export default function ClinicalSchedules() {
     null,
   );
   const [openDetails, setOpenDetails] = useState(false);
+  const [supervisorOptions, setSupervisorOptions] = useState<
+    Array<{ _id: string; name: string; role?: string }>
+  >([]);
+  const [assignSupervisorId, setAssignSupervisorId] = useState<string>("");
+  useEffect(() => {
+    if (!openDetails) return;
+    let cancelled = false;
+    Promise.all(
+      ["unitconsultant", "unitresident", "teacher"].map((role) =>
+        api
+          .get("/users", { params: { role, limit: 200 } })
+          .then((res) => res.data?.users ?? [])
+          .catch(() => []),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const all = (results as any[]).flat();
+      const seen = new Set<string>();
+      const unique = all.filter(
+        (u: { _id?: string }) =>
+          u?._id && !seen.has(u._id) && seen.add(u._id),
+      );
+      setSupervisorOptions(
+        unique.map((u: any) => ({
+          _id: u._id,
+          name: u.name || u.fullName || u.email || u._id,
+          role: u.role,
+        })),
+      );
+      setAssignSupervisorId("");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openDetails]);
+
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(
@@ -394,6 +453,7 @@ export default function ClinicalSchedules() {
       startDate: event.startDate,
       endDate: event.endDate,
       status: event.status,
+      completed: event.completed,
       supervisorName: event.supervisorName,
     })));
   }, [eventsResource.data, eventsResource.error]);
@@ -1072,8 +1132,11 @@ export default function ClinicalSchedules() {
                               : e,
                           ),
                         );
+                        invalidateAdminData("rotation-schedules");
+                        toast.success("Posting window rescheduled");
                       } catch (err) {
                         console.error("Reschedule failed", err);
+                        toast.error("Failed to reschedule posting window");
                       }
                     }}
                     onDateChange={handleDateChange}
@@ -1423,8 +1486,11 @@ export default function ClinicalSchedules() {
                             ev.id === eid ? { ...ev, startDate, endDate } : ev,
                           ),
                         );
+                        invalidateAdminData("rotation-schedules");
+                        toast.success("Posting window rescheduled");
                       } catch (err) {
                         console.error("Reschedule failed", err);
+                        toast.error("Failed to reschedule posting window");
                         if (
                           "revert" in info &&
                           typeof info.revert === "function"
@@ -1478,6 +1544,38 @@ export default function ClinicalSchedules() {
               </div>
             </div>
           )}
+          {selectedEvent && (
+            <div className="mb-4">
+              <label
+                htmlFor="assign-supervisor"
+                className="mb-1 block text-sm font-medium"
+              >
+                Assign supervisor
+              </label>
+              <Select
+                value={assignSupervisorId}
+                onValueChange={setAssignSupervisorId}
+              >
+                <SelectTrigger id="assign-supervisor" className="w-full">
+                  <SelectValue placeholder="Select a supervisor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {supervisorOptions.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No supervisors found
+                    </div>
+                  ) : (
+                    supervisorOptions.map((sup) => (
+                      <SelectItem key={sup._id} value={sup._id}>
+                        {sup.name}
+                        {sup.role ? " (" + sup.role + ")" : ""}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpenDetails(false)}>
               Close
@@ -1503,9 +1601,12 @@ export default function ClinicalSchedules() {
                         : ev,
                     ),
                   );
+                  invalidateAdminData("rotation-schedules");
+                  toast.success("Posting window marked complete");
                   setOpenDetails(false);
                 } catch (err) {
                   console.error(err);
+                  toast.error("Failed to mark posting window complete");
                 }
               }}
             >
@@ -1515,8 +1616,11 @@ export default function ClinicalSchedules() {
               variant="outline"
               onClick={async () => {
                 if (!selectedEvent) return;
-                const sup = window.prompt("Enter supervisorId to assign:");
-                if (!sup) return;
+                const sup = assignSupervisorId;
+                if (!sup) {
+                  toast.error("Select a supervisor first");
+                  return;
+                }
                 try {
                   const eid = selectedEvent.id;
                   const parts = eid.split("-");
@@ -1535,9 +1639,12 @@ export default function ClinicalSchedules() {
                         : ev,
                     ),
                   );
+                  invalidateAdminData("rotation-schedules");
+                  toast.success("Supervisor assigned");
                   setOpenDetails(false);
                 } catch (err) {
                   console.error(err);
+                  toast.error("Failed to assign supervisor");
                 }
               }}
             >
