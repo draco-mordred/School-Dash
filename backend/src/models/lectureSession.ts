@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: a52cae74550a773b3d40bcec48bf7ba553c1cf73)
 import mongoose, { Schema, Document } from "mongoose";
 
 // One auto-generated lecture attendance session per
@@ -47,6 +48,13 @@ export interface ILectureSession extends Document {
     lng: number | null;
     at: Date | null;
     verified: boolean;
+  };
+
+  // Scheduler notification bookkeeping (Phase B): pre-lecture reminder
+  // (>= 1 hour before start) and the session-opened "tap now" notice.
+  notifications: {
+    preLectureSentAt: Date | null;
+    openedNoticeSentAt: Date | null;
   };
 
   status: LectureSessionStatus;
@@ -124,6 +132,10 @@ const lectureSessionSchema = new Schema<ILectureSession>(
       lng: { type: Number, default: null },
       at: { type: Date, default: null },
       verified: { type: Boolean, default: false },
+    },
+    notifications: {
+      preLectureSentAt: { type: Date, default: null },
+      openedNoticeSentAt: { type: Date, default: null },
     },
     status: {
       type: String,

@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: adfa55b51ac26effccf88b391eb08058f21761ce)
 successfully downloaded text file (SHA: 2965560db104d02fe9e5290021aeca6018ddc494)
 // console.log("Hello via Bun!");
 
@@ -41,6 +42,8 @@ import {
   scheduledKrystaLatifahSync,
   processPendingCheckins,
   notifyOfflineStatus,
+  lectureAttendancePlanner,
+  lectureAttendanceTick,
 } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
@@ -309,6 +312,8 @@ const mountRoutes = (prefix: string) => {
       scheduledKrystaLatifahSync,
       processPendingCheckins,
       notifyOfflineStatus,
+      lectureAttendancePlanner,
+      lectureAttendanceTick,
     ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);

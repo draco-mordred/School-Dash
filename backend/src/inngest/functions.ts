@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: d4d8f48fa29b16e292eab2b9c75790219640ffc3)
 successfully downloaded text file (SHA: 6dc464f10130f4f40735f69cf3453202167bc0a0)
 import mongoose from "mongoose";
 import { inngest } from "./client";
@@ -1165,5 +1166,36 @@ export const notifyOfflineStatus = inngest.createFunction(
     }
 
     return { success: true, pendingCheckins };
+  }
+);
+
+// ─── Phase B: Auto Lecture Attendance (planner + tick) ────────────────────────
+
+// Planner: idempotently materializes LectureSessions for every non-clinical
+// timetable period today (weekends skipped). A short cron instead of a single
+// 00:00 run makes it restart-safe and catches timetable edits mid-day; the
+// unique (class, course, subject, lecturer, date) index makes repeats harmless.
+export const lectureAttendancePlanner = inngest.createFunction(
+  { id: "Lecture-Attendance-Planner", triggers: { cron: "*/15 * * * *" } },
+  async ({ step }) => {
+    const result = await step.run("plan-todays-lecture-sessions", async () => {
+      const { planLectureSessionsForDay } = await import("../subs/latifah/lectureSessionScheduler");
+      return await planLectureSessionsForDay(new Date());
+    });
+    return { success: true, ...result };
+  }
+);
+
+// Tick (every 5 minutes): pre-lecture reminders >= 1h before start; opens
+// sessions at the 75%-of-duration trigger (generating attendance + "tap
+// Present/Absent" notices within 5 minutes); closes at lecture end + 5 min.
+export const lectureAttendanceTick = inngest.createFunction(
+  { id: "Lecture-Attendance-Tick", triggers: { cron: "*/5 * * * *" } },
+  async ({ step }) => {
+    const result = await step.run("run-lecture-attendance-tick", async () => {
+      const { runLectureAttendanceTick } = await import("../subs/latifah/lectureSessionScheduler");
+      return await runLectureAttendanceTick(new Date());
+    });
+    return { success: true, ...result };
   }
 );
