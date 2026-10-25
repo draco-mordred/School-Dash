@@ -2,6 +2,7 @@ import AcademicClock, { buildPhaseConfigForClassLevel, resolveClassLevelFromName
 import AcademicYear from "../models/academicYear";
 import ClassModel from "../models/classes";
 import { logActivity } from "../utils/activitieslog";
+import { resolveAcademicClockPhase } from "../utils/academicClockPhase";
 export const createAcademicClock = async (req, res) => {
     try {
         const { academicYearId, classId, clockStartDate, clockIsPaused, clockPausedAt, clockPhase, classLevel, phaseConfig, } = req.body;
@@ -23,7 +24,46 @@ export const createAcademicClock = async (req, res) => {
         }
         const existingClock = await AcademicClock.findOne({ academicYear: academicYearId, classId });
         if (existingClock) {
-            res.status(409).json({ message: "Academic clock already exists for this class and academic year" });
+            // Idempotent create: a clock already exists for this class + year, so
+            // apply the submitted updates instead of failing with a 409. This keeps
+            // saves from being lost when the client could not resolve the clock id.
+            const idempotentUpdates = [
+                "clockStartDate",
+                "clockIsPaused",
+                "clockPausedAt",
+                "clockPhase",
+                "classLevel",
+                "phaseConfig",
+            ];
+            const updateData = {};
+            idempotentUpdates.forEach((field) => {
+                if (field in req.body) {
+                    updateData[field] = req.body[field];
+                }
+            });
+            const idempotentClassLevel = classLevel ?? existingClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
+            if (idempotentClassLevel) {
+                updateData.classLevel = idempotentClassLevel;
+            }
+            const updatedExistingClock = await AcademicClock.findByIdAndUpdate(existingClock._id, updateData, { returnDocument: 'after', runValidators: true });
+            await AcademicYear.findByIdAndUpdate(academicYearId, {
+                $set: {
+                    [`classClockData.${String(classId)}`]: {
+                        classId,
+                        classLevel: updatedExistingClock?.classLevel ?? null,
+                        clockStartDate: updatedExistingClock?.clockStartDate ?? null,
+                        clockIsPaused: updatedExistingClock?.clockIsPaused ?? false,
+                        clockPausedAt: updatedExistingClock?.clockPausedAt ?? null,
+                        clockPhase: updatedExistingClock?.clockPhase ?? null,
+                        phaseConfig: updatedExistingClock?.phaseConfig ?? {},
+                    },
+                },
+            }, { returnDocument: 'after' });
+            await logActivity({
+                userId: req.user?._id,
+                action: `Updated existing academic clock for class ${classId} on academic year ${academicYear.name}`,
+            });
+            res.status(200).json(updatedExistingClock);
             return;
         }
         const resolvedClassLevel = classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
@@ -77,6 +117,63 @@ export const getAcademicClocks = async (req, res) => {
         res.status(500).json({ message: "Server error", error });
     }
 };
+export const getActiveAcademicClockForClass = async (req, res) => {
+    try {
+        const { classId } = req.params;
+        const classDoc = await ClassModel.findById(classId)
+            .select("name academicYear")
+            .populate("academicYear", "name fromYear toYear isCurrent")
+            .lean();
+        if (!classDoc) {
+            res.status(404).json({ message: "Class not found" });
+            return;
+        }
+        // Honor an explicit academicYearId query param first (the admin UI always
+        // sends the active year). Only fall back to the class's own academicYear
+        // when no param was provided, so reads match where writes are stored.
+        const requestedAcademicYearId = req.query.academicYearId
+            ? String(req.query.academicYearId)
+            : (typeof classDoc.academicYear === "object" && classDoc.academicYear
+                ? String(classDoc.academicYear?._id)
+                : String(classDoc.academicYear));
+        const clock = await AcademicClock.findOne({
+            classId,
+            academicYear: requestedAcademicYearId,
+        }).lean();
+        if (!clock) {
+            res.status(404).json({ message: "Academic clock not found for this class and year" });
+            return;
+        }
+        const resolved = resolveAcademicClockPhase(clock);
+        const phase = resolved.phase
+            ? {
+                id: resolved.phaseId,
+                name: resolved.phase?.name ?? resolved.phaseId,
+                duration: Number(resolved.phase?.duration ?? resolved.phase?.durationMonths ?? 0),
+                startsAt: resolved.startsAt,
+                endsAt: resolved.endsAt,
+                config: resolved.phase,
+            }
+            : null;
+        res.json({
+            _id: clock._id,
+            classId: String(clock.classId),
+            className: classDoc.name,
+            academicYearId: requestedAcademicYearId,
+            academicYear: classDoc.academicYear,
+            clockStartDate: clock.clockStartDate ?? null,
+            clockPausedAt: clock.clockPausedAt ?? null,
+            clockIsPaused: Boolean(clock.clockIsPaused),
+            storedClockPhase: clock.clockPhase ?? null,
+            classLevel: clock.classLevel ?? null,
+            phaseConfig: clock.phaseConfig ?? {},
+            activePhase: phase,
+        });
+    }
+    catch (error) {
+        res.status(500).json({ message: "Server error", error });
+    }
+};
 export const getAcademicClockById = async (req, res) => {
     try {
         const academicClock = await AcademicClock.findById(req.params.id)
@@ -119,7 +216,7 @@ export const updateAcademicClock = async (req, res) => {
         const resolvedClassLevel = typeof req.body.classLevel === "string" && req.body.classLevel
             ? req.body.classLevel
             : academicClock.classLevel ?? resolveClassLevelFromName(classDoc?.name ?? "");
-        if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) {
+        if (resolvedClassLevel && req.body?.useTemplatePhaseConfig && !Object.prototype.hasOwnProperty.call(req.body, "phaseConfig")) {
             updateData.phaseConfig = buildPhaseConfigForClassLevel(resolvedClassLevel);
         }
         if (resolvedClassLevel && !Object.prototype.hasOwnProperty.call(req.body, "classLevel")) {
