@@ -322,7 +322,26 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
   }
 
   try {
-    const driveItems = await recursivelyCollectDriveItems(folderId, accessToken, new Set());
+    // Try the resolved token first; on failure (e.g. an expired token that
+    // slipped through) retry with the server env token before giving up so a
+    // single bad token cannot blank out every course folder.
+    const tokenCandidates = [accessToken, process.env.GOOGLE_DRIVE_ACCESS_TOKEN || ""]
+      .filter(Boolean)
+      .filter((token, index, arr) => arr.indexOf(token) === index);
+
+    let driveItems: any[] | null = null;
+    let lastError: unknown = null;
+    for (const token of tokenCandidates) {
+      try {
+        driveItems = await recursivelyCollectDriveItems(folderId, token, new Set());
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!driveItems) {
+      throw lastError ?? new Error("Could not sync Drive materials.");
+    }
     const folders = driveItems.filter((item) => item.mimeType === DRIVE_FOLDER_MIME);
 
     // Drive-wide index: parent -> children, and id -> item
