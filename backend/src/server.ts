@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 2965560db104d02fe9e5290021aeca6018ddc494)
 // console.log("Hello via Bun!");
 
 //let's create a simple server
@@ -17,6 +18,9 @@ import academicYearRouter from "./routes/academicYear";
 import academicClockRouter from "./routes/academicClock";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses.ts";
+import "./models/venue"; // ensure Venue mongoose model is registered
+import "./models/lectureSession"; // ensure LectureSession mongoose model is registered
+import venueRouter from "./routes/venues"; // venue registry routes
 import "./models/postings"; // ensure postings models are registered
 import "./models/clinicalRotation"; // register ClinicalRotation mongoose model
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
@@ -277,6 +281,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/academic-clocks`, academicClockRouter);
   app.use(`${prefix}/classes`, classRouter);
   app.use(`${prefix}/courses`, courseRouter);
+  app.use(`${prefix}/venues`, venueRouter);
   app.use(`${prefix}/timetables`, timeRouter);
   app.use(`${prefix}/exams`, examRouter);
   app.use(`${prefix}/dashboard`, dashBoardRouter);
