@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 6dc5bed5cacfb3aad0fe4f49080f4e5b61bc01de)
 successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -5,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { Class, courses } from "@/types";
 import { useNavigate } from "react-router-dom";
+import LecturerSessionCard from "@/components/attendance/LecturerSessionCard";
 
 import {
   Card,
@@ -688,6 +690,8 @@ export default function Attendance() {
           </Button>
         </div>
       </div>
+
+      <LecturerSessionCard />
 
       {isParent ? (
         <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
