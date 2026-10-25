@@ -1,10 +1,5 @@
-import express from 'express';
-import { createRotationSchedule, listRotationSchedules, getRotationScheduleById, deleteRotationSchedule, getStudentAssignments } from '../controllers/rotationSchedules';
-import { protect, authorize } from '../middleware/auth';
-const router = express.Router();
-router.post('/', protect, authorize(['admin', 'teacher']), createRotationSchedule);
-router.get('/', protect, listRotationSchedules);
-router.get('/student-assignments', protect, getStudentAssignments);
-router.get('/:id', protect, getRotationScheduleById);
-router.delete('/:id', protect, authorize(['admin', 'teacher']), deleteRotationSchedule);
-export default router;
+// Bun on Render resolves this compiled .js route file before the .ts source.
+// Re-export the canonical TypeScript router so both runtimes register the
+// exact same endpoints (/events, /:id/windows/:index, /class/:classId/active-phase, ...).
+export { default } from "./rotationSchedules.ts";
+export * from "./rotationSchedules.ts";
