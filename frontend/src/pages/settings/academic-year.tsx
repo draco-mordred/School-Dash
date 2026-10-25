@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ArrowUp, ArrowDown } from "lucide-react";
-import { useAdminClassClock, useAdminClassOptions } from "@/lib/adminData";
+import { invalidateAdminData, useAdminClassClock, useAdminClassOptions } from "@/lib/adminData";
 
 const AcademicYear = () => {
   type PhaseLearningObjective = NonNullable<AcademicClockPhaseDefinition["learningObjectives"]>[number];
@@ -611,6 +611,10 @@ const AcademicYear = () => {
       } else {
         await api.patch(`/academic-years/update/${activeYearId}`, payload);
       }
+      // Ensure the shared admin-data cache (class clock + years) is refreshed
+      // so freshly saved phase data is re-read from the server, never a stale
+      // in-flight snapshot.
+      invalidateAdminData("academic-clocks", "academic-years");
       await fetchYears();
       return true;
     } catch {
