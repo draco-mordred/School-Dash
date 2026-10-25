@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 699195a748734d2d4c83c77f1591264245461075)
 successfully downloaded text file (SHA: 273871a9e1f9a1fbf11e17d451db91714970c0f6)
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
@@ -20,6 +21,7 @@ import {
   getStudentNotificationsSummary,
   getStudentAttendanceSummary,
 } from "../controllers/attendance";
+import { getActiveSessions, submitCheckIn } from "../controllers/attendanceCheckin";
 
 const attendanceRouter = express.Router();
 
@@ -128,6 +130,20 @@ attendanceRouter.get(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   getWeeklyCourseAttendance
+);
+
+attendanceRouter.get(
+  "/active-sessions",
+  protect,
+  authorize(["student"]),
+  getActiveSessions
+);
+
+attendanceRouter.post(
+  "/check-in",
+  protect,
+  authorize(["student"]),
+  submitCheckIn
 );
 
 attendanceRouter.get(

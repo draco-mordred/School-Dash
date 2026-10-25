@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 422835920c3454a63c92a7c949082276d6ab55c8)
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api";
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import ActiveAttendanceCard from "@/components/attendance/ActiveAttendanceCard";
 
 interface InsightPayload {
   id?: string;
@@ -276,6 +278,8 @@ export default function StudentAcademicAttendancePage() {
           </label>
         </div>
       </div>
+
+      <ActiveAttendanceCard />
 
       <Card>
         <CardHeader>
