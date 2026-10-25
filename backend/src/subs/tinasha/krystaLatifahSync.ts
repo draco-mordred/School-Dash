@@ -323,39 +323,44 @@ export const updateAttendancesFromCheckin = async (
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     
-    // Find today's lecture attendance for this student
+    // Find today's lecture attendance for this student.
+    // Phase K fix: the checkin's lectureSessionId is a LectureSession ref,
+    // not an Attendance _id — update the student's existing record for that
+    // session instead of upserting against the wrong id.
     if (checkin.lectureSessionId) {
-      await Attendance.findByIdAndUpdate(
-        checkin.lectureSessionId,
-        {
-          status: "present",
-          $setOnInsert: {
-            student,
-            class: classId,
-            academicYear,
-            date: today,
-            dayOfWeek: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][today.getDay()],
-          },
-        },
-        { upsert: true, new: true }
-      );
+      const lectureRecord = await Attendance.findOne({
+        session: checkin.lectureSessionId,
+        student,
+      });
+      if (lectureRecord) {
+        lectureRecord.status = "present";
+        await lectureRecord.save();
+      } else {
+        console.warn("⚠️ No attendance record found for lecture session:", checkin.lectureSessionId);
+      }
     }
     
-    // Find today's clinical attendance for this student
+    // Find today's clinical attendance for this student.
+    // Phase K fix: $addToSet can never dedupe attendee subdocs (each push
+    // gets a fresh _id) — update the student's attendee entry explicitly.
     if (checkin.clinicalSessionId) {
-      await ClinicalAttendance.findByIdAndUpdate(
-        checkin.clinicalSessionId,
-        {
-          $addToSet: {
-            attendees: {
-              student,
-              status: "present",
-              checkInTime: now,
-            },
-          },
-        },
-        { new: true }
-      );
+      const clinicalSession = await ClinicalAttendance.findById(checkin.clinicalSessionId);
+      if (clinicalSession) {
+        const attendee = (clinicalSession.attendees ?? []).find(
+          (a) => String((a as any).student) === student.toString()
+        ) as any;
+        if (attendee) {
+          attendee.status = "present";
+          if (!attendee.checkInTime) attendee.checkInTime = now;
+        } else {
+          clinicalSession.attendees.push({
+            student,
+            status: "present",
+            checkInTime: now,
+          } as any);
+        }
+        await clinicalSession.save();
+      }
     }
     
     // Mark checkin as used for attendance

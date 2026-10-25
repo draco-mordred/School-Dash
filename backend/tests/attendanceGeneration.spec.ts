@@ -81,3 +81,36 @@ describe("AttendanceGenerationError HTTP status mapping", () => {
     expect(err.status).toBe(404);
   });
 });
+
+describe("validateAttendanceGenerationInput source handling (Phase H2)", () => {
+  test("clinical source may generate on a Saturday (D10 weekend override)", () => {
+    const { dayName } = validateAttendanceGenerationInput({
+      ...base,
+      date: "2026-10-31",
+      source: "clinical",
+    });
+    expect(dayName).toBe("Saturday");
+  });
+
+  test("clinical source may generate on a Sunday", () => {
+    const { dayName } = validateAttendanceGenerationInput({
+      ...base,
+      date: "2026-11-01",
+      source: "clinical",
+    });
+    expect(dayName).toBe("Sunday");
+  });
+
+  test("explicit lecture source still rejects weekends", () => {
+    expectError(
+      () =>
+        validateAttendanceGenerationInput({
+          ...base,
+          date: "2026-10-31",
+          source: "lecture",
+        }),
+      "WEEKEND",
+      400,
+    );
+  });
+});

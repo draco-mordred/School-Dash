@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: eaeecfa42c8e2cf3fc7e79f1c8481723b6291a1f)
 import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router-dom";
 import Home from "@/pages/Home";
@@ -57,6 +58,7 @@ import StudyMaterials from "@/pages/lms/StudyMaterials";
 import ClassLessonPlanPage from "@/pages/lms/ClassLessonPlanPage";
 import ClassCourseMaterialsPage from "@/pages/lms/ClassCourseMaterialsPage";
 import Account from "@/pages/settings/Account";
+import VenuesPage from "@/pages/settings/Venues";
 import Notifications from "@/pages/Notifications";
 import InstitutionSetupPage from "@/pages/setup/InstitutionSetupPage";
 import SchoolProfile from "@/pages/SchoolProfile";
@@ -346,6 +348,10 @@ export const router = createBrowserRouter([
           {
             path: "settings/roles",
             element: <RolesPage />,
+          },
+          {
+            path: "settings/venues",
+            element: <VenuesPage />,
           },
           {
             path: "lms/assignments",

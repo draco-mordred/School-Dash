@@ -22,6 +22,18 @@ import {
   getStudentNotificationsSummary,
   getStudentAttendanceSummary,
 } from "../controllers/attendance";
+import {
+  getActiveSessions,
+  submitCheckIn,
+  submitLecturerCheckIn,
+} from "../controllers/attendanceCheckin";
+import {
+  getMyLectureSessions,
+  createComplaint,
+  getComplaints,
+  resolveComplaint,
+} from "../controllers/attendanceComplaints";
+import { getUnifiedAttendance } from "../controllers/attendanceUnified";
 
 const attendanceRouter = express.Router();
 
@@ -147,10 +159,67 @@ attendanceRouter.get(
 );
 
 attendanceRouter.get(
+  "/active-sessions",
+  protect,
+  authorize(["student"]),
+  getActiveSessions
+);
+
+attendanceRouter.post(
+  "/check-in",
+  protect,
+  authorize(["student"]),
+  submitCheckIn
+);
+
+attendanceRouter.post(
+  "/lecturer-check-in",
+  protect,
+  authorize(["teacher"]),
+  submitLecturerCheckIn
+);
+
+attendanceRouter.get(
+  "/my-sessions",
+  protect,
+  authorize(["teacher"]),
+  getMyLectureSessions
+);
+
+attendanceRouter.post(
+  "/complaints",
+  protect,
+  authorize(["student"]),
+  createComplaint
+);
+
+attendanceRouter.get(
+  "/complaints",
+  protect,
+  authorize(["student", "teacher", "admin"]),
+  getComplaints
+);
+
+attendanceRouter.post(
+  "/complaints/:id/resolve",
+  protect,
+  authorize(["teacher"]),
+  resolveComplaint
+);
+
+attendanceRouter.get(
   "/student-notifications",
   protect,
   authorize(["student"]),
   getStudentNotificationsSummary
+);
+
+// Phase K (D16): central unified attendance read endpoint.
+attendanceRouter.get(
+  "/unified",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student", "parent"]),
+  getUnifiedAttendance
 );
 
 export default attendanceRouter;

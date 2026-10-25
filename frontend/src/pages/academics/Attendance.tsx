@@ -697,6 +697,8 @@ export default function Attendance() {
         </div>
       </div>
 
+      <LecturerSessionCard />
+
       {isParent ? (
         <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
       ) : !isStudent ? (

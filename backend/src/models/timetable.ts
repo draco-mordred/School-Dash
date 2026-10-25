@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: c39015380f327b569cd56dadedbe88b18977a89e)
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPeriod {
@@ -8,6 +9,7 @@ export interface IPeriod {
   isClinical?: boolean;
   isOptional?: boolean;
   displayLabel?: string;
+  venue?: mongoose.Types.ObjectId;
 }
 
 export interface IDaySchedule {
@@ -52,6 +54,7 @@ const timetableSchema = new Schema(
             lecturer: { type: mongoose.Types.ObjectId, ref: "User", default: null },
             startTime: String,
             endTime: String,
+            venue: { type: mongoose.Schema.Types.ObjectId, ref: "Venue", default: null },
             isClinical: { type: Boolean, default: false },
             isOptional: { type: Boolean, default: false },
             displayLabel: { type: String, default: null },
@@ -72,6 +75,7 @@ const timetableSchema = new Schema(
                 lecturer: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
                 startTime: String,
                 endTime: String,
+                venue: { type: mongoose.Schema.Types.ObjectId, ref: "Venue", default: null },
                 isClinical: { type: Boolean, default: false },
                 isOptional: { type: Boolean, default: false },
                 displayLabel: { type: String, default: null },

@@ -29,6 +29,7 @@ interface ClinicalAttendanceSummary {
     status?: string;
     checkInTime?: string;
     notes?: string;
+    complaint?: { reason?: string; status?: string; resolution?: string; raisedAt?: string };
   }>;
   presentCount?: number;
   absentCount?: number;
@@ -50,6 +51,8 @@ interface StudentAttendanceState {
   notes?: string;
   groupLabel?: string;
   groupCode?: string;
+  complaintStatus?: string;
+  complaintResolution?: string;
 }
 
 interface StudentClinicalAssignment {
@@ -85,6 +88,8 @@ export default function StudentClinicalAttendancePage() {
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState<string | null>(null);
   const [lastGeneratedAt, setLastGeneratedAt] = useState<string | null>(null);
+  const [complaintText, setComplaintText] = useState("");
+  const [complaintSubmitting, setComplaintSubmitting] = useState(false);
 
   const loadAttendanceData = async (showLoading = true) => {
     if (!user?._id) {
@@ -137,6 +142,8 @@ export default function StudentClinicalAttendancePage() {
               notes: attendeeRecord.notes ?? "No notes yet",
               groupLabel: latestSession?.supervisorGroupLabel || latestSession?.department || context.assignment?.groupLabel || "Current group",
               groupCode: latestSession?.supervisorGroupCode || "",
+              complaintStatus: (attendeeRecord as any)?.complaint?.status ?? "",
+              complaintResolution: (attendeeRecord as any)?.complaint?.resolution ?? "",
             }
           : null
       );
@@ -237,8 +244,26 @@ export default function StudentClinicalAttendancePage() {
 
     try {
       setGenerating(true);
+      // Phase I4: capture GPS as a supporting signal. Optional — the QR
+      // still generates if the student denies location access.
+      let coords: { lat: number; lng: number } | null = null;
+      try {
+        coords = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+          if (!("geolocation" in navigator)) return resolve(null);
+          navigator.geolocation.getCurrentPosition(
+            (position) =>
+              resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+            () => resolve(null),
+            { timeout: 8000 },
+          );
+        });
+      } catch {
+        coords = null;
+      }
+
       const response = await api.post("/clinical-attendance/qr/generate", {
         sessionId: activeSession._id,
+        coords,
       });
 
       const payload = response.data?.data?.qrPayload ?? response.data?.qrPayload ?? null;
@@ -267,6 +292,33 @@ export default function StudentClinicalAttendancePage() {
     }
   };
 
+  // Phase J (D14): report an issue straight to the supervisor after the
+  // session list is submitted — accepted until the end of the day.
+  const handleRaiseComplaint = async () => {
+    if (!studentState?.sessionId) {
+      toast.error("No clinical session to report an issue for.");
+      return;
+    }
+    const reason = complaintText.trim();
+    if (!reason) {
+      toast.error("Please describe the issue with your attendance.");
+      return;
+    }
+    try {
+      setComplaintSubmitting(true);
+      await api.post("/clinical-attendance/complaint", {
+        sessionId: studentState.sessionId,
+        reason,
+      });
+      toast.success("Your complaint was sent to the supervisor.");
+      setComplaintText("");
+      await loadAttendanceData(false);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Unable to submit your complaint right now.");
+    } finally {
+      setComplaintSubmitting(false);
+    }
+  };
   const activeAttendance = activeSession?.attendees?.find((attendee) => {
     const studentId = getAttendanceStudentId(attendee);
     return String(studentId ?? "") === String(user?._id ?? "");
@@ -348,6 +400,28 @@ export default function StudentClinicalAttendancePage() {
                     <p className="font-medium">{studentState.notes ?? "No notes yet"}</p>
                   </div>
                 </div>
+                {studentState.status === "absent" ? (
+                  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    {studentState.complaintStatus === "open" ? (
+                      <p className="text-sm text-amber-800">Your complaint was sent to the supervisor and is awaiting review.</p>
+                    ) : studentState.complaintStatus === "resolved" || studentState.complaintStatus === "dismissed" ? (
+                      <p className="text-sm text-amber-800">Complaint closed: {studentState.complaintResolution || "resolved by the supervisor"}.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium text-amber-800">Marked absent? Tell your supervisor what happened.</p>
+                        <textarea
+                          className="min-h-[70px] w-full rounded-md border border-amber-300 bg-white p-2 text-sm"
+                          placeholder="Describe the issue with your attendance..."
+                          value={complaintText}
+                          onChange={(event) => setComplaintText(event.target.value)}
+                        />
+                        <Button size="sm" onClick={handleRaiseComplaint} disabled={complaintSubmitting}>
+                          {complaintSubmitting ? "Sending..." : "Send to supervisor"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">

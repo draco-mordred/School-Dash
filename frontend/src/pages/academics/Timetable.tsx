@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 1994b685de96cde3983161ca98d90f12a78b05e8)
 import { useState, useEffect, useMemo } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -56,6 +57,7 @@ type NewPeriod = {
   day: string;
   subject: string;
   lecturer: string;
+  venue: string;
   startTime: string;
   endTime: string;
 };
@@ -152,6 +154,7 @@ const Timetable = () => {
     day: DAYS[0],
     subject: "",
     lecturer: "",
+    venue: "",
     startTime: "08:00",
     endTime: "08:45",
   });
@@ -162,6 +165,9 @@ const Timetable = () => {
   const [lecturers, setLecturers] = useState<{ _id: string; name: string }[]>(
     [],
   );
+  const [venuesList, setVenuesList] = useState<
+    { _id: string; name: string; room?: string; radiusMeters?: number }[]
+  >([]);
   const [loadingData, setLoadingData] = useState(false);
 
   const fetchTimetable = async (classId: string) => {
@@ -417,11 +423,15 @@ const Timetable = () => {
   const fetchCoursesAndLecturers = async () => {
     try {
       setLoadingData(true);
-      const [coursesRes, usersRes] = await Promise.all([
+      const [coursesRes, usersRes, venuesRes] = await Promise.all([
         api.get("/courses?page=1&limit=500"),
         api.get("/users?page=1&limit=500"),
+        api.get("/venues").catch(() => null),
       ]);
       setCoursesList(coursesRes.data.courses ?? []);
+      if (venuesRes) {
+        setVenuesList((venuesRes.data?.venues ?? []) as { _id: string; name: string; room?: string; radiusMeters?: number }[]);
+      }
       const allUsers: any[] = usersRes.data.users ?? [];
       setLecturers(
         allUsers
@@ -515,6 +525,7 @@ const Timetable = () => {
         period: {
           subject: newPeriod.subject,
           lecturer: newPeriod.lecturer,
+          venue: newPeriod.venue && newPeriod.venue !== "none" ? newPeriod.venue : null,
           startTime: newPeriod.startTime,
           endTime: newPeriod.endTime,
         },
@@ -525,6 +536,7 @@ const Timetable = () => {
         day: DAYS[0],
         subject: "",
         lecturer: "",
+        venue: "",
         startTime: "08:00",
         endTime: "08:45",
       });
@@ -546,6 +558,7 @@ const Timetable = () => {
         period: {
           subject: editingPeriod.period.subject,
           lecturer: editingPeriod.period.lecturer,
+          venue: editingPeriod.period.venue ?? null,
           startTime: editingPeriod.period.startTime,
           endTime: editingPeriod.period.endTime,
         },
@@ -1065,6 +1078,38 @@ const Timetable = () => {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Venue</Label>
+                <Select
+                  value={editingPeriod.period.venue ?? "none"}
+                  onValueChange={(v) =>
+                    setEditingPeriod((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            period: {
+                              ...prev.period,
+                              venue: v === "none" ? undefined : v,
+                            } as period,
+                          }
+                        : null,
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select venue (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No venue</SelectItem>
+                    {venuesList.map((venue) => (
+                      <SelectItem key={venue._id} value={venue._id}>
+                        {venue.name}
+                        {venue.room ? " · " + venue.room : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>Start Time</Label>
@@ -1183,6 +1228,28 @@ const Timetable = () => {
                     {lecturers.map((l) => (
                       <SelectItem key={l._id} value={l._id}>
                         {l.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Venue</Label>
+                <Select
+                  value={newPeriod.venue || "none"}
+                  onValueChange={(v) =>
+                    setNewPeriod((p) => ({ ...p, venue: v === "none" ? "" : v }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select venue (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No venue</SelectItem>
+                    {venuesList.map((venue) => (
+                      <SelectItem key={venue._id} value={venue._id}>
+                        {venue.name}
+                        {venue.room ? " · " + venue.room : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -206,6 +206,56 @@ export default function SupervisorQrAttendancePage() {
   };
   const [statusSelection, setStatusSelection] = useState<string>("present");
   const [notes, setNotes] = useState<string>("");
+  // Phase J (D14): student complaints raised after the list is submitted.
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaintNotes, setComplaintNotes] = useState<Record<string, string>>({});
+  const [resolvingComplaint, setResolvingComplaint] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadComplaints = async () => {
+      try {
+        const response = await api.get("/clinical-attendance/complaints");
+        const list = Array.isArray(response.data?.data) ? response.data.data : [];
+        if (!cancelled) setComplaints(list);
+      } catch {
+        // non-fatal — the complaints card just stays empty
+      }
+    };
+    void loadComplaints();
+    const timer = window.setInterval(loadComplaints, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const handleResolveComplaint = async (complaint: any, resolution: string) => {
+    const studentId = complaint?.student && typeof complaint.student === "object" ? String(complaint.student._id) : String(complaint?.student ?? "");
+    if (!complaint?.sessionId || !studentId) {
+      toast.error("Unable to resolve this complaint right now.");
+      return;
+    }
+    const key = String(complaint.sessionId) + "-" + studentId;
+    try {
+      setResolvingComplaint(key);
+      await api.post("/clinical-attendance/complaints/resolve", {
+        sessionId: complaint.sessionId,
+        studentId,
+        status: resolution,
+        note: complaintNotes[key] ?? "",
+      });
+      toast.success(resolution === "dismissed" ? "Complaint dismissed." : "Complaint resolved — attendance updated.");
+      setComplaints((prev) => prev.filter((item) => {
+        const itemId = item?.student && typeof item.student === "object" ? String(item.student._id) : String(item?.student ?? "");
+        return !(String(item.sessionId) === String(complaint.sessionId) && itemId === studentId);
+      }));
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Unable to resolve the complaint right now.");
+    } finally {
+      setResolvingComplaint(null);
+    }
+  };
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerActiveRef = useRef<boolean>(false);
   const [scanFeedback, setScanFeedback] = useState<{ type: "info" | "success"; message: string } | null>(null);
@@ -1669,6 +1719,61 @@ export default function SupervisorQrAttendancePage() {
                     </div>
                   </details>
                 ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Student complaints</CardTitle>
+              <CardDescription>Attendance issues raised by students after you submitted the list.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {complaints.filter((c) => c?.complaint?.status === "open").length === 0 ? (
+                <p className="text-sm text-muted-foreground">No open complaints.</p>
+              ) : (
+                complaints
+                  .filter((c) => c?.complaint?.status === "open")
+                  .map((complaint) => {
+                    const student = complaint?.student && typeof complaint.student === "object" ? complaint.student : null;
+                    const studentName = student
+                      ? [student.firstName, student.lastName].filter(Boolean).join(" ") || student.name || "Student"
+                      : String(complaint?.student ?? "Student");
+                    const studentId = student ? String(student._id) : String(complaint?.student ?? "");
+                    const key = String(complaint.sessionId) + "-" + studentId;
+                    return (
+                      <div key={key} className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="font-medium">{studentName}</span>
+                            <span className="text-muted-foreground">
+                              {" · "}
+                              {complaint.sessionTitle} ({format(new Date(complaint.sessionDate), "MMM dd")})
+                            </span>
+                          </div>
+                          <Badge className="bg-amber-100 text-amber-800">{complaint.attendanceStatus}</Badge>
+                        </div>
+                        <p className="mt-2">{complaint.complaint?.reason}</p>
+                        <input
+                          className="mt-2 w-full rounded-md border bg-white px-2 py-1 text-sm"
+                          placeholder="Resolution note (optional)"
+                          value={complaintNotes[key] ?? ""}
+                          onChange={(event) => setComplaintNotes((prev) => ({ ...prev, [key]: event.target.value }))}
+                        />
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void handleResolveComplaint(complaint, "present")} disabled={resolvingComplaint === key}>
+                            Mark present
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => void handleResolveComplaint(complaint, "excused")} disabled={resolvingComplaint === key}>
+                            Mark excused
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => void handleResolveComplaint(complaint, "dismissed")} disabled={resolvingComplaint === key}>
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
               )}
             </CardContent>
           </Card>

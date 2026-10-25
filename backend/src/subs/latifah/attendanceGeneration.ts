@@ -40,8 +40,9 @@ export const validateAttendanceGenerationInput = (input: {
   academicYearId?: string;
   date?: string;
   subjectId?: string;
+  source?: "lecture" | "clinical";
 }) => {
-  const { courseId, classId, academicYearId, date, subjectId } = input;
+  const { courseId, classId, academicYearId, date, subjectId, source } = input;
   if (!courseId || !classId || !academicYearId || !date || !subjectId) {
     throw new AttendanceGenerationError(
       400,
@@ -54,7 +55,13 @@ export const validateAttendanceGenerationInput = (input: {
     throw new AttendanceGenerationError(400, "INVALID_DATE", "Invalid date format.");
   }
   const dayName = DAY_MAP[dateObj.getDay()];
-  if (dayName === "Saturday" || dayName === "Sunday") {
+  // Phase H2 (D10): lectures never run weekends, but clinical postings
+  // may (Call, Tutorials, Demonstrations) — only the default (lecture)
+  // source keeps the weekend rejection.
+  if (
+    (dayName === "Saturday" || dayName === "Sunday") &&
+    source !== "clinical"
+  ) {
     throw new AttendanceGenerationError(
       400,
       "WEEKEND",
@@ -71,6 +78,7 @@ export const generateSessionRecords = async (input: {
   date: string;
   subjectId: string;
   requesterId?: string;
+  source?: "lecture" | "clinical";
 }) => {
   const { courseId, classId, academicYearId, subjectId, requesterId } = input;
   const { dateObj, dayName } = validateAttendanceGenerationInput(input);

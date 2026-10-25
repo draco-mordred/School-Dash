@@ -1,3 +1,7 @@
+successfully downloaded text file (SHA: 8f817137bd9baffc3589c059fb5da3e2903fc1e5)
+successfully downloaded text file (SHA: 7388d7c55b9c860305fc5a5349742330d5a77dea)
+successfully downloaded text file (SHA: adfa55b51ac26effccf88b391eb08058f21761ce)
+successfully downloaded text file (SHA: 2965560db104d02fe9e5290021aeca6018ddc494)
 // console.log("Hello via Bun!");
 
 //let's create a simple server
@@ -17,6 +21,10 @@ import academicYearRouter from "./routes/academicYear";
 import academicClockRouter from "./routes/academicClock";
 import classRouter from "./routes/classes";
 import courseRouter from "./routes/courses.ts";
+import "./models/venue"; // ensure Venue mongoose model is registered
+import "./models/lectureSession"; // ensure LectureSession mongoose model is registered
+import "./models/attendanceComplaint"; // ensure AttendanceComplaint mongoose model is registered
+import venueRouter from "./routes/venues"; // venue registry routes
 import "./models/postings"; // ensure postings models are registered
 import "./models/clinicalRotation"; // register ClinicalRotation mongoose model
 import "./models/logbookEntry"; // ensure LogbookEntry mongoose model is registered
@@ -37,6 +45,10 @@ import {
   scheduledKrystaLatifahSync,
   processPendingCheckins,
   notifyOfflineStatus,
+  lectureAttendancePlanner,
+  lectureAttendanceTick,
+  lectureAttendanceSlaSweeper,
+  lectureAttendanceDayClose,
 } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
@@ -277,6 +289,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/academic-clocks`, academicClockRouter);
   app.use(`${prefix}/classes`, classRouter);
   app.use(`${prefix}/courses`, courseRouter);
+  app.use(`${prefix}/venues`, venueRouter);
   app.use(`${prefix}/timetables`, timeRouter);
   app.use(`${prefix}/exams`, examRouter);
   app.use(`${prefix}/dashboard`, dashBoardRouter);
@@ -304,6 +317,10 @@ const mountRoutes = (prefix: string) => {
       scheduledKrystaLatifahSync,
       processPendingCheckins,
       notifyOfflineStatus,
+      lectureAttendancePlanner,
+      lectureAttendanceTick,
+      lectureAttendanceSlaSweeper,
+      lectureAttendanceDayClose,
     ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);
