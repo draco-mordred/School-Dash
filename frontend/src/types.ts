@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 88fc62dcad43e35b37834c040373a9540ce21149)
 export type UserRole =
   | "admin"
   | "teacher"
@@ -165,6 +166,7 @@ export interface period {
   isClinical?: boolean;
   isOptional?: boolean;
   displayLabel?: string;
+  venue?: string;
 }
 
 export interface schedule {

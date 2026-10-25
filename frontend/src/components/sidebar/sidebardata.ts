@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 96bd7a6bab900e154a1a0900182c575613f28029)
 import type { LucideIcon } from "lucide-react";
 import {
   Home,
@@ -168,6 +169,7 @@ export const sidebardata = {
         { title: "Faculties", url: "/faculties", roles: ["admin"] },
         { title: "Departments", url: "/departments", roles: ["admin"] },
         { title: "Units", url: "/units", roles: ["admin"] },
+        { title: "Venues & Locations", url: "/settings/venues", roles: ["admin"] },
         { title: "School Settings", url: "/settings/general", roles: ["admin"] },
         { title: "Academic Year Settings", url: "/settings/academic-years", roles: ["admin"] },
         { title: "Roles & Permissions", url: "/settings/roles", roles: ["admin"] },
