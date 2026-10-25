@@ -91,8 +91,14 @@ const getEntry = <T,>(
   return entry;
 };
 
-const loadEntry = async <T,>(entry: ResourceEntry<T>) => {
-  if (entry.promise) return entry.promise;
+const loadEntry = async <T,>(entry: ResourceEntry<T>, force = false): Promise<void> => {
+  if (entry.promise) {
+    // A load is already in flight. Without force we piggyback on it; with
+    // force we wait for it to settle and then fetch again so callers always
+    // observe data written after their mutation (e.g. class clock phase saves).
+    if (!force) return entry.promise;
+    await entry.promise;
+  }
   entry.snapshot = { ...entry.snapshot, isLoading: entry.snapshot.data === undefined, error: null };
   publish(entry);
   entry.promise = entry.loader()
@@ -144,7 +150,7 @@ export const useAdminResource = <T,>(
   }, [enabled, entry, refreshIntervalMs]);
 
   const refetch = useCallback(async () => {
-    await loadEntry(entry);
+    await loadEntry(entry, true);
     return entry.snapshot;
   }, [entry]);
 
