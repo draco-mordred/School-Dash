@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 4a6944a78dda2618f65db52dff9bf0000daf549c)
 successfully downloaded text file (SHA: d4d8f48fa29b16e292eab2b9c75790219640ffc3)
 successfully downloaded text file (SHA: 6dc464f10130f4f40735f69cf3453202167bc0a0)
 import mongoose from "mongoose";
@@ -1195,6 +1196,20 @@ export const lectureAttendanceTick = inngest.createFunction(
     const result = await step.run("run-lecture-attendance-tick", async () => {
       const { runLectureAttendanceTick } = await import("../subs/latifah/lectureSessionScheduler");
       return await runLectureAttendanceTick(new Date());
+    });
+    return { success: true, ...result };
+  }
+);
+
+// SLA sweeper (18:00 daily, server timezone — set TZ=Africa/Lagos):
+// finalizes absent-without-reason as final absent (D4), notifies lecturers
+// with a per-session summary, and runs a final proximity verification pass.
+export const lectureAttendanceSlaSweeper = inngest.createFunction(
+  { id: "Lecture-Attendance-Sla-Sweeper", triggers: { cron: "0 18 * * *" } },
+  async ({ step }) => {
+    const result = await step.run("run-attendance-sla-sweeper", async () => {
+      const { runAttendanceSlaSweeper } = await import("../subs/latifah/lectureSessionScheduler");
+      return await runAttendanceSlaSweeper(new Date());
     });
     return { success: true, ...result };
   }

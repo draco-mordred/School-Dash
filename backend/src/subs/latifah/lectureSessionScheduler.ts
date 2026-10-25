@@ -1,3 +1,4 @@
+successfully downloaded text file (SHA: 5f8c6b0c62888d67663ee56c8e7570074a6ae554)
 import mongoose from "mongoose";
 import Timetable from "../../models/timetable";
 import AcademicClock from "../../models/academicClock";
@@ -13,6 +14,10 @@ import {
   generateSessionRecords,
   AttendanceGenerationError,
 } from "./attendanceGeneration";
+import {
+  processPendingVerifications,
+  processSessionVerifications,
+} from "./proximityVerification";
 
 // Phase B — Auto Lecture Attendance scheduler.
 //
@@ -479,11 +484,94 @@ export const runLectureAttendanceTick = async (now = new Date()) => {
     { $set: { status: "closed" } },
   );
 
+  // 4. Re-verify provisional proximity records (e.g. the lecturer checked in
+  // after students tapped, or records left pending at tap time).
+  const reverified = await processPendingVerifications(now);
+
   return {
     remindersSent,
     opened,
     staleClosed,
     closed: closeRes.modifiedCount ?? 0,
+    proximityReverified: reverified.processed,
     openErrors,
+  };
+};
+
+// Phase D3 — 18:00 SLA sweeper (server timezone; set TZ=Africa/Lagos).
+// Absent taps without a reason become final absent (auto), lecturers get a
+// per-session summary notification, and provisional proximity records get a
+// final verification pass. Remaining "unverified" records stay flagged for
+// the lecturer's Phase E complaint-driven queue.
+export const runAttendanceSlaSweeper = async (now = new Date()) => {
+  const startOfDay = new Date(now);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(startOfDay);
+  endOfDay.setDate(endOfDay.getDate() + 1);
+  const sessions = await LectureSession.find({
+    source: "lecture",
+    date: { $gte: startOfDay, $lt: endOfDay },
+  }).lean<any[]>();
+
+  let finalizedAbsent = 0;
+  let lecturerNotifications = 0;
+  const errors: string[] = [];
+
+  for (const session of sessions) {
+    try {
+      const records = await Attendance.find({ session: session._id }).lean<any[]>();
+      let absentFinalized = 0;
+      for (const record of records) {
+        if (record.status === "absent" && !record.absenceReason) {
+          await Attendance.updateOne(
+            { _id: record._id },
+            {
+              $set: {
+                absenceReason: "No reason provided (auto-finalized at 18:00)",
+              },
+            },
+          );
+          absentFinalized += 1;
+        }
+      }
+      finalizedAbsent += absentFinalized;
+
+      // Final verification pass for anything still provisional/pending.
+      await processSessionVerifications(session, now);
+
+      const unverifiedCount = records.filter(
+        (r: any) => r.status === "unverified",
+      ).length;
+
+      if (
+        session.lecturer &&
+        IS_OBJECT_ID(String(session.lecturer)) &&
+        (absentFinalized > 0 || unverifiedCount > 0)
+      ) {
+        await createNotificationIfUnique({
+          userId: new mongoose.Types.ObjectId(String(session.lecturer)),
+          role: "teacher",
+          title: "Attendance SLA summary",
+          message:
+            absentFinalized +
+            " absence(s) finalized (no reason provided). " +
+            unverifiedCount +
+            " record(s) still need your verification.",
+          type: "attendance",
+          link: "/attendance",
+          metadata: { sessionId: String(session._id) },
+        });
+        lecturerNotifications += 1;
+      }
+    } catch (err: any) {
+      errors.push("session " + String(session._id) + ": " + String(err?.message ?? err));
+    }
+  }
+
+  return {
+    sessions: sessions.length,
+    finalizedAbsent,
+    lecturerNotifications,
+    errors,
   };
 };

@@ -1,9 +1,14 @@
+successfully downloaded text file (SHA: cb4a52354edd0bb23419ef39f65b8cf8c82c2946)
 import { type Request, type Response } from "express";
 import LectureSession from "../models/lectureSession";
 import Attendance from "../models/attendance";
 import Course from "../models/courses";
 import { emitSystemEvent } from "../events";
 import { logActivity } from "../utils/activitieslog";
+import {
+  evaluateProximity,
+  processSessionVerifications,
+} from "../subs/latifah/proximityVerification";
 
 // Phase C — student tap check-in for auto-generated lecture sessions (D3).
 // Server-authoritative window: the SERVER clock decides whether the tap
@@ -220,14 +225,26 @@ export const submitCheckIn = async (req: Request, res: Response) => {
       record.absenceReason = reason;
     }
     record.submissionSource = "tap";
+    // D2: verify immediately as the submission arrives — student<->venue
+    // distance first, then lecturer presence. Provisional (lecturer-absent)
+    // records are re-verified by the tick and the 18:00 sweeper.
+    const verdict = evaluateProximity(
+      {
+        status: choice,
+        proximity: { studentLat, studentLng, distanceMeters },
+      },
+      session,
+    );
     record.proximity = {
       studentLat,
       studentLng,
       distanceMeters,
-      // Phase D verifies against the venue radius + lecturer presence.
-      verificationStatus: "pending",
+      verificationStatus: verdict.verificationStatus,
       capturedAt: now,
     };
+    if (verdict.markRecordUnverified && record.status === "present") {
+      record.status = "unverified";
+    }
     await record.save();
 
     await logActivity({
@@ -250,6 +267,111 @@ export const submitCheckIn = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: "Error submitting check-in",
+      error: error.message,
+    });
+  }
+};
+
+// POST /attendance/lecturer-check-in (teacher)
+// D5: the session's lecturer submits GPS during the lecture; stored on the
+// session as the lecturer-presence leg of proximity verification. Only the
+// session's lecturer can check in (D13 — admins are read-only). Checking in
+// re-verifies students who tapped before the lecturer arrived.
+export const submitLecturerCheckIn = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    const { session: sessionId, coords } = req.body ?? {};
+    if (!IS_OBJECT_ID(sessionId)) {
+      return res.status(400).json({ success: false, message: "session is required" });
+    }
+    if (
+      !coords ||
+      typeof coords.lat !== "number" ||
+      typeof coords.lng !== "number" ||
+      coords.lat < -90 || coords.lat > 90 ||
+      coords.lng < -180 || coords.lng > 180
+    ) {
+      return res.status(400).json({ success: false, message: "Valid coordinates are required" });
+    }
+
+    const session = await LectureSession.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({ success: false, message: "Session not found" });
+    }
+    if (!session.lecturer || String(session.lecturer) !== String(user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the lecturer assigned to this session can check in",
+      });
+    }
+
+    // Accept check-ins from 15 min before lecture start to 30 min after the
+    // attendance window closes — generous on purpose (a missing check-in is
+    // the D5 fallback-unverified risk).
+    const now = new Date();
+    const lectureStart = session.window?.lectureStart
+      ? new Date(session.window.lectureStart)
+      : null;
+    const closesAt = session.window?.closesAt
+      ? new Date(session.window.closesAt)
+      : null;
+    if (!lectureStart || !closesAt) {
+      return res.status(400).json({ success: false, message: "Session window is misconfigured" });
+    }
+    if (now.getTime() < lectureStart.getTime() - 15 * 60 * 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Check-in opens 15 minutes before the lecture starts",
+      });
+    }
+    if (now.getTime() > closesAt.getTime() + 30 * 60 * 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "The check-in period for this session has ended",
+      });
+    }
+
+    let verified = true;
+    let distanceMeters: number | null = null;
+    const vLat = session.venueSnapshot?.lat ?? 0;
+    const vLng = session.venueSnapshot?.lng ?? 0;
+    if (vLat || vLng) {
+      distanceMeters = haversineMeters(coords.lat, coords.lng, vLat, vLng);
+      verified = distanceMeters <= (session.venueSnapshot?.radiusMeters ?? 150);
+    }
+
+    session.lecturerCheckIn = { lat: coords.lat, lng: coords.lng, at: now, verified };
+    await session.save();
+
+    const reverification = await processSessionVerifications(session.toObject(), now);
+
+    await logActivity({
+      userId: user._id,
+      action: "Lecture GPS check-in",
+      details:
+        "Lecturer checked in for session " + String(session._id) +
+        " (" + (verified ? "within venue" : "outside venue radius") + ")",
+    });
+    emitSystemEvent("attendance.lecturer-checkin", {
+      sessionId: String(session._id),
+      lecturer: String(user._id),
+      verified,
+      distanceMeters,
+      reverification,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { verified, distanceMeters, reverification },
+    });
+  } catch (error: any) {
+    console.error("Error submitting lecturer check-in:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error submitting lecturer check-in",
       error: error.message,
     });
   }
