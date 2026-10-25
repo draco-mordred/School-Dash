@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, ChevronDown, Clock, Copy, Folder, FolderOpen, Link as LinkIcon, LogOut, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -80,6 +81,81 @@ const FileRow = ({ file, driveLink }: { file: any; driveLink: string }) => (
     </div>
   </div>
 );
+
+const countFolderFiles = (node: any): number =>
+  (node?.rootFiles?.length ?? 0) +
+  (node?.subfolders ?? []).reduce((acc: number, sub: any) => acc + countFolderFiles(sub), 0);
+
+const countNestedFolders = (node: any): number =>
+  (node?.subfolders ?? []).reduce((acc: number, sub: any) => acc + 1 + countNestedFolders(sub), 0);
+
+const FolderNodeSection = ({
+  node,
+  nodeKey,
+  openSubfolders,
+  toggleSubfolder,
+  driveLink,
+}: {
+  node: any;
+  nodeKey: string;
+  openSubfolders: Record<string, boolean>;
+  toggleSubfolder: (key: string) => void;
+  driveLink: string;
+}) => {
+  const isOpen = Boolean(openSubfolders[nodeKey]);
+  const fileCount = countFolderFiles(node);
+  const nestedCount = countNestedFolders(node);
+
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/10">
+      <button
+        type="button"
+        onClick={() => toggleSubfolder(nodeKey)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium text-foreground"
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          {isOpen ? (
+            <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{node?.name || "Folder"}</span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+          {nestedCount > 0 && (
+            <span>
+              {nestedCount} folder{nestedCount === 1 ? "" : "s"}
+            </span>
+          )}
+          <span>
+            {fileCount} file{fileCount === 1 ? "" : "s"}
+          </span>
+          <ChevronDown className={"h-3.5 w-3.5 transition-transform " + (isOpen ? "rotate-180" : "")} />
+        </span>
+      </button>
+      {isOpen && (
+        <div className="space-y-2 border-t border-border/60 p-2">
+          {(node?.subfolders ?? []).map((sub: any) => (
+            <FolderNodeSection
+              key={sub.id}
+              node={sub}
+              nodeKey={nodeKey + ":" + sub.id}
+              openSubfolders={openSubfolders}
+              toggleSubfolder={toggleSubfolder}
+              driveLink={driveLink}
+            />
+          ))}
+          {(node?.rootFiles ?? []).map((file: any) => (
+            <FileRow key={file.id} file={file} driveLink={driveLink} />
+          ))}
+          {fileCount === 0 && nestedCount === 0 && (
+            <p className="px-1 py-1 text-xs text-muted-foreground">No files in this folder yet.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 declare global {
   interface Window {
@@ -175,6 +251,8 @@ const pickGoogleDriveFolder = async (onSuccess: (folderUrl: string) => void) => 
 
 const ClassCourseMaterialsPage = () => {
   const { classId } = useParams();
+  const { user: authUser } = useAuth();
+  const isStudent = String((authUser as any)?.role ?? "").toLowerCase() === "student";
   const navigate = useNavigate();
   const [classData, setClassData] = useState<any | null>(null);
   const [courseMaterials, setCourseMaterials] = useState<any[]>([]);
@@ -194,6 +272,9 @@ const ClassCourseMaterialsPage = () => {
   const [driveConnectionMessage, setDriveConnectionMessage] = useState<string>(
     "No Google account connected yet. Sign in to choose a Drive folder for this class.",
   );
+
+  const toggleSubfolder = (key: string) =>
+    setOpenSubfolders((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const loadGoogleDriveStatus = async () => {
     try {
@@ -266,7 +347,9 @@ const ClassCourseMaterialsPage = () => {
     };
 
     void loadClass();
-    void loadGoogleDriveStatus();
+    if (!isStudent) {
+      void loadGoogleDriveStatus();
+    }
   }, [classId]);
 
   const courses = useMemo(() => {
@@ -459,6 +542,7 @@ const ClassCourseMaterialsPage = () => {
 
       <Card>
         <CardContent className="space-y-4 p-4 md:p-5">
+          {!isStudent && (
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Google Drive</p>
@@ -476,6 +560,7 @@ const ClassCourseMaterialsPage = () => {
               )}
             </div>
           </div>
+          )}
 
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -503,7 +588,7 @@ const ClassCourseMaterialsPage = () => {
                 <option value="without-link">No drive link</option>
               </select>
 
-              {activeCourse && (
+              {!isStudent && activeCourse && (
                 <Button type="button" variant="default" onClick={() => setNewLink(resourceLinks[String(activeCourse._id)] ?? "")}>
                   <Plus className="mr-2 h-4 w-4" /> Add drive link
                 </Button>
@@ -511,7 +596,7 @@ const ClassCourseMaterialsPage = () => {
             </div>
           </div>
 
-          {activeCourse && (
+          {!isStudent && activeCourse && (
             <div className="flex flex-col gap-3 rounded-xl border border-dashed border-border bg-muted/30 p-3 md:flex-row md:items-center">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <LinkIcon className="h-4 w-4 text-muted-foreground" />
@@ -549,7 +634,12 @@ const ClassCourseMaterialsPage = () => {
                     id: match.folderId,
                     name: match.folderName ?? course?.name ?? "Course folder",
                     url: match.folderUrl ?? `https://drive.google.com/drive/folders/${match.folderId}`,
-                    subfolders: Array.isArray(match?.folders) ? match.folders : [],
+                    subfolders: (Array.isArray(match?.folders) ? match.folders : []).map((f: any) => ({
+                      id: f.id,
+                      name: f.name,
+                      subfolders: [],
+                      rootFiles: Array.isArray(f?.items) ? f.items : [],
+                    })),
                     rootFiles: Array.isArray(match?.rootFiles) ? match.rootFiles : [],
                   }]
                 : [];
@@ -606,12 +696,8 @@ const ClassCourseMaterialsPage = () => {
                         {matchedFolders.map((matchedFolder) => {
                           const folderCardKey = `${courseId}:${matchedFolder.id}`;
                           const thisFolderOpen = Boolean(openFolderCards[folderCardKey]);
-                          const folderTotalFiles =
-                            (matchedFolder.rootFiles ?? []).length +
-                            (matchedFolder.subfolders ?? []).reduce(
-                              (acc: number, folder: any) => acc + (folder?.items?.length ?? 0),
-                              0,
-                            );
+                          const folderTotalFiles = countFolderFiles(matchedFolder);
+                          const nestedFolderCount = countNestedFolders(matchedFolder);
                           return (
                             <div key={folderCardKey} className="space-y-3">
                               <button
@@ -652,9 +738,9 @@ const ClassCourseMaterialsPage = () => {
                                   </span>
                                 </span>
                                 <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                                  {(matchedFolder.subfolders ?? []).length > 0 && (
+                                  {nestedFolderCount > 0 && (
                                     <span>
-                                      {(matchedFolder.subfolders ?? []).length} folder{(matchedFolder.subfolders ?? []).length === 1 ? "" : "s"}
+                                      {nestedFolderCount} folder{nestedFolderCount === 1 ? "" : "s"}
                                     </span>
                                   )}
                                   <span>
@@ -666,51 +752,20 @@ const ClassCourseMaterialsPage = () => {
 
                               {thisFolderOpen && (
                                 <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-border bg-background/70 p-2">
-                                  {(matchedFolder.subfolders ?? []).map((sub: any) => {
-                                    const subKey = `${folderCardKey}:${sub.id}`;
-                                    const subOpen = Boolean(openSubfolders[subKey]);
-                                    return (
-                                      <div key={sub.id} className="rounded-md border border-border/70 bg-muted/10">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setOpenSubfolders((prev) => ({ ...prev, [subKey]: !prev[subKey] }))
-                                          }
-                                          className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium text-foreground"
-                                        >
-                                          <span className="flex min-w-0 items-center gap-2">
-                                            {subOpen ? (
-                                              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                            ) : (
-                                              <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                            )}
-                                            <span className="truncate">{sub.name}</span>
-                                          </span>
-                                          <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
-                                            {sub.items?.length ?? 0} file{(sub.items?.length ?? 0) === 1 ? "" : "s"}
-                                            <ChevronDown className={"h-3.5 w-3.5 transition-transform " + (subOpen ? "rotate-180" : "")} />
-                                          </span>
-                                        </button>
-                                        {subOpen && (
-                                          <div className="space-y-2 border-t border-border/60 p-2">
-                                            {(sub.items ?? []).length ? (
-                                              sub.items.map((file: any) => (
-                                                <FileRow key={file.id} file={file} driveLink={driveLink} />
-                                              ))
-                                            ) : (
-                                              <p className="px-1 py-1 text-xs text-muted-foreground">
-                                                No files in this folder yet.
-                                              </p>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
+                                  {(matchedFolder.subfolders ?? []).map((sub: any) => (
+                                    <FolderNodeSection
+                                      key={sub.id}
+                                      node={sub}
+                                      nodeKey={folderCardKey + ":" + sub.id}
+                                      openSubfolders={openSubfolders}
+                                      toggleSubfolder={toggleSubfolder}
+                                      driveLink={driveLink}
+                                    />
+                                  ))}
                                   {(matchedFolder.rootFiles ?? []).map((file: any) => (
                                     <FileRow key={file.id} file={file} driveLink={driveLink} />
                                   ))}
-                                  {folderTotalFiles === 0 && (matchedFolder.subfolders ?? []).length === 0 && (
+                                  {folderTotalFiles === 0 && nestedFolderCount === 0 && (
                                     <p className="px-2 py-2 text-sm text-muted-foreground">This folder is empty.</p>
                                   )}
                                 </div>
