@@ -60,6 +60,11 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
 
     const rootUrl = cls.cloudStorage?.rootUrl ?? "";
     const courseDocs = Array.isArray((cls as any).courses) ? (cls as any).courses : [];
+    const courseIdFilter =
+      typeof req.query.courseId === "string" ? req.query.courseId.trim() : "";
+    const coursesToSync = courseIdFilter
+      ? courseDocs.filter((course: any) => String(course?._id) === courseIdFilter)
+      : courseDocs;
     const currentUser = (req as any).user?._id
       ? await UserModel.findById((req as any).user._id).select("googleDriveAccount").lean()
       : null;
@@ -75,7 +80,7 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
       });
     }
 
-    const payload = await buildDriveMaterialsPayload(rootUrl, courseDocs, userAccessToken);
+    const payload = await buildDriveMaterialsPayload(rootUrl, coursesToSync, userAccessToken);
 
     return res.json({
       classId: String(cls._id),
