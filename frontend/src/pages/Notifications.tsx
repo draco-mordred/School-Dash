@@ -65,6 +65,120 @@ const statusColors: Record<string, string> = {
   excused: "bg-blue-500/15 text-blue-600",
 };
 
+// ─── Notification Categories (admin view) ─────────────────────────────
+type NotifCategory =
+  | "all"
+  | "approvals"
+  | "attendance"
+  | "timetable"
+  | "alerts"
+  | "general";
+
+const NOTIF_CATEGORIES: Array<{
+  key: NotifCategory;
+  label: string;
+  description: string;
+}> = [
+  { key: "all", label: "All", description: "Every notification, newest and unread first." },
+  {
+    key: "approvals",
+    label: "Approvals & Registrations",
+    description:
+      "New registrations and users awaiting approval or class assignment.",
+  },
+  {
+    key: "attendance",
+    label: "Attendance",
+    description: "Attendance-related notifications and alerts.",
+  },
+  {
+    key: "timetable",
+    label: "Timetable",
+    description: "Timetable generation and schedule notifications.",
+  },
+  {
+    key: "alerts",
+    label: "Alerts",
+    description: "Errors and warnings that need attention.",
+  },
+  {
+    key: "general",
+    label: "General",
+    description: "Info, success and system notices.",
+  },
+];
+
+const categorizeNotification = (n: any): NotifCategory => {
+  if (n?.metadata?.pendingUserId || n?.metadata?.newUserId) return "approvals";
+  const type = String(n?.type || "").toLowerCase();
+  if (type === "attendance") return "attendance";
+  if (type === "timetable") return "timetable";
+  if (type === "error" || type === "warning") return "alerts";
+  return "general";
+};
+
+const countByCategory = (notifs: any[]): Record<string, number> => {
+  const counts: Record<string, number> = {
+    all: notifs.length,
+    approvals: 0,
+    attendance: 0,
+    timetable: 0,
+    alerts: 0,
+    general: 0,
+  };
+  for (const n of notifs) counts[categorizeNotification(n)] += 1;
+  return counts;
+};
+
+const filterByCategory = (notifs: any[], category: NotifCategory) => {
+  const filtered =
+    category === "all"
+      ? notifs
+      : notifs.filter((n) => categorizeNotification(n) === category);
+  return filtered.slice().sort((a: any, b: any) => {
+    if (!!a.unreadForUser !== !!b.unreadForUser)
+      return a.unreadForUser ? -1 : 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+};
+
+function CategoryPills(props: {
+  counts: Record<string, number>;
+  active: NotifCategory;
+  onSelect: (c: NotifCategory) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-1">
+      {NOTIF_CATEGORIES.map((cat) => {
+        const count = props.counts[cat.key] ?? 0;
+        const active = props.active === cat.key;
+        return (
+          <button
+            key={cat.key}
+            onClick={() => props.onSelect(cat.key)}
+            className={
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+              (active
+                ? "border-primary bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-muted")
+            }
+          >
+            {cat.label}
+            <span
+              className={
+                "rounded-full px-1.5 text-[10px] " +
+                (active ? "bg-primary-foreground/20" : "bg-muted")
+              }
+            >
+              {count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Notifications() {
   const { user } = useAuth();
   const isStudent = user?.role === "student";
@@ -82,6 +196,8 @@ export default function Notifications() {
   const [editingUser, setEditingUser] = useState<any | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [assignNotifId, setAssignNotifId] = useState<string | null>(null);
+  const [adminNotifCategory, setAdminNotifCategory] =
+    useState<NotifCategory>("all");
 
   // Use an IntersectionObserver to mark notifications as read only when the
   // "New System Notifications" card is visible to the user. This prevents
@@ -186,6 +302,16 @@ export default function Notifications() {
     }
   }, [editOpen]);
 
+  const adminAllNotifs = systemNotifications || [];
+  const adminNotifCounts = countByCategory(adminAllNotifs);
+  const adminActiveCat =
+    NOTIF_CATEGORIES.find((c) => c.key === adminNotifCategory) ??
+    NOTIF_CATEGORIES[0];
+  const adminVisibleNotifs = filterByCategory(
+    adminAllNotifs,
+    adminNotifCategory,
+  );
+
   return (
     <>
       <div
@@ -263,6 +389,14 @@ export default function Notifications() {
                   <CardTitle className="text-base">
                     New System Notifications
                   </CardTitle>
+                  <CategoryPills
+                    counts={adminNotifCounts}
+                    active={adminNotifCategory}
+                    onSelect={setAdminNotifCategory}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {adminActiveCat.description}
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {systemLoading ? (
@@ -271,7 +405,13 @@ export default function Notifications() {
                       <Skeleton className="h-4 w-1/2" />
                     </div>
                   ) : (
-                    (systemNotifications || []).slice(0, 10).map((n) => (
+                    <>
+                      {adminVisibleNotifs.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No notifications in this category.
+                        </p>
+                      )}
+                      {adminVisibleNotifs.slice(0, 10).map((n) => (
                       <div
                         key={n._id}
                         className={`border rounded-md p-3 ${n.unreadForUser ? "bg-yellow-50" : ""}`}
@@ -333,7 +473,8 @@ export default function Notifications() {
                           </div>
                         </div>
                       </div>
-                    ))
+                      ))}
+                    </>
                   )}
                 </CardContent>
               </Card>
@@ -679,6 +820,7 @@ function AdminNotifications() {
   >(null);
   const [sysLoading, setSysLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [notifCategory, setNotifCategory] = useState<NotifCategory>("all");
 
   const totalClasses = classes.length;
   const activeTimetables = classes.filter(
@@ -688,6 +830,13 @@ function AdminNotifications() {
   const classesWithAttendanceAlerts = classes.filter(
     (cls) => cls.absent > 0 || cls.late > 0 || cls.excused > 0,
   );
+
+  const allAdminNotifs = systemNotificationsAdmin || [];
+  const notifCounts = countByCategory(allAdminNotifs);
+  const activeNotifCat =
+    NOTIF_CATEGORIES.find((c) => c.key === notifCategory) ??
+    NOTIF_CATEGORIES[0];
+  const visibleAdminNotifs = filterByCategory(allAdminNotifs, notifCategory);
 
   const fetchStatus = async () => {
     try {
@@ -926,6 +1075,14 @@ function AdminNotifications() {
                 <div className="text-xs text-muted-foreground">
                   Manage system-wide notifications
                 </div>
+                <CategoryPills
+                  counts={notifCounts}
+                  active={notifCategory}
+                  onSelect={setNotifCategory}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {activeNotifCat.description}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -950,13 +1107,13 @@ function AdminNotifications() {
                   <Skeleton className="h-4 w-3/4" />
                   <Skeleton className="h-4 w-1/2" />
                 </div>
-              ) : (systemNotificationsAdmin || []).length === 0 ? (
+              ) : visibleAdminNotifs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No system notifications
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {(systemNotificationsAdmin || []).map((n) => (
+                  {visibleAdminNotifs.map((n) => (
                     <div
                       key={n._id}
                       className="flex items-start gap-3 border rounded-md p-3"
