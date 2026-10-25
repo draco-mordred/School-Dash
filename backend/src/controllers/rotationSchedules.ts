@@ -662,7 +662,8 @@ export const listScheduleEvents = async (req: Request, res: Response) => {
           endDate: t.endDate,
           supervisorId: t.supervisorId || null,
           supervisorName: t.supervisorName || null,
-          status: t.supervisorId ? 'assigned' : 'upcoming',
+          completed: Boolean(t.completed),
+          status: t.completed ? 'completed' : (t.supervisorId ? 'assigned' : 'upcoming'),
         });
       }
     }
