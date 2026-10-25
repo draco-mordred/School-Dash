@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, FolderOpen, Link as LinkIcon, LogOut, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ChevronDown, Clock, Copy, Folder, FolderOpen, Link as LinkIcon, LogOut, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -188,6 +188,8 @@ const ClassCourseMaterialsPage = () => {
   const [syncingCourseId, setSyncingCourseId] = useState<string | null>(null);
   const [openFolderCards, setOpenFolderCards] = useState<Record<string, boolean>>({});
   const [openSubfolders, setOpenSubfolders] = useState<Record<string, boolean>>({});
+  const [syncRunActive, setSyncRunActive] = useState(false);
+  const [syncedCourses, setSyncedCourses] = useState<Record<string, boolean>>({});
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveConnectionMessage, setDriveConnectionMessage] = useState<string>(
     "No Google account connected yet. Sign in to choose a Drive folder for this class.",
@@ -310,7 +312,8 @@ const ClassCourseMaterialsPage = () => {
   const syncCourseFoldersSequentially = async (rootUrl: string) => {
     if (!classId || !rootUrl) return;
     const courseList = courses;
-    setCourseMaterials([]);
+    setSyncRunActive(true);
+    setSyncedCourses({});
     setOpenSubfolders({});
     for (const course of courseList) {
       const courseId = String(course?._id ?? "");
@@ -332,10 +335,12 @@ const ClassCourseMaterialsPage = () => {
       } catch (error) {
         console.error("Failed to sync course folder", course?.name, error);
       } finally {
+        setSyncedCourses((prev) => ({ ...prev, [courseId]: true }));
         setSyncingCourseId(null);
       }
       await new Promise((resolve) => setTimeout(resolve, 350));
     }
+    setSyncRunActive(false);
     setSyncMessage(
       `Sync complete — ${courseList.length} course folder${courseList.length === 1 ? "" : "s"} processed from Drive.`,
     );
@@ -531,7 +536,13 @@ const ClassCourseMaterialsPage = () => {
               rootFiles.length +
               courseFolders.reduce((acc: number, folder: any) => acc + (folder?.items?.length ?? 0), 0);
             const isSyncing = syncingCourseId === courseId;
+            const isQueued = syncRunActive && !syncedCourses[courseId];
             const folderOpen = Boolean(openFolderCards[courseId]);
+            const folderUrl =
+              match?.folderUrl ??
+              (match?.folderId
+                ? `https://drive.google.com/drive/folders/${match.folderId}`
+                : driveLink);
             const isActive = activeCourseId === courseId;
 
             return (
@@ -573,6 +584,11 @@ const ClassCourseMaterialsPage = () => {
                         <RefreshCw className="h-4 w-4 animate-spin text-primary" />
                         <span>Synchronizing folder contents with Drive…</span>
                       </div>
+                    ) : isQueued ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span>Queued — this course folder will sync next…</span>
+                      </div>
                     ) : match ? (
                       <>
                         <button
@@ -580,10 +596,36 @@ const ClassCourseMaterialsPage = () => {
                           onClick={() => setOpenFolderCards((prev) => ({ ...prev, [courseId]: !prev[courseId] }))}
                           className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-left transition hover:bg-muted/50"
                         >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
-                            <span className="truncate text-sm font-medium text-foreground">
-                              {match.folderName || course?.name || "Course folder"}
+                          <span className="flex min-w-0 flex-1 items-center gap-2">
+                            {folderOpen ? (
+                              <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+                            ) : (
+                              <Folder className="h-4 w-4 shrink-0 text-primary" />
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-semibold uppercase tracking-wide text-foreground">
+                                {match.folderName || course?.name || "Course folder"}
+                              </span>
+                              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                                <a
+                                  href={folderUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="truncate underline decoration-dotted hover:text-primary"
+                                >
+                                  ({folderUrl})
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void navigator.clipboard?.writeText(folderUrl);
+                                  }}
+                                  title="Copy Drive link"
+                                  className="shrink-0 hover:text-primary"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                              </span>
                             </span>
                           </span>
                           <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
@@ -614,7 +656,11 @@ const ClassCourseMaterialsPage = () => {
                                     className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium text-foreground"
                                   >
                                     <span className="flex min-w-0 items-center gap-2">
-                                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      {subOpen ? (
+                                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      ) : (
+                                        <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      )}
                                       <span className="truncate">{sub.name}</span>
                                     </span>
                                     <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">

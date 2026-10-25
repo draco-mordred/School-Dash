@@ -225,25 +225,41 @@ export const matchesCourseName = (
 };
 
 const listDriveFolderChildren = async (folderId: string, accessToken: string) => {
-  const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType,parents,webViewLink,webContentLink,iconLink,thumbnailLink,modifiedTime,size)&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1000`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
+  const files: any[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const pageParams = new URLSearchParams({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: "nextPageToken, files(id,name,mimeType,parents,webViewLink,webContentLink,iconLink,thumbnailLink,modifiedTime,size)",
+      supportsAllDrives: "true",
+      includeItemsFromAllDrives: "true",
+      pageSize: "1000",
+    });
+    if (pageToken) pageParams.set("pageToken", pageToken);
+
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files?${pageParams.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
       },
-    },
-  );
+    );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Drive API request failed: ${response.status} ${errorText}`);
-  }
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Drive API request failed: ${response.status} ${errorText}`);
+    }
 
-  const payload = (await response.json()) as { files?: any[] };
-  return payload.files ?? [];
+    const payload = (await response.json()) as { files?: any[]; nextPageToken?: string };
+    files.push(...(payload.files ?? []));
+    pageToken = payload.nextPageToken;
+  } while (pageToken);
+
+  return files;
 };
 
 const recursivelyCollectDriveItems = async (folderId: string, accessToken: string, seen = new Set<string>()) => {
@@ -341,10 +357,51 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
 
     const courseMaterials = courseDocs
       .map((course) => {
-        const folderMatch = folders.find((folder) =>
-          matchesCourseName({ name: course?.name ?? "", code: (course as any)?.code ?? "" }, folder?.name ?? ""),
+        const courseKey = { name: course?.name ?? "", code: (course as any)?.code ?? "" };
+        const matchingFolders = folders.filter((folder) =>
+          matchesCourseName(courseKey, folder?.name ?? ""),
         );
-        if (!folderMatch) return null;
+        if (!matchingFolders.length) return null;
+
+        const compactCourseName = compactName(course?.name ?? "");
+        const compactCourseCode = compactName((course as any)?.code ?? "");
+
+        const depthOf = (id: string): number => {
+          let steps = 0;
+          let current: string | undefined = id;
+          const guard = new Set<string>();
+          while (current && current !== folderId && !guard.has(current)) {
+            guard.add(current);
+            const item = byId.get(current);
+            const parentId = item?.parents?.[0];
+            if (!parentId) break;
+            current = parentId;
+            steps += 1;
+          }
+          return steps;
+        };
+
+        let folderMatch: any;
+        if (matchingFolders.length === 1) {
+          folderMatch = matchingFolders[0];
+        } else {
+          // Multiple folders match the name/acronym — pick the best one:
+          // exact name equality wins, then shallowest (closest to the class
+          // root folder), then the folder containing the most files. This
+          // prevents a stray 1-file folder deep in the tree from hijacking
+          // the course match.
+          const scored = matchingFolders.map((folder) => {
+            const compactFolderName = compactName(folder?.name ?? "");
+            let score = 0;
+            if (compactFolderName && compactFolderName === compactCourseName) score += 100;
+            if (compactCourseCode && compactFolderName === compactCourseCode) score += 60;
+            score -= depthOf(folder.id) * 2;
+            score += Math.min(20, subtreeFiles(folder.id).length);
+            return { folder, score };
+          });
+          scored.sort((a, b) => b.score - a.score);
+          folderMatch = scored[0].folder;
+        }
 
         const childIds = parentMap.get(folderMatch.id) ?? [];
         const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
@@ -376,6 +433,7 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
           courseName: course?.name ?? "Untitled course",
           folderId: folderMatch.id,
           folderName: folderMatch.name,
+          folderUrl: `https://drive.google.com/drive/folders/${folderMatch.id}`,
           folders: courseSubfolders,
           rootFiles: courseRootFiles,
           files: Object.entries(groupedFiles)
