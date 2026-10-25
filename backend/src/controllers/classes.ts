@@ -68,7 +68,21 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
     const currentUser = (req as any).user?._id
       ? await UserModel.findById((req as any).user._id).select("googleDriveAccount").lean()
       : null;
-    const userAccessToken = currentUser?.googleDriveAccount?.accessToken ?? null;
+    // Prefer the signed-in user's Drive token; otherwise fall back to the most
+    // recently connected admin account so students can browse class materials
+    // without connecting their own Google account. The token is used server-side
+    // only and is never included in the response.
+    let userAccessToken = currentUser?.googleDriveAccount?.accessToken ?? null;
+    if (!userAccessToken) {
+      const sharedAdmin = await UserModel.findOne({
+        role: "admin",
+        "googleDriveAccount.accessToken": { $ne: null },
+      })
+        .sort({ "googleDriveAccount.connectedAt": -1 })
+        .select("googleDriveAccount.accessToken")
+        .lean();
+      userAccessToken = (sharedAdmin as any)?.googleDriveAccount?.accessToken ?? null;
+    }
 
     if (!rootUrl) {
       return res.json({
