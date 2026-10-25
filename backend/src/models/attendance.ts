@@ -2,6 +2,8 @@ successfully downloaded text file (SHA: 02d02ffb911cbf360533afa273d8b226bdb0380e
 import mongoose, { Schema, Document } from "mongoose";
 
 export type AttendanceStatus = "present" | "absent" | "late" | "excused" | "unverified";
+export type AttendanceStatus = "present" | "absent" | "late" | "excused";
+export type ExcuseRequestStatus = "none" | "pending" | "approved" | "rejected";
 
 export interface IAttendance extends Document {
   student?: mongoose.Types.ObjectId;
@@ -26,6 +28,11 @@ export interface IAttendance extends Document {
     capturedAt?: Date | null;
   };
   escalatedToAdmin?: boolean;
+  excuseRequestStatus?: ExcuseRequestStatus;
+  excuseReason?: string;
+  excuseReviewNote?: string;
+  excuseReviewedBy?: mongoose.Types.ObjectId | null;
+  excuseReviewedAt?: Date | null;
   approvedBy?: mongoose.Types.ObjectId; // For excused absences, who approved it (e.g., admin or teacher)
   lecturerApproval?: "approved" | "not-approved" | null;
   lecturerApprovalDate?: Date | null;
@@ -117,6 +124,31 @@ const AttendanceSchema = new Schema(
     escalatedToAdmin: {
       type: Boolean,
       default: false,
+    excuseRequestStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+    },
+    excuseReason: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+    excuseReviewNote: {
+      type: String,
+      default: "",
+      trim: true,
+      maxlength: 1000,
+    },
+    excuseReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    excuseReviewedAt: {
+      type: Date,
+      default: null,
     },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -43,6 +43,7 @@ import {
   useAdminRotationSchedules,
   useAdminUnitOptions,
 } from "@/lib/adminData";
+import { doesPhaseRequirePostingSchedule } from "@/lib/academicClock";
 
 interface AttendanceRecord {
   student: { firstName?: string; lastName?: string; _id?: string } | null;
@@ -355,6 +356,8 @@ const CreateSessionForm = ({
   const [scheduleDepartments, setScheduleDepartments] = useState<string[]>([]);
   const [availableGroups, setAvailableGroups] = useState<Array<{ id: string; label: string; code?: string }>>([]);
   const [groupSelectionMessage, setGroupSelectionMessage] = useState<string>("");
+  const [postingScheduleMessage, setPostingScheduleMessage] = useState<string>("");
+  const [activePhaseName, setActivePhaseName] = useState<string>("");
   const [units, setUnits] = useState<Array<{ _id: string; name?: string; department?: string }>>([]);
   const [timelineMissing, setTimelineMissing] = useState(false);
   const [formData, setFormData] = useState({
@@ -410,7 +413,45 @@ const CreateSessionForm = ({
 
       try {
         if (rotationSchedulesResource.error) throw rotationSchedulesResource.error;
-        const scheduleList = (rotationSchedulesResource.data ?? []) as Array<Record<string, unknown>>;
+        const allScheduleList = (rotationSchedulesResource.data ?? []) as Array<Record<string, unknown>>;
+        const activeClockResponse = await api.get(`/academic-clocks/class/${formData.classId}/active-phase`).catch((error) => {
+          if (error?.response?.status === 404) return { data: null };
+          throw error;
+        });
+        const activeClock = activeClockResponse.data as Record<string, any> | null;
+        const phaseConfig = activeClock?.activePhase?.config as Record<string, any> | null;
+        const rawPhaseConfig = activeClock?.phaseConfig;
+        const configuredClockPhases = Array.isArray(rawPhaseConfig)
+          ? rawPhaseConfig.length > 0
+          : Boolean(rawPhaseConfig && typeof rawPhaseConfig === "object" && Object.keys(rawPhaseConfig).length > 0);
+        setActivePhaseName(String(activeClock?.activePhase?.name ?? ""));
+        setPostingScheduleMessage("");
+
+        const scheduleList = configuredClockPhases
+          ? allScheduleList.filter((schedule) => {
+              if (!phaseConfig || !doesPhaseRequirePostingSchedule(phaseConfig)) return false;
+              const reference = String(phaseConfig.postingScheduleId ?? phaseConfig.postingId ?? "");
+              if (!reference) return false;
+              const postings = Array.isArray(schedule?.postings) ? schedule.postings as Array<Record<string, any>> : [];
+              return postings.some((posting) => {
+                const matchesReference = reference === String(schedule?._id ?? "") ||
+                  reference === String(posting?._id ?? "");
+                const matchesName = !phaseConfig.postingName ||
+                  String(posting?.name ?? "").trim().toLowerCase() === String(phaseConfig.postingName).trim().toLowerCase();
+                return matchesReference && matchesName;
+              }) || (
+                reference === String(schedule?._id ?? "") &&
+                postings.length === 0 &&
+                !phaseConfig.postingName
+              );
+            })
+          : allScheduleList;
+
+        if (configuredClockPhases && (!phaseConfig || !doesPhaseRequirePostingSchedule(phaseConfig))) {
+          setPostingScheduleMessage("The active class-clock phase does not require clinical attendance.");
+        } else if (configuredClockPhases && scheduleList.length === 0) {
+          setPostingScheduleMessage(`No clinical posting is mapped to the active class-clock phase${activeClock?.activePhase?.name ? ` (${activeClock.activePhase.name})` : ""}.`);
+        }
 
         const nextPostings: Array<{ _id: string; name: string }> = [];
         const normalizeText = (value: unknown) => {
@@ -591,29 +632,41 @@ const CreateSessionForm = ({
         setScheduleDepartments(departmentFallbackOptions);
 
         if (nextPostings.length > 0) {
-          const postingId = formData.clinicalRotation || nextPostings[0]._id;
-          const supervisedGroupsResponse = await api.get(`/clinical-attendance/groups/available`, {
-            params: {
-              classId: formData.classId,
-              postingId,
-              userId: user?._id,
-            },
-          });
+          const postingId = nextPostings.some((posting) => posting._id === formData.clinicalRotation)
+            ? formData.clinicalRotation
+            : nextPostings[0]._id;
+          if (postingId !== formData.clinicalRotation) {
+            setFormData((current) => ({ ...current, clinicalRotation: postingId }));
+          }
+          try {
+            const supervisedGroupsResponse = await api.get(`/clinical-attendance/groups/available`, {
+              params: {
+                classId: formData.classId,
+                postingId,
+                userId: user?._id,
+              },
+            });
 
-          const groups = Array.isArray(supervisedGroupsResponse.data?.groups) ? supervisedGroupsResponse.data.groups : [];
-          setAvailableGroups(groups);
-          setGroupSelectionMessage(supervisedGroupsResponse.data?.message || "");
+            const groups = Array.isArray(supervisedGroupsResponse.data?.groups) ? supervisedGroupsResponse.data.groups : [];
+            setAvailableGroups(groups);
+            setGroupSelectionMessage(supervisedGroupsResponse.data?.message || "");
 
-          if (groups.length > 0) {
-            const currentSelection = groups.find((group) => group.id === formData.groupId);
-            const fallbackGroup = currentSelection || groups[0];
-            setFormData((current) => ({
-              ...current,
-              groupId: current.groupId || fallbackGroup.id,
-              department: current.department || fallbackGroup.label || fallbackGroup.code || "",
-              unit: "",
-            }));
-          } else {
+            if (groups.length > 0) {
+              const currentSelection = groups.find((group) => group.id === formData.groupId);
+              const fallbackGroup = currentSelection || groups[0];
+              setFormData((current) => ({
+                ...current,
+                groupId: current.groupId || fallbackGroup.id,
+                department: current.department || fallbackGroup.label || fallbackGroup.code || "",
+                unit: "",
+              }));
+            } else {
+              setFormData((current) => ({ ...current, groupId: "", department: "", unit: "" }));
+            }
+          } catch (error) {
+            console.error("Unable to load groups for the active clinical posting", error);
+            setAvailableGroups([]);
+            setGroupSelectionMessage((error as any)?.response?.data?.message || "Unable to load the active posting groups.");
             setFormData((current) => ({ ...current, groupId: "", department: "", unit: "" }));
           }
         } else {
@@ -639,14 +692,12 @@ const CreateSessionForm = ({
           }
         }
 
-        if (!formData.clinicalRotation && nextPostings.length > 0) {
-          setFormData((current) => ({ ...current, clinicalRotation: nextPostings[0]._id }));
-        }
       } catch (error) {
         console.error("Error fetching class posting schedules for attendance form:", error);
         setSchedulePostings([]);
         setScheduleUnits([]);
         setScheduleDepartments([]);
+        setGroupSelectionMessage((error as any)?.response?.data?.message || "Unable to load the active posting groups.");
         if (hospitalUnits.length > 0) {
           setUnits(hospitalUnits);
         }
@@ -779,6 +830,12 @@ const CreateSessionForm = ({
                 )}
               </SelectContent>
             </Select>
+            {activePhaseName ? (
+              <p className="mt-1 text-xs text-muted-foreground">Active class-clock phase: {activePhaseName}</p>
+            ) : null}
+            {postingScheduleMessage ? (
+              <p role="status" className="mt-1 text-xs text-amber-700">{postingScheduleMessage}</p>
+            ) : null}
           </div>
         </div>
 

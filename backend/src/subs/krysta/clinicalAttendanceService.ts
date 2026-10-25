@@ -6,6 +6,7 @@ import ClinicalAttendance from "../../models/clinicalAttendance";
 import User from "../../models/user";
 import HospitalUnitModel from "../../models/hospitalUnit";
 import AcademicYear from "../../models/academicYear";
+import AcademicClock from "../../models/academicClock";
 import ClassModel from "../../models/classes";
 import RotationPlan from "../../models/rotationPlan";
 import { deriveClinicalSessionSeedFromClass } from "../../utils/clinicalSessionSeed";
@@ -16,7 +17,17 @@ import { getInstitutionIdentityReference } from "../../utils/clinicalAttendanceI
 import { resolveClinicalSessionPosting } from "../../utils/clinicalAttendancePosting";
 import { emitSystemEvent } from "../../events";
 import { getAvailableClinicalAttendanceGroupsForPosting } from "../../utils/clinicalAttendanceGroupSelection";
-import { resolveStudentClinicalAssignments } from "../../utils/clinicalAttendanceAssignment";
+import {
+  filterAssignmentsToAcademicClockPhase,
+  isPostingInAcademicClockPhase,
+  resolveStudentClinicalAssignments,
+  type ClinicalAttendancePhaseContext,
+} from "../../utils/clinicalAttendanceAssignment";
+import {
+  hasConfiguredAcademicClockPhases,
+  phaseRequiresPostingSchedule,
+  resolveAcademicClockPhase,
+} from "../../utils/academicClockPhase";
 
 const OTP_RATE_LIMIT_WINDOW_MS = 60_000;
 const OTP_RATE_LIMIT_MAX_REQUESTS = 8;
@@ -53,6 +64,88 @@ const serializeStudentAttendanceSession = (session: any, studentId: string) => {
     String(attendee?.student?._id ?? attendee?.student) === studentId
   );
   return sessionData;
+};
+
+const getClinicalAttendancePhaseContext = async (
+  classId: string,
+  at = new Date()
+): Promise<ClinicalAttendancePhaseContext> => {
+  const classDoc = await ClassModel.findById(classId).select("academicYear").lean();
+  if (!classDoc?.academicYear) {
+    return {
+      configured: false,
+      phaseId: null,
+      phaseName: null,
+      startsAt: null,
+      endsAt: null,
+      postingRequired: false,
+      postingScheduleId: null,
+      postingName: null,
+    };
+  }
+
+  const clock = await AcademicClock.findOne({
+    classId,
+    academicYear: classDoc.academicYear,
+  }).lean();
+  if (!clock || !hasConfiguredAcademicClockPhases(clock.phaseConfig)) {
+    return {
+      configured: false,
+      phaseId: null,
+      phaseName: null,
+      startsAt: null,
+      endsAt: null,
+      postingRequired: false,
+      postingScheduleId: null,
+      postingName: null,
+    };
+  }
+
+  const resolved = resolveAcademicClockPhase(clock, at);
+  const phase = resolved.phase as Record<string, any> | null;
+  const postingScheduleId = phase?.postingScheduleId ?? phase?.postingId;
+  return {
+    configured: true,
+    phaseId: resolved.phaseId,
+    phaseName: phase?.name ? String(phase.name) : null,
+    startsAt: resolved.startsAt,
+    endsAt: resolved.endsAt,
+    postingRequired: phaseRequiresPostingSchedule(phase),
+    postingScheduleId: postingScheduleId ? String(postingScheduleId) : null,
+    postingName: phase?.postingName ? String(phase.postingName) : null,
+  };
+};
+
+const isPostingAllowedByAcademicClockPhase = (
+  phase: ClinicalAttendancePhaseContext,
+  scheduleId: string,
+  postingId: string,
+  postingName: string
+) => isPostingInAcademicClockPhase(scheduleId, postingId, postingName, phase);
+
+const isSessionInActiveClockPhase = async (session: any, at = new Date()) => {
+  if (!session?.classId || !session?.clinicalRotation) return true;
+
+  const phase = await getClinicalAttendancePhaseContext(String(session.classId), at);
+  if (!phase.configured) return true;
+
+  const schedule = await RotationPlan.findOne({
+    class: session.classId,
+    $or: [
+      { _id: session.clinicalRotation },
+      { "postings._id": session.clinicalRotation },
+    ],
+  }).select("_id postings").lean();
+  const posting = schedule?.postings?.find((entry: any) =>
+    String(entry?._id) === String(session.clinicalRotation)
+  ) ?? (schedule?.postings?.length === 1 ? schedule.postings[0] : null);
+
+  return Boolean(posting && isPostingAllowedByAcademicClockPhase(
+    phase,
+    String(schedule?._id ?? ""),
+    String(posting._id),
+    String(posting.name ?? "")
+  ));
 };
 
 const expirePendingAttendancesIfNeeded = async (session: any) => {
@@ -293,6 +386,20 @@ export const createClinicalAttendanceSession = async (
     }
 
     const activityStart = new Date(startTime);
+    const phaseContext = await getClinicalAttendancePhaseContext(String(classId), activityStart);
+    if (!isPostingAllowedByAcademicClockPhase(
+      phaseContext,
+      String(matchingSchedule._id),
+      String(matchingPosting._id),
+      String(matchingPosting.name ?? "")
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: phaseContext.postingRequired
+          ? `The selected posting is not assigned to the class clock's active phase${phaseContext.phaseName ? ` (${phaseContext.phaseName})` : ""}`
+          : "The class clock's active phase does not require a clinical posting",
+      });
+    }
     const selection = getAvailableClinicalAttendanceGroupsForPosting(matchingPosting, matchingSchedule, activityStart, requestUser(req));
     const supervisedGroup = selection.groups.find((group) => group.id === selectedGroupId);
     if (!supervisedGroup) {
@@ -300,7 +407,7 @@ export const createClinicalAttendanceSession = async (
     }
     const resolvedSupervisorId = currentUserId;
     const teamStudentIds = [...new Set(classRoster.flatMap((studentId) => {
-      const studentAssignments = resolveStudentClinicalAssignments([matchingSchedule], studentId, activityStart);
+      const studentAssignments = resolveStudentClinicalAssignments([matchingSchedule], studentId, activityStart, phaseContext);
       if (studentAssignments.length !== 1) return [];
       const assignment = studentAssignments[0];
       return assignment.postingId === String(matchingPosting?._id) && assignment.groupId === supervisedGroup.id
@@ -461,6 +568,20 @@ export const getAvailableClinicalAttendanceGroups = async (req: Request, res: Re
       ? schedule.postings.find((entry: any) => String(entry?._id) === String(postingId)) || null
       : null;
     const selectedPosting = posting || (String(schedule?._id) === String(postingId) && schedulePostings.length === 1 ? schedulePostings[0] : null);
+    const phaseContext = await getClinicalAttendancePhaseContext(String(classId), new Date());
+    if (!selectedPosting || !isPostingAllowedByAcademicClockPhase(
+      phaseContext,
+      String(schedule?._id ?? ""),
+      String(selectedPosting?._id ?? ""),
+      String(selectedPosting?.name ?? "")
+    )) {
+      return res.status(409).json({
+        success: false,
+        message: phaseContext.postingRequired
+          ? "The selected posting is not assigned to the class clock's active phase"
+          : "The class clock's active phase does not require a clinical posting",
+      });
+    }
     const selection = getAvailableClinicalAttendanceGroupsForPosting(selectedPosting, schedule, new Date(), {
       _id: (req as any).user?._id?.toString(),
       firstName: (req as any).user?.firstName,
@@ -473,7 +594,16 @@ export const getAvailableClinicalAttendanceGroups = async (req: Request, res: Re
       success: true,
       groups: selection.groups,
       usesUnits: selection.usesUnits,
-      activePhase: selection.activePhase,
+      activePhase: phaseContext.configured
+        ? {
+            phaseId: phaseContext.phaseId,
+            phaseName: phaseContext.phaseName,
+            startDate: phaseContext.startsAt,
+            endDate: phaseContext.endsAt,
+            postingRequired: phaseContext.postingRequired,
+            postingConfigured: Boolean(phaseContext.postingScheduleId && phaseContext.postingName),
+          }
+        : selection.activePhase,
       message: selection.groups.length > 0
         ? "Select a supervised group for this posting."
         : "No supervised groups are available for the selected posting yet.",
@@ -502,6 +632,12 @@ export const checkInStudent = async (req: Request, res: Response) => {
         success: false,
         message: "Clinical attendance session not found",
       });
+    }
+    if (session.status === "completed" || session.status === "cancelled") {
+      return res.status(409).json({ success: false, message: "Attendance cannot be checked in after this session has ended" });
+    }
+    if (!await isSessionInActiveClockPhase(session)) {
+      return res.status(409).json({ success: false, message: "This session is no longer part of the class clock's active clinical phase" });
     }
 
     if (isStudentRequest(req) && (!studentId || !isExpectedStudent(session, studentId))) {
@@ -585,7 +721,9 @@ export const checkOutStudent = async (req: Request, res: Response) => {
         message: "Clinical attendance session not found",
       });
     }
-
+    if (session.status !== "ongoing") {
+      return res.status(409).json({ success: false, message: "Students can only be checked out during an active clinical session" });
+    }
     if (String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
       return res.status(403).json({ success: false, message: "Only the assigned supervisor can update attendance" });
     }
@@ -599,6 +737,9 @@ export const checkOutStudent = async (req: Request, res: Response) => {
         success: false,
         message: "Student not found in this session",
       });
+    }
+    if (!attendeeRecord.checkInTime) {
+      return res.status(409).json({ success: false, message: "Student must be checked in before checking out" });
     }
 
     if (attendeeRecord.checkOutTime) {
@@ -772,7 +913,11 @@ export const generateQrAttendancePayload = async (
       return res.status(403).json({ success: false, message: "This session does not belong to your class" });
     }
     const schedules = await RotationPlan.find({ class: studentClassId }).select("_id class postings meta").lean();
-    const assignment = resolveStudentClinicalAssignments(schedules, studentId, new Date()).find((entry) =>
+    const phaseContext = await getClinicalAttendancePhaseContext(studentClassId, new Date());
+    const assignment = filterAssignmentsToAcademicClockPhase(
+      resolveStudentClinicalAssignments(schedules, studentId, new Date(), phaseContext),
+      phaseContext
+    ).find((entry) =>
       [entry.postingId, entry.scheduleId].includes(String(session.clinicalRotation)) &&
       entry.groupId === String(session.supervisorGroupId)
     );
@@ -940,6 +1085,9 @@ export const approveQrAttendance = async (
     if (session.status !== "ongoing") {
       return res.status(409).json({ success: false, message: "This clinical session is not active" });
     }
+    if (!await isSessionInActiveClockPhase(session, now)) {
+      return res.status(409).json({ success: false, message: "This session is no longer part of the class clock's active clinical phase" });
+    }
     if (session.expectedStudents?.length && !isExpectedStudent(session, String(parsedPayload.studentId))) {
       return res.status(403).json({ success: false, message: "This student is not assigned to the clinical session" });
     }
@@ -979,6 +1127,7 @@ export const approveQrAttendance = async (
       return res.status(409).json({ success: false, message: "Attendance is already finalized for this student" });
     }
     const normalizedStatus = status === "approved_absent" ? "excused" : status;
+    const attendanceCheckInTime = ["present", "late"].includes(normalizedStatus) ? checkInTime : null;
 
     const claimedOtp = await QrOtpModel.findOneAndUpdate(
       {
@@ -998,7 +1147,7 @@ export const approveQrAttendance = async (
 
     if (existingRecord) {
       existingRecord.status = normalizedStatus;
-      existingRecord.checkInTime = checkInTime;
+      existingRecord.checkInTime = attendanceCheckInTime;
       existingRecord.notes = notes || existingRecord.notes || "Approved via QR";
       existingRecord.approvedBy = (req as any).user?._id || existingRecord.approvedBy || null;
       existingRecord.approvedByName = ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : existingRecord.approvedByName || '';
@@ -1009,7 +1158,7 @@ export const approveQrAttendance = async (
       session.attendees.push({
         student: parsedPayload.studentId,
         status: normalizedStatus,
-        checkInTime,
+        checkInTime: attendanceCheckInTime,
         notes: notes || "Approved via QR",
         approvedBy: (req as any).user?._id || null,
         approvedByName: ((req as any).user?.firstName || (req as any).user?.name) ? `${(req as any).user?.firstName || ''} ${(req as any).user?.lastName || (req as any).user?.name || ''}`.trim() : '',
@@ -1047,7 +1196,7 @@ export const approveQrAttendance = async (
         studentIdNumber: parsedPayload.studentIdNumber,
         sessionId: session._id,
         status: normalizedStatus,
-        checkedAt: checkInTime,
+        checkedAt: attendanceCheckInTime,
       },
     };
     await QrOtpModel.updateOne(
@@ -1070,23 +1219,31 @@ export const getStudentClinicalAttendanceContext = async (req: Request, res: Res
     const studentId = requestUserId(req);
     const student = await User.findById(studentId).select("studentClasses").lean();
     const classId = String((student as any)?.studentClasses ?? "");
-    if (!classId) {
-      return res.status(200).json({ success: true, data: { assignment: null, activeSession: null, sessions: [] } });
-    }
-
-    const schedules = await RotationPlan.find({ class: classId }).select("_id class name postings meta").lean();
-    const assignments = resolveStudentClinicalAssignments(schedules, studentId, new Date());
+    const now = new Date();
+    const schedules = classId
+      ? await RotationPlan.find({ class: classId }).select("_id class name postings meta").lean()
+      : [];
+    const phaseContext = classId
+      ? await getClinicalAttendancePhaseContext(classId, now)
+      : null;
+    const assignments = filterAssignmentsToAcademicClockPhase(
+      resolveStudentClinicalAssignments(schedules, studentId, now, phaseContext ?? undefined),
+      phaseContext ?? {
+        configured: false,
+        phaseId: null,
+        phaseName: null,
+        startsAt: null,
+        endsAt: null,
+        postingRequired: false,
+        postingScheduleId: null,
+        postingName: null,
+      }
+    );
     if (assignments.length > 1) {
       return res.status(409).json({ success: false, message: "Multiple active clinical posting groups are assigned to your account" });
     }
     const assignment = assignments[0] ?? null;
-    if (!assignment) {
-      return res.status(200).json({ success: true, data: { assignment: null, activeSession: null, sessions: [] } });
-    }
-
-    const postingIds = [...new Set([assignment.postingId, assignment.scheduleId].filter(Boolean))];
     const sessions = await ClinicalAttendance.find({
-      clinicalRotation: { $in: postingIds },
       $or: [{ expectedStudents: studentId }, { "attendees.student": studentId }],
     })
       .populate([
@@ -1102,19 +1259,39 @@ export const getStudentClinicalAttendanceContext = async (req: Request, res: Res
 
     const studentSessions = sessions.map((session: any) => serializeStudentAttendanceSession(session, studentId));
 
-    const now = new Date();
     const activeSession = studentSessions.find((session: any) =>
+      Boolean(assignment) &&
       session.status === "ongoing" &&
+      String(session.classId ?? "") === assignment.classId &&
+      [assignment.postingId, assignment.scheduleId].includes(String(session.clinicalRotation ?? "")) &&
       String(session.supervisorGroupId ?? "") === assignment.groupId &&
       new Date(session.date).toDateString() === now.toDateString() &&
       new Date(session.startTime).getTime() <= now.getTime() &&
-      (!session.endTime || new Date(session.endTime).getTime() > now.getTime())
+      (session.endTime
+        ? new Date(session.endTime).getTime()
+        : new Date(session.startTime).getTime() + 2 * 60 * 60 * 1000) > now.getTime()
     ) ?? null;
 
-    const { studentIds: _studentIds, ...publicAssignment } = assignment;
+    const publicAssignment = assignment
+      ? (({ studentIds: _studentIds, ...publicValue }) => publicValue)(assignment)
+      : null;
     return res.status(200).json({
       success: true,
-      data: { assignment: publicAssignment, activeSession, sessions: studentSessions },
+      data: {
+        assignment: publicAssignment,
+        activeSession,
+        sessions: studentSessions,
+        activePhase: phaseContext?.configured
+          ? {
+              phaseId: phaseContext.phaseId,
+              phaseName: phaseContext.phaseName,
+              startsAt: phaseContext.startsAt,
+              endsAt: phaseContext.endsAt,
+              postingRequired: phaseContext.postingRequired,
+              postingConfigured: Boolean(phaseContext.postingScheduleId && phaseContext.postingName),
+            }
+          : null,
+      },
     });
   } catch (error: any) {
     console.error("Error fetching student clinical attendance context:", error);
@@ -1228,6 +1405,9 @@ export const updateStudentAttendanceStatus = async (
         message: "Clinical attendance session not found",
       });
     }
+    if (session.status === "cancelled") {
+      return res.status(409).json({ success: false, message: "Attendance cannot be updated for a cancelled session" });
+    }
 
     if (String(session.supervisor) !== requestUserId(req) && String(requestUser(req)?.role ?? "").toLowerCase() !== "admin") {
       return res.status(403).json({ success: false, message: "Only the assigned supervisor can update attendance" });
@@ -1247,7 +1427,11 @@ export const updateStudentAttendanceStatus = async (
     attendeeRecord.status = status;
     if (notes) attendeeRecord.notes = notes;
     if (["present", "late"].includes(status) && !attendeeRecord.checkInTime) attendeeRecord.checkInTime = new Date();
-    if (["absent", "excused", "on-leave", "pending"].includes(status)) attendeeRecord.checkInTime = null;
+    if (["absent", "excused", "on-leave", "pending"].includes(status)) {
+      attendeeRecord.checkInTime = null;
+      attendeeRecord.checkOutTime = null;
+      attendeeRecord.duration = null;
+    }
     attendeeRecord.approvedBy = requestUser(req)?._id ?? attendeeRecord.approvedBy;
     attendeeRecord.approvedAt = new Date();
     recalculateSessionCounts(session);

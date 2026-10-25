@@ -1,12 +1,11 @@
-successfully downloaded text file (SHA: 6dc5bed5cacfb3aad0fe4f49080f4e5b61bc01de)
-successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
+// successfully downloaded text file (SHA: a6128613d4a93113dc1989791e84c46f338a227a)
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import type { Class, courses } from "@/types";
 import { useNavigate } from "react-router-dom";
-import LecturerSessionCard from "@/components/attendance/LecturerSessionCard";
+import StudentAcademicAttendancePage from "@/pages/StudentAcademicAttendancePage";
 
 import {
   Card,
@@ -61,6 +60,10 @@ type SessionRecord = {
   class?: { _id: string; name: string };
   academicYear?: { _id: string; name: string };
   approvedBy?: { _id: string; name: string; email?: string } | null;
+  excuseRequestStatus?: "none" | "pending" | "approved" | "rejected";
+  excuseReason?: string;
+  excuseReviewNote?: string;
+  excuseReviewedBy?: { _id: string; name: string; email?: string } | null;
   lecturerApproval?: "approved" | "not-approved" | null;
   lecturerApprovalDate?: Date | null;
   hodApproval?: "approved" | "not-approved" | null;
@@ -78,6 +81,10 @@ type AttendanceRecord = {
   student?: { _id: string; name: string; email?: string; idNumber?: string };
   lecturer?: { _id: string; name: string; email?: string };
   approvedBy?: { _id: string; name: string; email?: string } | null;
+  excuseRequestStatus?: "none" | "pending" | "approved" | "rejected";
+  excuseReason?: string;
+  excuseReviewNote?: string;
+  hodApproval?: "approved" | "not-approved" | null;
 };
 
 type AcademicYear = {
@@ -605,6 +612,13 @@ export default function Attendance() {
     });
   }, [sessionDate]);
 
+  // Clinical staff use the clinical attendance workspace rather than lecture attendance.
+  useEffect(() => {
+    if (isClinical) {
+      navigate("/attendance/clinical", { replace: true });
+    }
+  }, [isClinical, navigate]);
+
   if (loading) {
     return (
       <div className="p-6 space-y-4">
@@ -638,14 +652,6 @@ export default function Attendance() {
       </div>
     );
   }
-
-  // Clinical staff (unit consultants/residents) work in the clinical
-  // attendance workspace, not lecture attendance.
-  useEffect(() => {
-    if (isClinical) {
-      navigate("/attendance/clinical", { replace: true });
-    }
-  }, [isClinical, navigate]);
 
   if (isClinical) {
     return null;
@@ -963,9 +969,13 @@ export default function Attendance() {
                                 : "text-amber-500"
                             }
                           >
-                            {r.approvedBy
-                              ? `Approved by ${r.approvedBy.name}`
-                              : "Pending HOD approval"}
+                            {r.excuseRequestStatus === "pending"
+                              ? "Excuse request pending"
+                              : r.excuseRequestStatus === "rejected"
+                                ? "Excuse request rejected"
+                                : r.approvedBy || r.excuseRequestStatus === "approved" || r.hodApproval === "approved"
+                                  ? `Approved${r.approvedBy?.name ? ` by ${r.approvedBy.name}` : ""}`
+                                  : "Excuse not approved"}
                           </span>
                         )}
                       </div>
@@ -2503,10 +2513,14 @@ function StudentRecordsByClass({
                               {statusBadge(r.status)}
                             </td>
                             <td className="px-3 py-1.5 text-xs text-muted-foreground">
-                              {r.status === "excused" && r.approvedBy
-                                ? `Approved by ${r.approvedBy.name}`
+                              {r.status === "excused" && (r.approvedBy || r.excuseRequestStatus === "approved" || r.hodApproval === "approved")
+                                ? `Approved${r.approvedBy?.name ? ` by ${r.approvedBy.name}` : ""}`
                                 : r.status === "excused"
-                                  ? "Pending HOD approval"
+                                  ? r.excuseRequestStatus === "pending"
+                                    ? "Excuse request pending"
+                                    : r.excuseRequestStatus === "rejected"
+                                      ? "Excuse request rejected"
+                                      : "Excuse not approved"
                                   : "—"}
                             </td>
                           </tr>
@@ -2871,6 +2885,87 @@ function LatestWeekTable() {
             )}
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PendingExcuseRequests() {
+  const [requests, setRequests] = useState<SessionRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const loadRequests = useCallback(async () => {
+    try {
+      const { data } = await api.get("/attendance/excuse-requests/pending");
+      setRequests(Array.isArray(data.records) ? data.records : []);
+    } catch (error) {
+      console.error("Failed to load pending excuse requests", error);
+      toast.error("Failed to load pending excuse requests");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRequests();
+  }, [loadRequests]);
+
+  const decide = async (attendanceId: string, decision: "approved" | "rejected") => {
+    try {
+      setBusyId(attendanceId);
+      await api.post(`/attendance/approve-excused/${attendanceId}`, { decision });
+      toast.success(`Excuse request ${decision}`);
+      await loadRequests();
+    } catch (error) {
+      console.error("Failed to review excuse request", error);
+      toast.error("Failed to review excuse request");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (loading || requests.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Excused-absence requests</CardTitle>
+        <CardDescription>Review student requests and record a decision.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {requests.map((request) => (
+          <div key={request._id} className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="font-medium">
+                {request.student?.name ?? "Student"} • {request.course?.name ?? "Course"}
+                {request.subject && typeof request.subject === "object"
+                  ? ` • ${request.subject.name ?? request.subject.code ?? "Subject"}`
+                  : ""}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {new Date(request.date).toLocaleDateString()} — {request.excuseReason || "No reason supplied"}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button
+                size="sm"
+                disabled={busyId === request._id}
+                onClick={() => void decide(request._id, "approved")}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={busyId === request._id}
+                onClick={() => void decide(request._id, "rejected")}
+              >
+                Reject
+              </Button>
+            </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

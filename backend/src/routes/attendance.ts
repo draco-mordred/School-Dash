@@ -1,13 +1,12 @@
-successfully downloaded text file (SHA: 993664e47b0716eed123392b9489d9af5e02572e)
-successfully downloaded text file (SHA: 424f3208329833af16cff08bf0cd20337588e35d)
-successfully downloaded text file (SHA: 699195a748734d2d4c83c77f1591264245461075)
-successfully downloaded text file (SHA: 273871a9e1f9a1fbf11e17d451db91714970c0f6)
+// successfully downloaded text file (SHA: 273871a9e1f9a1fbf11e17d451db91714970c0f6)
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
 import {
   recordAttendance,
   getMyAttendanceSummary,
   approveExcusedAbsence,
+  requestExcusedAbsence,
+  getPendingExcuseRequests,
   getCourseClassAttendance,
   getStudentAttendanceRecords,
   triggerAttendanceGeneration,
@@ -47,7 +46,21 @@ attendanceRouter.post(
 attendanceRouter.get("/me", protect, getMyAttendanceSummary);
 attendanceRouter.get("/me/summary", protect, getMyAttendanceSummary);
 
-attendanceRouter.post(  
+attendanceRouter.post(
+  "/:attendanceId/excuse-request",
+  protect,
+  authorize(["student"]),
+  requestExcusedAbsence
+);
+
+attendanceRouter.get(
+  "/excuse-requests/pending",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  getPendingExcuseRequests
+);
+
+attendanceRouter.post(
   "/approve-excused/:attendanceId",
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),

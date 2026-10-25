@@ -63,6 +63,53 @@ describe("buildAcademicAttendanceSummary", () => {
     expect(subject.lastAttendanceDate).toBe("2024-08-15T10:00:00.000Z");
     expect(subject.lecturerNames).toEqual(["Dr. Ada", "Dr. Grace"]);
   });
+
+  it("uses complete server aggregates and excludes unapproved excused sessions", () => {
+    const summary = buildAcademicAttendanceSummary(
+      [
+        {
+          course: { _id: "course-1", name: "Anatomy" },
+          subject: { _id: "subject-1", name: "Gross Anatomy" },
+          status: "excused",
+        },
+      ],
+      75,
+      [{ _id: "course-1", name: "Anatomy", subjects: [{ _id: "subject-1", name: "Gross Anatomy" }] }],
+      [
+        {
+          courseId: "course-1",
+          subjectId: "subject-1",
+          courseName: "Anatomy",
+          subjectName: "Gross Anatomy",
+          totalSessions: 4,
+          attendedSessions: 3,
+          lastAttendanceDate: "2025-01-10T00:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(summary.courses[0].subjects[0].totalSessions).toBe(4);
+    expect(summary.courses[0].subjects[0].attendancePercent).toBe(75);
+    expect(summary.overallPercent).toBe(75);
+  });
+
+  it("does not count an unapproved excused record as attended in record-based summaries", () => {
+    const summary = buildAcademicAttendanceSummary([
+      {
+        course: { _id: "course-1", name: "Anatomy" },
+        subject: { _id: "subject-1", name: "Gross Anatomy" },
+        status: "excused",
+      },
+      {
+        course: { _id: "course-1", name: "Anatomy" },
+        subject: { _id: "subject-1", name: "Gross Anatomy" },
+        status: "excused",
+        excuseRequestStatus: "approved",
+      },
+    ]);
+
+    expect(summary.overallPercent).toBe(50);
+  });
 });
 
 describe("sort helpers", () => {

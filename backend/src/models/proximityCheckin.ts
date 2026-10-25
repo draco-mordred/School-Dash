@@ -109,7 +109,6 @@ const ProximityCheckinSchema = new Schema<IProximityCheckin>(
       type: Date,
       required: true,
       default: Date.now,
-      index: true,
     },
     checkoutTime: {
       type: Date,
@@ -120,13 +119,11 @@ const ProximityCheckinSchema = new Schema<IProximityCheckin>(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Attendance",
       default: null,
-      index: true,
     },
     clinicalSessionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ClinicalAttendance",
       default: null,
-      index: true,
     },
     timetablePeriodId: {
       type: mongoose.Schema.Types.ObjectId,

@@ -420,6 +420,7 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
       phaseName: phaseConfig?.name ?? null,
       phaseStartsAt: activePhase?.startsAt ?? null,
       phaseEndsAt: activePhase?.endsAt ?? null,
+      phaseDriven,
       postingRequired,
       postingConfigured: hasPhasePostingConfiguration
         ? Boolean(scheduleId && postingName)

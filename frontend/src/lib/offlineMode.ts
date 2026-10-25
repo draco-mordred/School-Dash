@@ -14,6 +14,33 @@ const safeJsonParse = <T>(value: string | null): T | null => {
 
 const normalizeCacheKey = (key: string) => `${OFFLINE_CACHE_PREFIX}:${key}`;
 
+const isQuotaExceededError = (error: unknown) => {
+  if (!(error instanceof DOMException)) return false;
+
+  return error.name === "QuotaExceededError" ||
+    error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    error.code === 22 ||
+    error.code === 1014;
+};
+
+const evictOldestOfflineCacheEntry = () => {
+  const cacheEntries: Array<{ key: string; cachedAt: number }> = [];
+
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    if (!key?.startsWith(`${OFFLINE_CACHE_PREFIX}:`)) continue;
+
+    const cached = safeJsonParse<{ cachedAt?: number }>(localStorage.getItem(key));
+    cacheEntries.push({ key, cachedAt: cached?.cachedAt ?? 0 });
+  }
+
+  const oldestEntry = cacheEntries.sort((left, right) => left.cachedAt - right.cachedAt)[0];
+  if (!oldestEntry) return false;
+
+  localStorage.removeItem(oldestEntry.key);
+  return true;
+};
+
 export const buildOfflineCacheKey = (
   method: string | undefined,
   url: string | undefined,
@@ -28,7 +55,38 @@ export const buildOfflineCacheKey = (
 export const writeOfflineCache = (key: string, data: unknown) => {
   if (typeof window === "undefined") return;
 
-  localStorage.setItem(normalizeCacheKey(key), JSON.stringify({ cachedAt: Date.now(), data }));
+  const storageKey = normalizeCacheKey(key);
+  const serialized = JSON.stringify({ cachedAt: Date.now(), data });
+
+  try {
+    localStorage.setItem(storageKey, serialized);
+    return true;
+  } catch (error) {
+    if (!isQuotaExceededError(error)) {
+      console.warn("Unable to write offline cache", error);
+      return false;
+    }
+  }
+
+  try {
+    while (evictOldestOfflineCacheEntry()) {
+      try {
+        localStorage.setItem(storageKey, serialized);
+        return true;
+      } catch (error) {
+        if (!isQuotaExceededError(error)) {
+          console.warn("Unable to write offline cache", error);
+          return false;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Unable to free space for offline cache", error);
+    return false;
+  }
+
+  console.warn("Offline cache entry was not stored because browser storage is full");
+  return false;
 };
 
 export const readOfflineCache = <T>(key: string): T | null => {
