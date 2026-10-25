@@ -5,6 +5,15 @@ const normalizeDriveName = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const compactName = (value: string) => normalizeDriveName(value).replace(/\s+/g, "");
+
+const acronymOf = (value: string) =>
+  normalizeDriveName(value)
+    .split(" ")
+    .filter(Boolean)
+    .map((token) => token[0])
+    .join("");
+
 export const extractGoogleDriveFolderId = (url: string) => {
   if (!url) return null;
   const trimmed = String(url).trim();
@@ -53,67 +62,166 @@ const getDriveMimeGroup = (mimeType?: string) => {
   return driveMimeGroups[mimeType] ?? "other";
 };
 
-const compactName = (value: string) => normalizeDriveName(value).replace(/\s+/g, "");
+// ─── Course folder alias registry ────────────────────────────────────
+// Keys are compacted canonical course/department names; values are common
+// short forms, acronyms and alternate spellings used for Drive folders.
+const COURSE_FOLDER_ALIASES: Record<string, string[]> = {
+  medicine: ["med", "internal medicine", "internal med"],
+  pediatrics: ["paediatrics", "paediatric", "pediatric", "ped", "paed", "peds", "pae", "pd"],
+  obstetricsandgynecology: [
+    "obgyn",
+    "obsgyn",
+    "obgynae",
+    "obsgynae",
+    "og",
+    "o g",
+    "oandg",
+    "oandgyn",
+    "obstetrics",
+    "obstetric",
+    "gynaecology",
+    "gynecology",
+    "obstetricsandgynaecology",
+    "obstetricsandgynaec",
+    "obg",
+  ],
+  surgery: ["surg", "general surgery"],
+  psychiatry: ["psych", "psy", "psychiatrices"],
+  ent: [
+    "orl",
+    "otorhinolaryngology",
+    "ear nose and throat",
+    "ear nose throat",
+    "head and neck",
+  ],
+  anaesthesiology: [
+    "anesthesia",
+    "anesthesiology",
+    "anaesthesia",
+    "anaesthetics",
+    "anesthetics",
+    "ane",
+    "anaes",
+    "anes",
+  ],
+  radiology: ["radio", "radiodiagnosis", "imaging", "rad"],
+  ophthalmology: ["ophthal", "ophtho", "eye", "oph"],
+  dermatology: ["derm", "skin", "der"],
+  communitymedicine: [
+    "communitymed",
+    "comm med",
+    "commed",
+    "community health",
+    "public health",
+    "preventive medicine",
+    "com",
+  ],
+  hematologyandbloodtransfusion: [
+    "hematology",
+    "haematology",
+    "haem",
+    "hem",
+    "blood transfusion",
+    "blood",
+    "hbt",
+  ],
+  microbiology: ["medical microbiology", "micro", "mic", "microbe"],
+  chemicalpathology: ["chem path", "chempath", "chemical path", "clinical chemistry", "chp", "cp"],
+  clinicalpharmacologyandtherapeutics: [
+    "pharmacology",
+    "pharm",
+    "pharma",
+    "clinical pharmacology",
+    "pha",
+    "therapeutics",
+  ],
+  anatomicpathology: ["anat path", "anatpath", "pathology", "histopathology", "histopath", "pat", "ap"],
+  familymedicine: ["family med", "fam med", "fam", "family practice"],
+  orthopaedics: ["orthopedics", "orthopedic", "orthopaedic", "ortho", "ort"],
+  forensicmedicine: ["forensic", "forensic pathology", "forensic path", "for"],
+};
 
-const acronymOf = (value: string) =>
-  normalizeDriveName(value)
-    .split(" ")
-    .filter(Boolean)
-    .map((token) => token[0])
-    .join("");
+// Resolve which canonical course a course name refers to (longest match wins),
+// then return that course's alias list.
+const canonicalAliasesForCourse = (courseName: string): string[] => {
+  const key = compactName(courseName);
+  if (!key) return [];
+
+  let best: { canonical: string; length: number } | null = null;
+
+  for (const [canonical, aliases] of Object.entries(COURSE_FOLDER_ALIASES)) {
+    const compactCanonical = compactName(canonical);
+
+    if (key === compactCanonical) {
+      best = { canonical, length: compactCanonical.length };
+      break;
+    }
+
+    for (const candidate of [canonical, ...aliases]) {
+      const compactCandidate = compactName(candidate);
+      if (compactCandidate.length >= 4 && (key === compactCandidate || key.includes(compactCandidate))) {
+        if (!best || compactCandidate.length > best.length) {
+          best = { canonical, length: compactCandidate.length };
+        }
+      }
+    }
+  }
+
+  return best ? COURSE_FOLDER_ALIASES[best.canonical] : [];
+};
+
+const nameMatchesFolder = (candidate: string, folderName: string): boolean => {
+  const normalizedCandidate = normalizeDriveName(candidate);
+  const normalizedFolder = normalizeDriveName(folderName);
+
+  if (!normalizedCandidate || !normalizedFolder) return false;
+
+  if (normalizedCandidate === normalizedFolder) return true;
+
+  const compactCandidate = compactName(candidate);
+  const compactFolder = compactName(folderName);
+  if (compactCandidate.length >= 2 && compactFolder === compactCandidate) return true;
+
+  const candidateTokens = normalizedCandidate.split(" ").filter(Boolean);
+  const folderTokens = normalizedFolder.split(" ").filter(Boolean);
+
+  // Whole-token match ("med" matches folder "MED 500" but not "Medical Microbiology")
+  if (candidateTokens.length === 1 && folderTokens.includes(normalizedCandidate)) return true;
+  if (folderTokens.length === 1 && candidateTokens.includes(normalizedFolder)) return true;
+
+  // Containment with a minimum length to avoid substring false positives
+  if (normalizedCandidate.length >= 4 && normalizedFolder.includes(normalizedCandidate)) return true;
+  if (normalizedFolder.length >= 4 && normalizedCandidate.includes(normalizedFolder)) return true;
+
+  // Token overlap (fuzzy partial-name match)
+  const overlap = candidateTokens.filter((token) => folderTokens.includes(token));
+  if (overlap.length >= Math.max(1, Math.min(candidateTokens.length, folderTokens.length) - 1)) return true;
+
+  // Acronyms ("Medical Biochemistry" <-> "MB")
+  const candidateAcronym = acronymOf(candidate);
+  const folderAcronym = acronymOf(folderName);
+  if (candidateAcronym.length >= 2 && compactFolder === candidateAcronym) return true;
+  if (folderAcronym.length >= 2 && compactCandidate === folderAcronym) return true;
+
+  return false;
+};
 
 export const matchesCourseName = (
   courseOrName: string | { name?: string; code?: string },
   folderName: string,
 ) => {
   const courseName =
-    typeof courseOrName === "string"
-      ? courseOrName
-      : String(courseOrName?.name ?? "");
+    typeof courseOrName === "string" ? courseOrName : String(courseOrName?.name ?? "");
   const courseCode =
     typeof courseOrName === "string" ? "" : String(courseOrName?.code ?? "");
 
-  const normalizedCourse = normalizeDriveName(courseName);
-  const normalizedFolder = normalizeDriveName(folderName);
+  const candidates = [
+    courseName,
+    courseCode,
+    ...canonicalAliasesForCourse(courseName),
+  ].filter(Boolean);
 
-  if (!normalizedCourse || !normalizedFolder) return false;
-
-  // Exact (normalized) match
-  if (normalizedCourse === normalizedFolder) return true;
-  // Containment either way ("Medical Biochemistry" vs "Biochemistry")
-  if (normalizedCourse.includes(normalizedFolder) || normalizedFolder.includes(normalizedCourse)) return true;
-  // Token overlap (fuzzy partial-name match)
-  const courseTokens = normalizedCourse.split(" ").filter(Boolean);
-  const folderTokens = normalizedFolder.split(" ").filter(Boolean);
-  const overlap = courseTokens.filter((token) => folderTokens.includes(token));
-  if (overlap.length >= Math.max(1, Math.min(courseTokens.length, folderTokens.length) - 1)) return true;
-
-  // Course code match: folder named "ANAT 101", "ANAT101" or "ANAT" vs code "ANAT 101"
-  const normalizedCode = normalizeDriveName(courseCode).replace(/\s+/g, "");
-  if (normalizedCode.length >= 2) {
-    const compactFolder = compactName(folderName);
-    const compactCourse = compactName(courseName);
-    if (
-      normalizedFolder === normalizedCode ||
-      compactFolder === normalizedCode ||
-      (compactFolder.length >= normalizedCode.length &&
-        compactFolder.includes(normalizedCode)) ||
-      (normalizedCode.length >= compactCourse.length &&
-        normalizedCode.includes(compactCourse))
-    ) {
-      return true;
-    }
-  }
-
-  // Acronym match: "Medical Biochemistry" <-> "MB", "mb", "MB-2025"
-  const courseAcronym = acronymOf(courseName);
-  const folderAcronym = acronymOf(folderName);
-  const compactFolder = compactName(folderName);
-  const compactCourse = compactName(courseName);
-  if (courseAcronym.length >= 2 && (compactFolder === courseAcronym || courseAcronym === folderName.toLowerCase().replace(/[^a-z0-9]/g, ""))) return true;
-  if (folderAcronym.length >= 2 && (compactCourse === folderAcronym || folderAcronym === courseName.toLowerCase().replace(/[^a-z0-9]/g, ""))) return true;
-
-  return false;
+  return candidates.some((candidate) => nameMatchesFolder(candidate, folderName));
 };
 
 const listDriveFolderChildren = async (folderId: string, accessToken: string) => {
@@ -159,6 +267,22 @@ const recursivelyCollectDriveItems = async (folderId: string, accessToken: strin
   return nested;
 };
 
+const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
+
+const toFileItem = (file: any) => ({
+  id: file.id,
+  name: file.name,
+  mimeType: file.mimeType,
+  viewUrl: file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`,
+  downloadUrl: file.webContentLink ?? `https://drive.google.com/uc?export=download&id=${file.id}`,
+  thumbnailUrl: file.thumbnailLink ?? file.iconLink ?? "",
+  size: Number(file.size ?? 0),
+  modifiedTime: file.modifiedTime ?? null,
+});
+
+const byModifiedDesc = (a: any, b: any) =>
+  new Date(String(b.modifiedTime ?? 0)).getTime() - new Date(String(a.modifiedTime ?? 0)).getTime();
+
 export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: any[], accessTokenOverride?: string | null) => {
   const folderId = extractGoogleDriveFolderId(rootUrl);
   if (!folderId) {
@@ -183,58 +307,67 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
 
   try {
     const driveItems = await recursivelyCollectDriveItems(folderId, accessToken, new Set());
-    const folders = driveItems.filter((item) => item.mimeType === "application/vnd.google-apps.folder");
+    const folders = driveItems.filter((item) => item.mimeType === DRIVE_FOLDER_MIME);
+
+    // Drive-wide index: parent -> children, and id -> item
+    const parentMap = new Map<string, string[]>();
+    const byId = new Map<string, any>();
+    for (const item of driveItems) {
+      byId.set(item.id, item);
+      for (const parentId of item.parents ?? []) {
+        if (!parentMap.has(parentId)) parentMap.set(parentId, []);
+        parentMap.get(parentId)!.push(item.id);
+      }
+    }
+
+    // All files anywhere under a folder (excluding the folder itself), newest first
+    const subtreeFiles = (rootFolderId: string) => {
+      const out: any[] = [];
+      const stack = [rootFolderId];
+      const visited = new Set<string>([rootFolderId]);
+      while (stack.length) {
+        const current = stack.pop()!;
+        for (const childId of parentMap.get(current) ?? []) {
+          if (visited.has(childId)) continue;
+          visited.add(childId);
+          const child = byId.get(childId);
+          if (!child) continue;
+          if (child.mimeType === DRIVE_FOLDER_MIME) stack.push(childId);
+          else out.push(child);
+        }
+      }
+      return out.sort(byModifiedDesc);
+    };
 
     const courseMaterials = courseDocs
       .map((course) => {
-        const folderMatch = folders.find((folder) => matchesCourseName({ name: course?.name ?? "", code: (course as any)?.code ?? "" }, folder?.name ?? ""));
+        const folderMatch = folders.find((folder) =>
+          matchesCourseName({ name: course?.name ?? "", code: (course as any)?.code ?? "" }, folder?.name ?? ""),
+        );
         if (!folderMatch) return null;
 
-        const folderTree = new Set<string>([folderMatch.id]);
-        const parentMap = new Map<string, string[]>();
+        const childIds = parentMap.get(folderMatch.id) ?? [];
+        const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
 
-        for (const item of driveItems) {
-          if (!item.parents || !Array.isArray(item.parents)) continue;
-          for (const parentId of item.parents) {
-            if (!parentMap.has(parentId)) parentMap.set(parentId, []);
-            parentMap.get(parentId)!.push(item.id);
-          }
-        }
+        const courseSubfolders = childItems
+          .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
+          .map((sub: any) => ({
+            id: sub.id,
+            name: sub.name,
+            items: subtreeFiles(sub.id).map(toFileItem),
+          }));
 
-        const walkFolderTree = (currentFolderId: string) => {
-          const children = parentMap.get(currentFolderId) ?? [];
-          for (const childId of children) {
-            const childItem = driveItems.find((item) => item.id === childId);
-            if (!childItem) continue;
-            if (childItem.mimeType === "application/vnd.google-apps.folder" && !folderTree.has(childId)) {
-              folderTree.add(childId);
-              walkFolderTree(childId);
-            }
-          }
-        };
+        const courseRootFiles = childItems
+          .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
+          .sort(byModifiedDesc)
+          .map(toFileItem);
 
-        walkFolderTree(folderMatch.id);
+        const allFiles = subtreeFiles(folderMatch.id);
 
-        const files = driveItems.filter((item) => {
-          if (item.id === folderMatch.id) return false;
-          if (item.mimeType === "application/vnd.google-apps.folder") return false;
-          const hasRelevantParent = (item.parents ?? []).some((parentId) => folderTree.has(parentId));
-          return hasRelevantParent;
-        });
-
-        const groupedFiles = files.reduce((acc: Record<string, any[]>, file) => {
+        const groupedFiles = allFiles.reduce((acc: Record<string, any[]>, file) => {
           const group = getDriveMimeGroup(file.mimeType);
           acc[group] = acc[group] ?? [];
-          acc[group].push({
-            id: file.id,
-            name: file.name,
-            mimeType: file.mimeType,
-            viewUrl: file.webViewLink ?? `https://drive.google.com/file/d/${file.id}/view`,
-            downloadUrl: file.webContentLink ?? `https://drive.google.com/uc?export=download&id=${file.id}`,
-            thumbnailUrl: file.thumbnailLink ?? file.iconLink ?? "",
-            size: Number(file.size ?? 0),
-            modifiedTime: file.modifiedTime ?? null,
-          });
+          acc[group].push(toFileItem(file));
           return acc;
         }, {});
 
@@ -243,10 +376,12 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
           courseName: course?.name ?? "Untitled course",
           folderId: folderMatch.id,
           folderName: folderMatch.name,
+          folders: courseSubfolders,
+          rootFiles: courseRootFiles,
           files: Object.entries(groupedFiles)
             .map(([group, items]) => ({
               group,
-              items: (items as any[]).slice().sort((a, b) => new Date(String(b.modifiedTime ?? 0)).getTime() - new Date(String(a.modifiedTime ?? 0)).getTime()),
+              items: items as any[],
             }))
             .sort((a, b) => a.group.localeCompare(b.group)),
         };

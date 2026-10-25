@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FolderOpen, Link as LinkIcon, LogOut, Plus, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ChevronDown, FolderOpen, Link as LinkIcon, LogOut, Plus, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -55,6 +55,31 @@ const createDrivePreview = (courseName: string, link: string) => {
     },
   ];
 };
+
+const FileRow = ({ file, driveLink }: { file: any; driveLink: string }) => (
+  <div className="rounded-lg border border-border bg-muted/20 p-3">
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
+        <p className="text-xs text-muted-foreground">
+          {file.mimeType ? String(file.mimeType).split("/").pop() : "File"}
+        </p>
+      </div>
+      <a
+        href={file.viewUrl || file.downloadUrl || driveLink}
+        target="_blank"
+        rel="noreferrer"
+        className="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary"
+      >
+        Open
+      </a>
+    </div>
+    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>Uploaded: {formatDate(file.modifiedTime)}</span>
+      <span>{file.size ? `${Math.max(1, Math.round(file.size / 1024))} KB` : "File"}</span>
+    </div>
+  </div>
+);
 
 declare global {
   interface Window {
@@ -160,6 +185,9 @@ const ClassCourseMaterialsPage = () => {
   const [newLink, setNewLink] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeCourseId, setActiveCourseId] = useState<string>("");
+  const [syncingCourseId, setSyncingCourseId] = useState<string | null>(null);
+  const [openFolderCards, setOpenFolderCards] = useState<Record<string, boolean>>({});
+  const [openSubfolders, setOpenSubfolders] = useState<Record<string, boolean>>({});
   const [driveConnected, setDriveConnected] = useState(false);
   const [driveConnectionMessage, setDriveConnectionMessage] = useState<string>(
     "No Google account connected yet. Sign in to choose a Drive folder for this class.",
@@ -279,6 +307,40 @@ const ClassCourseMaterialsPage = () => {
     });
   }, [courses, filter]);
 
+  const syncCourseFoldersSequentially = async (rootUrl: string) => {
+    if (!classId || !rootUrl) return;
+    const courseList = courses;
+    setCourseMaterials([]);
+    setOpenSubfolders({});
+    for (const course of courseList) {
+      const courseId = String(course?._id ?? "");
+      if (!courseId) continue;
+      setSyncingCourseId(courseId);
+      setOpenFolderCards((prev) => ({ ...prev, [courseId]: false }));
+      try {
+        const { data } = await api.get(`/classes/${classId}/course-materials`, {
+          params: { courseId },
+        });
+        const entry = (Array.isArray(data?.courseMaterials) ? data.courseMaterials : []).find(
+          (e: any) => String(e?.courseId) === courseId,
+        );
+        setCourseMaterials((prev) => [
+          ...prev.filter((e: any) => String(e?.courseId) !== courseId),
+          ...(entry ? [entry] : []),
+        ]);
+        setOpenFolderCards((prev) => ({ ...prev, [courseId]: true }));
+      } catch (error) {
+        console.error("Failed to sync course folder", course?.name, error);
+      } finally {
+        setSyncingCourseId(null);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    }
+    setSyncMessage(
+      `Sync complete — ${courseList.length} course folder${courseList.length === 1 ? "" : "s"} processed from Drive.`,
+    );
+  };
+
   const saveCourseLink = async () => {
     if (!classId || !newLink.trim()) return;
 
@@ -298,8 +360,8 @@ const ClassCourseMaterialsPage = () => {
         setNewLink(data.cloudStorage.rootUrl);
       }
 
-      await refreshMaterials(data?.cloudStorage?.rootUrl ?? newLink.trim());
-      setSyncMessage(data?.message ?? "Class storage link saved.");
+      setSyncMessage("Class storage link saved. Syncing course folders from Drive…");
+      await syncCourseFoldersSequentially(data?.cloudStorage?.rootUrl ?? newLink.trim());
     } catch (error: any) {
       console.error("Failed to save class cloud storage link", error);
       setSyncMessage(error?.response?.data?.message ?? "Failed to save class storage link.");
@@ -462,10 +524,14 @@ const ClassCourseMaterialsPage = () => {
           {filteredCourses.map((course: any) => {
             const courseId = String(course._id);
             const driveLink = course.driveLink || resourceLinks[courseId] || classData?.cloudStorage?.rootUrl || "";
-            const courseMaterialGroups = Array.isArray(course.materials) ? course.materials : [];
-            const materialItems = courseMaterialGroups.flatMap((group: any) =>
-              (Array.isArray(group.items) ? group.items : []).map((material: any) => ({ ...material, group: group.group })),
-            );
+            const match = courseMaterials.find((entry: any) => String(entry?.courseId) === courseId) ?? null;
+            const courseFolders: any[] = Array.isArray(match?.folders) ? match.folders : [];
+            const rootFiles: any[] = Array.isArray(match?.rootFiles) ? match.rootFiles : [];
+            const totalFiles =
+              rootFiles.length +
+              courseFolders.reduce((acc: number, folder: any) => acc + (folder?.items?.length ?? 0), 0);
+            const isSyncing = syncingCourseId === courseId;
+            const folderOpen = Boolean(openFolderCards[courseId]);
             const isActive = activeCourseId === courseId;
 
             return (
@@ -502,32 +568,89 @@ const ClassCourseMaterialsPage = () => {
                   </div>
 
                   <div className="space-y-3">
-                    {materialItems.length ? (
-                      materialItems.map((material: any) => (
-                        <div key={material.id} className="rounded-lg border border-border bg-muted/20 p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">{material.name}</p>
-                              <p className="text-xs text-muted-foreground">{material.group ? material.group.toUpperCase() : "File"}</p>
-                            </div>
-                            <a
-                              href={material.viewUrl || material.downloadUrl || driveLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-primary"
-                            >
-                              Open
-                            </a>
+                    {isSyncing ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-muted-foreground">
+                        <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                        <span>Synchronizing folder contents with Drive…</span>
+                      </div>
+                    ) : match ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setOpenFolderCards((prev) => ({ ...prev, [courseId]: !prev[courseId] }))}
+                          className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-left transition hover:bg-muted/50"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {match.folderName || course?.name || "Course folder"}
+                            </span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                            {courseFolders.length > 0 && (
+                              <span>
+                                {courseFolders.length} folder{courseFolders.length === 1 ? "" : "s"}
+                              </span>
+                            )}
+                            <span>
+                              {totalFiles} file{totalFiles === 1 ? "" : "s"}
+                            </span>
+                            <ChevronDown className={`h-4 w-4 transition-transform ${folderOpen ? "rotate-180" : ""}`} />
+                          </span>
+                        </button>
+
+                        {folderOpen && (
+                          <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-border bg-background/70 p-2">
+                            {courseFolders.map((sub: any) => {
+                              const subKey = `${courseId}:${sub.id}`;
+                              const subOpen = Boolean(openSubfolders[subKey]);
+                              return (
+                                <div key={sub.id} className="rounded-md border border-border/70 bg-muted/10">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenSubfolders((prev) => ({ ...prev, [subKey]: !prev[subKey] }))
+                                    }
+                                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium text-foreground"
+                                  >
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                      <span className="truncate">{sub.name}</span>
+                                    </span>
+                                    <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-muted-foreground">
+                                      {sub.items?.length ?? 0} file{(sub.items?.length ?? 0) === 1 ? "" : "s"}
+                                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${subOpen ? "rotate-180" : ""}`} />
+                                    </span>
+                                  </button>
+                                  {subOpen && (
+                                    <div className="space-y-2 border-t border-border/60 p-2">
+                                      {(sub.items ?? []).length ? (
+                                        sub.items.map((file: any) => (
+                                          <FileRow key={file.id} file={file} driveLink={driveLink} />
+                                        ))
+                                      ) : (
+                                        <p className="px-1 py-1 text-xs text-muted-foreground">
+                                          No files in this folder yet.
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {rootFiles.map((file: any) => (
+                              <FileRow key={file.id} file={file} driveLink={driveLink} />
+                            ))}
+                            {totalFiles === 0 && courseFolders.length === 0 && (
+                              <p className="px-2 py-2 text-sm text-muted-foreground">This folder is empty.</p>
+                            )}
                           </div>
-                          <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <span>Updated: {formatDate(material.modifiedTime)}</span>
-                            <span>{material.size ? `${Math.max(1, Math.round(material.size / 1024))} KB` : "File"}</span>
-                          </div>
-                        </div>
-                      ))
+                        )}
+                      </>
                     ) : (
                       <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                        No matched materials were found in the connected Drive folder for this course yet.
+                        No matched Drive folder was found for this course yet. Rename a Drive subfolder to the
+                        course name, code or acronym and save the link again.
                       </div>
                     )}
                   </div>
