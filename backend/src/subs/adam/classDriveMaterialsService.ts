@@ -319,6 +319,13 @@ const toFileItem = (file: any) => ({
 const byModifiedDesc = (a: any, b: any) =>
   new Date(String(b.modifiedTime ?? 0)).getTime() - new Date(String(a.modifiedTime ?? 0)).getTime();
 
+// Short-lived server-side cache of the full Drive listing. The materials
+// page fires several requests per load (initial fetch + one per course
+// in the sequential sync); without this each request re-crawled the
+// entire Drive tree and blew past the frontend's 30s timeout.
+const DRIVE_LISTING_CACHE = new Map<string, { items: any[]; expires: number }>();
+const DRIVE_LISTING_CACHE_TTL_MS = 3 * 60 * 1000;
+
 export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: any[], accessTokenOverride?: string | null) => {
   const folderId = extractGoogleDriveFolderId(rootUrl);
   if (!folderId) {
@@ -350,17 +357,26 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
       .filter((token, index, arr) => arr.indexOf(token) === index);
 
     let driveItems: any[] | null = null;
-    let lastError: unknown = null;
-    for (const token of tokenCandidates) {
-      try {
-        driveItems = await recursivelyCollectDriveItems(folderId, token, new Set());
-        break;
-      } catch (error) {
-        lastError = error;
+    const cachedListing = DRIVE_LISTING_CACHE.get(folderId);
+    if (cachedListing && cachedListing.expires > Date.now()) {
+      driveItems = cachedListing.items;
+    } else {
+      let lastError: unknown = null;
+      for (const token of tokenCandidates) {
+        try {
+          driveItems = await recursivelyCollectDriveItems(folderId, token, new Set());
+          break;
+        } catch (error) {
+          lastError = error;
+        }
       }
-    }
-    if (!driveItems) {
-      throw lastError ?? new Error("Could not sync Drive materials.");
+      if (!driveItems) {
+        throw lastError ?? new Error("Could not sync Drive materials.");
+      }
+      DRIVE_LISTING_CACHE.set(folderId, {
+        items: driveItems,
+        expires: Date.now() + DRIVE_LISTING_CACHE_TTL_MS,
+      });
     }
     const folders = driveItems.filter((item) => item.mimeType === DRIVE_FOLDER_MIME);
 
