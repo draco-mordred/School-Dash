@@ -83,15 +83,27 @@ const usableTokenForAccount = async (userDoc: any): Promise<string | null> => {
   return null;
 };
 
-export const resolveSharedDriveAccessToken = async (
+// Resolve ALL usable token candidates in priority order: the signed-in
+// user's own account, then recently connected admin accounts, then the
+// legacy server env token. A token being "usable" (not expired) does NOT
+// guarantee it can access the class Drive folder — e.g. an admin whose
+// own connected Google account is different from the account the class
+// Drive was shared with. The materials service walks these candidates
+// until one successfully lists the folder.
+export const resolveSharedDriveAccessTokenCandidates = async (
   currentUserId: string | null,
-): Promise<string | null> => {
+): Promise<string[]> => {
+  const tokens: string[] = [];
+  const push = (token: string | null | undefined) => {
+    const value = String(token ?? "").trim();
+    if (value && !tokens.includes(value)) tokens.push(value);
+  };
+
   // 1. The signed-in user's own connected Google account
   if (currentUserId) {
     const self = await UserModel.findById(currentUserId).select("googleDriveAccount").lean();
     if (self) {
-      const ownToken = await usableTokenForAccount(self);
-      if (ownToken) return ownToken;
+      push(await usableTokenForAccount(self));
     }
   }
 
@@ -106,10 +118,19 @@ export const resolveSharedDriveAccessToken = async (
     .lean();
 
   for (const admin of admins) {
-    const adminToken = await usableTokenForAccount(admin);
-    if (adminToken) return adminToken;
+    push(await usableTokenForAccount(admin));
   }
 
   // 3. Legacy server-level env token
-  return process.env.GOOGLE_DRIVE_ACCESS_TOKEN || null;
+  push(process.env.GOOGLE_DRIVE_ACCESS_TOKEN || "");
+
+  return tokens;
+};
+
+// Backward-compatible single-token resolver (first candidate).
+export const resolveSharedDriveAccessToken = async (
+  currentUserId: string | null,
+): Promise<string | null> => {
+  const candidates = await resolveSharedDriveAccessTokenCandidates(currentUserId);
+  return candidates[0] ?? null;
 };

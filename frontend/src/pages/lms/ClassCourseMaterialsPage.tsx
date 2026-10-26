@@ -288,6 +288,10 @@ const ClassCourseMaterialsPage = () => {
   const [driveConnectionMessage, setDriveConnectionMessage] = useState<string>(
     "No Google account connected yet. Sign in to choose a Drive folder for this class.",
   );
+  // Server-side sync state of the class Drive (from the course-materials
+  // response) — used for the students' read-only status chip.
+  const [driveSynced, setDriveSynced] = useState(false);
+  const [rootFolderName, setRootFolderName] = useState("");
 
   const toggleSubfolder = (key: string) =>
     setOpenSubfolders((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -317,6 +321,8 @@ const ClassCourseMaterialsPage = () => {
       const { data } = await api.get(`/classes/${classId}/course-materials`);
       setCourseMaterials(Array.isArray(data?.courseMaterials) ? data.courseMaterials : []);
       setSyncMessage(data?.message ?? "");
+      setDriveSynced(Boolean(data?.synced));
+      setRootFolderName(String(data?.rootFolderName ?? ""));
 
       if (data?.cloudStorage?.rootUrl) {
         setNewLink(data.cloudStorage.rootUrl);
@@ -558,6 +564,49 @@ const ClassCourseMaterialsPage = () => {
 
       <Card>
         <CardContent className="space-y-4 p-4 md:p-5">
+          {isStudent && (
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-3 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Google Drive</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {(() => {
+                  if (!classData?.cloudStorage?.rootUrl) {
+                    return "No Google account has been connected for this class yet.";
+                  }
+                  if (driveSynced) {
+                    return "A Google account is connected and the class Drive materials are synced.";
+                  }
+                  return "A class Drive folder is saved, but it is not synced right now. Please check back later.";
+                })()}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={
+                  "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium " +
+                  (!classData?.cloudStorage?.rootUrl
+                    ? "border border-border bg-muted/40 text-muted-foreground"
+                    : driveSynced
+                      ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                      : "border border-amber-500/30 bg-amber-500/10 text-amber-600")
+                }
+              >
+                <span
+                  className={
+                    "h-2 w-2 rounded-full " +
+                    (!classData?.cloudStorage?.rootUrl
+                      ? "bg-muted-foreground/50"
+                      : driveSynced
+                        ? "bg-emerald-500"
+                        : "bg-amber-500")
+                  }
+                />
+                {!classData?.cloudStorage?.rootUrl ? "Not connected" : driveSynced ? "Synced" : "Sync unavailable"}
+              </span>
+            </div>
+          </div>
+          )}
+
           {!isStudent && (
           <div className="flex flex-col gap-3 rounded-xl border border-border bg-muted/20 p-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0 flex-1">
@@ -687,9 +736,29 @@ const ClassCourseMaterialsPage = () => {
                         <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-primary">
                           <LinkIcon className="h-3.5 w-3.5" /> Shared folder
                         </div>
-                        <a href={driveLink} target="_blank" rel="noreferrer" className="break-all text-sm text-primary underline decoration-dotted">
-                          {driveLink}
-                        </a>
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {rootFolderName || match?.folderName || "Class Drive folder"}
+                        </p>
+                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <a
+                            href={driveLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="truncate underline decoration-dotted hover:text-primary"
+                          >
+                            ({driveLink})
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard?.writeText(driveLink);
+                            }}
+                            title="Copy Drive link"
+                            className="shrink-0 hover:text-primary"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <span>No shared resource link added for this course yet.</span>

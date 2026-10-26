@@ -250,7 +250,7 @@ const listDriveFolderChildren = async (folderId: string, accessToken: string) =>
 
   do {
     const pageParams = new URLSearchParams({
-      q: `'${folderId}' in parents and trashed = false`,
+      q: `${folderId}' in parents and trashed = false`,
       fields: "nextPageToken, files(id,name,mimeType,parents,webViewLink,webContentLink,iconLink,thumbnailLink,modifiedTime,size)",
       supportsAllDrives: "true",
       includeItemsFromAllDrives: "true",
@@ -280,6 +280,28 @@ const listDriveFolderChildren = async (folderId: string, accessToken: string) =>
   } while (pageToken);
 
   return files;
+};
+
+// Fetch a single Drive item's name (used for the saved ROOT folder's display
+// name — the crawl only lists the root's children, not the root itself).
+const getDriveItemName = async (itemId: string, accessToken: string) => {
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(itemId)}?fields=id,name&supportsAllDrives=true`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+        },
+      },
+    );
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { name?: string };
+    return typeof payload?.name === "string" && payload.name ? payload.name : null;
+  } catch {
+    return null;
+  }
 };
 
 const recursivelyCollectDriveItems = async (folderId: string, accessToken: string, seen = new Set<string>()) => {
@@ -323,10 +345,15 @@ const byModifiedDesc = (a: any, b: any) =>
 // page fires several requests per load (initial fetch + one per course
 // in the sequential sync); without this each request re-crawled the
 // entire Drive tree and blew past the frontend's 30s timeout.
-const DRIVE_LISTING_CACHE = new Map<string, { items: any[]; expires: number }>();
+const DRIVE_LISTING_CACHE = new Map<string, { items: any[]; rootName: string | null; expires: number }>();
 const DRIVE_LISTING_CACHE_TTL_MS = 3 * 60 * 1000;
 
-export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: any[], accessTokenOverride?: string | null) => {
+export const buildDriveMaterialsPayload = async (
+  rootUrl: string,
+  courseDocs: any[],
+  accessTokenOverride?: string | null,
+  accessTokenCandidates?: string[],
+) => {
   const folderId = extractGoogleDriveFolderId(rootUrl);
   if (!folderId) {
     return {
@@ -337,8 +364,24 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
     };
   }
 
-  const accessToken = accessTokenOverride || process.env.GOOGLE_DRIVE_ACCESS_TOKEN || null;
-  if (!accessToken) {
+  // Walk ALL usable token candidates until one actually lists the folder.
+  // "Usable" (not expired) does not imply access: an admin whose own
+  // connected Google account differs from the account the class Drive was
+  // shared with would otherwise see an error/empty page while students
+  // (resolved to the shared admin token) see everything.
+  const tokenCandidates = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(accessTokenCandidates) ? accessTokenCandidates : []),
+        accessTokenOverride || "",
+        process.env.GOOGLE_DRIVE_ACCESS_TOKEN || "",
+      ]
+        .map((token) => String(token ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!tokenCandidates.length) {
     return {
       synced: false,
       source: rootUrl,
@@ -349,22 +392,19 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
   }
 
   try {
-    // Try the resolved token first; on failure (e.g. an expired token that
-    // slipped through) retry with the server env token before giving up so a
-    // single bad token cannot blank out every course folder.
-    const tokenCandidates = [accessToken, process.env.GOOGLE_DRIVE_ACCESS_TOKEN || ""]
-      .filter(Boolean)
-      .filter((token, index, arr) => arr.indexOf(token) === index);
-
     let driveItems: any[] | null = null;
+    let rootFolderName: string | null = null;
+    let rootNameToken: string | null = null;
     const cachedListing = DRIVE_LISTING_CACHE.get(folderId);
     if (cachedListing && cachedListing.expires > Date.now()) {
       driveItems = cachedListing.items;
+      rootFolderName = cachedListing.rootName;
     } else {
       let lastError: unknown = null;
       for (const token of tokenCandidates) {
         try {
           driveItems = await recursivelyCollectDriveItems(folderId, token, new Set());
+          rootNameToken = token;
           break;
         } catch (error) {
           lastError = error;
@@ -373,8 +413,12 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
       if (!driveItems) {
         throw lastError ?? new Error("Could not sync Drive materials.");
       }
+      if (rootNameToken) {
+        rootFolderName = await getDriveItemName(folderId, rootNameToken);
+      }
       DRIVE_LISTING_CACHE.set(folderId, {
         items: driveItems,
+        rootName: rootFolderName,
         expires: Date.now() + DRIVE_LISTING_CACHE_TTL_MS,
       });
     }
@@ -410,6 +454,24 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
       return out.sort(byModifiedDesc);
     };
 
+    // All folder ids in a folder's subtree (excluding the folder itself)
+    const subtreeFolderIds = (rootFolderId: string) => {
+      const ids = new Set<string>();
+      const stack = [rootFolderId];
+      while (stack.length) {
+        const current = stack.pop()!;
+        for (const childId of parentMap.get(current) ?? []) {
+          const child = byId.get(childId);
+          if (!child) continue;
+          if (child.mimeType === DRIVE_FOLDER_MIME) {
+            ids.add(childId);
+            stack.push(childId);
+          }
+        }
+      }
+      return ids;
+    };
+
     const courseMaterials = (
       await Promise.all(
         courseDocs.map(async (course) => {
@@ -423,6 +485,17 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
         const dedupedMatches = matchingFolders.filter(
           (folder: any, index: number, arr: any[]) =>
             arr.findIndex((other: any) => other.id === folder.id) === index,
+        );
+
+        // A matched folder that lives INSIDE another matched folder is
+        // already rendered as part of that folder's full tree — including it
+        // as its own card would duplicate files. Keep only top-level matches
+        // (e.g. "Obstetrics and Gynaecology" root + a nested "O&G" subfolder
+        // collapses into one card showing the root's FULL contents).
+        const keptMatches = dedupedMatches.filter((match: any) =>
+          !dedupedMatches.some(
+            (other: any) => other.id !== match.id && subtreeFolderIds(other.id).has(match.id),
+          ),
         );
 
         // Build the FULL nested tree for EVERY matched folder from the single
@@ -453,7 +526,7 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
           };
         };
 
-        const matchedFolders = dedupedMatches.map((folderMatch: any) => ({
+        const matchedFolders = keptMatches.map((folderMatch: any) => ({
           ...buildFolderNode(folderMatch.id, folderMatch.name, new Set()),
           url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
         }));
@@ -465,7 +538,11 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
           items: subtreeFiles(sub.id).map(toFileItem),
         }));
 
-        const allFiles = dedupedMatches.flatMap((folderMatch: any) => subtreeFiles(folderMatch.id));
+        const allFilesMap = new Map<string, any>();
+        for (const file of keptMatches.flatMap((folderMatch: any) => subtreeFiles(folderMatch.id))) {
+          allFilesMap.set(file.id, file); // dedupe files shared across matched folders
+        }
+        const allFiles = [...allFilesMap.values()];
 
         const groupedFiles = allFiles.reduce((acc: Record<string, any[]>, file) => {
           const group = getDriveMimeGroup(file.mimeType);
@@ -498,6 +575,7 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
       synced: true,
       source: rootUrl,
       folderId,
+      rootFolderName: rootFolderName ?? "",
       courseMaterials,
     };
   } catch (error) {
