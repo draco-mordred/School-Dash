@@ -25,6 +25,12 @@ export const protect = async (
             token = authHeader.slice(7); // Remove "Bearer " prefix
         }
     }
+
+    // Query-string token fallback. EventSource (SSE) cannot send headers,
+    // so the notifications stream authenticates via /stream?token=...
+    if (!token && typeof req.query.token === "string" && req.query.token.trim()) {
+        token = req.query.token.trim();
+    }
     
     if (token) {
         try {
@@ -52,7 +58,7 @@ export const protect = async (
  * @returns A middleware function that checks the user's role against the allowed roles
  * Usage example:
  * app.post("/api/some-protected-route", protect, authorize("admin", "teacher"), (req, res) => {
- *   // This route can only be accessed by users with the "admin" or "teacher" role
+ *   // This route can only be accessed by users with one of the allowed roles
  * usage: router.post('/', protect, authorize("admin", "teacher"), someControllerFunction);
  * }
  */
