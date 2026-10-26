@@ -318,7 +318,7 @@ const ClassCourseMaterialsPage = () => {
     if (!classId) return;
 
     try {
-      const { data } = await api.get(`/classes/${classId}/course-materials`);
+      const { data } = await api.get(`/classes/${classId}/course-materials`, { timeout: 120000 });
       setCourseMaterials(Array.isArray(data?.courseMaterials) ? data.courseMaterials : []);
       setSyncMessage(data?.message ?? "");
       setDriveSynced(Boolean(data?.synced));
@@ -428,6 +428,7 @@ const ClassCourseMaterialsPage = () => {
       try {
         const { data } = await api.get(`/classes/${classId}/course-materials`, {
           params: { courseId },
+          timeout: 120000,
         });
         const entry = (Array.isArray(data?.courseMaterials) ? data.courseMaterials : []).find(
           (e: any) => String(e?.courseId) === courseId,
