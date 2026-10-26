@@ -304,25 +304,44 @@ const getDriveItemName = async (itemId: string, accessToken: string) => {
   }
 };
 
+// Crawl the folder tree breadth-first with bounded concurrency. The original
+// version walked one folder per Drive round-trip (fully sequential), so a wide
+// class Drive tree took longer than the frontend's request timeout on a cold
+// cache (the 3-min listing cache only helps AFTER a successful first crawl).
+const DRIVE_CRAWL_CONCURRENCY = 6;
+
 const recursivelyCollectDriveItems = async (folderId: string, accessToken: string, seen = new Set<string>()) => {
+  const all: any[] = [];
   if (!folderId || seen.has(folderId)) {
-    return [] as any[];
+    return all;
   }
 
   seen.add(folderId);
-  const items = await listDriveFolderChildren(folderId, accessToken);
-  const nested: any[] = [];
+  const queue: string[] = [folderId];
 
-  for (const item of items) {
-    nested.push(item);
+  while (queue.length) {
+    const batch = queue
+      .splice(0, DRIVE_CRAWL_CONCURRENCY)
+      .filter((id) => !seen.has(id));
 
-    if (item.mimeType === "application/vnd.google-apps.folder") {
-      const children = await recursivelyCollectDriveItems(item.id, accessToken, seen);
-      nested.push(...children);
+    if (!batch.length) continue;
+    for (const id of batch) seen.add(id);
+
+    const listings = await Promise.all(
+      batch.map((id) => listDriveFolderChildren(id, accessToken)),
+    );
+
+    for (const items of listings) {
+      for (const item of items) {
+        all.push(item);
+        if (item.mimeType === "application/vnd.google-apps.folder" && !seen.has(item.id)) {
+          queue.push(item.id);
+        }
+      }
     }
   }
 
-  return nested;
+  return all;
 };
 
 const DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder";
