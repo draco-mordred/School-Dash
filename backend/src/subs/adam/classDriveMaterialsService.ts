@@ -250,7 +250,7 @@ const listDriveFolderChildren = async (folderId: string, accessToken: string) =>
 
   do {
     const pageParams = new URLSearchParams({
-      q: `${folderId}' in parents and trashed = false`,
+      q: `'${folderId}' in parents and trashed = false`,
       fields: "nextPageToken, files(id,name,mimeType,parents,webViewLink,webContentLink,iconLink,thumbnailLink,modifiedTime,size)",
       supportsAllDrives: "true",
       includeItemsFromAllDrives: "true",
