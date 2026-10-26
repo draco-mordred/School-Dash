@@ -132,18 +132,25 @@ export function useNotifications(page = 1, limit = 20): UseNotificationsReturn {
     void fetchUnreadCount();
   }, [fetchNotifications, fetchUnreadCount]);
 
-  // Subscribe to server-sent events for real-time notifications
+  // Subscribe to server-sent events for real-time notifications.
+  // EventSource cannot send an Authorization header, so the JWT is passed
+  // as a ?token= query param (the backend's protect middleware accepts it).
+  // Only connect when signed in — otherwise the browser would endlessly
+  // retry an unauthorized SSE request.
   const { user } = useAuth();
   useEffect(() => {
+    if (!user) return;
     let es: EventSource | null = null;
     try {
-      es = new EventSource(`${api.defaults.baseURL || '/api'}/notifications/stream`);
+      const token = localStorage.getItem("token");
+      const streamUrl = `${api.defaults.baseURL || '/api'}/notifications/stream${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+      es = new EventSource(streamUrl);
       es.addEventListener('notification', (ev: any) => {
         try {
           const n = JSON.parse(ev.data);
           setNotifications((prev) => [n, ...(prev || [])].slice(0, 100));
           // increment unread count if relevant
-          if (user && String(n.userId) === String(user._id)) {
+          if (String(n.userId) === String(user._id)) {
             setUnreadCount((c) => c + 1);
             try { window.dispatchEvent(new CustomEvent('notifications:changed', { detail: { count: (unreadCount + 1) } })); } catch {}
           }
