@@ -2,7 +2,7 @@ import { type Request, type Response } from "express";
 import ClassModel from "../models/classes";
 import UserModel from "../models/user";
 import { logActivity } from "../utils/activitieslog";
-import { resolveSharedDriveAccessToken } from "../utils/driveAccessToken";
+import { resolveSharedDriveAccessTokenCandidates } from "../utils/driveAccessToken";
 import {
   classDriveMaterialsService,
   extractGoogleDriveFolderId,
@@ -66,11 +66,13 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
     const coursesToSync = courseIdFilter
       ? courseDocs.filter((course: any) => String(course?._id) === courseIdFilter)
       : courseDocs;
-    // Resolve a usable Drive token: the signed-in user's own account, else the
-    // most recently connected admin (shared class materials access), else the
-    // server env token. Expired tokens are refreshed server-side automatically.
-    // The token is used here only and is never included in the response.
-    const userAccessToken = await resolveSharedDriveAccessToken(
+    // Resolve ALL usable Drive token candidates: the signed-in user's own
+    // account, else recently connected admin accounts (shared class
+    // materials access), else the server env token. The service tries each
+    // until one can actually list the folder, so an admin whose personal
+    // Google account lacks access to the class Drive still sees materials.
+    // Tokens are used here only and are never included in the response.
+    const tokenCandidates = await resolveSharedDriveAccessTokenCandidates(
       (req as any).user?._id ? String((req as any).user._id) : null,
     );
 
@@ -84,7 +86,12 @@ export const getClassCourseMaterials = async (req: Request, res: Response) => {
       });
     }
 
-    const payload = await buildDriveMaterialsPayload(rootUrl, coursesToSync, userAccessToken);
+    const payload = await buildDriveMaterialsPayload(
+      rootUrl,
+      coursesToSync,
+      tokenCandidates[0] ?? null,
+      tokenCandidates,
+    );
 
     return res.json({
       classId: String(cls._id),
@@ -348,7 +355,7 @@ export const removeCourseFromClass = async (req: Request, res: Response) => {
     }
 
     const beforeCount = (cls.courses ?? []).length;
-    cls.courses = (cls.courses ?? []).filter((c) => String(c) !== String(courseId));
+    cls.courses = (cls.courses ?? []).filter((c: any) => String(c) !== String(courseId));
     const afterCount = (cls.courses ?? []).length;
 
     if (beforeCount === afterCount) {
