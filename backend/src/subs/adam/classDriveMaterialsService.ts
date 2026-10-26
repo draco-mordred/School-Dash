@@ -319,49 +319,6 @@ const toFileItem = (file: any) => ({
 const byModifiedDesc = (a: any, b: any) =>
   new Date(String(b.modifiedTime ?? 0)).getTime() - new Date(String(a.modifiedTime ?? 0)).getTime();
 
-// List ONE folder directly from the Drive API (fresh recursive listing of
-// everything inside it) and build the full nested tree from that listing:
-// every subfolder at every depth, each with its own subfolders and files,
-// down to the very last file. Independent of any precomputed index, so the
-// course card always reflects the folder's actual content.
-const buildFolderTreeFromDrive = async (
-  rootFolderId: string,
-  rootFolderName: string,
-  accessToken: string,
-) => {
-  const items = await recursivelyCollectDriveItems(rootFolderId, accessToken, new Set());
-
-  const localParents = new Map<string, any[]>();
-  for (const item of items) {
-    for (const parentId of item.parents ?? []) {
-      if (!localParents.has(parentId)) localParents.set(parentId, []);
-      localParents.get(parentId)!.push(item);
-    }
-  }
-
-  const buildNode = (folderId: string, folderName: string, seen: Set<string>): any => {
-    if (seen.has(folderId)) {
-      return { id: folderId, name: folderName, subfolders: [], rootFiles: [] };
-    }
-    seen.add(folderId);
-
-    const children = localParents.get(folderId) ?? [];
-    return {
-      id: folderId,
-      name: folderName,
-      subfolders: children
-        .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
-        .map((sub: any) => buildNode(sub.id, sub.name, seen)),
-      rootFiles: children
-        .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
-        .sort(byModifiedDesc)
-        .map(toFileItem),
-    };
-  };
-
-  return buildNode(rootFolderId, rootFolderName, new Set([rootFolderId]));
-};
-
 export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: any[], accessTokenOverride?: string | null) => {
   const folderId = extractGoogleDriveFolderId(rootUrl);
   if (!folderId) {
@@ -452,27 +409,38 @@ export const buildDriveMaterialsPayload = async (rootUrl: string, courseDocs: an
             arr.findIndex((other: any) => other.id === folder.id) === index,
         );
 
-        // For EVERY folder that matches the course name/code/alias, fetch its
-        // content DIRECTLY from the Google Drive API — a fresh recursive
-        // listing per matched folder — and build the full nested tree from
-        // it. allSettled keeps one failing folder from breaking the others.
-        const matchedFolderResults = await Promise.allSettled(
-          dedupedMatches.map(async (folderMatch: any) => {
-            const tree = await buildFolderTreeFromDrive(
-              folderMatch.id,
-              folderMatch.name ?? folderMatch.id,
-              accessToken,
-            );
-            return {
-              ...tree,
-              url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
-            };
-          }),
-        );
+        // Build the FULL nested tree for EVERY matched folder from the single
+        // root listing already in memory (fast — NO per-folder Drive
+        // round-trips, which caused 30s+ timeouts). The `seen` set must
+        // start EMPTY: the builder marks the folder itself once it builds
+        // it — seeding it with the folder's own id would skip the folder
+        // and return an empty tree (the earlier bug).
+        const buildFolderNode = (nodeFolderId: string, nodeName: string, seen: Set<string>): any => {
+          if (seen.has(nodeFolderId)) {
+            return { id: nodeFolderId, name: nodeName, subfolders: [], rootFiles: [] };
+          }
+          seen.add(nodeFolderId);
 
-        const matchedFolders = matchedFolderResults
-          .filter((result) => result.status === "fulfilled")
-          .map((result) => (result as PromiseFulfilledResult<any>).value);
+          const childIds = parentMap.get(nodeFolderId) ?? [];
+          const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
+
+          return {
+            id: nodeFolderId,
+            name: nodeName,
+            subfolders: childItems
+              .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
+              .map((sub: any) => buildFolderNode(sub.id, sub.name, seen)),
+            rootFiles: childItems
+              .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
+              .sort(byModifiedDesc)
+              .map(toFileItem),
+          };
+        };
+
+        const matchedFolders = dedupedMatches.map((folderMatch: any) => ({
+          ...buildFolderNode(folderMatch.id, folderMatch.name, new Set()),
+          url: `https://drive.google.com/drive/folders/${folderMatch.id}`,
+        }));
 
         // Legacy flat shape (first matched folder) kept for backward compatibility
         const legacyFolders = ((matchedFolders[0] as any)?.subfolders ?? []).map((sub: any) => ({
