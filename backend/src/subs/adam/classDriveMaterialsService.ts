@@ -491,6 +491,39 @@ export const buildDriveMaterialsPayload = async (
       return ids;
     };
 
+    // Full nested-tree builder for ANY folder id in the listing (hoisted so
+    // the ROOT folder node can be built too, not only course-matched ones).
+    const buildFolderTree = (nodeFolderId: string, nodeName: string, seen: Set<string>): any => {
+      if (seen.has(nodeFolderId)) {
+        return { id: nodeFolderId, name: nodeName, subfolders: [], rootFiles: [] };
+      }
+      seen.add(nodeFolderId);
+
+      const childIds = parentMap.get(nodeFolderId) ?? [];
+      const childItems = childIds.map((id) => byId.get(id)).filter(Boolean);
+
+      return {
+        id: nodeFolderId,
+        name: nodeName,
+        subfolders: childItems
+          .filter((child: any) => child.mimeType === DRIVE_FOLDER_MIME)
+          .map((sub: any) => buildFolderTree(sub.id, sub.name, seen)),
+        rootFiles: childItems
+          .filter((child: any) => child.mimeType !== DRIVE_FOLDER_MIME)
+          .sort(byModifiedDesc)
+          .map(toFileItem),
+      };
+    };
+
+    // Root Drive folder with its FULL nested tree. The top-level subfolders
+    // are rendered as the "Course Folders" cards — named by their real Drive
+    // names, not by LMS course matching (which yields nothing when the class
+    // has no course records or the Drive names don't resemble course names).
+    const rootFolderNode = {
+      ...buildFolderTree(folderId, rootFolderName ?? "Drive folder", new Set()),
+      url: "https://drive.google.com/drive/folders/" + folderId,
+    };
+
     const courseMaterials = (
       await Promise.all(
         courseDocs.map(async (course) => {
@@ -595,6 +628,7 @@ export const buildDriveMaterialsPayload = async (
       source: rootUrl,
       folderId,
       rootFolderName: rootFolderName ?? "",
+      rootFolder: rootFolderNode,
       courseMaterials,
     };
   } catch (error) {

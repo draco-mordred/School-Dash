@@ -292,6 +292,7 @@ const ClassCourseMaterialsPage = () => {
   // response) — used for the students' read-only status chip.
   const [driveSynced, setDriveSynced] = useState(false);
   const [rootFolderName, setRootFolderName] = useState("");
+  const [rootFolder, setRootFolder] = useState<any | null>(null);
 
   const toggleSubfolder = (key: string) =>
     setOpenSubfolders((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -323,6 +324,7 @@ const ClassCourseMaterialsPage = () => {
       setSyncMessage(data?.message ?? "");
       setDriveSynced(Boolean(data?.synced));
       setRootFolderName(String(data?.rootFolderName ?? ""));
+      setRootFolder(data?.rootFolder ?? null);
 
       if (data?.cloudStorage?.rootUrl) {
         setNewLink(data.cloudStorage.rootUrl);
@@ -414,6 +416,22 @@ const ClassCourseMaterialsPage = () => {
     });
   }, [courses, filter]);
 
+  // Drive-driven "Course Folders" cards: one per TOP-LEVEL folder under the
+  // class Drive root, named by their real Drive names (labelled with the
+  // root folder's name, e.g. "POWERFUL"). Takes precedence over the legacy
+  // course-name matching, which renders nothing when the class has no course
+  // records or the Drive folder names don't resemble LMS course names.
+  const driveFolderCards = useMemo(() => {
+    const subs = Array.isArray(rootFolder?.subfolders) ? rootFolder.subfolders : [];
+    return subs
+      .filter((folder: any) => folder?.id)
+      .map((folder: any) => ({
+        ...normalizeFolderNode(folder),
+        url: folder?.url ?? "https://drive.google.com/drive/folders/" + folder.id,
+      }))
+      .sort((a: any, b: any) => String(a?.name || "").localeCompare(String(b?.name || "")));
+  }, [rootFolder]);
+
   const syncCourseFoldersSequentially = async (rootUrl: string) => {
     if (!classId || !rootUrl) return;
     const courseList = courses;
@@ -430,6 +448,7 @@ const ClassCourseMaterialsPage = () => {
           params: { courseId },
           timeout: 120000,
         });
+        if (data?.rootFolder) setRootFolder(data.rootFolder);
         const entry = (Array.isArray(data?.courseMaterials) ? data.courseMaterials : []).find(
           (e: any) => String(e?.courseId) === courseId,
         );
@@ -681,7 +700,84 @@ const ClassCourseMaterialsPage = () => {
         </CardContent>
       </Card>
 
-      {filteredCourses.length === 0 ? (
+      {driveFolderCards.length > 0 ? (
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Course folders synced from the Drive root{" "}
+            <span className="font-medium text-foreground">{rootFolderName || "class Drive"}</span>.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {driveFolderCards.map((folder: any) => {
+              const folderCardKey = "root:" + folder.id;
+              const thisFolderOpen = Boolean(openFolderCards[folderCardKey]);
+              const folderTotalFiles = countFolderFiles(folder);
+              const nestedFolderCount = countNestedFolders(folder);
+              return (
+                <Card key={folder.id} className="overflow-hidden border-border/70">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFolderCards((prev) => ({ ...prev, [folderCardKey]: !prev[folderCardKey] }))}
+                    className="flex w-full items-center justify-between gap-3 bg-muted/30 px-4 py-3 text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+                        {rootFolderName || "Drive folder"}
+                      </p>
+                      <h2 className="mt-1 truncate text-lg font-semibold text-foreground">{folder?.name || "Folder"}</h2>
+                    </div>
+                    {thisFolderOpen ? (
+                      <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    )}
+                  </button>
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <a href={folder.url} target="_blank" rel="noreferrer" className="truncate underline decoration-dotted hover:text-primary">
+                        ({folder.url})
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(folder.url);
+                        }}
+                        title="Copy Drive link"
+                        className="shrink-0 hover:text-primary"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                      <span className="ml-auto shrink-0">
+                        {nestedFolderCount > 0 && nestedFolderCount + " folder" + (nestedFolderCount === 1 ? "" : "s") + " · "}
+                        {folderTotalFiles} file{folderTotalFiles === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    {thisFolderOpen && (
+                      <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-border bg-background/70 p-2">
+                        {(folder.subfolders ?? []).map((sub: any) => (
+                          <FolderNodeSection
+                            key={sub.id}
+                            node={sub}
+                            nodeKey={folderCardKey + ":" + sub.id}
+                            openSubfolders={openSubfolders}
+                            toggleSubfolder={toggleSubfolder}
+                            driveLink={folder.url}
+                          />
+                        ))}
+                        {(folder.rootFiles ?? []).map((file: any) => (
+                          <FileRow key={file.id} file={file} driveLink={folder.url} />
+                        ))}
+                        {folderTotalFiles === 0 && nestedFolderCount === 0 && (
+                          <p className="px-2 py-2 text-sm text-muted-foreground">This folder is empty.</p>
+                        )}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ) : filteredCourses.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             No courses match the current filter for this class yet.
