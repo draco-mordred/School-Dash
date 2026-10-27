@@ -181,6 +181,14 @@ cd backend && npm run build:vercel
 
 ## 📌 Notes
 
+### 📁 Google Drive Course Materials (deep-search architecture)
+
+Deep-searching class Drive folders is only possible through the backend Google Drive integration (OAuth + recursive folder listing) — a public folder URL alone is not enough to enumerate files in the browser. As implemented:
+
+- A shared Drive folder URL is saved per class (`POST /api/classes/:id/cloud-storage`).
+- The server (`backend/src/subs/adam/classDriveMaterialsService.ts`) OAuth-authenticates, crawls the folder tree recursively (bounded-concurrency, 3-minute in-memory listing cache), and returns the root folder's full nested tree via `GET /api/classes/:id/course-materials` (`rootFolder`), plus optional per-course name matching (`courseMaterials`).
+- The frontend renders one "Course Folder" card per top-level Drive folder, named by its real Drive name, for admin, teacher, and student roles.
+
 - The backend is bundled into `api/index.js` for Vercel deployment.
 - Use `backend/api/index.ts` as the serverless bridge entrypoint.
 - `frontend/` contains the React/Vite client.
