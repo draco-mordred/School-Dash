@@ -59,6 +59,7 @@ const LecturerSessionCard = () => {
   const [sessions, setSessions] = useState<MySession[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [complaintsError, setComplaintsError] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [checkingIn, setCheckingIn] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
@@ -68,16 +69,23 @@ const LecturerSessionCard = () => {
   const load = useCallback(async () => {
     if (!isTeacher) return;
     try {
-      const [sessionsRes, complaintsRes] = await Promise.all([
-        api.get("/attendance/my-sessions"),
-        api.get("/attendance/complaints", { params: { status: "all" } }),
-      ]);
+      const sessionsRes = await api.get("/attendance/my-sessions");
       if (mountedRef.current) {
         setSessions(
           Array.isArray(sessionsRes.data?.data?.sessions)
             ? sessionsRes.data.data.sessions
             : [],
         );
+      }
+    } catch {
+      // Sessions endpoint unavailable — the sessions card shows its empty state.
+    }
+    let complaintsOk = true;
+    try {
+      const complaintsRes = await api.get("/attendance/complaints", {
+        params: { status: "all" },
+      });
+      if (mountedRef.current) {
         setComplaints(
           Array.isArray(complaintsRes.data?.data?.complaints)
             ? complaintsRes.data.data.complaints
@@ -85,11 +93,12 @@ const LecturerSessionCard = () => {
         );
       }
     } catch {
-      // Silent: cards hide when the endpoint is unavailable.
-    } finally {
-      if (mountedRef.current) setLoaded(true);
+      complaintsOk = false;
     }
-  }, [isTeacher]);
+    if (mountedRef.current) {
+      setComplaintsError(!complaintsOk);
+      setLoaded(true);
+    }  }, [isTeacher]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -289,7 +298,13 @@ const LecturerSessionCard = () => {
         </CardHeader>
         <CardContent className="space-y-3">
           {complaints.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No complaints right now.</p>
+            complaintsError ? (
+              <p className="text-sm text-destructive">
+                Failed to load complaints — refresh the page or try again shortly.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No complaints right now.</p>
+            )
           ) : (
             <>
               {openComplaints.map((complaint) => (
@@ -407,3 +422,4 @@ const LecturerSessionCard = () => {
 };
 
 export default LecturerSessionCard;
+
