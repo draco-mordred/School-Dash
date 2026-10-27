@@ -18,6 +18,7 @@ import {
   getClinicalAttendanceComplaints,
   resolveClinicalAttendanceComplaint,
 } from "../controllers/clinicalAttendance";
+import { getMyClinicalTeam } from "../controllers/clinicalTeam";
 
 const clinicalAttendanceRouter = express.Router();
 
@@ -74,7 +75,15 @@ clinicalAttendanceRouter.post(
 clinicalAttendanceRouter.get(
   "/sessions",
   protect,
-  authorize(["admin", "teacher", "unitconsultant", "unitresident", "student"]),
+  authorize(["admin", "teacher", "unitconsultant", // Get the student's active clinical posting team (members, supervisor, week activities, own performance)
+clinicalAttendanceRouter.get(
+  "/my-team",
+  protect,
+  authorize(["student"]),
+  getMyClinicalTeam,
+);
+
+"unitresident", "student"]),
   getClinicalAttendanceSessions
 );
 

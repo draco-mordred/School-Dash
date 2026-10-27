@@ -26,6 +26,7 @@ import UnitConsultantCourses from "@/pages/UnitConsultantCourses";
 import UnitResidentCourses from "@/pages/UnitResidentCourses";
 import ParentCourses from "@/pages/ParentCourses";
 import StudentClinicalsCurrentPosting from "@/pages/StudentClinicalsCurrentPosting";
+import StudentClinicalTeamPage from "@/pages/StudentClinicalTeamPage";
 import StudentRotationHistory from "@/pages/StudentRotationHistory";
 import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
@@ -219,7 +220,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/clinicals/team",
-            element: <StudentSection title="Clinical Team" description="Meet your clinical supervisors and support team." />,
+            element: <StudentClinicalTeamPage />,
           },
           {
             path: "student/clinicals/attendance",
