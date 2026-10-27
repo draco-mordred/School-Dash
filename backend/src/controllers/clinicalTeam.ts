@@ -1,12 +1,19 @@
 import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import User from "../models/user";
+import ClassModel from "../models/classes";
+import AcademicClock from "../models/academicClock";
 import RotationPlan from "../models/rotationPlan";
 import ClinicalAttendance from "../models/clinicalAttendance";
 import {
   findGroupWindowForStudent,
   groupStudentIds,
 } from "../subs/latifah/clinicalPostingResolver";
+import {
+  hasConfiguredAcademicClockPhases,
+  phaseRequiresPostingSchedule,
+  resolveAcademicClockPhase,
+} from "../utils/academicClockPhase";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const IS_OBJECT_ID = (v: unknown) =>
@@ -25,8 +32,13 @@ const endOfDay = (d: Date) => {
 };
 
 // GET /clinical-attendance/my-team (student)
-// The student's active posting team: posting + window, team members,
-// supervisor details, this week's team activities, and the student's own
+// The student's active posting team, resolved from the CLASS CLOCK: the
+// class's current academic-clock phase selects the posting schedule
+// (phaseConfig.postingScheduleId/postingName) for that class, and the
+// team/group comes from that posting's groups. Falls back to scanning
+// all rotation plans only when the class has no configured clock
+// phases. Returns the posting + window, team members, supervisor
+// details, this week's team activities, and the student's own
 // performance across the posting — powers /student/clinicals/team.
 export const getMyClinicalTeam = async (
   req: Request,
@@ -39,31 +51,139 @@ export const getMyClinicalTeam = async (
       return;
     }
     const now = new Date();
+    const myId = String(user._id);
 
-    // 1. Active posting group + assigned window (KRYSTA RotationPlan).
+    // 1. Class clock: student -> class -> academic year -> clock -> phase.
+    const student = await User.findById(myId)
+      .select("studentClasses")
+      .lean<any>();
+    const rawClassId =
+      student?.studentClasses &&
+      typeof student.studentClasses === "object" &&
+      !Array.isArray(student.studentClasses)
+        ? String((student.studentClasses as any)._id ?? student.studentClasses)
+        : student?.studentClasses
+          ? String(student.studentClasses)
+          : null;
+
+    let phaseInfo: any = null;
+    let noTeamReason: string | null = rawClassId ? null : "no-class";
+
+    let clock: any = null;
+    let phaseConfig: Record<string, any> | null = null;
+    let phaseDriven = false;
+    if (rawClassId) {
+      const classDoc = await ClassModel.findById(rawClassId)
+        .select("academicYear name")
+        .lean<any>();
+      if (classDoc?.academicYear) {
+        clock = await AcademicClock.findOne({
+          classId: rawClassId,
+          academicYear: classDoc.academicYear,
+        }).lean<any>();
+      }
+      const resolved = clock
+        ? resolveAcademicClockPhase(clock, now)
+        : null;
+      phaseConfig = (resolved?.phase ?? null) as Record<string, any> | null;
+      phaseDriven = hasConfiguredAcademicClockPhases(clock?.phaseConfig);
+      const phaseActive = Boolean(
+        resolved &&
+          (!resolved.startsAt || !resolved.endsAt ||
+            (now >= resolved.startsAt && now < resolved.endsAt)),
+      );
+      phaseInfo = {
+        phaseDriven,
+        classId: rawClassId,
+        className: classDoc?.name ?? null,
+        phaseId: resolved?.phaseId ?? null,
+        phaseName: phaseConfig?.name ?? null,
+        startsAt: resolved?.startsAt ?? null,
+        endsAt: resolved?.endsAt ?? null,
+        phaseActive,
+        postingRequired: phaseDriven
+          ? phaseRequiresPostingSchedule(phaseConfig)
+          : null,
+      };
+    }
+
+    // 2. Resolve the active posting group + window.
     let hit: any = null;
     let postingName: string | null = null;
-    const plans = await RotationPlan.find({}).lean<any[]>();
-    for (const plan of plans) {
-      for (const posting of Array.isArray(plan?.postings) ? plan.postings : []) {
-        const found = findGroupWindowForStudent(
-          posting?.groups,
-          String(user._id),
-          now,
+
+    if (phaseDriven) {
+      const scheduleIdRaw =
+        phaseConfig?.postingScheduleId ?? phaseConfig?.postingId ?? null;
+      const configuredPostingName = phaseConfig?.postingName
+        ? String(phaseConfig.postingName)
+        : null;
+      const scheduleId =
+        scheduleIdRaw && IS_OBJECT_ID(String(scheduleIdRaw))
+          ? String(scheduleIdRaw)
+          : null;
+
+      if (!phaseInfo?.phaseActive) {
+        noTeamReason = "phase-inactive";
+      } else if (!scheduleId || !configuredPostingName) {
+        noTeamReason = "posting-not-configured";
+        phaseInfo.postingConfigured = false;
+      } else {
+        phaseInfo.postingConfigured = true;
+        phaseInfo.scheduleId = scheduleId;
+        phaseInfo.postingName = configuredPostingName;
+        const plan = await RotationPlan.findOne({
+          _id: scheduleId,
+          class: rawClassId,
+        }).lean<any>();
+        const posting = (plan?.postings ?? []).find(
+          (p: any) => String(p?.name) === configuredPostingName,
         );
-        if (found) {
-          hit = found;
-          postingName = posting?.name ?? null;
-          break;
+        if (posting) {
+          const found = findGroupWindowForStudent(
+            posting?.groups,
+            myId,
+            now,
+          );
+          if (found) {
+            hit = found;
+            postingName = configuredPostingName;
+          }
         }
+        if (!hit) noTeamReason = "not-in-posting-group";
       }
-      if (hit) break;
+    } else {
+      // No configured clock phases — legacy fallback: scan all plans.
+      const plans = await RotationPlan.find({}).lean<any[]>();
+      for (const plan of plans) {
+        for (const posting of Array.isArray(plan?.postings)
+          ? plan.postings
+          : []) {
+          const found = findGroupWindowForStudent(
+            posting?.groups,
+            myId,
+            now,
+          );
+          if (found) {
+            hit = found;
+            postingName = posting?.name ?? null;
+            break;
+          }
+        }
+        if (hit) break;
+      }
+      if (!hit) noTeamReason = "no-active-group";
     }
 
     if (!hit) {
       res.status(200).json({
         success: true,
-        data: { team: null, weekActivities: [], myPerformance: null },
+        data: {
+          team: null,
+          phase: phaseInfo,
+          noTeamReason,
+          weekActivities: [],
+          myPerformance: null,
+        },
       });
       return;
     }
@@ -100,7 +220,7 @@ export const getMyClinicalTeam = async (
         )
       : null;
 
-    // 2. Team members + supervisor details.
+    // 3. Team members + supervisor details.
     const memberObjectIds = studentIds
       .filter((id) => IS_OBJECT_ID(id))
       .map((id) => new mongoose.Types.ObjectId(id));
@@ -122,7 +242,7 @@ export const getMyClinicalTeam = async (
       supervisor = { name: hit.groupRef.supervisorName };
     }
 
-    // 3. Team sessions inside the posting window.
+    // 4. Team sessions inside the posting window.
     const sessionFilter: any = {
       status: { $ne: "cancelled" },
       attendees: { $elemMatch: { student: { $in: memberObjectIds } } },
@@ -140,7 +260,6 @@ export const getMyClinicalTeam = async (
       .sort({ date: 1 })
       .lean<any[]>();
 
-    const myId = String(user._id);
     const fmtSession = (s: any) => ({
       _id: String(s._id),
       title: s.title ?? "",
@@ -158,7 +277,7 @@ export const getMyClinicalTeam = async (
         null,
     });
 
-    // 4. This week (Monday–Sunday) team activities.
+    // 5. This week (Monday–Sunday) team activities.
     const weekStart = startOfDay(now);
     weekStart.setDate(weekStart.getDate() - ((now.getDay() + 6) % 7));
     const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
@@ -169,7 +288,7 @@ export const getMyClinicalTeam = async (
       })
       .map(fmtSession);
 
-    // 5. The student's own performance across the posting.
+    // 6. The student's own performance across the posting.
     const tally: Record<string, number> = {
       present: 0,
       late: 0,
@@ -217,6 +336,7 @@ export const getMyClinicalTeam = async (
           supervisor,
           members,
         },
+        phase: phaseInfo,
         weekActivities,
         myPerformance: {
           tally,

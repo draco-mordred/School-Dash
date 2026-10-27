@@ -71,6 +71,21 @@ type TeamData = {
     attendanceRate: number;
     sessions: TeamSession[];
   } | null;
+  phase: PhaseInfo | null;
+  noTeamReason: string | null;
+};
+
+type PhaseInfo = {
+  phaseDriven: boolean;
+  className: string | null;
+  phaseId: string | null;
+  phaseName: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  phaseActive: boolean;
+  postingRequired: boolean | null;
+  postingConfigured?: boolean;
+  postingName?: string | null;
 };
 
 const fmtDate = (value: string | null | undefined) =>
@@ -149,16 +164,53 @@ export default function StudentClinicalTeamPage() {
   }
 
   if (!data?.team) {
+    const phase = data?.phase ?? null;
+    const reason = data?.noTeamReason ?? null;
+    let emptyTitle = "You are not currently assigned to a clinical team.";
+    let emptyBody =
+      "Once your rotation plan places you in an active posting group, your team, supervisor, and performance will appear here.";
+    if (reason === "phase-inactive" && phase?.phaseName) {
+      emptyTitle =
+        "Your class clock is not in an active phase right now.";
+      emptyBody =
+        "The current phase (" +
+        phase.phaseName +
+        ") is outside its active window. Your team details will appear once the class clock phase is active.";
+    } else if (reason === "posting-not-configured" && phase?.phaseName) {
+      emptyTitle =
+        "The current phase (" + phase.phaseName + ") has no posting schedule configured yet.";
+      emptyBody =
+        "Once a posting schedule is attached to this phase of your class clock, your team, supervisor, and performance will appear here.";
+    } else if (reason === "not-in-posting-group" && phase?.phaseName) {
+      emptyTitle =
+        "You are not in an active team in the current posting (" +
+        (phase.postingName ?? phase.phaseName) +
+        ") yet.";
+      emptyBody =
+        "Your class clock phase is " +
+        phase.phaseName +
+        ", but you have not been placed in a posting group whose window covers today. Your team details will appear once your rotation window starts.";
+    }
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-base">My clinical team</CardTitle>
           <CardDescription>
-            You are not currently assigned to a clinical team. Once your
-            rotation plan places you in an active posting group, your team,
-            supervisor, and performance will appear here.
+            {emptyTitle} {emptyBody}
           </CardDescription>
         </CardHeader>
+        {phase?.phaseName ? (
+          <CardContent className="text-xs text-muted-foreground">
+            Class clock phase: {phase.phaseName}
+            {phase.startsAt && phase.endsAt
+              ? " · " +
+                fmtDate(phase.startsAt) +
+                " – " +
+                fmtDate(phase.endsAt)
+              : ""}
+            {phase.className ? " · " + phase.className : ""}
+          </CardContent>
+        ) : null}
       </Card>
     );
   }
@@ -209,6 +261,17 @@ export default function StudentClinicalTeamPage() {
             <p className="text-sm text-muted-foreground">
               {fmtDate(team.window.startDate)} – {fmtDate(team.window.endDate)}
             </p>
+            {data.phase?.phaseName ? (
+              <p className="text-xs text-muted-foreground">
+                Class clock phase: {data.phase.phaseName}
+                {data.phase.startsAt && data.phase.endsAt
+                  ? " · " +
+                    fmtDate(data.phase.startsAt) +
+                    " – " +
+                    fmtDate(data.phase.endsAt)
+                  : ""}
+              </p>
+            ) : null}
             {team.daysElapsed != null ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
