@@ -316,7 +316,11 @@ const recursivelyCollectDriveItems = async (folderId: string, accessToken: strin
     return all;
   }
 
-  seen.add(folderId);
+  // NOTE: the root folder must NOT be pre-added to `seen` — the
+  // batch builder below filters out ids already in `seen`, so marking
+  // the root upfront silently skipped its own listing and every crawl
+  // returned an empty result (the PR #30 regression that blanked the page).
+  // Each id is marked as it is dequeued instead.
   const queue: string[] = [folderId];
 
   while (queue.length) {
