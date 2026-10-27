@@ -269,9 +269,19 @@ export const resolveComplaint = async (req: Request, res: Response) => {
     }
     if (!complaint.lecturer || String(complaint.lecturer) !== String(user._id)) {
       // Backfill path: complaints created without a stamped lecturer can
-      // still be resolved by the session's actual lecturer.
-      const session = await LectureSession.findById(complaint.session).lean<any>();
-      if (!session || String(session.lecturer) !== String(user._id)) {
+      // still be resolved by the lecturer who owns the session or the
+      // attendance record (the session may itself have no lecturer).
+      const [session, record] = await Promise.all([
+        complaint.session
+          ? LectureSession.findById(complaint.session).lean<any>()
+          : null,
+        Attendance.findById(complaint.record).lean<any>(),
+      ]);
+      const ownsSession =
+        session != null && String(session.lecturer) === String(user._id);
+      const ownsRecord =
+        record != null && String(record.lecturer) === String(user._id);
+      if (!ownsSession && !ownsRecord) {
         return res.status(403).json({
           success: false,
           message: "Only the lecturer assigned to this session can resolve this complaint",
