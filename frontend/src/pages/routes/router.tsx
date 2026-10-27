@@ -30,6 +30,7 @@ import StudentRotationHistory from "@/pages/StudentRotationHistory";
 import StudentLogbookDashboard from "@/pages/StudentLogbookDashboard";
 import Timetable from "@/pages/academics/Timetable";
 import Attendance from "@/pages/academics/Attendance";
+import AttendanceOverview from "@/pages/academics/AttendanceOverview";
 import AcademicCalendar from "@/pages/academics/AcademicCalendar";
 import StudentPortal from "@/pages/StudentPortal";
 import StudentSection from "@/pages/StudentSection";
@@ -291,6 +292,10 @@ export const router = createBrowserRouter([
           {
             path: "attendance/clinical",
             element: <SupervisorQrAttendancePage />,
+          },
+          {
+            path: "attendance/overview",
+            element: <AttendanceOverview />,
           },
           {
             path: "clinical-rotations",
