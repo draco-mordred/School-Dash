@@ -142,7 +142,7 @@ export const createComplaint = async (req: Request, res: Response) => {
       student: user._id,
       record: record._id,
       session: record.session,
-      lecturer: session?.lecturer ?? null,
+      lecturer: session?.lecturer ?? record.lecturer ?? null,
       message: msg,
       status: "open",
       resolution: { finalStatus: null, note: "", resolvedBy: null, resolvedAt: null },
@@ -206,7 +206,14 @@ export const getComplaints = async (req: Request, res: Response) => {
         ? {}
         : { status: "open" };
     if (role === "teacher") {
-      filter.lecturer = user._id;
+      // Scope to the teacher's own sessions. Complaints created before
+      // the lecturer fallback can have lecturer: null — include those
+      // whose session belongs to this teacher so nothing is orphaned.
+      const sessionIds = await LectureSession.find({ lecturer: user._id }).distinct("_id");
+      filter.$or = [
+        { lecturer: user._id },
+        { lecturer: null, session: { $in: sessionIds } },
+      ];
     } else if (role === "student") {
       filter.student = user._id;
     } else if (role !== "admin") {
@@ -261,10 +268,16 @@ export const resolveComplaint = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "This complaint is already resolved" });
     }
     if (!complaint.lecturer || String(complaint.lecturer) !== String(user._id)) {
-      return res.status(403).json({
-        success: false,
-        message: "Only the lecturer assigned to this session can resolve this complaint",
-      });
+      // Backfill path: complaints created without a stamped lecturer can
+      // still be resolved by the session's actual lecturer.
+      const session = await LectureSession.findById(complaint.session).lean<any>();
+      if (!session || String(session.lecturer) !== String(user._id)) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the lecturer assigned to this session can resolve this complaint",
+        });
+      }
+      complaint.lecturer = user._id;
     }
 
     const record = await Attendance.findById(complaint.record);
