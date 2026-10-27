@@ -206,13 +206,19 @@ export const getComplaints = async (req: Request, res: Response) => {
         ? {}
         : { status: "open" };
     if (role === "teacher") {
-      // Scope to the teacher's own sessions. Complaints created before
-      // the lecturer fallback can have lecturer: null — include those
-      // whose session belongs to this teacher so nothing is orphaned.
-      const sessionIds = await LectureSession.find({ lecturer: user._id }).distinct("_id");
+      // Scope to the teacher's own sessions AND records. Complaints can
+      // carry lecturer: null when the auto-generated session had no
+      // lecturer stamped at all (timetable period without a lecturer) —
+      // surface those when the session or the attendance record belongs
+      // to this teacher, so nothing is orphaned.
+      const [sessionIds, recordIds] = await Promise.all([
+        LectureSession.find({ lecturer: user._id }).distinct("_id"),
+        Attendance.find({ lecturer: user._id }).distinct("_id"),
+      ]);
       filter.$or = [
         { lecturer: user._id },
         { lecturer: null, session: { $in: sessionIds } },
+        { lecturer: null, record: { $in: recordIds } },
       ];
     } else if (role === "student") {
       filter.student = user._id;
