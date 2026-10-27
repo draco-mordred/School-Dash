@@ -9,6 +9,8 @@ import {
   removeCourseFromClass,
   saveClassCloudStorage,
   getClassCourseMaterials,
+  getClassOverview,
+  getClassImportantDates,
 } from "../controllers/classes";
 import { authorize, protect } from "../middleware/auth";
 
@@ -35,6 +37,11 @@ classRouter.get(
 );
 classRouter.get("/:id", protect, authorize(["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"]), getClassById);
 classRouter.get("/:id/students", protect, authorize(["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"]), getStudentsForClass);
+
+const allRoles = ["admin", "teacher", "student", "parent", "unitconsultant", "unitresident"];
+
+classRouter.get("/:id/overview", protect, authorize(allRoles), getClassOverview);
+classRouter.get("/:id/important-dates", protect, authorize(allRoles), getClassImportantDates);
 classRouter.patch("/update/:id", protect, authorize(["admin", "teacher", "unitconsultant", "unitresident"]), updateClass);
 classRouter.delete("/delete/:id", protect, authorize(["admin"]), deleteClass);
 

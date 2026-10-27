@@ -3,6 +3,10 @@ import ClassModel from "../models/classes";
 import UserModel from "../models/user";
 import { logActivity } from "../utils/activitieslog";
 import { resolveSharedDriveAccessTokenCandidates } from "../utils/driveAccessToken";
+import AcademicClock from "../models/academicClock";
+import ExamModel from "../models/exam";
+import { phaseRequiresPostingSchedule, resolveAcademicClockPhase } from "../utils/academicClockPhase";
+import { getUpcomingImportantDates } from "../utils/importantDates";
 import {
   classDriveMaterialsService,
   extractGoogleDriveFolderId,
@@ -379,5 +383,141 @@ export const removeCourseFromClass = async (req: Request, res: Response) => {
 };
 
 
+// ─── Class overview + important dates ──────────────────────────────
 
+// @desc    Get a class overview: name, student/course counts, active
+//          clock phase (current posting) and class teacher/HOD.
+// @route   GET /api/classes/:id/overview
+// @access  Private (all roles)
+export const getClassOverview = async (req: Request, res: Response) => {
+  try {
+    const cls = await ClassModel.findById(req.params.id)
+      .populate("academicYear", "name fromYear toYear isCurrent")
+      .populate("classTeacher", "name email role")
+      .lean();
 
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+
+    const classId = String(cls._id);
+    const academicYearId =
+      cls.academicYear && typeof cls.academicYear === "object"
+        ? String((cls.academicYear as any)._id)
+        : cls.academicYear
+          ? String(cls.academicYear)
+          : null;
+
+    const [studentCount, clock] = await Promise.all([
+      UserModel.countDocuments({ studentClasses: classId, role: "student" }),
+      academicYearId
+        ? AcademicClock.findOne({ classId, academicYear: academicYearId }).lean()
+        : AcademicClock.findOne({ classId }).lean(),
+    ]);
+
+    let activePhase: any = null;
+    if (clock) {
+      const resolved = resolveAcademicClockPhase(clock);
+      if (resolved.phase) {
+        activePhase = {
+          id: resolved.phaseId,
+          name: resolved.phase.name ?? resolved.phaseId,
+          postingType: resolved.phase.postingType ?? null,
+          subPostings: Array.isArray(resolved.phase.subPostings) ? resolved.phase.subPostings : [],
+          requiresPostingSchedule: phaseRequiresPostingSchedule(resolved.phase),
+          startsAt: resolved.startsAt,
+          endsAt: resolved.endsAt,
+        };
+      }
+    }
+
+    return res.json({
+      classId,
+      name: cls.name ?? "",
+      academicYear: cls.academicYear ?? null,
+      classTeacher: cls.classTeacher ?? null,
+      capacity: cls.capacity ?? null,
+      studentCount,
+      courseCount: Array.isArray(cls.courses) ? cls.courses.length : 0,
+      activePhase,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
+
+// @desc    Get upcoming important dates for a class: upcoming tests and
+//          assessments (Exam model), Nigerian public holidays, world
+//          observance days, and the active clock phase end date.
+// @route   GET /api/classes/:id/important-dates
+// @access  Private (all roles)
+export const getClassImportantDates = async (req: Request, res: Response) => {
+  try {
+    const cls = await ClassModel.findById(req.params.id).select("name academicYear").lean();
+    if (!cls) {
+      return res.status(404).json({ message: "Class not found" });
+    }
+
+    const parsedMonths = parseInt(String(req.query.months ?? "12"), 10);
+    const months = Math.min(Math.max(Number.isFinite(parsedMonths) ? parsedMonths : 12, 1), 24);
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const windowEnd = new Date(todayStart);
+    windowEnd.setMonth(windowEnd.getMonth() + months);
+
+    const [exams, clock] = await Promise.all([
+      ExamModel.find({
+        class: req.params.id,
+        isActive: true,
+        dueDate: { $gte: todayStart, $lte: windowEnd },
+      })
+        .populate("course", "name")
+        .select("title dueDate course duration")
+        .sort({ dueDate: 1 })
+        .lean(),
+      AcademicClock.findOne({ classId: req.params.id }).lean(),
+    ]);
+
+    const assessments = (exams as any[]).map((exam) => ({
+      id: String(exam._id),
+      type: "assessment",
+      title: exam.title ?? "Assessment",
+      detail: exam.course?.name
+        ? "Course: " + exam.course.name + (exam.duration ? " — " + exam.duration + " minutes" : "")
+        : exam.duration ? exam.duration + " minutes" : "Scheduled test/assessment",
+      date: exam.dueDate,
+    }));
+
+    const phaseItems: any[] = [];
+    if (clock) {
+      const resolved = resolveAcademicClockPhase(clock);
+      const endsAt = resolved.endsAt ? new Date(resolved.endsAt) : null;
+      if (resolved.phase && endsAt && endsAt >= todayStart && endsAt <= windowEnd) {
+        phaseItems.push({
+          id: "phase-" + resolved.phaseId,
+          type: "phase",
+          title: (resolved.phase.name ?? resolved.phaseId) + " ends",
+          detail: "Current class clock phase",
+          date: endsAt,
+        });
+      }
+    }
+
+    const holidays = getUpcomingImportantDates(todayStart, windowEnd).map((item) => ({
+      ...item,
+      date: item.date + "T00:00:00.000Z",
+    }));
+
+    return res.json({
+      classId: String(cls._id),
+      className: cls.name ?? "",
+      window: { from: todayStart, to: windowEnd },
+      dates: [...assessments, ...phaseItems, ...holidays].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      ),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+};
