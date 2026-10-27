@@ -970,14 +970,6 @@ const ClassCourseMaterialsPage = () => {
         </div>
       )}
 
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground">
-        <p className="font-medium text-foreground">Drive deep-search note</p>
-        <p className="mt-1">
-          Yes — this is possible with the Google Drive API, but only through a backend integration using OAuth and recursive folder listing.
-          A public folder URL alone is not enough to deep-search files automatically in the browser. For production, we should store a shared Drive folder URL per course,
-          then use a server endpoint to list child folders/files recursively and render them here.
-        </p>
-      </div>
     </div>
   );
 };
