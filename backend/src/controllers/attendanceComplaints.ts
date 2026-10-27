@@ -206,13 +206,19 @@ export const getComplaints = async (req: Request, res: Response) => {
         ? {}
         : { status: "open" };
     if (role === "teacher") {
-      // Scope to the teacher's own sessions. Complaints created before
-      // the lecturer fallback can have lecturer: null — include those
-      // whose session belongs to this teacher so nothing is orphaned.
-      const sessionIds = await LectureSession.find({ lecturer: user._id }).distinct("_id");
+      // Scope to the teacher's own sessions AND records. Complaints can
+      // carry lecturer: null when the auto-generated session had no
+      // lecturer stamped at all (timetable period without a lecturer) —
+      // surface those when the session or the attendance record belongs
+      // to this teacher, so nothing is orphaned.
+      const [sessionIds, recordIds] = await Promise.all([
+        LectureSession.find({ lecturer: user._id }).distinct("_id"),
+        Attendance.find({ lecturer: user._id }).distinct("_id"),
+      ]);
       filter.$or = [
         { lecturer: user._id },
         { lecturer: null, session: { $in: sessionIds } },
+        { lecturer: null, record: { $in: recordIds } },
       ];
     } else if (role === "student") {
       filter.student = user._id;
@@ -269,9 +275,19 @@ export const resolveComplaint = async (req: Request, res: Response) => {
     }
     if (!complaint.lecturer || String(complaint.lecturer) !== String(user._id)) {
       // Backfill path: complaints created without a stamped lecturer can
-      // still be resolved by the session's actual lecturer.
-      const session = await LectureSession.findById(complaint.session).lean<any>();
-      if (!session || String(session.lecturer) !== String(user._id)) {
+      // still be resolved by the lecturer who owns the session or the
+      // attendance record (the session may itself have no lecturer).
+      const [session, record] = await Promise.all([
+        complaint.session
+          ? LectureSession.findById(complaint.session).lean<any>()
+          : null,
+        Attendance.findById(complaint.record).lean<any>(),
+      ]);
+      const ownsSession =
+        session != null && String(session.lecturer) === String(user._id);
+      const ownsRecord =
+        record != null && String(record.lecturer) === String(user._id);
+      if (!ownsSession && !ownsRecord) {
         return res.status(403).json({
           success: false,
           message: "Only the lecturer assigned to this session can resolve this complaint",
