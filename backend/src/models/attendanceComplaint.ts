@@ -72,6 +72,14 @@ attendanceComplaintSchema.index({ record: 1, status: 1 });
 attendanceComplaintSchema.index({ lecturer: 1, status: 1, createdAt: -1 });
 attendanceComplaintSchema.index({ student: 1, createdAt: -1 });
 
+// Transient communication: complaints (with their resolution notes) are
+// automatically deleted 48 hours after creation via a MongoDB TTL index.
+// The resolved status itself lives on the Attendance record and persists.
+attendanceComplaintSchema.index(
+  { createdAt: 1 },
+  { expireAfterSeconds: 48 * 60 * 60 },
+);
+
 export default mongoose.model<IAttendanceComplaint>(
   "AttendanceComplaint",
   attendanceComplaintSchema,

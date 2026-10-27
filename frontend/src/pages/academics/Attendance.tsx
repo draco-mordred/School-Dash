@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -42,6 +42,7 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRightIcon,
+  MessageSquare,
 } from "lucide-react";
 
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
@@ -699,6 +700,8 @@ export default function Attendance() {
       </div>
 
       <LecturerSessionCardComponent />
+
+      {user?.role === "admin" && <AdminComplaintsFeed />}
 
       {isParent ? (
         <ParentChildrenOverview childrenData={parentChildren} loading={loading} />
@@ -2361,6 +2364,100 @@ function StudentRecordsByClass({
     );
   };
 
+  // ── Attendance complaints (student → session lecturer) ────────────────
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaintRecordId, setComplaintRecordId] = useState<string | null>(null);
+  const [complaintMessage, setComplaintMessage] = useState("");
+  const [sendingComplaint, setSendingComplaint] = useState(false);
+
+  const loadComplaints = useCallback(async () => {
+    try {
+      const { data } = await api.get("/attendance/complaints", {
+        params: { status: "all" },
+      });
+      setComplaints(Array.isArray(data?.data?.complaints) ? data.data.complaints : []);
+    } catch {
+      setComplaints([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadComplaints();
+  }, [loadComplaints]);
+
+  const complaintByRecord = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const complaint of complaints) {
+      if (complaint?.record?._id) map.set(String(complaint.record._id), complaint);
+    }
+    return map;
+  }, [complaints]);
+
+  const submitComplaint = async () => {
+    if (!complaintRecordId) return;
+    const message = complaintMessage.trim();
+    if (!message) {
+      toast.error("Please describe the issue with this attendance record.");
+      return;
+    }
+    try {
+      setSendingComplaint(true);
+      await api.post("/attendance/complaints", {
+        record: complaintRecordId,
+        message,
+      });
+      toast.success("Complaint sent to the lecturer of this session.");
+      setComplaintRecordId(null);
+      setComplaintMessage("");
+      await loadComplaints();
+    } catch (error: any) {
+      toast.error(
+        String(error?.response?.data?.message ?? "Failed to send the complaint."),
+      );
+    } finally {
+      setSendingComplaint(false);
+    }
+  };
+
+  const complaintCell = (recordId: string, status: string) => {
+    if (String(status) !== "unverified") {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    const complaint = complaintByRecord.get(recordId);
+    if (complaint) {
+      const resolved = complaint.status === "resolved";
+      const dismissed = complaint.status === "dismissed";
+      return (
+        <span
+          title={complaint.resolution?.note || complaint.message || ""}
+          className={
+            "text-xs font-semibold px-2 py-0.5 rounded-full " +
+            (resolved
+              ? "bg-green-500/15 text-green-600"
+              : dismissed
+                ? "bg-muted text-muted-foreground"
+                : "bg-amber-500/15 text-amber-600")
+          }
+        >
+          {resolved
+            ? "Resolved: " + String(complaint.resolution?.finalStatus ?? "")
+            : dismissed
+              ? "Dismissed"
+              : "Complaint sent"}
+        </span>
+      );
+    }
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setComplaintRecordId(recordId)}
+      >
+        Complain
+      </Button>
+    );
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -2497,6 +2594,9 @@ function StudentRecordsByClass({
                           <th className="px-3 py-2 font-medium text-muted-foreground text-left text-xs">
                             Notes
                           </th>
+                          <th className="px-3 py-2 font-medium text-muted-foreground text-center text-xs">
+                            Complaint
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2524,6 +2624,9 @@ function StudentRecordsByClass({
                                       : "Excuse not approved"
                                   : "—"}
                             </td>
+                            <td className="px-3 py-1.5 text-center">
+                              {complaintCell(r._id, r.status)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2534,6 +2637,54 @@ function StudentRecordsByClass({
             })}
           </div>
         )}
+
+        <Modal
+          open={complaintRecordId !== null}
+          setOpen={(open: boolean) => {
+            if (!open) {
+              setComplaintRecordId(null);
+              setComplaintMessage("");
+            }
+          }}
+          title="Send a complaint to your lecturer"
+          description="Explain why this attendance record should be reassessed. Only the lecturer of this session can resolve it."
+        >
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="attendance-complaint-message">Your message</Label>
+              <textarea
+                id="attendance-complaint-message"
+                value={complaintMessage}
+                onChange={(event) => setComplaintMessage(event.target.value)}
+                placeholder="e.g. I was present in class but my check-in was marked unverified…"
+                className="min-h-[120px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The lecturer of the session reviews complaints and sets the final status. Admins can view the
+              conversation read-only but cannot interfere. Complaints are automatically cleared after 48 hours.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setComplaintRecordId(null);
+                  setComplaintMessage("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={sendingComplaint}
+                onClick={() => void submitComplaint()}
+              >
+                {sendingComplaint ? "Sending…" : "Send complaint"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       </CardContent>
     </Card>
   );
@@ -2965,6 +3116,94 @@ function PendingExcuseRequests() {
                 Reject
               </Button>
             </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Admin read-only attendance complaints feed ──────────────────────
+function AdminComplaintsFeed() {
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadComplaints = useCallback(async () => {
+    try {
+      const { data } = await api.get("/attendance/complaints", {
+        params: { status: "all" },
+      });
+      setComplaints(Array.isArray(data?.data?.complaints) ? data.data.complaints : []);
+    } catch (error) {
+      console.error("Failed to load attendance complaints", error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadComplaints();
+  }, [loadComplaints]);
+
+  if (loading || complaints.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageSquare className="h-4 w-4" />
+          Attendance complaints
+        </CardTitle>
+        <CardDescription>
+          Read-only view of student and lecturer attendance complaints. Only the session's lecturer can
+          resolve them — the resolved status is applied to the attendance record automatically. Complaints
+          are cleared automatically 48 hours after they were sent.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {complaints.slice(0, 20).map((complaint) => (
+          <div key={complaint._id} className="rounded-lg border p-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{complaint.student?.name ?? "Student"}</span>
+              {complaint.student?.idNumber ? (
+                <span className="text-xs text-muted-foreground">
+                  {complaint.student.idNumber}
+                </span>
+              ) : null}
+              <span
+                className={
+                  "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] " +
+                  (complaint.status === "resolved"
+                    ? "bg-green-500/15 text-green-600"
+                    : complaint.status === "dismissed"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-amber-500/15 text-amber-600")
+                }
+              >
+                {complaint.status}
+              </span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {complaint.createdAt
+                  ? new Date(complaint.createdAt).toLocaleString()
+                  : ""}
+              </span>
+            </div>
+            <p className="mt-1 text-foreground">“{complaint.message}”</p>
+            {complaint.record?.date ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Record date: {new Date(complaint.record.date).toLocaleDateString()} · Record
+                status: {complaint.record.status ?? "—"}
+              </p>
+            ) : null}
+            {complaint.status === "resolved" ? (
+              <p className="mt-1 text-xs">
+                <span className="font-medium">Lecturer’s resolution:</span>{" "}
+                marked {String(complaint.resolution?.finalStatus ?? "—")}
+                {complaint.resolution?.note
+                  ? " — “" + complaint.resolution.note + "”"
+                  : ""}
+              </p>
+            ) : null}
           </div>
         ))}
       </CardContent>
