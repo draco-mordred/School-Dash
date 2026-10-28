@@ -73,12 +73,22 @@ export default function StudentLogbookDashboard({ mode = "statistics" }: { mode?
         ]);
         if (cancelled) return;
 
-        const rawEntries = entriesRes.status === "success" && Array.isArray(entriesRes.value.data?.entries)
-          ? entriesRes.value.data.entries
-          : [];
+        if (entriesRes.status === "rejected") {
+          const reason: any = entriesRes.reason;
+          setError(
+            reason?.response?.data?.message ||
+              reason?.response?.data?.error ||
+              "Failed to load your logbook entries. Please log out and log back in, then try again.",
+          );
+        }
+
+        const rawEntries =
+          entriesRes.status === "fulfilled" && Array.isArray(entriesRes.value.data?.entries)
+            ? entriesRes.value.data.entries
+            : [];
         setEntries(rawEntries);
 
-        if (scheduleRes.status === "success" && Array.isArray(scheduleRes.value.data?.current)) {
+        if (scheduleRes.status === "fulfilled" && Array.isArray(scheduleRes.value.data?.current)) {
           const current = scheduleRes.value.data.current[0];
           if (current) {
             setCurrentPosting(current.postingName ?? null);
@@ -92,7 +102,9 @@ export default function StudentLogbookDashboard({ mode = "statistics" }: { mode?
           }
         }
       } catch (err: any) {
-        if (!cancelled) setError(err?.response?.data?.error || "Failed to load logbook data.");
+        if (!cancelled) {
+          setError(err?.response?.data?.message || err?.response?.data?.error || "Failed to load logbook data.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
