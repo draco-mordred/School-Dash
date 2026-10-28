@@ -478,20 +478,9 @@ export const validateCompliance = async (
           });
         }
         
-        // Notify admin
-        if (violation.actions?.adminNotified) {
-          const admins = await User.find({ role: "admin" }).select("_id");
-          for (const admin of admins) {
-            await createNotificationAndEmitEvent({
-              userId: admin._id,
-              role: "admin",
-              title: `Compliance Violation: ${violation.title}`,
-              message: violation.message,
-              type: "attendance",
-              link: "/admin/attendance",
-            });
-          }
-        }
+        // Admin copy removed: student compliance violations are recorded in
+        // ComplianceLog (monitorable via reports) — copying every violation
+        // to all admins flooded the admin notification feed.
       }
     }
     

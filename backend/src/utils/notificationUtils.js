@@ -1,19 +1,14 @@
 import { Notification } from "../models/notification";
-const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 export const createNotificationIfUnique = async (payload) => {
-    const now = new Date();
-    const duplicateSince = new Date(now.getTime() - DUPLICATE_WINDOW_MS);
-    const search = {
+    // Exact-content dedupe: remove ALL existing notifications for this user
+    // with the same title + message (regardless of age), then create a fresh
+    // one. One notification per content per user — recurring jobs (ticks,
+    // nudges, syncs) can no longer pile up duplicates.
+    await Notification.deleteMany({
         userId: payload.userId,
         title: payload.title,
         message: payload.message,
-        type: payload.type ?? "system",
-        createdAt: { $gte: duplicateSince },
-    };
-    const existing = await Notification.findOne(search);
-    if (existing) {
-        return existing;
-    }
+    });
     return Notification.create({
         userId: payload.userId,
         role: payload.role,

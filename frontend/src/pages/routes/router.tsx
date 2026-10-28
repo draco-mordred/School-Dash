@@ -91,6 +91,13 @@ const CoursesWrapper = () => {
   }
 };
 
+// Activities Log is an admin-only monitoring component — non-admins get NotFound
+const ActivitiesLogRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <NotFound />;
+  return <ActivitiesLog />;
+};
+
 export const router = createBrowserRouter([
   {
     children: [
@@ -112,7 +119,7 @@ export const router = createBrowserRouter([
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported
         children: [
           { path: "dashboard", element: <Dashboard /> },
-          { path: "activities-log", element: <ActivitiesLog /> },
+          { path: "activities-log", element: <ActivitiesLogRoute /> },
           { path: "settings/academic-years", element: <AcademicYear /> },
           {
             path: "users",

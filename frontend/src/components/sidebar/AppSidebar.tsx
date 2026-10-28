@@ -192,19 +192,16 @@ export function AppSidebar({
           [data-collapsible="icon"] [data-slot="sidebar-header"] [data-slot="sidebar-menu-button"] > :last-child {
             display: none;
           }
-          /* Center the nav icons and hide labels + chevrons in icon mode */
+          /* Center the nav icons in icon mode (labels/chevrons are not
+             rendered at all in icon mode — NavMain is hidden and
+             NavMainMiniSidebar renders icons only — so no hiding rules
+             are needed here; broad "hide last svg/span" rules previously
+             hid the nav icons themselves) */
           [data-collapsible="icon"] [data-slot="sidebar-menu"] {
             align-items: center;
           }
           [data-collapsible="icon"] [data-slot="sidebar-menu-button"] {
             justify-content: center !important;
-          }
-          /* Hide text label and chevron arrows in icon mode */
-          [data-collapsible="icon"] [data-slot="sidebar-menu-button"] > span:last-of-type {
-            display: none;
-          }
-          [data-collapsible="icon"] [data-slot="sidebar-menu-button"] svg:last-child {
-            display: none;
           }
           /* Hide the "Platform" group label in icon mode */
           [data-collapsible="icon"] [data-slot="sidebar-group-label"] {

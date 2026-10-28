@@ -192,11 +192,8 @@ export const sidebardata = {
           url: "/dashboard",
           roles: ["teacher", "student", "parent"],
         },
-        {
-          title: "Activities Log",
-          url: "/activities-log",
-          roles: ["teacher"],
-        },
+        // Activities Log removed for teachers — it is an admin-only
+        // monitoring component (see Reports & Analytics for admins).
       ],
     },
     {
