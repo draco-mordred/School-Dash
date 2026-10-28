@@ -266,7 +266,7 @@ export const sidebardata = {
       items: [
         { title: "Overview", url: "/logbook-entries" },
         { title: "Entries", url: "/clinical-activities" },
-        { title: "Pending Approvals", url: "/staff-approvals" },
+        { title: "Pending Approvals", url: "/student/logbook/pending" },
         { title: "Approved Entries", url: "/student/logbook/approved" },
         { title: "Statistics", url: "/student/logbook/statistics" },
       ],
@@ -281,6 +281,7 @@ export const sidebardata = {
         { title: "Overview", url: "/logbook-supervision" },
         { title: "Submissions", url: "/logbook-submissions" },
         { title: "Incoming Entries", url: "/logbook-incoming" },
+        { title: "Logbook & Team Schedule", url: "/clinical-rotations/logbook-settings", roles: ["teacher", "admin"] },
         { title: "Statistics", url: "/student/logbook/statistics" },
       ],
     },

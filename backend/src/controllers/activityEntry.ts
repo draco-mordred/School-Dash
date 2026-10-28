@@ -10,7 +10,7 @@ import mongoose from "mongoose";
  */
 export const createActivityEntry = async (req: Request, res: Response) => {
   try {
-    const { student, rotation, unit, umbrellaCategory, entryDate, clinicsAttended, wardRoundsAttended, callDutyCompleted, surgicalMetrics, medicalMetrics, notes } = req.body;
+    const { student, rotation, unit, umbrellaCategory, entryDate, clinicsAttended, wardRoundsAttended, callDutyCompleted, surgicalMetrics, medicalMetrics, notes, category, categoryLabel, title, hours, groupId, groupLabel, supervisorName } = req.body;
 
     // Extract student ID from JWT if not provided
     const studentId = student || (req as any).user?._id;
@@ -30,6 +30,13 @@ export const createActivityEntry = async (req: Request, res: Response) => {
       surgicalMetrics,
       medicalMetrics,
       notes,
+      category,
+      categoryLabel,
+      title,
+      hours,
+      groupId,
+      groupLabel,
+      supervisorName,
     });
 
     if (!result.success) {

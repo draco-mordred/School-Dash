@@ -7,7 +7,7 @@ import mongoose from "mongoose";
  */
 export const createActivityEntry = async (req, res) => {
     try {
-        const { student, rotation, unit, umbrellaCategory, entryDate, clinicsAttended, wardRoundsAttended, callDutyCompleted, surgicalMetrics, medicalMetrics, notes } = req.body;
+        const { student, rotation, unit, umbrellaCategory, entryDate, clinicsAttended, wardRoundsAttended, callDutyCompleted, surgicalMetrics, medicalMetrics, notes, category, categoryLabel, title, hours, groupId, groupLabel, supervisorName } = req.body;
         // Extract student ID from JWT if not provided
         const studentId = student || req.user?._id;
         if (!studentId) {
@@ -25,6 +25,13 @@ export const createActivityEntry = async (req, res) => {
             surgicalMetrics,
             medicalMetrics,
             notes,
+            category,
+            categoryLabel,
+            title,
+            hours,
+            groupId,
+            groupLabel,
+            supervisorName,
         });
         if (!result.success) {
             return res.status(400).json({ error: result.error });
@@ -74,6 +81,24 @@ export const getStudentLogbook = async (req, res) => {
     }
     catch (error) {
         console.error("Error fetching logbook:", error);
+        return res.status(500).json({ error: "Failed to fetch logbook." });
+    }
+};
+/**
+ * GET /activity-entries/student/:studentId or /activity-entries/student/:studentId/:rotationId
+ * Get all entries (any status) for a student, optionally filtered by rotation
+ */
+export const getStudentLogbookAll = async (req, res) => {
+    try {
+        const { studentId, rotationId } = req.params;
+        const result = await activityLogbookService.getStudentLogbookAll(studentId, rotationId);
+        if (!result.success) {
+            return res.status(400).json({ error: result.error });
+        }
+        return res.status(200).json({ entries: result.entries });
+    }
+    catch (error) {
+        console.error("Error fetching student logbook (all statuses):", error);
         return res.status(500).json({ error: "Failed to fetch logbook." });
     }
 };

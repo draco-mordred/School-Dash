@@ -23,6 +23,13 @@ interface ActivityEntry {
   entryDate: string;
   unit?: { name?: string; department?: string };
   umbrellaCategory?: string;
+  category?: string;
+  categoryLabel?: string;
+  title?: string;
+  hours?: number;
+  supervisorName?: string;
+  groupLabel?: string;
+  autoSigned?: boolean;
   clinicsAttended?: boolean;
   wardRoundsAttended?: string;
   callDutyCompleted?: boolean;
@@ -69,6 +76,7 @@ export default function LogbookEntries() {
   const [searchQuery, setSearchQuery] = useState("");
   const [rotationFilter, setRotationFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [requiredEntries, setRequiredEntries] = useState<number | null>(null);
 
   const fetchEntries = useCallback(async () => {
     if (!user?._id) return;
@@ -111,6 +119,13 @@ export default function LogbookEntries() {
         entryDate: entry.entryDate,
         unit: entry.unit,
         umbrellaCategory: entry.umbrellaCategory,
+        category: entry.category,
+        categoryLabel: entry.categoryLabel,
+        title: entry.title,
+        hours: entry.hours,
+        supervisorName: entry.supervisorName,
+        groupLabel: entry.groupLabel,
+        autoSigned: entry.autoSigned,
         clinicsAttended: entry.clinicsAttended,
         wardRoundsAttended: entry.wardRoundsAttended,
         callDutyCompleted: entry.callDutyCompleted,
@@ -120,6 +135,16 @@ export default function LogbookEntries() {
         notes: entry.notes,
         duration: entry.duration ?? 8,
       })));
+
+      // Required entries target set by the supervisor for the current posting
+      const firstCurrent = rotationData?.[0];
+      const posting = firstCurrent
+        ? ((firstCurrent.schedule?.postings ?? []).find(
+            (p: any) => String(p.name) === String(firstCurrent.postingName),
+          ) ?? null)
+        : null;
+      const required = Number(posting?.logbookRequiredEntries ?? 0);
+      setRequiredEntries(required > 0 ? required : null);
 
       setRotations(
         rotationData.map((rotation) => ({
@@ -173,8 +198,19 @@ export default function LogbookEntries() {
   }, [entries]);
 
   const categoryBreakdown = useMemo(() => {
+    const CATEGORY_LABELS: Record<string, string> = {
+      clerking: "Clerking",
+      theatre: "Theatre",
+      clinic: "Clinics",
+      ward_round: "Ward Rounds",
+      call_duty: "Call Duty",
+      other: "Other Procedures",
+    };
     return entries.reduce<Record<string, number>>((acc, entry) => {
-      const category = entry.umbrellaCategory || "Other";
+      const category =
+        entry.category === "other" && entry.categoryLabel
+          ? entry.categoryLabel
+          : CATEGORY_LABELS[entry.category ?? ""] ?? entry.categoryLabel ?? entry.umbrellaCategory || "Other";
       acc[category] = (acc[category] ?? 0) + 1;
       return acc;
     }, {});
@@ -199,7 +235,7 @@ export default function LogbookEntries() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">Total Entries</CardTitle>
@@ -226,6 +262,15 @@ export default function LogbookEntries() {
         </Card>
         <Card>
           <CardHeader>
+            <CardTitle className="text-sm font-medium">Awaiting Approval</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-semibold text-sky-700">{stats.pending + stats.submitted}</p>
+            <p className="text-sm text-muted-foreground mt-1">Not yet signed by supervisor</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
             <CardTitle className="text-sm font-medium">Rejected</CardTitle>
           </CardHeader>
           <CardContent>
@@ -242,7 +287,7 @@ export default function LogbookEntries() {
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">This Month</CardTitle>
@@ -250,6 +295,30 @@ export default function LogbookEntries() {
           <CardContent>
             <p className="text-3xl font-semibold">{stats.thisMonth}</p>
             <p className="text-sm text-muted-foreground mt-1">Activities added this month</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Required Entries</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {requiredEntries ? (
+              <>
+                <p className="text-3xl font-semibold">
+                  {stats.total}
+                  <span className="text-base font-normal text-muted-foreground"> / {requiredEntries}</span>
+                </p>
+                <div className="mt-2 h-2 w-full rounded-full bg-muted">
+                  <div
+                    className="h-2 rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, Math.round((stats.total / requiredEntries) * 100))}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Target set by your posting supervisor.</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No target set for this posting yet.</p>
+            )}
           </CardContent>
         </Card>
         <Card className="lg:col-span-2">
@@ -349,9 +418,9 @@ export default function LogbookEntries() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-sm text-muted-foreground">{format(new Date(entry.entryDate), "MMM d, yyyy")}</p>
-                          <h2 className="text-lg font-semibold">{entry.unit?.name || entry.umbrellaCategory || "Clinical activity"}</h2>
+                          <h2 className="text-lg font-semibold">{entry.title || entry.unit?.name || entry.umbrellaCategory || "Clinical activity"}</h2>
                           <p className="text-sm text-muted-foreground">
-                            {entry.unit?.department || "No department"} • {entry.umbrellaCategory || "General"}
+                            {entry.unit?.department || "No department"} • {entry.categoryLabel || entry.category || entry.umbrellaCategory || "General"}{entry.groupLabel ? ` • Team: ${entry.groupLabel}` : ""}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -363,7 +432,7 @@ export default function LogbookEntries() {
                       <div className="grid gap-3 sm:grid-cols-3">
                         <div className="rounded-2xl bg-muted/80 p-3 text-sm">
                           <p className="text-muted-foreground text-xs uppercase tracking-[0.24em]">Supervisor</p>
-                          <p className="mt-2 font-medium">{entry.approvedBy?.name || "Pending"}</p>
+                          <p className="mt-2 font-medium">{entry.approvedBy?.name || entry.supervisorName || "Pending"}</p>
                           <p className="text-xs text-muted-foreground">{entry.approvedBy?.designation || "No signature yet"}</p>
                         </div>
                         <div className="rounded-2xl bg-muted/80 p-3 text-sm">
