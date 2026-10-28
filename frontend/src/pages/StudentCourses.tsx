@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import TextMarquee from "@/components/ui/TextMarquee";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChevronRightIcon, BookOpen, Search as SearchIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -523,7 +524,7 @@ export default function StudentCourses() {
                       ) : (
                         subjects.map((subject) => (
                           <div key={subject._id} className="rounded-lg border border-border bg-muted/50 p-3">
-                            <p className="font-medium">{subject.name}</p>
+                            <TextMarquee className="font-medium">{subject.name}</TextMarquee>
                             <p className="text-xs text-muted-foreground">{subject.code}</p>
                           </div>
                         ))

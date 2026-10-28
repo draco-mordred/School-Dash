@@ -32,8 +32,18 @@ const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
+// The sidebar starts CLOSED by default. If the user has toggled it before,
+// their saved choice is respected (the cookie is written on every toggle).
+const getInitialSidebarOpen = (): boolean => {
+  if (typeof document === "undefined") return false;
+  const match = document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${SIDEBAR_COOKIE_NAME}=`));
+  return match === `${SIDEBAR_COOKIE_NAME}=true`;
+};
+
 function SidebarProvider({
-  defaultOpen = true,
+  defaultOpen = getInitialSidebarOpen(),
   open: openProp,
   onOpenChange: setOpenProp,
   className,

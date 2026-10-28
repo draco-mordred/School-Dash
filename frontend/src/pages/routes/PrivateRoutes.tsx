@@ -5,7 +5,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import AppShell from "@/components/layout/AppShell";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
-import StudentTourOverlay from "@/components/onboarding/StudentTourOverlay";
+import GuidedTourOverlay from "@/components/onboarding/GuidedTourOverlay";
 
 const getPortalLoginPath = () => {
   const lastPortalRole = localStorage.getItem("lastPortalRole");
@@ -68,7 +68,7 @@ const PrivateRoutes = () => {
         <AppShell>
           <Outlet />
           <OnboardingFlow />
-          <StudentTourOverlay />
+          <GuidedTourOverlay />
         </AppShell>
       </SidebarInset>
     </SidebarProvider>
