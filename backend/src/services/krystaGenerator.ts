@@ -63,6 +63,8 @@ type GenerateOpts = {
   phaseId?: string;
   phaseName?: string;
   postingScheduleId?: string;
+  // Optional override for the rotation block length (days); floor 28.
+  rotationBlockDays?: number;
 };
 
 type TimelineWindow = {
@@ -304,7 +306,7 @@ const markSupervisor = async (supervisorId: string | null) => {
 };
 
 export async function generateKrystaSchedule(opts: GenerateOpts) {
-  const { classId, name, startDate, departments, createdBy, phaseId, phaseName, postingScheduleId } = opts;
+  const { classId, name, startDate, departments, createdBy, phaseId, phaseName, postingScheduleId, rotationBlockDays } = opts;
 
   const cls = await ClassModel.findById(classId).lean();
   if (!cls) throw new Error('Class not found');
@@ -325,7 +327,7 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   //    per department group. Unit durations come from the phase
   //    config (unitDurationDays/Weeks, default 1 week).
   const configuredBlockDays = Math.max(0, ...departments.map((d) => getDepartmentDurationDays(d)));
-  const blockDays = Math.max(28, configuredBlockDays);
+  const blockDays = Math.max(28, rotationBlockDays ?? configuredBlockDays);
   const totalDays = blockDays * numDepartments;
   const postingStart = new Date(startDate);
   const postingEnd = addDays(postingStart, totalDays);

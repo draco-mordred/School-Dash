@@ -899,6 +899,7 @@ export default function ClinicalRotations() {
   const [postingGenerateDurationMonths, setPostingGenerateDurationMonths] = useState<number>(2);
   const [postingGenerateEndDate, setPostingGenerateEndDate] = useState<string>("");
   const [postingGeneratePhaseId, setPostingGeneratePhaseId] = useState<string>("");
+  const [postingDateMode, setPostingDateMode] = useState<"clock" | "manual">("clock");
   const [selectedDepartments, setSelectedDepartments] = useState<Record<string, boolean>>({});
   const [unitsByDept, setUnitsByDept] = useState<Record<string, string[]>>({});
   const [departmentDurationWeeks, setDepartmentDurationWeeks] = useState<Record<string, number>>({});
@@ -933,6 +934,7 @@ export default function ClinicalRotations() {
       setPostingGenerateDurationMonths(2);
       setPostingGenerateEndDate("");
       setPostingGeneratePhaseId("");
+      setPostingDateMode("clock");
       setSelectedDepartments({});
       setUnitsByDept({});
       setDepartmentDurationWeeks({});
@@ -1268,8 +1270,14 @@ export default function ClinicalRotations() {
       return;
     }
 
+    if (postingDateMode === "clock" && !postingGeneratePhaseId) {
+      toast.error("Please select a posting phase to sync dates from the class academic clock");
+      return;
+    }
+
     try {
-      const startDate = postingGenerateStartDate || new Date().toISOString().slice(0, 10);
+      const clockStartDate = postingDateMode === "clock" && selectedPhaseWindow ? format(selectedPhaseWindow.startsAt, "yyyy-MM-dd") : "";
+      const startDate = clockStartDate || postingGenerateStartDate || new Date().toISOString().slice(0, 10);
       const endDate = postingGenerateEndDate || calculatePostingEndDate(startDate, postingGenerateDurationMonths || 2);
       const totalWeeks = Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24 * 7)));
 
@@ -1306,6 +1314,7 @@ export default function ClinicalRotations() {
         endDate: new Date(endDate).toISOString(),
         generateWith: "krysta",
         krysta: true,
+        dateMode: postingDateMode,
         departments,
       };
 
@@ -2217,6 +2226,32 @@ export default function ClinicalRotations() {
     [selectedClock, selectedClassPhasePlan],
   );
   const selectedPostingPhaseOption = postingPhaseOptions.find((option) => option.id === postingGeneratePhaseId) ?? postingPhaseOptions[0] ?? null;
+  // Client-side mirror of the backend's resolveClockPhaseWindowById math
+  // (months x 30 days from the clock start) — display only; the backend
+  // resolves the authoritative dates when dateMode === "clock".
+  const selectedPhaseWindow = useMemo(() => {
+    const clockAny = selectedClock as any;
+    if (!clockAny || !postingGeneratePhaseId) return null;
+    const clockStart = clockAny.clockStartDate ? new Date(clockAny.clockStartDate) : null;
+    if (!clockStart || Number.isNaN(clockStart.getTime())) return null;
+    const phaseConfig = clockAny.phaseConfig;
+    const entries: Array<[string, any]> = Array.isArray(phaseConfig)
+      ? phaseConfig.map((phase: any, index: number) => [String(phase?.id ?? `phase${index + 1}`), phase])
+      : Object.entries((phaseConfig as Record<string, any>) ?? {});
+    const MS_PER_CLOCK_MONTH = 30 * 24 * 60 * 60 * 1000;
+    let cursor = clockStart;
+    for (const [id, config] of entries) {
+      const duration = Number(config?.duration ?? config?.durationMonths ?? 0);
+      if (!Number.isFinite(duration) || duration <= 0) continue;
+      const startsAt = new Date(cursor.getTime());
+      const endsAt = new Date(cursor.getTime() + duration * MS_PER_CLOCK_MONTH);
+      if (id === postingGeneratePhaseId) {
+        return { startsAt, endsAt, durationMonths: duration };
+      }
+      cursor = endsAt;
+    }
+    return null;
+  }, [selectedClock, postingGeneratePhaseId]);
   const availablePostingDepartments = useMemo<PostingDepartmentOption[]>(
     () => getEligibleDepartmentsForPhase(selectedClock, institutionDepartments, selectedPostingPhaseOption?.id),
     [selectedClock, institutionDepartments, selectedPostingPhaseOption?.id],
@@ -2955,28 +2990,60 @@ export default function ClinicalRotations() {
                   <Input value={postingGenerateLevel === "fourth" ? "400 Level" : postingGenerateLevel ? `${postingGenerateLevel.toUpperCase()} Level` : "N/A"} readOnly />
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Start Date</label>
-                  <Input type="date" value={postingGenerateStartDate} onChange={(e) => setPostingGenerateStartDate(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Duration (months)</label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={postingGenerateDurationMonths}
-                    onChange={(e) => setPostingGenerateDurationMonths(Math.max(1, parseInt(e.target.value) || 1))}
-                  />
-                </div>
-              </div>
               <div>
-                <label className="text-xs font-medium mb-1 block">Calculated End Date</label>
-                <Input value={postingGenerateEndDate} readOnly />
+                <label className="text-xs font-medium mb-1 block">Dates</label>
+                <Select value={postingDateMode} onValueChange={(value: string) => setPostingDateMode(value === "manual" ? "manual" : "clock")}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose how dates are set" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="clock">Sync from Class Clock phase</SelectItem>
+                    <SelectItem value="manual">Manual start date &amp; duration</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  The posting end date is calculated automatically from the selected start date and duration.
+                  {postingDateMode === "clock"
+                    ? "The posting start and end dates are resolved from the selected Class Clock phase window. Rotation blocks are fitted to the window (minimum 4 weeks per department group)."
+                    : "The posting end date is calculated automatically from the selected start date and duration."}
                 </p>
               </div>
+              {postingDateMode === "clock" ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Phase Start Date</label>
+                    <Input value={selectedPhaseWindow ? format(selectedPhaseWindow.startsAt, "dd MMM yyyy") : "—"} readOnly />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Phase End Date</label>
+                    <Input value={selectedPhaseWindow ? format(selectedPhaseWindow.endsAt, "dd MMM yyyy") : "—"} readOnly />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Start Date</label>
+                      <Input type="date" value={postingGenerateStartDate} onChange={(e) => setPostingGenerateStartDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium mb-1 block">Duration (months)</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={postingGenerateDurationMonths}
+                        onChange={(e) => setPostingGenerateDurationMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Calculated End Date</label>
+                    <Input value={postingGenerateEndDate} readOnly />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      The posting end date is calculated automatically from the selected start date and duration.
+                    </p>
+                  </div>
+                </>
+              )}
 
               {/* Department Selection Section */}
               <div className="border-t pt-4">
