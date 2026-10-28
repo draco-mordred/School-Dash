@@ -4,6 +4,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import UserDialog from "@/components/users/UserDialog";
+import {
+  isMonday,
+  isWeekend,
+  pickNewWeekGreeting,
+  pickWeekendGreeting,
+  WEEKDAY_NAMES_FULL,
+} from "@/lib/scheduleGreetings";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -512,7 +519,9 @@ function NotificationsWrapperDialog(props: any) {
 
 // ─── Student View ──────────────────────────────────────────────────────
 function StudentNotifications() {
+  const { user } = useAuth();
   const [data, setData] = useState<StudentNotifData | null>(null);
+  const [clinicalSessions, setClinicalSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
@@ -524,6 +533,18 @@ function StudentNotifications() {
       // silent fail
     } finally {
       setLoading(false);
+    }
+    // Clinical sessions for the student's active posting week — these are
+    // merged into the schedule card alongside lecture periods.
+    try {
+      const { data: teamRes } = await api.get("/clinical-attendance/my-team");
+      setClinicalSessions(
+        Array.isArray(teamRes?.data?.weekActivities)
+          ? teamRes.data.weekActivities
+          : [],
+      );
+    } catch {
+      setClinicalSessions([]);
     }
   };
 
@@ -649,44 +670,79 @@ function StudentNotifications() {
             </p>
           ) : (
             <div className="space-y-4">
-              {/* Only show today and tomorrow */}
-              {(() => {
-                const todayName =
-                  data.todayDay ||
-                  (() => {
-                    const jsDay = new Date().getDay();
-                    // map JS day (0=Sun) to our DAYS (Monday..Friday)
-                    const map: Record<number, string> = {
-                      1: "Monday",
-                      2: "Tuesday",
-                      3: "Wednesday",
-                      4: "Thursday",
-                      5: "Friday",
-                      0: "Monday",
-                      6: "Monday",
-                    };
-                    return map[jsDay] || DAYS[0];
-                  })();
-                const idx = DAYS.indexOf(todayName);
-                const tomorrowName = DAYS[(idx + 1) % DAYS.length];
-                const daysToShow = [todayName, tomorrowName];
+              {/* New-week greeting (the week starts on Monday in this
+                  region) */}
+              {isMonday(new Date()) ? (
+                <div className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
+                  {pickNewWeekGreeting(user?._id)}
+                </div>
+              ) : null}
 
-                return daysToShow.map((day) => {
+              {/* Today + the next two calendar days, merging lecture
+                  periods and clinical sessions. Weekend days follow the
+                  no-lecture rule and show a friendly weekend greeting. */}
+              {(() => {
+                const localDateKey = (d: Date) =>
+                  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+                return [0, 1, 2].map((offset) => {
+                  const dayDate = new Date();
+                  dayDate.setHours(0, 0, 0, 0);
+                  dayDate.setDate(dayDate.getDate() + offset);
+                  const dayName = WEEKDAY_NAMES_FULL[dayDate.getDay()];
+                  const dayHeading = `${dayName}${offset === 0 ? " · Today" : ` · ${dayDate.toLocaleDateString("en", { month: "short", day: "numeric" })}`}`;
+
+                  if (isWeekend(dayDate)) {
+                    return (
+                      <div key={`day-${offset}`}>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
+                          {dayHeading} · Weekend
+                        </p>
+                        <div className="rounded-lg border border-dashed border-border bg-muted/40 px-3 py-4 text-center">
+                          <p className="text-sm text-muted-foreground italic">
+                            {pickWeekendGreeting(user?._id, dayDate)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   const daySchedule = data.timetable.find(
-                    (s: any) => s.day === day,
+                    (s: any) =>
+                      typeof s?.day === "string" &&
+                      s.day.toLowerCase() === dayName.toLowerCase(),
                   );
-                  const lectures = daySchedule?.periods ?? [];
+                  const lectures = (daySchedule?.periods ?? [])
+                    .slice()
+                    .sort((a: any, b: any) =>
+                      String(a.startTime).localeCompare(String(b.startTime)),
+                    );
+                  const clinical = clinicalSessions
+                    .filter((s: any) => {
+                      if (!s?.date) return false;
+                      const sessionDate = new Date(s.date);
+                      return (
+                        localDateKey(sessionDate) === localDateKey(dayDate)
+                      );
+                    })
+                    .sort((a: any, b: any) =>
+                      String(a.startTime).localeCompare(String(b.startTime)),
+                    );
                   const alertsForDay =
-                    data.weeklyAlerts.find((a) => a.day === day)?.lectures ??
-                    [];
+                    data.weeklyAlerts.find(
+                      (a) => a.day.toLowerCase() === dayName.toLowerCase(),
+                    )?.lectures ?? [];
+                  const nothingScheduled =
+                    lectures.length === 0 && clinical.length === 0;
+
                   return (
-                    <div key={day}>
+                    <div key={`day-${offset}`}>
                       <p className="text-xs font-semibold text-muted-foreground uppercase mb-2">
-                        {day}
+                        {dayHeading}
                       </p>
-                      {lectures.length === 0 ? (
+                      {nothingScheduled ? (
                         <p className="text-xs text-muted-foreground italic py-1">
-                          No lectures
+                          No lectures or clinical sessions
                         </p>
                       ) : (
                         <div className="space-y-1">
@@ -695,7 +751,7 @@ function StudentNotifications() {
                             const status = alertEntry?.status ?? null;
                             return (
                               <div
-                                key={i}
+                                key={`lecture-${i}`}
                                 className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm"
                               >
                                 <div className="flex-1 min-w-0">
@@ -730,6 +786,37 @@ function StudentNotifications() {
                               </div>
                             );
                           })}
+                          {clinical.map((session: any, i: number) => (
+                            <div
+                              key={`clinical-${i}`}
+                              className="flex items-center gap-3 border rounded-md px-3 py-2 text-sm border-l-4 border-l-green-500 bg-green-500/5"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium truncate">
+                                  {session.title || "Clinical session"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {session.unitLabel ||
+                                    session.activityType ||
+                                    "Clinical"}
+                                </p>
+                                {session.startTime ? (
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                                    <Clock className="h-3 w-3" />
+                                    <span>
+                                      {session.startTime}
+                                      {session.endTime
+                                        ? ` – ${session.endTime}`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-green-500/15 text-green-600 shrink-0">
+                                CLINICAL
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
