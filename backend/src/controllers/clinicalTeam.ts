@@ -235,11 +235,15 @@ export const getMyClinicalTeam = async (
       return;
     }
 
-    const studentIds = hit.groupRef
-  ? groupStudentIds(hit.groupRef)
-  : Array.isArray(hit.window?.studentIds)
-    ? hit.window.studentIds.map((id: any) => String(id))
-    : [];
+    const windowStudentIds =
+      Array.isArray(hit.window?.studentIds) && hit.window.studentIds.length
+        ? hit.window.studentIds.map((id: any) => String(id))
+        : [];
+    const studentIds = windowStudentIds.length
+      ? windowStudentIds
+      : hit.groupRef
+        ? groupStudentIds(hit.groupRef)
+        : [];
     const windowStart = hit.window?.startDate
       ? new Date(hit.window.startDate)
       : null;
@@ -279,7 +283,10 @@ export const getMyClinicalTeam = async (
       .select("name idNumber email role")
       .lean<any[]>();
 
-    const supervisorId = hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null;
+    const supervisorId =
+      hit.viaTimeline && hit.window?.supervisorId != null
+        ? String(hit.window.supervisorId)
+        : hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null;
     let supervisor: any = null;
     if (supervisorId && IS_OBJECT_ID(String(supervisorId))) {
       const doc = await User.findById(String(supervisorId))
@@ -287,7 +294,7 @@ export const getMyClinicalTeam = async (
         .lean<any>();
       supervisor = doc ?? {
         _id: String(supervisorId),
-        name: hit.groupRef?.supervisorName ?? "Supervisor",
+        name: hit.window?.supervisorName ?? hit.groupRef?.supervisorName ?? "Supervisor",
       };
     } else if (hit.groupRef?.supervisorName) {
       supervisor = { name: hit.groupRef.supervisorName };
@@ -376,7 +383,7 @@ export const getMyClinicalTeam = async (
       data: {
         team: {
           postingName,
-          groupName: hit.groupRef?.group?.name ?? null,
+          groupName: hit.window?.unitGroupLabel ?? hit.groupRef?.group?.name ?? null,
           window: {
             startDate: windowStart,
             endDate: windowEnd,

@@ -3,9 +3,42 @@ import ClassModel from '../models/classes';
 import Department from '../models/departments';
 import Unit from '../models/units';
 import User from '../models/user';
-import { resolveDepartmentByIdentifier, normalizeString } from '../subs/mordred/normalizer';
+import { resolveDepartmentByIdentifier } from '../subs/mordred/normalizer';
 import { selectSupervisorRoundRobin } from '../subs/mordred/supervisorPool';
 import { createSystemAlertForAdmins } from '../subs/tinasha/notificationService';
+import {
+  splitIntoBuckets,
+  resolveUnitPool,
+  distributeStudentsRoundRobin,
+  rotateLeft,
+} from '../utils/clinicalGrouping';
+
+// KRYSTA clinical posting generator (department/unit rotation model).
+//
+// Model (per Israel's spec):
+// - The class is divided into N cohorts (N = number of sub-postings /
+//   departments), equally, with the remainder going to the LAST group.
+// - Each sub-posting maps to a Department (names + 3-letter codes come
+//   from the Department documents, seeded from
+//   backend/src/constants/departments.ts).
+// - Each cohort starts at "its own" department and, after each rotation
+//   block (>= 4 weeks), rotates to the NEXT department cyclically until
+//   every cohort has visited every department.
+// - When the department config uses units, each cohort is further
+//   distributed round-robin across the department's ACTIVE units
+//   (reserve units only when no active units are configured): student i
+//   -> unit group (i % unitCount), so every unit has a student before
+//   any unit gets a second one. Unit groups rotate cyclically through
+//   the units each unit-window (unitDurationDays, from the phase
+//   config; default 1 week).
+// - Supervisors: ONE unique supervisor per department group and ONE
+//   unique supervisor per unit, per generation run.
+// - postings[].groups[] = one group per DEPARTMENT (named by the
+//   department name + code); departmentGroupIndex in timeline windows
+//   indexes this array. The timeline windows carry the per-window
+//   students/supervisors and are the source of truth for "who is
+//   where, when" (groups[].assigned stays empty for generated plans;
+//   see clinicalPostingResolver.findGroupOrTimelineWindowForStudent).
 
 type DeptConfig = {
   departmentId: string;
@@ -22,7 +55,8 @@ type GenerateOpts = {
   classId: string;
   name: string;
   startDate: string; // ISO
-  endDate: string; // ISO
+  endDate: string; // ISO (informational; the posting is extended so every
+  // department group completes a full rotation block)
   departments: DeptConfig[];
   createdBy?: string;
   phaseId?: string;
@@ -42,6 +76,7 @@ type TimelineWindow = {
   departmentCode?: string | null;
   departmentGroupIndex: number;
   departmentGroupLabel?: string | null;
+  cohortIndex?: number | null;
   unitGroupIndex: number;
   unitGroupLabel?: string | null;
   unitIndex: number;
@@ -61,40 +96,12 @@ type TimelineWindow = {
   unitSpin?: string | null;
 };
 
-type DepartmentGroup = {
-  groupIndex: number;
-  studentIds: string[];
-};
-
-type SupervisorUser = {
-  _id: any;
-  name?: string;
-  supervisorRank?: number | null;
-  departmentRole?: string | null;
-};
+type SupervisorRef = { id: string | null; name: string | null };
 
 function addDays(d: Date, days: number) {
   const out = new Date(d);
   out.setDate(out.getDate() + days);
   return out;
-}
-
-function splitIntoBuckets(items: string[], bucketCount: number) {
-  if (bucketCount <= 0) {
-    return [{ groupIndex: 0, studentIds: items }];
-  }
-
-  const buckets: DepartmentGroup[] = [];
-  const base = Math.floor(items.length / bucketCount);
-  let cursor = 0;
-
-  for (let index = 0; index < bucketCount; index++) {
-    const size = index === bucketCount - 1 ? items.length - cursor : base;
-    buckets.push({ groupIndex: index, studentIds: items.slice(cursor, cursor + size) });
-    cursor += size;
-  }
-
-  return buckets;
 }
 
 const isValidObjectId = (value: string) => {
@@ -103,7 +110,6 @@ const isValidObjectId = (value: string) => {
 
 const resolveDepartmentDocument = async (identifier: string) => {
   if (!identifier) return null;
-  // Use Mordred normalizer first
   const doc = await resolveDepartmentByIdentifier(identifier);
   if (doc) return doc;
 
@@ -112,7 +118,6 @@ const resolveDepartmentDocument = async (identifier: string) => {
     if (byId) return byId;
   }
 
-  // fallback to direct match by department code, departmentID, or name
   return Department.findOne({
     $or: [
       { code: identifier },
@@ -149,18 +154,6 @@ const resolveUnitMap = async (identifiers: string[]) => {
   return map;
 };
 
-const normalizeUnitIds = (identifiers: unknown) => {
-  if (!Array.isArray(identifiers)) return [];
-  return identifiers
-    .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-    .map((id) => id.trim());
-};
-
-const rotateLeft = (items: string[], n: number) => {
-  if (!Array.isArray(items) || items.length === 0) return items.slice();
-  const r = n % items.length;
-  return items.slice(r).concat(items.slice(0, r));
-};
 const getDepartmentDurationDays = (dept: any) => {
   if (typeof dept.departmentDurationDays === 'number') return Math.max(0, dept.departmentDurationDays);
   return Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7;
@@ -176,7 +169,13 @@ const getPhaseDurationLabel = (days: number) => {
   return `${weeks} week${weeks === 1 ? '' : 's'}`;
 };
 
-const rankSupervisorCandidates = (users: SupervisorUser[]) => {
+const departmentLabel = (name: string, code?: string | null) =>
+  `${name}${code ? ` (${code})` : ''}`;
+
+const unitLabel = (unitDoc: any, unitId: string) =>
+  `${unitDoc?.name || unitId}${unitDoc?.code ? ` (${unitDoc.code})` : ''}`;
+
+const rankSupervisorCandidates = (users: any[]) => {
   return users
     .slice()
     .sort((a, b) => {
@@ -202,9 +201,7 @@ const getSupervisorName = async (supervisorId: string | null) => {
 const findDepartmentSupervisors = async (departmentDoc: any, assignedSet?: Set<string>) => {
   if (!departmentDoc) return [];
 
-  // Only consider teachers for supervisor assignment; ignore existing isSupervisor flag
   const roles = ['teacher'];
-
   const q: any = {
     role: { $in: roles },
     $or: [
@@ -234,9 +231,7 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: S
     if (supervisor) return String(supervisor._id);
   }
 
-  // Prefer teachers; ignore isSupervisor flag so teachers can be selected even if not pre-marked
   const roles = ['teacher'];
-
   const query: any = {
     role: { $in: roles },
     $or: [],
@@ -260,7 +255,6 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: S
   let candidates = await User.find(query as any).lean();
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
 
-  // Exclude already-assigned supervisors in this generation run when possible
   if (assignedSet && assignedSet.size > 0) {
     const filtered = candidates.filter((c: any) => !assignedSet.has(String(c._id)));
     if (filtered.length) candidates = filtered;
@@ -269,7 +263,6 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: S
   const candidateIds = candidates.map((c: any) => String(c._id));
   if (candidateIds.length === 0) return null;
 
-  // Use Mordred round-robin selector with a key per unit (fallback to department)
   const poolKey = unit && unit._id ? `unit:${String(unit._id)}` : departmentDoc && departmentDoc._id ? `department:${String(departmentDoc._id)}` : null;
   if (poolKey) {
     try {
@@ -280,9 +273,8 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: S
     }
   }
 
-  // Fallback to ranking; prefer those not already assigned
   const ranked = rankSupervisorCandidates(candidates);
-  const pick = ranked.find((r) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
+  const pick = ranked.find((r: any) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
   return pick ? String(pick._id) : null;
 };
 
@@ -292,19 +284,28 @@ const findBestDepartmentSupervisor = async (departmentDoc: any, assignedSet?: Se
   const candidateIds = candidates.map((c: any) => String(c._id));
   if (candidateIds.length === 0) return null;
   try {
-    const selected = await selectSupervisorRoundRobin(`department:${String(departmentDoc._id)}`, candidateIds);
+    const selected = await selectSupervisorRoundRobin(`department:${String(departmentDoc?._id)}`, candidateIds);
     if (selected && (!assignedSet || !assignedSet.has(selected))) return selected;
   } catch (e) {
     console.warn('Round-robin department supervisor selection failed', e);
   }
 
   const ranked = rankSupervisorCandidates(candidates);
-  const pick = ranked.find((r) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
+  const pick = ranked.find((r: any) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
   return pick ? String(pick._id) : null;
 };
 
+const markSupervisor = async (supervisorId: string | null) => {
+  if (!supervisorId) return;
+  try {
+    await User.findByIdAndUpdate(supervisorId, { isSupervisor: true }).lean();
+  } catch (e) {
+    // ignore persistence failures during generation
+  }
+};
+
 export async function generateKrystaSchedule(opts: GenerateOpts) {
-  const { classId, name, startDate, endDate, departments, createdBy, phaseId, phaseName, postingScheduleId } = opts;
+  const { classId, name, startDate, departments, createdBy, phaseId, phaseName, postingScheduleId } = opts;
 
   const cls = await ClassModel.findById(classId).lean();
   if (!cls) throw new Error('Class not found');
@@ -313,257 +314,257 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   const numDepartments = departments.length;
   if (numDepartments === 0) throw new Error('At least one department is required for schedule generation');
 
-  const deptGroups = splitIntoBuckets(studentIds, numDepartments);
-  const timeline: TimelineWindow[] = [];
+  // 1. Resolve department documents once — group names/codes come from
+  //    the DB (seeded from backend/src/constants/departments.ts).
+  const deptDocs: any[] = [];
+  for (const dept of departments) {
+    deptDocs.push(await resolveDepartmentDocument(dept.departmentId));
+  }
+
+  // 2. Rotation block: one uniform block length for all department
+  //    groups so the cohorts stay in sync, at least 4 weeks (28 days)
+  //    per department group. Unit durations come from the phase
+  //    config (unitDurationDays/Weeks, default 1 week).
+  const configuredBlockDays = Math.max(0, ...departments.map((d) => getDepartmentDurationDays(d)));
+  const blockDays = Math.max(28, configuredBlockDays);
+  const totalDays = blockDays * numDepartments;
+  const postingStart = new Date(startDate);
+  const postingEnd = addDays(postingStart, totalDays);
+  const blockDurationLabel = getPhaseDurationLabel(blockDays);
+
+  // 3. Cohorts: students divided equally across the sub-postings
+  //    (departments); remainder lands in the LAST department group.
+  const cohorts = splitIntoBuckets(studentIds, numDepartments);
+
+  // 4. Unit pools (active units; reserve only when active is empty).
+  const unitPools = departments.map((d) => (d.useUnits !== false ? resolveUnitPool(d) : []));
+  const unitMaps: Map<string, any>[] = [];
+  for (let d = 0; d < numDepartments; d++) {
+    unitMaps.push(unitPools[d].length ? await resolveUnitMap(unitPools[d]) : new Map<string, any>());
+  }
+
+  // 5. Supervisors: one UNIQUE supervisor per department group and one
+  //    UNIQUE supervisor per unit, across the whole generation run.
   const assignedSupervisorIds = new Set<string>();
+  const deptSupervisors: SupervisorRef[] = [];
+  for (let d = 0; d < numDepartments; d++) {
+    const id = await findBestDepartmentSupervisor(deptDocs[d], assignedSupervisorIds);
+    if (id) assignedSupervisorIds.add(id);
+    await markSupervisor(id);
+    deptSupervisors.push({ id, name: await getSupervisorName(id) });
+  }
+  const unitSupervisors: Map<string, SupervisorRef>[] = [];
+  for (let d = 0; d < numDepartments; d++) {
+    const map = new Map<string, SupervisorRef>();
+    for (const unitId of unitPools[d]) {
+      const unitDoc = unitMaps[d].get(unitId) || null;
+      const id = await findUnitSupervisor(unitDoc, deptDocs[d], assignedSupervisorIds);
+      if (id) assignedSupervisorIds.add(id);
+      await markSupervisor(id);
+      map.set(unitId, { id, name: await getSupervisorName(id) });
+    }
+    unitSupervisors.push(map);
+  }
+
+  const timeline: TimelineWindow[] = [];
   const unvisitedUnits: { departmentIndex: number; unitIds: string[] }[] = [];
   const unvisitedUnitGroups: { departmentIndex: number; unitGroupIndex: number; usedUnitIds: string[]; unusedUnitIds: string[] }[] = [];
   const unassignedWindows: any[] = [];
-  const groupSupervisorMap = new Map<number, { supervisorId: string | null; supervisorName: string | null; departmentSupervisorId: string | null; departmentSupervisorName: string | null }>();
   const phases: any[] = [];
 
-  const phaseDurationDays = Math.max(
-    ...departments.map((dept) => Math.max(0, Number(dept.departmentDurationWeeks) || 0) * 7),
-    1
-  );
-  const phaseDurationWeeks = Math.max(1, Math.ceil(phaseDurationDays / 7));
-  const phaseDurationLabel = getPhaseDurationLabel(phaseDurationDays);
-
-  let phaseStart = new Date(startDate);
-
-  for (let phaseIndex = 0; phaseIndex < numDepartments; phaseIndex++) {
+  // 6. Rotation blocks: cohort c is at department (c + block) % N, i.e.
+  //    department d hosts cohort (d - block) mod N.
+  for (let blockIndex = 0; blockIndex < numDepartments; blockIndex++) {
+    const blockStart = addDays(postingStart, blockIndex * blockDays);
     const phaseDepartments: any[] = [];
 
-    for (let deptSlotIndex = 0; deptSlotIndex < numDepartments; deptSlotIndex++) {
-      const dept = departments[deptSlotIndex];
+    for (let deptSlot = 0; deptSlot < numDepartments; deptSlot++) {
+      const dept = departments[deptSlot];
+      const deptDoc = deptDocs[deptSlot];
+      const departmentName = deptDoc?.name || dept.departmentId;
+      const departmentCode = deptDoc?.code || undefined;
+      const departmentIdentifier = deptDoc?.departmentID || dept.departmentId;
+      const deptLabelText = departmentLabel(departmentName, departmentCode);
+      const deptSup = deptSupervisors[deptSlot];
       const useUnits = dept.useUnits !== false;
-      const activeUnits = normalizeUnitIds(dept.activeUnitIds);
-      const departmentDurationDays = getDepartmentDurationDays(dept);
+      const unitPool = unitPools[deptSlot];
+      const unitMap = unitMaps[deptSlot];
       const unitDurationDays = getUnitDurationDays(dept);
-      const assignedGroupIndex = (deptSlotIndex + phaseIndex) % numDepartments;
-      const departmentGroup = deptGroups[assignedGroupIndex];
 
-      const departmentDoc = await resolveDepartmentDocument(dept.departmentId);
-      const departmentSupervisorId = await findBestDepartmentSupervisor(departmentDoc, assignedSupervisorIds);
-      const departmentSupervisorName = await getSupervisorName(departmentSupervisorId);
-      const departmentName = departmentDoc?.name || dept.departmentId;
-      const departmentCode = departmentDoc?.code || undefined;
-      const departmentIdentifier = departmentDoc?.departmentID || dept.departmentId;
-      const unitMap = useUnits ? await resolveUnitMap(activeUnits) : new Map<string, any>();
-      // Determine number of unit groups per department group (S / u)
-      const studentCount = Array.isArray(departmentGroup.studentIds) ? departmentGroup.studentIds.length : 0;
-      const unitCount = Math.max(1, activeUnits.length);
-      const unitGroupCount = Math.max(1, Math.ceil(studentCount / unitCount));
-      const unitGroups = useUnits
-        ? splitIntoBuckets(departmentGroup.studentIds, unitGroupCount)
-        : [];
-      const activeUnitNames = useUnits ? activeUnits.map((id) => unitMap.get(id)?.name || String(id)) : [];
+      const cohortIndex = ((deptSlot - blockIndex) % numDepartments + numDepartments) % numDepartments;
+      const cohort = cohorts[cohortIndex];
 
-      if (useUnits && activeUnits.length > 0) {
-        // number of unit windows each group must complete within the department duration
-        const numUnitWindows = Math.max(1, Math.floor(departmentDurationDays / unitDurationDays));
+      if (useUnits && unitPool.length > 0) {
+        // Number of unit windows inside one department block.
+        const numUnitWindows = Math.max(1, Math.floor(blockDays / unitDurationDays));
+        // Strict round-robin across units: student i -> unit group
+        // (i % unitCount); every unit has a student before wrapping.
+        const unitGroups = distributeStudentsRoundRobin(cohort.studentIds, unitPool.length);
 
-        // For each unit group, precompute the sequence of unitIds it will visit (block of N units, wrapping)
-        const groupAssignedUnits: string[][] = [];
-        for (let g = 0; g < unitGroups.length; g++) {
-          const assigned: string[] = [];
-          for (let j = 0; j < numUnitWindows; j++) {
-            const idx = (g * numUnitWindows + j) % activeUnits.length;
-            assigned.push(activeUnits[idx]);
-          }
-          groupAssignedUnits.push(assigned);
-        }
+        // Cyclical unit sequence per unit group: unit group g is at
+        // unit (g + w) % unitCount during unit window w.
+        const groupAssignedUnits: string[][] = unitGroups.map((_, g) =>
+          Array.from({ length: numUnitWindows }, (_, w) => unitPool[(g + w) % unitPool.length]),
+        );
 
-        // Emit timeline windows for each unit window index (time order)
-        for (let windowIndex = 0; windowIndex < numUnitWindows; windowIndex++) {
-          const windowStart = addDays(phaseStart, windowIndex * unitDurationDays);
-          const windowEnd = addDays(windowStart, unitDurationDays);
+        for (let w = 0; w < numUnitWindows; w++) {
+          const winStart = addDays(blockStart, w * unitDurationDays);
+          const winEnd = addDays(winStart, unitDurationDays);
 
-          for (let unitGroupIndex = 0; unitGroupIndex < unitGroups.length; unitGroupIndex++) {
-            const unitGroup = unitGroups[unitGroupIndex];
-            const assignedUnitId = groupAssignedUnits[unitGroupIndex][windowIndex] ?? null;
-            const unitDoc = assignedUnitId ? unitMap.get(assignedUnitId) || null : null;
-            const unitSupervisorId = await findUnitSupervisor(unitDoc, departmentDoc, assignedSupervisorIds);
-            const supervisorId = unitSupervisorId || departmentSupervisorId;
-            const supervisorName = supervisorId ? (await getSupervisorName(supervisorId)) || departmentSupervisorName : departmentSupervisorName;
-
-            const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
-            const preferredSupervisorId = departmentSupervisorId || supervisorId || null;
-            const preferredSupervisorName = departmentSupervisorName || supervisorName || null;
-            if (!existingSupervisor || (!existingSupervisor.departmentSupervisorName && departmentSupervisorName) || (!existingSupervisor.supervisorName && supervisorName)) {
-              groupSupervisorMap.set(assignedGroupIndex, {
-                supervisorId: preferredSupervisorId,
-                supervisorName: preferredSupervisorName,
-                departmentSupervisorId,
-                departmentSupervisorName,
-              });
-            }
-
-            // Mark this supervisor as assigned for the generation run so they are not reused
-            if (supervisorId) {
-              assignedSupervisorIds.add(String(supervisorId));
-              // best-effort: persist isSupervisor flag so external tools can see assigned supervisors
-              try {
-                await User.findByIdAndUpdate(supervisorId, { isSupervisor: true }).lean();
-              } catch (e) {
-                // ignore persistence failures during generation
-              }
-            }
-
-            // rotate student ordering per unit window so captain rotates
-            const orderedStudents = rotateLeft(unitGroup.studentIds, windowIndex);
-
-            // find index of assigned unit within activeUnits for reference
-            const unitIndex = assignedUnitId ? activeUnits.indexOf(assignedUnitId) : 0;
+          for (let g = 0; g < unitGroups.length; g++) {
+            const unitId = groupAssignedUnits[g][w] ?? unitPool[g % unitPool.length] ?? null;
+            const unitDoc = unitId ? unitMap.get(unitId) || null : null;
+            const unitSup = unitId ? unitSupervisors[deptSlot].get(unitId) || null : null;
+            const supervisorId = unitSup?.id || deptSup.id || null;
+            const supervisorName = unitSup?.name || deptSup.name || null;
 
             timeline.push({
-              phaseIndex,
-              phaseLabel: `Phase ${phaseIndex + 1}`,
-              phaseDurationDays,
-              phaseDurationWeeks,
-              phaseDurationLabel,
-              departmentIndex: deptSlotIndex,
+              phaseIndex: blockIndex,
+              phaseLabel: `Phase ${blockIndex + 1}`,
+              phaseDurationDays: blockDays,
+              phaseDurationWeeks: Math.max(1, Math.ceil(blockDays / 7)),
+              phaseDurationLabel: blockDurationLabel,
+              departmentIndex: deptSlot,
               departmentId: dept.departmentId,
               departmentName,
               departmentCode,
-              departmentGroupIndex: assignedGroupIndex,
-              departmentGroupLabel: `Department Group ${assignedGroupIndex + 1}`,
-              unitGroupIndex,
-              unitGroupLabel: `Unit Group ${unitGroupIndex + 1}`,
-              unitIndex,
-              unitId: assignedUnitId,
+              departmentGroupIndex: deptSlot,
+              departmentGroupLabel: deptLabelText,
+              cohortIndex,
+              unitGroupIndex: g,
+              unitGroupLabel: unitDoc ? unitLabel(unitDoc, String(unitId)) : deptLabelText,
+              unitIndex: unitId ? unitPool.indexOf(unitId) : 0,
+              unitId,
               unitName: unitDoc?.name || null,
               unitCode: unitDoc?.code || null,
               unitID: unitDoc?.unitID || null,
-              studentIds: orderedStudents,
-              startDate: windowStart.toISOString(),
-              endDate: windowEnd.toISOString(),
+              studentIds: rotateLeft(unitGroups[g], w),
+              startDate: winStart.toISOString(),
+              endDate: winEnd.toISOString(),
               supervisorId,
               supervisorName,
-              departmentSupervisorId,
-              departmentSupervisorName,
+              departmentSupervisorId: deptSup.id,
+              departmentSupervisorName: deptSup.name,
             });
+
             if (!supervisorId) {
               unassignedWindows.push({
-                phaseIndex,
-                departmentIndex: deptSlotIndex,
+                phaseIndex: blockIndex,
+                departmentIndex: deptSlot,
                 departmentId: dept.departmentId,
-                departmentGroupIndex: assignedGroupIndex,
-                unitGroupIndex,
-                unitId: assignedUnitId,
-                startDate: windowStart.toISOString(),
-                endDate: windowEnd.toISOString(),
-                studentIds: orderedStudents,
+                departmentGroupIndex: deptSlot,
+                cohortIndex,
+                unitGroupIndex: g,
+                unitId,
+                startDate: winStart.toISOString(),
+                endDate: winEnd.toISOString(),
+                studentIds: unitGroups[g],
               });
-              console.warn('No supervisor found for unit window', { departmentId: dept.departmentId, unitId: assignedUnitId, phaseIndex, departmentIndex: deptSlotIndex, unitGroupIndex });
+              console.warn('No supervisor found for unit window', { departmentId: dept.departmentId, unitId, phaseIndex: blockIndex, departmentIndex: deptSlot, unitGroupIndex: g });
             }
           }
         }
 
-        // Track used/unused units per group
         for (let g = 0; g < unitGroups.length; g++) {
           const used = Array.from(new Set(groupAssignedUnits[g].filter(Boolean)));
-          const unused = activeUnits.filter((u) => !used.includes(u));
-          if (unused.length) unvisitedUnits.push({ departmentIndex: deptSlotIndex, unitIds: unused });
-          unvisitedUnitGroups.push({ departmentIndex: deptSlotIndex, unitGroupIndex: g, usedUnitIds: used, unusedUnitIds: unused });
-        }
-      } else {
-        const windowStart = new Date(phaseStart);
-        const windowEnd = addDays(phaseStart, departmentDurationDays);
-        const supervisorName = departmentSupervisorName;
-
-        const existingSupervisor = groupSupervisorMap.get(assignedGroupIndex);
-        if (!existingSupervisor || (!existingSupervisor.departmentSupervisorName && departmentSupervisorName) || (!existingSupervisor.supervisorName && supervisorName)) {
-          groupSupervisorMap.set(assignedGroupIndex, {
-            supervisorId: departmentSupervisorId || null,
-            supervisorName: departmentSupervisorName || null,
-            departmentSupervisorId,
-            departmentSupervisorName,
-          });
-        }
-
-        if (departmentSupervisorId) {
-          assignedSupervisorIds.add(String(departmentSupervisorId));
-          try {
-            await User.findByIdAndUpdate(departmentSupervisorId, { isSupervisor: true }).lean();
-          } catch (e) {
-            // ignore
+          const unused = unitPool.filter((u) => !used.includes(u));
+          if (unused.length) {
+            unvisitedUnitGroups.push({ departmentIndex: deptSlot, unitGroupIndex: g, usedUnitIds: used, unusedUnitIds: unused });
           }
         }
+      } else {
+        // No units: the whole cohort stays in the department for the
+        // full block, supervised by the department supervisor.
+        const winEnd = addDays(blockStart, blockDays);
+        const supervisorId = deptSup.id || null;
+        const supervisorName = deptSup.name || null;
 
         timeline.push({
-          phaseIndex,
-          phaseLabel: `Phase ${phaseIndex + 1}`,
-          phaseDurationDays,
-          phaseDurationWeeks,
-          phaseDurationLabel,
-          departmentIndex: deptSlotIndex,
+          phaseIndex: blockIndex,
+          phaseLabel: `Phase ${blockIndex + 1}`,
+          phaseDurationDays: blockDays,
+          phaseDurationWeeks: Math.max(1, Math.ceil(blockDays / 7)),
+          phaseDurationLabel: blockDurationLabel,
+          departmentIndex: deptSlot,
           departmentId: dept.departmentId,
           departmentName,
           departmentCode,
-          departmentGroupIndex: assignedGroupIndex,
-          departmentGroupLabel: `Department Group ${assignedGroupIndex + 1}`,
+          departmentGroupIndex: deptSlot,
+          departmentGroupLabel: deptLabelText,
+          cohortIndex,
           unitGroupIndex: 0,
-          unitGroupLabel: 'Unit Group 1',
+          unitGroupLabel: deptLabelText,
           unitIndex: 0,
           unitId: null,
           unitName: null,
           unitCode: null,
           unitID: null,
-          studentIds: departmentGroup.studentIds,
-          startDate: windowStart.toISOString(),
-          endDate: windowEnd.toISOString(),
-          supervisorId: departmentSupervisorId,
+          studentIds: cohort.studentIds,
+          startDate: blockStart.toISOString(),
+          endDate: winEnd.toISOString(),
+          supervisorId,
           supervisorName,
-          departmentSupervisorId,
-          departmentSupervisorName,
+          departmentSupervisorId: deptSup.id,
+          departmentSupervisorName: deptSup.name,
         });
-        if (!departmentSupervisorId) {
+
+        if (!supervisorId) {
           unassignedWindows.push({
-            phaseIndex,
-            departmentIndex: deptSlotIndex,
+            phaseIndex: blockIndex,
+            departmentIndex: deptSlot,
             departmentId: dept.departmentId,
-            departmentGroupIndex: assignedGroupIndex,
+            departmentGroupIndex: deptSlot,
+            cohortIndex,
             unitGroupIndex: 0,
             unitId: null,
-            startDate: windowStart.toISOString(),
-            endDate: windowEnd.toISOString(),
-            studentIds: departmentGroup.studentIds,
+            startDate: blockStart.toISOString(),
+            endDate: winEnd.toISOString(),
+            studentIds: cohort.studentIds,
           });
-          console.warn('No department supervisor found for department window', { departmentId: dept.departmentId, phaseIndex, departmentIndex: deptSlotIndex });
+          console.warn('No department supervisor found for department window', { departmentId: dept.departmentId, phaseIndex: blockIndex, departmentIndex: deptSlot });
         }
       }
 
       phaseDepartments.push({
-        departmentIndex: deptSlotIndex,
+        departmentIndex: deptSlot,
         departmentId: dept.departmentId,
         departmentName,
         departmentCode,
         departmentIdentifier,
-        departmentGroupIndex: assignedGroupIndex,
-        studentIds: departmentGroup.studentIds,
-        departmentSupervisorId,
+        departmentGroupIndex: deptSlot,
+        cohortIndex,
+        studentIds: cohort.studentIds,
+        departmentSupervisorId: deptSup.id,
+        departmentSupervisorName: deptSup.name,
         useUnits,
-        departmentDurationDays,
+        departmentDurationDays: blockDays,
         unitDurationDays,
-        activeUnitIds: activeUnits,
-        activeUnitNames,
+        activeUnitIds: unitPool,
+        activeUnitNames: unitPool.map((id) => unitMap.get(id)?.name || String(id)),
       });
     }
 
     phases.push({
-      phaseIndex,
-      phaseName: `Phase ${phaseIndex + 1}`,
-      phaseDurationDays,
-      phaseDurationWeeks,
-      phaseDurationLabel,
-      startDate: phaseStart.toISOString(),
-      endDate: addDays(phaseStart, phaseDurationDays).toISOString(),
+      phaseIndex: blockIndex,
+      phaseName: `Phase ${blockIndex + 1}`,
+      phaseDurationDays: blockDays,
+      phaseDurationWeeks: Math.max(1, Math.ceil(blockDays / 7)),
+      phaseDurationLabel: blockDurationLabel,
+      startDate: blockStart.toISOString(),
+      endDate: addDays(blockStart, blockDays).toISOString(),
       departments: phaseDepartments,
     });
-
-    phaseStart = addDays(phaseStart, phaseDurationDays);
   }
+
+  // Units never visited by any cohort across the whole run, per department.
+  const usedByDept = departments.map(() => new Set<string>());
+  for (const w of timeline) {
+    if (w.unitId != null) usedByDept[w.departmentIndex].add(String(w.unitId));
+  }
+  departments.forEach((_, d) => {
+    const unused = unitPools[d].filter((u) => !usedByDept[d].has(String(u)));
+    if (unused.length) unvisitedUnits.push({ departmentIndex: d, unitIds: unused });
+  });
 
   const createdByValue = createdBy && mongoose.Types.ObjectId.isValid(createdBy)
     ? new mongoose.Types.ObjectId(createdBy)
@@ -576,19 +577,34 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
     postings: [
       {
         name,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        groups: deptGroups.map((g) => {
-          const supervisorInfo = groupSupervisorMap.get(g.groupIndex) || { supervisorId: null, supervisorName: null, departmentSupervisorId: null, departmentSupervisorName: null, supervisorEmail: null, departmentSupervisorEmail: null } as any;
+        startDate: postingStart,
+        endDate: postingEnd,
+        // One group per DEPARTMENT, named by department name + code
+        // (from the Department document / departments.ts constants).
+        // group.students = the cohort that STARTS in this department
+        // (block 0). assigned stays EMPTY for generated plans — the
+        // meta.timeline windows are the source of truth for who is
+        // where, when (see clinicalPostingResolver).
+        groups: departments.map((dept, d) => {
+          const deptDoc = deptDocs[d];
+          const deptSup = deptSupervisors[d];
+          const departmentName = deptDoc?.name || dept.departmentId;
+          const departmentCode = deptDoc?.code || undefined;
           return {
             groupId: null,
-            group: { students: g.studentIds, name: `Group ${g.groupIndex + 1}` },
-            supervisor: supervisorInfo.departmentSupervisorId || supervisorInfo.supervisorId || undefined,
-            supervisorName: supervisorInfo.departmentSupervisorName || supervisorInfo.supervisorName || undefined,
-            supervisorEmail: supervisorInfo.departmentSupervisorEmail || supervisorInfo.supervisorEmail || undefined,
-            departmentSupervisor: supervisorInfo.departmentSupervisorId || undefined,
-            departmentSupervisorName: supervisorInfo.departmentSupervisorName || undefined,
-            departmentSupervisorEmail: supervisorInfo.departmentSupervisorEmail || undefined,
+            group: {
+              students: cohorts[d].studentIds,
+              name: departmentLabel(departmentName, departmentCode),
+              code: departmentCode ?? null,
+              departmentId: dept.departmentId,
+              departmentIdentifier: deptDoc?.departmentID || dept.departmentId,
+              cohortIndex: d,
+            },
+            assigned: [],
+            supervisor: deptSup.id || undefined,
+            supervisorName: deptSup.name || undefined,
+            departmentSupervisor: deptSup.id || undefined,
+            departmentSupervisorName: deptSup.name || undefined,
           };
         }),
         meta: {
@@ -599,11 +615,31 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
           phaseId,
           phaseName,
           postingScheduleId,
+          blockDays,
+          unitDurationDays: departments.map((d) => getUnitDurationDays(d)),
         },
       },
     ],
-    groups: deptGroups,
-    meta: { krysta: true, timeline, phases, unvisitedUnits, unvisitedUnitGroups, unassignedWindows, phaseId, phaseName, postingScheduleId },
+    groups: cohorts.map((c) => ({
+      ...c,
+      name: departmentLabel(
+        deptDocs[c.groupIndex]?.name || departments[c.groupIndex]?.departmentId,
+        deptDocs[c.groupIndex]?.code,
+      ),
+    })),
+    meta: {
+      krysta: true,
+      timeline,
+      phases,
+      unvisitedUnits,
+      unvisitedUnitGroups,
+      unassignedWindows,
+      phaseId,
+      phaseName,
+      postingScheduleId,
+      blockDays,
+      totalDays,
+    },
   };
 
   if (unassignedWindows.length > 0) {

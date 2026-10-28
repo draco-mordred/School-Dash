@@ -233,10 +233,16 @@ export const resolveStudentClinicalGroup = async (
         planId: plan?._id ?? null,
         classId: plan?.class ?? null,
         postingName: posting?.name ?? null,
-        groupName: hit.groupRef?.group?.name ?? null,
-        supervisor: hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null,
-        supervisorName: hit.groupRef?.supervisorName ?? null,
-        students: groupStudentIds(hit.groupRef),
+        groupName: hit.window?.unitGroupLabel ?? hit.groupRef?.group?.name ?? null,
+        supervisor:
+          hit.viaTimeline && hit.window?.supervisorId != null
+            ? String(hit.window.supervisorId)
+            : hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null,
+        supervisorName: hit.window?.supervisorName ?? hit.groupRef?.supervisorName ?? null,
+        students:
+          hit.viaTimeline && Array.isArray(hit.window?.studentIds) && hit.window.studentIds.length
+            ? hit.window.studentIds.map((id: any) => String(id))
+            : groupStudentIds(hit.groupRef),
       };
     }
   }
@@ -295,19 +301,22 @@ export const resolveActiveSupervisorTeams = async (now: Date = new Date()) => {
           groups[0] ??
           null;
         const supervisor =
-          groupRef?.supervisor ?? (w?.supervisorId ? String(w.supervisorId) : null);
+          w?.supervisorId != null
+            ? String(w.supervisorId)
+            : groupRef?.supervisor ?? null;
         if (!supervisor) continue;
         pushTeam({
           classId: plan?.class ?? null,
           postingName: posting?.name ?? null,
-          groupName: groupRef?.group?.name ?? null,
+          groupName: w?.unitGroupLabel ?? groupRef?.group?.name ?? null,
           supervisor,
-          supervisorName: groupRef?.supervisorName ?? null,
-          students: groupRef
-            ? groupStudentIds(groupRef)
-            : Array.isArray(w?.studentIds)
+          supervisorName: w?.supervisorName ?? groupRef?.supervisorName ?? null,
+          students:
+            Array.isArray(w?.studentIds) && w.studentIds.length
               ? w.studentIds.map((id: any) => String(id))
-              : [],
+              : groupRef
+                ? groupStudentIds(groupRef)
+                : [],
         });
       }
     }
