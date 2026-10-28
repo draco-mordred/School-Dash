@@ -110,6 +110,7 @@ export const getMyClinicalTeam = async (
     // 2. Resolve the active posting group + window.
     let hit: any = null;
     let postingName: string | null = null;
+    let activePostingRef: any = null;
 
     if (phaseDriven) {
       const scheduleIdRaw =
@@ -147,6 +148,7 @@ export const getMyClinicalTeam = async (
           if (found) {
             hit = found;
             postingName = configuredPostingName;
+            activePostingRef = posting;
           }
         }
         if (!hit) noTeamReason = "not-in-posting-group";
@@ -166,6 +168,7 @@ export const getMyClinicalTeam = async (
           if (found) {
             hit = found;
             postingName = posting?.name ?? null;
+            activePostingRef = posting;
             break;
           }
         }
@@ -335,6 +338,23 @@ export const getMyClinicalTeam = async (
           daysRemaining: remainingDays,
           supervisor,
           members,
+          weeklySchedule: Array.isArray(hit.groupRef?.weeklySchedule)
+            ? hit.groupRef.weeklySchedule.map((w: any) => ({
+                day: Number(w?.day),
+                activityType: String(w?.activityType ?? ""),
+              }))
+            : [],
+          todayTask: (() => {
+            const items = Array.isArray(hit.groupRef?.weeklySchedule)
+              ? hit.groupRef.weeklySchedule
+              : [];
+            const today = items.find(
+              (w: any) => Number(w?.day) === now.getDay(),
+            );
+            return today?.activityType ? String(today.activityType) : null;
+          })(),
+          logbookRequiredEntries:
+            Number(activePostingRef?.logbookRequiredEntries ?? 0) || 0,
         },
         phase: phaseInfo,
         weekActivities,
