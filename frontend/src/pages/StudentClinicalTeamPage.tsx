@@ -15,6 +15,7 @@ import {
   Activity,
   CalendarDays,
   ClipboardList,
+  ListChecks,
   UserRound,
   Users,
 } from "lucide-react";
@@ -63,6 +64,9 @@ type TeamData = {
         }
       | null;
     members: TeamMember[];
+    weeklySchedule?: Array<{ day: number; activityType: string }>;
+    todayTask?: string | null;
+    logbookRequiredEntries?: number;
   } | null;
   weekActivities: TeamSession[];
   myPerformance: {
@@ -106,6 +110,7 @@ const fmtTime = (value: string | null | undefined) =>
     : "";
 
 const typeLabel = (value: string) => value.replace(/_/g, " ");
+const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const myStatusColor = (status: string | null) =>
   status === "present"
@@ -347,6 +352,66 @@ export default function StudentClinicalTeamPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ListChecks className="h-4 w-4" />
+            Daily tasks — team schedule
+          </CardTitle>
+          <CardDescription>
+            What your supervisor has scheduled for your team each day of the week.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {team.todayTask ? (
+            <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+              <p className="text-xs uppercase tracking-[.2em] text-muted-foreground">
+                Today · {DAY_LABELS[new Date().getDay()]}
+              </p>
+              <p className="mt-1 text-lg font-semibold capitalize text-foreground">
+                {typeLabel(team.todayTask)}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Set by your team supervisor. Attend and check in so the session is recorded and auto-signed in your logbook.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
+              No task is scheduled for today. Your supervisor has not tagged {DAY_LABELS[new Date().getDay()]} in your team&rsquo;s weekly schedule yet.
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {[1, 2, 3, 4, 5, 6, 0].map((day) => {
+              const item = (team.weeklySchedule ?? []).find((w) => w.day === day);
+              const isToday = new Date().getDay() === day;
+              return (
+                <div
+                  key={day}
+                  className={
+                    "rounded-lg border p-3 " +
+                    (isToday ? "border-primary/40 bg-primary/5" : "border-border")
+                  }
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">{DAY_LABELS[day]}</p>
+                    {isToday ? (
+                      <Badge variant="secondary">Today</Badge>
+                    ) : null}
+                  </div>
+                  {item?.activityType ? (
+                    <Badge variant="outline" className="mt-2 capitalize">
+                      {typeLabel(item.activityType)}
+                    </Badge>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">No scheduled task</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

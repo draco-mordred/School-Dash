@@ -71,22 +71,30 @@ interface PostingProgressRow {
 }
 
 interface PostingProgressState {
-  overallPercent: number;
+  teamFound: boolean;
+  postingName: string | null;
+  groupName: string | null;
+  windowLabel: string;
+  postingPercent: number | null;
+  daysElapsed: number | null;
+  daysTotal: number | null;
   daysRemaining: number | null;
-  currentWindowLabel: string;
-  currentUnitLabel: string;
+  overallPercent: number;
+  attendanceRate: number;
+  tally: Record<string, number>;
+  sessionsCount: number;
+  logbook: { approved: number; pending: number; rejected: number; total: number; hours: number };
+  logbookRequired: number;
+  logbookPercent: number;
   activeLocationTitle: string;
   activeLocationValue: string;
-  usesUnits: boolean;
   needsAttention: boolean;
   note: string;
   rows: PostingProgressRow[];
 }
 
-const WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const POSTING_PROGRESS_MAX_RETRIES = 3;
-const POSTING_PROGRESS_RETRY_DELAY_MS = 1500;
 
+const WEEK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const parseTimeToMinutes = (time?: string) => {
   if (!time) return null;
   const [hours, minutes] = time.split(":").map((part) => Number(part));
@@ -300,202 +308,144 @@ export default function StudentPortal() {
       }
     };
 
-    const loadPostingProgress = async (attempt = 1) => {
-      let shouldRetry = false;
-
+    const loadPostingProgress = async () => {
       try {
         setPostingProgressLoading(true);
         setPostingProgressError(null);
 
         const studentId = user?._id ?? (user as any)?.id;
-        const [postingRes, sessionsRes] = await Promise.all([
+        const [teamSettled, logbookSettled] = await Promise.allSettled([
+          api.get("/clinical-attendance/my-team"),
           studentId
-            ? api.get(`/rotation-schedules/student/${studentId}/current`)
-            : Promise.resolve({ data: { current: [] } }),
-          api.get("/clinical-attendance/sessions?status=ongoing,planned"),
+            ? api.get(`/activity-entries/student/${studentId}`)
+            : Promise.resolve({ data: { entries: [] } }),
         ]);
 
-        const currentScheduleEntry = Array.isArray(postingRes.data?.current)
-          ? postingRes.data.current[0] ?? null
-          : null;
-        const scheduleWindow = currentScheduleEntry?.window ?? null;
-        const usesUnits = Boolean(scheduleWindow?.unitName || scheduleWindow?.unitId);
-        const departmentGroupLabel =
-          scheduleWindow?.departmentName ||
-          `Department Group ${Number(scheduleWindow?.departmentGroupIndex ?? 0) + 1}`;
-        const activeLocationTitle = usesUnits ? "Active Unit" : "Department Group";
-        const activeLocationValue = usesUnits
-          ? (scheduleWindow?.unitName || `Unit ${Number(scheduleWindow?.unitGroupIndex ?? 0) + 1}`)
-          : departmentGroupLabel;
+        const teamData =
+          teamSettled.status === "fulfilled" ? teamSettled.value.data?.data ?? null : null;
+        const team = teamData?.team ?? null;
+        const perf = teamData?.myPerformance ?? null;
 
-        const posting = currentScheduleEntry
-          ? {
-              rotation: {
-                startDate: scheduleWindow?.startDate ?? null,
-                endDate: scheduleWindow?.endDate ?? null,
-              },
-              unit: {
-                name: scheduleWindow?.unitName ?? currentScheduleEntry?.postingName ?? "Current unit",
-                department: scheduleWindow?.departmentName ?? "Current department",
-              },
+        // Logbook performance across the posting (all statuses).
+        const logbook = { approved: 0, pending: 0, rejected: 0, total: 0, hours: 0 };
+        if (logbookSettled.status === "fulfilled") {
+          const entries = Array.isArray(logbookSettled.value.data?.entries)
+            ? logbookSettled.value.data.entries
+            : [];
+          for (const entry of entries) {
+            const status = String(entry?.approvalStatus ?? entry?.status ?? "").trim().toLowerCase();
+            logbook.total += 1;
+            if (status === "approved") {
+              logbook.approved += 1;
+              logbook.hours += Number(entry?.hours ?? 0) || 0;
+            } else if (status === "rejected") {
+              logbook.rejected += 1;
+            } else {
+              logbook.pending += 1;
             }
-          : null;
-        const allSessions = Array.isArray(sessionsRes.data?.data) ? sessionsRes.data.data : [];
-        const activePostingIds = new Set<string>();
-        if (currentScheduleEntry?.scheduleId) {
-          activePostingIds.add(String(currentScheduleEntry.scheduleId));
-        }
-        const activePostings = Array.isArray(currentScheduleEntry?.schedule?.postings)
-          ? currentScheduleEntry.schedule.postings
-          : [];
-        activePostings.forEach((activePosting: any) => {
-          if (activePosting?._id) activePostingIds.add(String(activePosting._id));
-        });
-        const phaseDriven = postingRes.data?.phaseDriven === true;
-        const sessions = phaseDriven
-          ? allSessions.filter((session: any) => activePostingIds.has(String(session?.clinicalRotation ?? "")))
-          : currentScheduleEntry && activePostingIds.size > 0
-            ? allSessions.filter((session: any) => activePostingIds.has(String(session?.clinicalRotation ?? "")))
-            : allSessions;
-
-        const startDate = posting?.rotation?.startDate ? new Date(posting.rotation.startDate) : null;
-        const endDate = posting?.rotation?.endDate ? new Date(posting.rotation.endDate) : null;
-        const today = new Date();
-
-        const daysRemaining = endDate && !Number.isNaN(endDate.getTime())
-          ? Math.max(0, Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
-          : null;
-
-        const currentWeek = startDate && !Number.isNaN(startDate.getTime())
-          ? Math.max(1, Math.floor(Math.max(0, Math.floor((today.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) / 7) + 1)
-          : 1;
-
-        const weekStart = startDate && !Number.isNaN(startDate.getTime())
-          ? new Date(startDate)
-          : null;
-
-        if (weekStart) {
-          weekStart.setDate(weekStart.getDate() + (currentWeek - 1) * 7);
-        }
-
-        const weekEnd = weekStart ? new Date(weekStart) : null;
-        if (weekEnd) {
-          weekEnd.setDate(weekEnd.getDate() + 6);
-        }
-
-        const relevantSessions = sessions.filter((session: any) => {
-          if (!session?.date) return false;
-          const sessionDate = new Date(session.date);
-          if (Number.isNaN(sessionDate.getTime())) return false;
-          if (weekStart && weekEnd) {
-            return sessionDate >= weekStart && sessionDate <= weekEnd;
           }
-          if (startDate && endDate) {
-            return sessionDate >= startDate && sessionDate <= endDate;
-          }
-          return true;
-        });
+        }
+        const logbookRequired = Number(team?.logbookRequiredEntries ?? 0) || 0;
+        const logbookPercent =
+          logbookRequired > 0
+            ? Math.min(100, Math.round((logbook.approved / logbookRequired) * 100))
+            : logbook.total > 0
+              ? 100
+              : 0;
 
-        const fallbackSessions = relevantSessions;
+        // Posting progress = days elapsed in the active team window.
+        const daysElapsed = team?.daysElapsed ?? null;
+        const daysTotal = team?.daysTotal ?? null;
+        const daysRemaining = team?.daysRemaining ?? null;
+        const postingPercent =
+          daysTotal && daysElapsed ? Math.min(100, Math.round((daysElapsed / daysTotal) * 100)) : null;
+        const attendanceRate = perf?.attendanceRate ?? 0;
+
+        const startDate = team?.window?.startDate ? new Date(team.window.startDate) : null;
+        const week =
+          startDate && !Number.isNaN(startDate.getTime())
+            ? Math.max(
+                1,
+                Math.floor(Math.max(0, Math.floor((Date.now() - startDate.getTime()) / 86400000)) / 7) + 1,
+              )
+            : null;
+        const windowLabel = team
+          ? week
+            ? `Week ${week} of ${team.postingName ?? "current posting"}`
+            : "Current posting"
+          : "Current posting";
+
+        // Per-unit clinical attendance inside this posting window.
         const grouped = new Map<string, PostingProgressRow>();
-
-        const currentUnitName = posting?.unit?.name ?? currentScheduleEntry?.postingName ?? "Current unit";
-        const currentDepartmentName = posting?.unit?.department ?? scheduleWindow?.departmentName ?? "Current department";
-        const currentUnitKey = `${currentUnitName}::${currentDepartmentName}`;
-
-        fallbackSessions.forEach((session: any) => {
-          const unitName = session?.unit?.name ?? currentUnitName;
-          const departmentName = session?.unit?.department ?? currentDepartmentName;
-          const key = `${unitName}::${departmentName}`;
-          const existing = grouped.get(key) ?? {
+        for (const session of perf?.sessions ?? []) {
+          const unitLabel = session?.unitLabel || team?.postingName || "General";
+          const key = `unit::${unitLabel}`;
+          const row = grouped.get(key) ?? {
             key,
-            label: unitName,
-            department: departmentName,
+            label: unitLabel,
+            department: team?.postingName ?? "Current posting",
             planned: 0,
             attended: 0,
             missed: 0,
             percent: 0,
-            isCurrentUnit: key === currentUnitKey,
+            isCurrentUnit: true,
           };
-
-          existing.planned += 1;
-
-          const attendee = Array.isArray(session?.attendees)
-            ? session.attendees.find((entry: any) => {
-                const studentId = entry?.student?._id ?? entry?.student;
-                return studentId && String(studentId) === String(user?._id);
-              })
-            : null;
-
-          const normalizedStatus = String(attendee?.status ?? "").trim().toLowerCase();
-          const attended = normalizedStatus === "present" || normalizedStatus === "excused" || normalizedStatus === "approved_absent";
-          if (attended) {
-            existing.attended += 1;
+          row.planned += 1;
+          const status = String(session?.myStatus ?? "").trim().toLowerCase();
+          if (status === "present" || status === "late" || status === "excused" || status === "on-leave") {
+            row.attended += 1;
           } else {
-            existing.missed += 1;
+            row.missed += 1;
           }
+          grouped.set(key, row);
+        }
+        const rows = Array.from(grouped.values())
+          .map((row) => ({
+            ...row,
+            percent: row.planned > 0 ? Math.round((row.attended / row.planned) * 100) : 0,
+          }))
+          .sort((a, b) => b.percent - a.percent || b.planned - a.planned);
 
-          grouped.set(key, existing);
-        });
-
-        const rows = Array.from(grouped.values()).map((row) => ({
-          ...row,
-          percent: row.planned > 0 ? Math.round((row.attended / row.planned) * 100) : 0,
-        })).sort((a, b) => {
-          if (a.isCurrentUnit !== b.isCurrentUnit) {
-            return a.isCurrentUnit ? -1 : 1;
-          }
-          if (b.percent !== a.percent) {
-            return b.percent - a.percent;
-          }
-          return b.planned - a.planned;
-        });
-
-        const overallPercent = rows.length > 0
-          ? Math.round(rows.reduce((total, row) => total + row.percent, 0) / rows.length)
-          : 0;
-
-        const note = rows.length === 0
-          ? "No clinical sessions have been logged for this posting yet."
-          : overallPercent >= 80
-            ? "You are on track with your posting attendance target."
-            : "You are below the expected attendance target for this posting.";
-
-        const needsAttention = overallPercent < 80 || rows.some((row) => row.missed > 0);
+        const overallPercent = attendanceRate;
+        const note = !team
+          ? "You are not in an active clinical posting right now. This card updates once your posting starts."
+          : rows.length === 0
+            ? "No clinical sessions have been recorded for your team yet."
+            : overallPercent >= 75
+              ? "You are on track with your posting attendance and logbook targets."
+              : "You are below the 75% clinical attendance target for this posting.";
+        const needsAttention = Boolean(team) && (overallPercent < 75 || rows.some((row) => row.missed > 0));
 
         setPostingProgress({
-          overallPercent,
+          teamFound: Boolean(team),
+          postingName: team?.postingName ?? null,
+          groupName: team?.groupName ?? null,
+          windowLabel,
+          postingPercent,
+          daysElapsed,
+          daysTotal,
           daysRemaining,
-          currentWindowLabel: startDate ? `Week ${currentWeek} of current posting` : "Current posting phase",
-          currentUnitLabel: currentUnitName,
-          activeLocationTitle,
-          activeLocationValue,
-          usesUnits,
+          overallPercent,
+          attendanceRate,
+          tally: perf?.tally ?? {},
+          sessionsCount: perf?.sessions?.length ?? 0,
+          logbook,
+          logbookRequired,
+          logbookPercent,
+          activeLocationTitle: team ? "Team" : "Posting",
+          activeLocationValue: team?.groupName ?? team?.postingName ?? "—",
           needsAttention,
           note,
           rows,
         });
       } catch (err: any) {
-        const status = err?.response?.status;
-        const message = err?.response?.data?.message ?? err?.message ?? "Unable to load posting progress right now.";
-        const retriable = !status || status === 401 || status === 403 || status === 404 || status === 500;
-        shouldRetry = retriable && attempt < POSTING_PROGRESS_MAX_RETRIES;
-
-        if (shouldRetry) {
-          console.info(`Posting progress unavailable, retrying (${attempt}/${POSTING_PROGRESS_MAX_RETRIES})`, { status, message });
-          window.setTimeout(() => {
-            void loadPostingProgress(attempt + 1);
-          }, POSTING_PROGRESS_RETRY_DELAY_MS * attempt);
-          return;
-        }
-
         console.error("Failed to load posting progress", err);
         setPostingProgress(null);
-        setPostingProgressError("Posting progress data is not available yet. Once your posting details are ready, this card will update automatically.");
+        setPostingProgressError(
+          "Posting progress data is not available yet. Once your posting details are ready, this card will update automatically.",
+        );
       } finally {
-        if (!shouldRetry) {
-          setPostingProgressLoading(false);
-        }
+        setPostingProgressLoading(false);
       }
     };
 
@@ -697,11 +647,11 @@ export default function StudentPortal() {
                   <div>
                     <CardTitle>Posting progress vs attendance</CardTitle>
                     <CardDescription>
-                      {postingProgress?.currentWindowLabel ?? "Current posting progress"}
+                      {postingProgress?.windowLabel ?? "Current posting progress"}
                     </CardDescription>
                   </div>
                   <div className="relative flex h-12 w-12 items-center justify-center">
-                    <ProgressRing percent={postingProgress?.overallPercent ?? 0} />
+                    <ProgressRing percent={postingProgress?.postingPercent ?? postingProgress?.overallPercent ?? 0} />
                   </div>
                 </div>
               </CardHeader>
@@ -714,68 +664,125 @@ export default function StudentPortal() {
                   <div className="rounded-2xl border border-dashed border-border bg-muted/50 p-3 text-sm text-muted-foreground">
                     {postingProgressError}
                   </div>
-                ) : postingProgress?.rows?.length ? (
+                ) : postingProgress?.teamFound ? (
                   <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="grid gap-3 sm:grid-cols-4">
                       <div className="rounded-2xl bg-muted/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Overall attendance</p>
-                        <p className="mt-2 text-lg font-semibold text-foreground">{postingProgress?.overallPercent ?? 0}%</p>
+                        <p className="text-xs uppercase tracking-[.2em] text-muted-foreground">Posting progress</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">
+                          {postingProgress?.daysElapsed ?? "—"}
+                          {postingProgress?.daysTotal ? " of " + postingProgress.daysTotal + " days" : ""}
+                        </p>
+                        {postingProgress?.postingPercent != null ? (
+                          <p className="text-xs text-muted-foreground">{postingProgress.postingPercent}% through the posting</p>
+                        ) : null}
                       </div>
                       <div className="rounded-2xl bg-muted/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Days left</p>
-                        <p className="mt-2 text-lg font-semibold text-foreground">
-                          {postingProgress?.daysRemaining ?? "—"}
+                        <p className="text-xs uppercase tracking-[.2em] text-muted-foreground">Clinical attendance</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">{postingProgress?.attendanceRate ?? 0}%</p>
+                        <p className="text-xs text-muted-foreground">
+                          {postingProgress?.sessionsCount ?? 0} sessions ·{" "}
+                          {(postingProgress?.tally?.present ?? 0) + (postingProgress?.tally?.late ?? 0)} attended
                         </p>
                       </div>
                       <div className="rounded-2xl bg-muted/70 p-3">
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{postingProgress?.activeLocationTitle ?? "Active Unit"}</p>
-                        <p className="mt-2 text-sm font-semibold text-foreground">{postingProgress?.activeLocationValue ?? postingProgress?.currentUnitLabel ?? "Current posting"}</p>
+                        <p className="text-xs uppercase tracking-[.2em] text-muted-foreground">Logbook entries</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">
+                          {postingProgress?.logbook?.approved ?? 0}
+                          {postingProgress?.logbookRequired ? " / " + postingProgress.logbookRequired : ""}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {postingProgress?.logbook?.pending ?? 0} pending · {postingProgress?.logbook?.rejected ?? 0} rejected
+                        </p>
+                      </div>
+                      <div className="rounded-2xl bg-muted/70 p-3">
+                        <p className="text-xs uppercase tracking-[.2em] text-muted-foreground">Hours logged</p>
+                        <p className="mt-2 text-lg font-semibold text-foreground">{postingProgress?.logbook?.hours ?? 0}h</p>
+                        <p className="text-xs text-muted-foreground">approved entries only</p>
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-border bg-muted/30 p-3">
-                      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
-                        <TrendingUp className="h-4 w-4 text-primary" />
-                        Posting flow vs your attendance
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1 rounded-2xl border border-border bg-muted/30 p-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Posting progress (days)</span>
+                          <span className="tabular-nums font-semibold">{postingProgress?.postingPercent ?? 0}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary" style={{ width: (postingProgress?.postingPercent ?? 0) + "%" }} />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {postingProgress?.daysRemaining != null
+                            ? postingProgress.daysRemaining + " day" + (postingProgress.daysRemaining === 1 ? "" : "s") + " remaining"
+                            : ""}
+                          {postingProgress?.groupName ? " · Team " + postingProgress.groupName : ""}
+                        </p>
                       </div>
-                      <div className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={postingProgress?.rows ?? []} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                            <XAxis type="number" domain={[0, Math.max(1, ...(postingProgress?.rows ?? []).map((row) => row.planned))]} allowDecimals={false} />
-                            <YAxis type="category" dataKey="label" width={90} tickLine={false} axisLine={false} />
-                            <Tooltip content={renderPostingTooltip} />
-                            <Bar dataKey="missed" stackId="attendance" fill="#f59e0b" radius={[0, 6, 6, 0]} />
-                            <Bar dataKey="attended" stackId="attendance" fill="#2563eb" radius={[0, 6, 6, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        {(postingProgress?.rows ?? []).map((row) => (
-                          <div key={row.key} className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${row.isCurrentUnit ? "border-primary/30 bg-primary/5" : "border-border bg-background/70"}`}>
-                            <div>
-                              <p className="font-medium text-foreground">{row.label}</p>
-                              <p className="text-xs text-muted-foreground">{row.department}</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-right">
-                              {row.missed > 0 && (
-                                <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase text-amber-700">
-                                  Needs attention
-                                </span>
-                              )}
-                              <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${row.percent >= 80 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                                {row.percent}%
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {row.attended}/{row.planned}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="space-y-1 rounded-2xl border border-border bg-muted/30 p-3">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">
+                            Logbook vs required entries{postingProgress?.logbookRequired ? "" : " (no target set)"}
+                          </span>
+                          <span className="tabular-nums font-semibold">{postingProgress?.logbookPercent ?? 0}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={(postingProgress?.logbookPercent ?? 0) >= 100 ? "h-full rounded-full bg-green-500" : "h-full rounded-full bg-amber-500"}
+                            style={{ width: (postingProgress?.logbookPercent ?? 0) + "%" }}
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {postingProgress?.logbook?.approved ?? 0} approved of{" "}
+                          {postingProgress?.logbookRequired || postingProgress?.logbook?.total || 0} entries
+                        </p>
                       </div>
                     </div>
+
+                    {postingProgress?.rows?.length ? (
+                      <div className="rounded-2xl border border-border bg-muted/30 p-3">
+                        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-foreground">
+                          <TrendingUp className="h-4 w-4 text-primary" />
+                          Posting units vs your attendance
+                        </div>
+                        <div className="h-48">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={postingProgress.rows} layout="vertical" margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                              <XAxis type="number" domain={[0, Math.max(1, ...postingProgress.rows.map((row) => row.planned))]} allowDecimals={false} />
+                              <YAxis type="category" dataKey="label" width={90} tickLine={false} axisLine={false} />
+                              <Tooltip content={renderPostingTooltip} />
+                              <Bar dataKey="missed" stackId="attendance" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+                              <Bar dataKey="attended" stackId="attendance" fill="#2563eb" radius={[0, 6, 6, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {postingProgress.rows.map((row) => (
+                            <div key={row.key} className="flex items-center justify-between rounded-2xl border border-border bg-background/70 px-3 py-2 text-sm">
+                              <div>
+                                <p className="font-medium text-foreground">{row.label}</p>
+                                <p className="text-xs text-muted-foreground">{row.department}</p>
+                              </div>
+                              <div className="flex items-center gap-2 text-right">
+                                {row.missed > 0 && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase text-amber-700">
+                                    Needs attention
+                                  </span>
+                                )}
+                                <span className={"rounded-full px-2 py-1 text-[11px] font-semibold uppercase " + (row.percent >= 75 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>
+                                  {row.percent}%
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {row.attended}/{row.planned}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-background/70 p-3 text-sm text-muted-foreground">
-                      {postingProgress?.overallPercent && postingProgress.overallPercent < 80 ? (
+                      {postingProgress?.needsAttention ? (
                         <><AlertTriangle className="h-4 w-4 text-amber-600" /> {postingProgress.note}</>
                       ) : (
                         <><CalendarDays className="h-4 w-4 text-primary" /> {postingProgress?.note}</>
@@ -784,7 +791,7 @@ export default function StudentPortal() {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-                    No posting attendance data is available yet. The card will refresh automatically once your clinical posting details are ready.
+                    You are not in an active clinical posting right now. This card updates automatically once your class clock phase places you in a posting group.
                   </div>
                 )}
               </CardContent>
