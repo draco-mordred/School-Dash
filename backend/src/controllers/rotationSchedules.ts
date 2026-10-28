@@ -12,6 +12,7 @@ import {
   hasConfiguredAcademicClockPhases,
   phaseRequiresPostingSchedule,
   resolveAcademicClockPhase,
+  resolveClockPhaseWindowById,
 } from '../utils/academicClockPhase';
 import { matchCoursesToPhase } from '../utils/clinicalPhaseMatching';
 
@@ -93,12 +94,49 @@ export const createRotationSchedule = async (req: Request, res: Response) => {
       if (!Array.isArray(payload.departments) || payload.departments.length === 0) {
         return res.status(400).json({ message: 'At least one department is required for schedule generation' });
       }
+      // dateMode 'clock': resolve the posting dates from the class's
+      // Class Clock phase window instead of the manual payload dates.
+      // Rotation blocks are fitted to the phase window (floor: 4 weeks /
+      // 28 days per department group — the posting may extend past the
+      // phase end when the window is too short to fit all departments).
+      let startDateValue: string | undefined = payload.startDate;
+      let endDateValue: string | undefined = payload.endDate;
+      let rotationBlockDays: number | undefined;
+      if (payload.dateMode === 'clock') {
+        if (!payload.phaseId) {
+          return res.status(400).json({ message: 'Missing phaseId for clock-synced schedule generation' });
+        }
+        const classDoc = await ClassModel.findById(payload.class).select('academicYear').lean();
+        const clock = classDoc?.academicYear
+          ? await AcademicClock.findOne({
+            classId: payload.class,
+            academicYear: classDoc.academicYear,
+          }).lean()
+          : null;
+        if (!clock) {
+          return res.status(400).json({
+            message: 'Cannot sync from Class Clock phase — create a class clock for this class or use a manual start date',
+          });
+        }
+        const window = resolveClockPhaseWindowById(clock, String(payload.phaseId));
+        if (!window) {
+          return res.status(400).json({ message: 'Class Clock phase window not found for the selected phase' });
+        }
+        const phaseDays = Math.max(
+          1,
+          Math.round((window.endsAt.getTime() - window.startsAt.getTime()) / (24 * 60 * 60 * 1000)),
+        );
+        startDateValue = window.startsAt.toISOString();
+        endDateValue = window.endsAt.toISOString();
+        rotationBlockDays = Math.max(28, Math.floor(phaseDays / (payload.departments.length || 1)));
+      }
       try {
         const planObj = await generateKrystaSchedule({
           classId: payload.class,
           name: payload.name || 'Krysta Rotation',
-          startDate: payload.startDate || new Date().toISOString(),
-          endDate: payload.endDate || new Date().toISOString(),
+          startDate: startDateValue || new Date().toISOString(),
+          endDate: endDateValue || new Date().toISOString(),
+          rotationBlockDays,
           departments: payload.departments || [],
           createdBy: payload.createdBy,
           phaseId: payload.phaseId,

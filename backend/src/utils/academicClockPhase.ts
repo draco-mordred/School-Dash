@@ -109,3 +109,43 @@ export const resolveAcademicClockPhase = (
     endsAt: active.endsAt,
   };
 };
+
+// Resolve a SPECIFIC phase's window by id (does not depend on "now").
+// Returns null when the clock has no start date, no valid phases, or the
+// requested phaseId does not match any configured phase.
+export const resolveClockPhaseWindowById = (
+  clock: {
+    clockStartDate?: Date | string | null;
+    phaseConfig?: unknown;
+  },
+  phaseId: string | null | undefined,
+): AcademicClockPhaseEntry | null => {
+  if (!phaseId) return null;
+  const phases = getPhaseEntries(clock.phaseConfig)
+    .map(([id, config]) => ({
+      id,
+      name: String(config?.name ?? id),
+      duration: Number(config?.duration ?? config?.durationMonths ?? 0),
+      config: config as Record<string, any>,
+    }))
+    .filter((phase) => Number.isFinite(phase.duration) && phase.duration > 0);
+  const startDate = clock.clockStartDate
+    ? new Date(clock.clockStartDate)
+    : null;
+  if (!startDate || Number.isNaN(startDate.getTime()) || phases.length === 0) {
+    return null;
+  }
+  let cursor = startDate;
+  for (const phase of phases) {
+    const startsAt = cursor;
+    const endsAt = new Date(
+      startsAt.getTime() +
+        phase.duration * DAYS_PER_CLOCK_MONTH * millisecondsPerDay,
+    );
+    if (phase.id === String(phaseId)) {
+      return { ...phase, startsAt, endsAt };
+    }
+    cursor = endsAt;
+  }
+  return null;
+};
