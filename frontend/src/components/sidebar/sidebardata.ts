@@ -265,7 +265,7 @@ export const sidebardata = {
       roles: ["student"],
       items: [
         { title: "Overview", url: "/logbook-entries" },
-        { title: "Entries", url: "/clinical-activities" },
+        { title: "Submit Entries", url: "/clinical-activities" },
         { title: "Pending Approvals", url: "/student/logbook/pending" },
         { title: "Approved Entries", url: "/student/logbook/approved" },
         { title: "Statistics", url: "/student/logbook/statistics" },
@@ -276,12 +276,12 @@ export const sidebardata = {
       title: "Student Logbooks",
       url: "#",
       icon: BookOpen,
-      roles: ["teacher", "unitconsultants", "unitresidents"],
+      roles: ["teacher", "unitconsultant", "unitresident", "admin"],
       items: [
         { title: "Overview", url: "/logbook-supervision" },
         { title: "Submissions", url: "/logbook-submissions" },
         { title: "Incoming Entries", url: "/logbook-incoming" },
-        { title: "Logbook & Team Schedule", url: "/clinical-rotations/logbook-settings", roles: ["teacher", "admin"] },
+        { title: "Logbook & Team Schedule", url: "/clinical-rotations/logbook-settings", roles: ["teacher", "unitconsultant", "unitresident", "admin"] },
         { title: "Statistics", url: "/student/logbook/statistics" },
       ],
     },
