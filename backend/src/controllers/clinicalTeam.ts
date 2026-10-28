@@ -6,9 +6,10 @@ import AcademicClock from "../models/academicClock";
 import RotationPlan from "../models/rotationPlan";
 import ClinicalAttendance from "../models/clinicalAttendance";
 import {
-  findGroupWindowForStudent,
+  findGroupOrTimelineWindowForStudent,
   groupStudentIds,
 } from "../subs/latifah/clinicalPostingResolver";
+import { selectPlanForPhase } from "../utils/clinicalPhaseMatching";
 import {
   hasConfiguredAcademicClockPhases,
   phaseRequiresPostingSchedule,
@@ -123,11 +124,47 @@ export const getMyClinicalTeam = async (
           ? String(scheduleIdRaw)
           : null;
 
+      const tryNameMatchedPlan = async () => {
+        // Name-based fallback: the phase config may not carry a valid
+        // postingScheduleId/postingName (or the stored posting name may
+        // not string-match). Match a plan (and its posting) for this
+        // class whose name matches the phase — department keywords
+        // (e.g. O&G/PAE) plus name tokens — then resolve the student's
+        // team window from the posting groups' assigned windows OR the
+        // generated plan timeline.
+        const plans = await RotationPlan.find({ class: rawClassId })
+          .sort({ createdAt: -1 })
+          .lean<any[]>();
+        const matched = selectPlanForPhase(
+          plans,
+          phaseConfig,
+          configuredPostingName,
+        );
+        if (!matched?.plan || !matched?.posting) return false;
+        const found = findGroupOrTimelineWindowForStudent(
+          matched.plan,
+          matched.posting,
+          myId,
+          now,
+        );
+        if (!found) return false;
+        hit = found;
+        postingName = String(matched.posting?.name ?? "");
+        activePostingRef = matched.posting;
+        phaseInfo.scheduleId = String(matched.plan?._id ?? "");
+        phaseInfo.postingName = matched.posting?.name ?? null;
+        phaseInfo.postingConfigured = true;
+        phaseInfo.matchingMode = matched.exact ? "exact" : "name";
+        return true;
+      };
+
       if (!phaseInfo?.phaseActive) {
         noTeamReason = "phase-inactive";
       } else if (!scheduleId || !configuredPostingName) {
-        noTeamReason = "posting-not-configured";
         phaseInfo.postingConfigured = false;
+        if (!(await tryNameMatchedPlan())) {
+          noTeamReason = "posting-not-configured";
+        }
       } else {
         phaseInfo.postingConfigured = true;
         phaseInfo.scheduleId = scheduleId;
@@ -140,8 +177,9 @@ export const getMyClinicalTeam = async (
           (p: any) => String(p?.name) === configuredPostingName,
         );
         if (posting) {
-          const found = findGroupWindowForStudent(
-            posting?.groups,
+          const found = findGroupOrTimelineWindowForStudent(
+            plan,
+            posting,
             myId,
             now,
           );
@@ -151,8 +189,13 @@ export const getMyClinicalTeam = async (
             activePostingRef = posting;
           }
         }
-        if (!hit) noTeamReason = "not-in-posting-group";
+        if (!hit) {
+          if (!(await tryNameMatchedPlan())) {
+            noTeamReason = "not-in-posting-group";
+          }
+        }
       }
+
     } else {
       // No configured clock phases — legacy fallback: scan all plans.
       const plans = await RotationPlan.find({}).lean<any[]>();
@@ -160,8 +203,9 @@ export const getMyClinicalTeam = async (
         for (const posting of Array.isArray(plan?.postings)
           ? plan.postings
           : []) {
-          const found = findGroupWindowForStudent(
-            posting?.groups,
+          const found = findGroupOrTimelineWindowForStudent(
+            plan,
+            posting,
             myId,
             now,
           );
@@ -191,7 +235,11 @@ export const getMyClinicalTeam = async (
       return;
     }
 
-    const studentIds = groupStudentIds(hit.groupRef);
+    const studentIds = hit.groupRef
+  ? groupStudentIds(hit.groupRef)
+  : Array.isArray(hit.window?.studentIds)
+    ? hit.window.studentIds.map((id: any) => String(id))
+    : [];
     const windowStart = hit.window?.startDate
       ? new Date(hit.window.startDate)
       : null;
@@ -231,7 +279,7 @@ export const getMyClinicalTeam = async (
       .select("name idNumber email role")
       .lean<any[]>();
 
-    const supervisorId = hit.groupRef?.supervisor ?? null;
+    const supervisorId = hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null;
     let supervisor: any = null;
     if (supervisorId && IS_OBJECT_ID(String(supervisorId))) {
       const doc = await User.findById(String(supervisorId))

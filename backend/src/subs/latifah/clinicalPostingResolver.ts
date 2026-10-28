@@ -121,6 +121,88 @@ export const findGroupWindowForStudent = (
   return null;
 };
 
+// Generated schedules populate meta.timeline (and posting.meta.timeline)
+// with the student windows and per-window supervisors, but leave
+// postings[].groups[].assigned empty. The timeline is therefore the
+// source of truth for "which student is where, when" for generated
+// plans, and departmentGroupIndex indexes the posting's groups.
+export const findTimelineWindowForStudent = (
+  plan: any,
+  posting: any,
+  studentId: string,
+  date: Date,
+): { window: any } | null => {
+  const planPostings = Array.isArray(plan?.postings) ? plan.postings : [];
+  let timeline: any[] | null = Array.isArray(posting?.meta?.timeline)
+    ? posting.meta.timeline
+    : null;
+  if (!timeline || timeline.length === 0) {
+    if (
+      Array.isArray(plan?.meta?.timeline) &&
+      (planPostings.length <= 1 || planPostings[0] === posting)
+    ) {
+      timeline = plan.meta.timeline;
+    }
+  }
+  for (const w of Array.isArray(timeline) ? timeline : []) {
+    const s = w?.startDate ? new Date(w.startDate).getTime() : NaN;
+    const e = w?.endDate ? new Date(w.endDate).getTime() : NaN;
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    if (date.getTime() < s || date.getTime() > e) continue;
+    const ids = Array.isArray(w?.studentIds) ? w.studentIds : [];
+    if (!ids.some((id: unknown) => String(id) === String(studentId))) continue;
+    return { window: w };
+  }
+  return null;
+};
+
+// Group window with a timeline fallback: first the posting groups'
+// assigned windows (manually assigned schedules), then the generated
+// plan timeline. windowSupervisorId carries the timeline window's
+// supervisor when resolution came via the timeline; groupRef may be
+// null when the posting has no groups at all (students then come from
+// the timeline window's studentIds).
+export const findGroupOrTimelineWindowForStudent = (
+  plan: any,
+  posting: any,
+  studentId: string,
+  date: Date,
+): {
+  groupRef: any;
+  window: any;
+  windowSupervisorId: string | null;
+  viaTimeline: boolean;
+} | null => {
+  const direct = findGroupWindowForStudent(posting?.groups, studentId, date);
+  if (direct) {
+    return {
+      groupRef: direct.groupRef,
+      window: direct.window,
+      windowSupervisorId: null,
+      viaTimeline: false,
+    };
+  }
+  const timelineHit = findTimelineWindowForStudent(plan, posting, studentId, date);
+  if (!timelineHit) return null;
+  const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+  const idx = Number(timelineHit.window?.departmentGroupIndex);
+  const groupRef =
+    (Number.isInteger(idx) && idx >= 0 && idx < groups.length
+      ? groups[idx]
+      : null) ??
+    groups[0] ??
+    null;
+  return {
+    groupRef,
+    window: timelineHit.window,
+    windowSupervisorId:
+      timelineHit.window?.supervisorId != null
+        ? String(timelineHit.window.supervisorId)
+        : null,
+    viaTimeline: true,
+  };
+};
+
 // Nudge slot index at `now`: null = not due (or past the 4h cap),
 // otherwise floor((now - firstNudgeAt) / 30 min). One notification per
 // slot is enforced with a persisted clinicalNudgeKey, so repeated ticks
@@ -145,14 +227,14 @@ export const resolveStudentClinicalGroup = async (
   const plans = await RotationPlan.find({}).lean<any[]>();
   for (const plan of plans) {
     for (const posting of Array.isArray(plan?.postings) ? plan.postings : []) {
-      const hit = findGroupWindowForStudent(posting?.groups, studentId, now);
+      const hit = findGroupOrTimelineWindowForStudent(plan, posting, studentId, now);
       if (!hit) continue;
       return {
         planId: plan?._id ?? null,
         classId: plan?.class ?? null,
         postingName: posting?.name ?? null,
         groupName: hit.groupRef?.group?.name ?? null,
-        supervisor: hit.groupRef?.supervisor ?? null,
+        supervisor: hit.groupRef?.supervisor ?? hit.windowSupervisorId ?? null,
         supervisorName: hit.groupRef?.supervisorName ?? null,
         students: groupStudentIds(hit.groupRef),
       };
@@ -167,11 +249,23 @@ export const resolveActiveSupervisorTeams = async (now: Date = new Date()) => {
   const teams: any[] = [];
   const plans = await RotationPlan.find({}).lean<any[]>();
   for (const plan of plans) {
+    const seen = new Set<string>();
+    const pushTeam = (team: any) => {
+      const key = [
+        String(team.classId),
+        String(team.postingName),
+        String(team.groupName),
+        String(team.supervisor),
+      ].join("|");
+      if (seen.has(key)) return;
+      seen.add(key);
+      teams.push(team);
+    };
     for (const posting of Array.isArray(plan?.postings) ? plan.postings : []) {
       for (const groupRef of Array.isArray(posting?.groups) ? posting.groups : []) {
         if (!groupRef?.supervisor) continue;
         if (!windowCovers(groupRef?.assigned, now)) continue;
-        teams.push({
+        pushTeam({
           classId: plan?.class ?? null,
           postingName: posting?.name ?? null,
           groupName: groupRef?.group?.name ?? null,
@@ -180,7 +274,44 @@ export const resolveActiveSupervisorTeams = async (now: Date = new Date()) => {
           students: groupStudentIds(groupRef),
         });
       }
+      // Generated schedules leave groups[].assigned empty — the plan
+      // timeline carries the windows (and the per-window supervisor).
+      const postings = Array.isArray(plan?.postings) ? plan.postings : [];
+      const timeline =
+        Array.isArray(posting?.meta?.timeline) && posting.meta.timeline.length > 0
+          ? posting.meta.timeline
+          : postings.length <= 1 && Array.isArray(plan?.meta?.timeline)
+            ? plan.meta.timeline
+            : [];
+      const groups = Array.isArray(posting?.groups) ? posting.groups : [];
+      for (const w of Array.isArray(timeline) ? timeline : []) {
+        const s = w?.startDate ? new Date(w.startDate).getTime() : NaN;
+        const e = w?.endDate ? new Date(w.endDate).getTime() : NaN;
+        if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+        if (now.getTime() < s || now.getTime() > e) continue;
+        const idx = Number(w?.departmentGroupIndex);
+        const groupRef =
+          (Number.isInteger(idx) && idx >= 0 && idx < groups.length ? groups[idx] : null) ??
+          groups[0] ??
+          null;
+        const supervisor =
+          groupRef?.supervisor ?? (w?.supervisorId ? String(w.supervisorId) : null);
+        if (!supervisor) continue;
+        pushTeam({
+          classId: plan?.class ?? null,
+          postingName: posting?.name ?? null,
+          groupName: groupRef?.group?.name ?? null,
+          supervisor,
+          supervisorName: groupRef?.supervisorName ?? null,
+          students: groupRef
+            ? groupStudentIds(groupRef)
+            : Array.isArray(w?.studentIds)
+              ? w.studentIds.map((id: any) => String(id))
+              : [],
+        });
+      }
     }
+
   }
   return teams;
 };

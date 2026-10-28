@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import { build500LevelTimetablePlan, resolve500LevelCourse } from "../utils/500LevelTimetable";
 import { resolveAcademicClockPhase } from "../utils/academicClockPhase";
 import { getTimetableForPhase, saveTimetableForPhase } from "../utils/phaseTimetable";
+import { matchCoursesToPhase } from "../utils/clinicalPhaseMatching";
 // @desc    Generate a TimeTable using AI
 // @route   POST /api/timetable/generate
 // @access  Private/Admin
@@ -125,9 +126,10 @@ export const getTimetable = async (
       ? phaseConfig.courseIds.map(String)
       : (storedPhaseSchedule?.courseIds ?? []).map(String);
     const allClassCourses = ((classDoc as any).courses ?? []) as Array<Record<string, any>>;
-    const phaseCourses = allClassCourses.filter((course) =>
-      phaseCourseIds.length === 0 || phaseCourseIds.includes(String(course._id)),
-    );
+    const phaseCourses =
+      phaseCourseIds.length > 0
+        ? allClassCourses.filter((course) => phaseCourseIds.includes(String(course._id)))
+        : matchCoursesToPhase(allClassCourses, phaseConfig);
     if (!timetable) {
       return res.json({
         schedule: [],
@@ -570,7 +572,10 @@ async function generate500LevelSchedule(classId: string, academicYearId: string,
         lecturer: lecturerId ? new mongoose.Types.ObjectId(lecturerId) : undefined,
         startTime: period.startTime,
         endTime: period.endTime,
-        ...(period.kind === "clinical" ? { isClinical: true } : {}),
+        ...(period.kind === "clinical"
+          ? { isClinical: true, ...(period.displayLabel ? { displayLabel: period.displayLabel } : {}) }
+          : {}),
+        ...(period.kind === "empty" && period.displayLabel ? { displayLabel: period.displayLabel } : {}),
         ...(period.kind === "optional" || period.isOptional ? { isOptional: true, displayLabel: period.displayLabel ?? (period.kind === "optional" ? "Optional Activity" : undefined) } : {}),
       };
     }),

@@ -13,6 +13,7 @@ import {
   phaseRequiresPostingSchedule,
   resolveAcademicClockPhase,
 } from '../utils/academicClockPhase';
+import { matchCoursesToPhase } from '../utils/clinicalPhaseMatching';
 
 export const getClassActivePhaseSchedule = async (req: Request, res: Response) => {
   try {
@@ -71,11 +72,7 @@ export const getClassActivePhaseSchedule = async (req: Request, res: Response) =
       posting,
       courseIds: phaseConfig?.courseIds ?? [],
       learningObjectives,
-      courses: ((classDoc as any).courses ?? []).filter((course: any) =>
-        !Array.isArray(phaseConfig?.courseIds) ||
-        phaseConfig.courseIds.length === 0 ||
-        phaseConfig.courseIds.some((courseId: unknown) => String(courseId) === String(course._id)),
-      ),
+      courses: matchCoursesToPhase(((classDoc as any).courses ?? []), phaseConfig),
     });
   } catch (err) {
     console.error('getClassActivePhaseSchedule error', err);
@@ -400,9 +397,10 @@ export const getStudentCurrentSchedule = async (req: Request, res: Response) => 
     const phaseCourseIds = Array.isArray(phaseConfig?.courseIds)
       ? phaseConfig.courseIds.map(String)
       : [];
-    const phaseCourses = classCourses.filter((course: any) =>
-      phaseCourseIds.length === 0 || phaseCourseIds.includes(String(course._id)),
-    );
+    const phaseCourses =
+      phaseCourseIds.length > 0
+        ? classCourses.filter((course: any) => phaseCourseIds.includes(String(course._id)))
+        : matchCoursesToPhase(classCourses, phaseConfig);
     const courseById = new Map(classCourses.map((course: any) => [String(course._id), course]));
     const learningObjectives = (phaseConfig?.learningObjectives ?? []).map((objective: any) => ({
       ...objective,
