@@ -5,12 +5,16 @@ const GroupRefSchema = new Schema({
     assigned: { type: [{ startDate: Date, endDate: Date }], default: [] },
     supervisorName: { type: String },
     supervisor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    weeklySchedule: { type: [{ day: Number, activityType: String }], default: [] },
 }, { _id: false });
 const PostingSchema = new Schema({
     name: { type: String, required: true },
+    spinBase: { type: String },
+    spin: { type: String },
     category: { type: String },
     startDate: { type: Date },
     endDate: { type: Date },
+    logbookRequiredEntries: { type: Number, default: 0 },
     groups: { type: [GroupRefSchema], default: [] },
     meta: { type: Schema.Types.Mixed, default: {} },
 }, { _id: false });

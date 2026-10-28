@@ -38,6 +38,7 @@ import StudentSection from "@/pages/StudentSection";
 import LogbookEntries from "@/pages/LogbookEntries";
 import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
+import PostingLogbookSettings from "@/pages/PostingLogbookSettings";
 import ClinicalSchedules from "@/pages/clinical-schedules/ClinicalSchedules";
 import RotationSchedules from "@/pages/rotation-schedules/RotationSchedules";
 import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleDetail";
@@ -239,11 +240,15 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/logbook/approved",
-            element: <StudentLogbookDashboard />,
+            element: <StudentLogbookDashboard mode="approved" />,
+          },
+          {
+            path: "student/logbook/pending",
+            element: <StudentLogbookDashboard mode="pending" />,
           },
           {
             path: "student/logbook/statistics",
-            element: <StudentLogbookDashboard />,
+            element: <StudentLogbookDashboard mode="statistics" />,
           },
           {
             path: "student/schedule/today",
@@ -308,6 +313,10 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations",
             element: <ClinicalRotations />,
+          },
+          {
+            path: "clinical-rotations/logbook-settings",
+            element: <PostingLogbookSettings />,
           },
           {
             path: "rotation-teams",

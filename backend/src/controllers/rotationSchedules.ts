@@ -798,3 +798,47 @@ export const deletePostingFromSchedule = async (req: Request, res: Response) => 
     res.status(500).json({ message: 'Server error', error: String(err) });
   }
 };
+
+// PATCH /api/rotation-schedules/:id/logbook-settings
+// Teacher/admin: set required logbook entries per posting + weekly team schedule per group
+export const updatePostingLogbookSettings = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params as any;
+    const { postingIndex, requiredLogbookEntries, groupIndex, weeklySchedule } = req.body || {};
+    const plan: any = await RotationPlan.findById(id);
+    if (!plan) return res.status(404).json({ message: 'Schedule not found' });
+
+    const postings = plan.postings || [];
+    const pIdx = Number(postingIndex);
+    if (isNaN(pIdx) || pIdx < 0 || pIdx >= postings.length) {
+      return res.status(400).json({ message: 'Invalid postingIndex' });
+    }
+
+    if (requiredLogbookEntries !== undefined) {
+      const value = Number(requiredLogbookEntries);
+      if (isNaN(value) || value < 0) return res.status(400).json({ message: 'requiredLogbookEntries must be a non-negative number' });
+      postings[pIdx].logbookRequiredEntries = value;
+    }
+
+    if (weeklySchedule !== undefined) {
+      if (!Array.isArray(weeklySchedule)) return res.status(400).json({ message: 'weeklySchedule must be an array of { day, activityType }' });
+      const gIdx = Number(groupIndex);
+      const groups = postings[pIdx].groups || [];
+      if (isNaN(gIdx) || gIdx < 0 || gIdx >= groups.length) {
+        return res.status(400).json({ message: 'Invalid groupIndex' });
+      }
+      groups[gIdx].weeklySchedule = weeklySchedule.map((item: any) => ({
+        day: Number(item?.day),
+        activityType: String(item?.activityType || ''),
+      }));
+      postings[pIdx].groups = groups;
+    }
+
+    plan.postings = postings;
+    await plan.save();
+    res.json({ message: 'Logbook settings updated', posting: postings[pIdx] });
+  } catch (err) {
+    console.error('updatePostingLogbookSettings error', err);
+    res.status(500).json({ message: 'Server error', error: String(err) });
+  }
+};

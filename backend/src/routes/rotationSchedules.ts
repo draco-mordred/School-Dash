@@ -1,5 +1,5 @@
 import express from 'express';
-import { createRotationSchedule, listRotationSchedules, listMyStudentRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors, listScheduleEvents, updateWindowInSchedule, getClassActivePhaseSchedule } from '../controllers/rotationSchedules';
+import { createRotationSchedule, listRotationSchedules, listMyStudentRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors, listScheduleEvents, updateWindowInSchedule, getClassActivePhaseSchedule, updatePostingLogbookSettings } from '../controllers/rotationSchedules';
 import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
@@ -12,6 +12,7 @@ router.get('/class/:classId/active-phase', protect, getClassActivePhaseSchedule)
 router.patch('/:id/windows/:index', protect, authorize(['admin','teacher']), updateWindowInSchedule);
 router.patch('/:id', protect, authorize(['admin','teacher']), updateRotationSchedule);
 router.patch('/:id/postings/:postingName', protect, authorize(['admin','teacher']), updatePostingInSchedule);
+router.patch('/:id/logbook-settings', protect, authorize(['admin','teacher']), updatePostingLogbookSettings);
 router.delete('/:id/postings/:postingName', protect, authorize(['admin','teacher']), deletePostingFromSchedule);
 // Development-only: return the first rotation schedule without auth for inspection
 if (process.env.NODE_ENV === 'development') {

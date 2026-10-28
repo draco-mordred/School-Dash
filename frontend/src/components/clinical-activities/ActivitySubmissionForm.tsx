@@ -35,7 +35,7 @@ const activitySubmissionSchema = z.object({
   departmentGroupId: z.string().optional(),
   unitId: z.string().optional(),
   entryDate: z.string().min(1, "Date is required"),
-  umbrellaCategory: z.enum(["MEDICINE", "SURGERY"], {
+  umbrellaCategory: z.enum(["MEDICINE", "SURGERY", "OTHER"], {
     errorMap: () => ({ message: "Category is required" }),
   }),
   clinicsAttended: z.boolean().default(false),
@@ -47,6 +47,11 @@ const activitySubmissionSchema = z.object({
   casesAssisted: z.string().optional(), // comma-separated
   // Medicine-specific
   proceduresWitnessedOrDone: z.string().optional(), // comma-separated
+  // Other procedure submission (non-categorized activities)
+  procedureTitle: z.string().optional(),
+  procedureCategory: z.string().optional(),
+  procedureHours: z.coerce.number().min(0).optional(),
+  procedureNotes: z.string().optional(),
 });
 
 type ActivitySubmissionInput = z.infer<typeof activitySubmissionSchema>;
@@ -85,6 +90,7 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
   const [loadingUnits, setLoadingUnits] = useState(false);
   const [postingError, setPostingError] = useState<string | null>(null);
   const [activePhase, setActivePhase] = useState<ActiveClinicalPhase | null>(null);
+  const [submissionType, setSubmissionType] = useState<"attendance" | "procedure">("attendance");
 
   const form = useForm<ActivitySubmissionInput>({
     resolver: zodResolver(activitySubmissionSchema),
@@ -266,6 +272,18 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
 
   const umbrellaCategory = form.watch("umbrellaCategory");
 
+  const handleSubmissionTypeChange = (type: "attendance" | "procedure") => {
+    setSubmissionType(type);
+    form.setValue("umbrellaCategory", type === "procedure" ? "OTHER" : "MEDICINE");
+  };
+
+  const selectedGroup = departmentGroups.find((g: any, idx: number) => {
+    const gid = g.id || g.groupId || g._id || g.group?._id || String(idx);
+    return gid === form.watch("departmentGroupId");
+  });
+  const selectedGroupSupervisor =
+    selectedGroup?.supervisorName || selectedGroup?.group?.supervisorName || "";
+
   // Handle category change
   const handleCategoryChange = async (value: string) => {
     form.setValue("umbrellaCategory", value as "MEDICINE" | "SURGERY");
@@ -292,6 +310,51 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
       const dayOfWeek = entryDate.getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) {
         toast.error("Clinical activities must be submitted on weekdays only (Monday-Friday)");
+        return;
+      }
+
+      if (submissionType === "procedure") {
+        if (!data.procedureTitle?.trim()) {
+          toast.error("Procedure name is required");
+          return;
+        }
+        if (!data.procedureCategory?.trim()) {
+          toast.error("Please specify the type of activity/procedure");
+          return;
+        }
+
+        const groupMatch = departmentGroups.find((g: any, idx: number) => {
+          const gid = g.id || g.groupId || g._id || g.group?._id || String(idx);
+          return gid === data.departmentGroupId;
+        });
+        const groupLabel =
+          groupMatch?.group?.name || groupMatch?.name || groupMatch?.groupId || data.departmentGroupId || "";
+        const supervisorName = groupMatch?.supervisorName || groupMatch?.group?.supervisorName || "";
+
+        const procedurePayload: any = {
+          student: user?._id,
+          ...(data.rotationId ? { rotation: data.rotationId } : {}),
+          ...(data.unitId ? { unit: data.unitId } : {}),
+          entryDate: data.entryDate,
+          umbrellaCategory: "OTHER",
+          category: "other",
+          categoryLabel: data.procedureCategory.trim(),
+          title: data.procedureTitle.trim(),
+          ...(data.procedureHours ? { hours: data.procedureHours } : {}),
+          ...(data.procedureNotes?.trim() ? { notes: data.procedureNotes.trim() } : {}),
+          ...(data.departmentGroupId ? { groupId: data.departmentGroupId } : {}),
+          ...(groupLabel ? { groupLabel } : {}),
+          ...(supervisorName ? { supervisorName } : {}),
+        };
+
+        await api.post("/activity-entries", procedurePayload);
+        toast.success("Procedure submitted to your supervisor for approval");
+        form.reset({
+          clinicsAttended: false,
+          wardRoundsAttended: "NONE",
+          callDutyCompleted: false,
+        });
+        onSuccess?.();
         return;
       }
 
@@ -409,6 +472,39 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
         ) : null}
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {/* Submission Type Toggle */}
+            <div className="grid grid-cols-2 gap-2 rounded-lg border bg-muted/40 p-1" role="tablist">
+              <button
+                type="button"
+                onClick={() => handleSubmissionTypeChange("attendance")}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  submissionType === "attendance"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Attendance-based activity
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubmissionTypeChange("procedure")}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  submissionType === "procedure"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Other procedure
+              </button>
+            </div>
+
+            {submissionType === "procedure" && (
+              <p className="text-sm text-muted-foreground">
+                Submit non-categorized clinical procedures (e.g. venipuncture, lumbar puncture, blood sample
+                collection). The entry is routed to your group supervisor for approval.
+              </p>
+            )}
+
             {/* Rotation & Unit Selection */}
             <div className="grid grid-cols-2 gap-4">
               <FormField
@@ -442,27 +538,29 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="umbrellaCategory"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Clinical Category</FormLabel>
-                  <Select value={field.value} onValueChange={handleCategoryChange}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="MEDICINE">Medicine</SelectItem>
-                      <SelectItem value="SURGERY">Surgery</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {submissionType === "attendance" && (
+              <FormField
+                control={form.control}
+                name="umbrellaCategory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Clinical Category</FormLabel>
+                    <Select value={field.value} onValueChange={handleCategoryChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="MEDICINE">Medicine</SelectItem>
+                        <SelectItem value="SURGERY">Surgery</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </div>
           {/* Department Group Selection */}
           <FormField
@@ -540,6 +638,7 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
           />
 
           {/* Shared Metrics */}
+          {submissionType === "attendance" && (<>
           <div className="space-y-3 border-t pt-4">
             <h3 className="font-semibold text-sm">Clinical Attendance</h3>
             
@@ -665,6 +764,86 @@ export default function ActivitySubmissionForm({ onSuccess }: ActivitySubmission
                   </FormItem>
                 )}
               />
+            </div>
+          )}
+          </>)}
+
+          {/* Other Procedure Fields */}
+          {submissionType === "procedure" && (
+            <div className="space-y-4 border-t pt-4">
+              <h3 className="font-semibold text-sm">Procedure Details</h3>
+
+              <FormField
+                control={form.control}
+                name="procedureCategory"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Type of activity (open category)</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="e.g. Venipuncture, Lumbar puncture, Blood sample collection, Wound care"
+                        {...field}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Describe the kind of procedure — any activity your supervisor specifies can be entered here.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="procedureTitle"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Procedure / activity name</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. Blood sample collection — Ward A" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="procedureHours"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Hours (optional)</FormLabel>
+                    <FormControl>
+                      <Input type="number" min="0" step="0.5" placeholder="e.g. 1.5" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="procedureNotes"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Any additional details for your supervisor" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Supervisor</p>
+                <p className="mt-1 font-medium">
+                  {selectedGroupSupervisor || "No supervisor assigned to the selected group"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The selected group&apos;s supervisor will review and approve or reject this entry.
+                </p>
+              </div>
             </div>
           )}
 

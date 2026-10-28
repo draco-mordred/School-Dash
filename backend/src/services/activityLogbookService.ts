@@ -9,14 +9,14 @@ import mongoose from "mongoose";
 
 export interface ActivitySubmissionPayload {
   student: string;
-  rotation: string;
+  rotation?: string;
   unit?: string;
   supervisor?: string;
-  umbrellaCategory: UmbrellaCategory;
+  umbrellaCategory?: UmbrellaCategory;
   entryDate: Date | string;
-  clinicsAttended: boolean;
-  wardRoundsAttended: "NONE" | "RESIDENT_ROUND" | "CONSULTANT_ROUND" | "BOTH";
-  callDutyCompleted: boolean;
+  clinicsAttended?: boolean;
+  wardRoundsAttended?: "NONE" | "RESIDENT_ROUND" | "CONSULTANT_ROUND" | "BOTH";
+  callDutyCompleted?: boolean;
   surgicalMetrics?: {
     theatreDaysCount: number;
     casesObserved: string[];
@@ -26,6 +26,14 @@ export interface ActivitySubmissionPayload {
     proceduresWitnessedOrDone: string[];
   };
   notes?: string;
+  // Categorisation (clinical logbook trend)
+  category?: "clerking" | "theatre" | "clinic" | "ward_round" | "call_duty" | "other";
+  categoryLabel?: string;
+  title?: string;
+  hours?: number;
+  groupId?: string;
+  groupLabel?: string;
+  supervisorName?: string;
 }
 
 export class ActivityLogbookService {
@@ -43,7 +51,12 @@ export class ActivityLogbookService {
   private validateUmbrellaRequirements(
     payload: ActivitySubmissionPayload
   ): { valid: boolean; error?: string } {
-    if (payload.umbrellaCategory === "SURGERY") {
+    // Custom procedure submissions (category set) carry their own
+    // categorisation and do not need umbrella metric records.
+    if (payload.category) return { valid: true };
+    const umbrella = payload.umbrellaCategory ?? "OTHER";
+    if (umbrella === "OTHER") return { valid: true };
+    if (umbrella === "SURGERY") {
       if (!payload.surgicalMetrics) {
         return {
           valid: false,
@@ -60,7 +73,7 @@ export class ActivityLogbookService {
             "At least one case observation or case assistance record is required for surgical postings.",
         };
       }
-    } else if (payload.umbrellaCategory === "MEDICINE") {
+    } else if (umbrella === "MEDICINE") {
       if (!payload.medicalMetrics) {
         return {
           valid: false,
@@ -110,24 +123,25 @@ export class ActivityLogbookService {
       }
 
       const rotationId = payload.rotation;
-      let rotationFound = null;
+      if (rotationId && mongoose.Types.ObjectId.isValid(String(rotationId))) {
+        let rotationFound = null;
+        try {
+          rotationFound = await mongoose.connection.collection("clinical_rotations").findOne({
+            _id: new mongoose.Types.ObjectId(String(rotationId)),
+          });
+        } catch (err) {
+          // If the posted rotation value is not a valid clinical_rotations document, allow schedule-backed rotationIds for user UI flows.
+          rotationFound = null;
+        }
 
-      try {
-        rotationFound = await mongoose.connection.collection("clinical_rotations").findOne({
-          _id: new mongoose.Types.ObjectId(rotationId),
-        });
-      } catch (err) {
-        // If the posted rotation value is not a valid clinical_rotations document, allow schedule-backed rotationIds for user UI flows.
-        rotationFound = null;
-      }
+        if (!rotationFound) {
+          const scheduleWindow = await RotationPlan.findOne({
+            _id: new mongoose.Types.ObjectId(String(rotationId)),
+          }).lean();
 
-      if (!rotationFound) {
-        const scheduleWindow = await RotationPlan.findOne({
-          _id: new mongoose.Types.ObjectId(rotationId),
-        }).lean();
-
-        if (!scheduleWindow) {
-          return { success: false, error: "Clinical rotation not found." };
+          if (!scheduleWindow) {
+            return { success: false, error: "Clinical rotation not found." };
+          }
         }
       }
 
@@ -142,17 +156,26 @@ export class ActivityLogbookService {
       // Create the activity entry
       const entry = await ActivityEntryModel.create({
         student: payload.student,
-        rotation: payload.rotation,
+        rotation: payload.rotation ?? null,
         ...(payload.unit ? { unit: payload.unit } : {}),
         supervisor: payload.supervisor,
-        umbrellaCategory: payload.umbrellaCategory,
+        umbrellaCategory: payload.umbrellaCategory ?? "OTHER",
         entryDate,
-        clinicsAttended: payload.clinicsAttended,
-        wardRoundsAttended: payload.wardRoundsAttended,
-        callDutyCompleted: payload.callDutyCompleted,
+        clinicsAttended: payload.clinicsAttended ?? false,
+        wardRoundsAttended: payload.wardRoundsAttended ?? "NONE",
+        callDutyCompleted: payload.callDutyCompleted ?? false,
         surgicalMetrics: payload.surgicalMetrics,
         medicalMetrics: payload.medicalMetrics,
         notes: payload.notes,
+        // Categorisation (clinical logbook trend)
+        category: payload.category ?? "other",
+        categoryLabel: payload.categoryLabel ?? "",
+        title: payload.title ?? "",
+        hours: payload.hours ?? 8,
+        groupId: payload.groupId ?? "",
+        groupLabel: payload.groupLabel ?? "",
+        supervisorName: payload.supervisorName ?? "",
+        source: "manual",
         approvalStatus: "pending",
       });
 
@@ -374,6 +397,99 @@ export class ActivityLogbookService {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to fetch logbook.",
+      };
+    }
+  }
+
+  /**
+   * Auto-sign logbook entries from a completed clinical attendance session.
+   *
+   * Rounds, theatre and clinics are signed based on the attendance schedule
+   * for the day: when the student's team attendance is recorded present/late
+   * for a session, a logbook entry is saved for that category with the date,
+   * the student's team and the supervisor's name — already signed (approved).
+   */
+  async recordAttendanceLogbookEntries(session: {
+    _id: any;
+    activityType: string;
+    title: string;
+    date: Date | string;
+    duration?: number | null;
+    supervisor?: any;
+    supervisorName?: string;
+    supervisorGroupId?: string | null;
+    supervisorGroupLabel?: string;
+    clinicalRotation?: any;
+    academicYear?: any;
+    attendees: Array<{ student: any; status: string }>;
+  }): Promise<{ success: boolean; created?: number; error?: string }> {
+    try {
+      const CATEGORY_BY_ACTIVITY: Record<string, string> = {
+        ward_round: "ward_round",
+        clinic: "clinic",
+        theatre: "theatre",
+        call_duty: "call_duty",
+        procedure: "other",
+        practical: "other",
+        simulation: "other",
+      };
+      const category = CATEGORY_BY_ACTIVITY[session.activityType] ?? "other";
+      const categoryLabel = String(session.activityType ?? "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const hours = session.duration
+        ? Math.max(1, Math.round((Number(session.duration) / 60) * 10) / 10)
+        : 8;
+      const signedAt = new Date();
+      const supervisorName =
+        session.supervisorName ||
+        (typeof session.supervisor === "object" ? String(session.supervisor?.name ?? "") : "");
+
+      const presentAttendees = (session.attendees ?? []).filter((attendee) =>
+        ["present", "late"].includes(String(attendee.status ?? ""))
+      );
+
+      let created = 0;
+      for (const attendee of presentAttendees) {
+        const studentId = String(
+          typeof attendee.student === "object" ? attendee.student?._id : attendee.student
+        );
+        if (!studentId) continue;
+
+        // Idempotent: one auto logbook entry per student per session.
+        const existing = await ActivityEntryModel.findOne({
+          clinicalSessionId: session._id,
+          student: studentId,
+        }).lean();
+        if (existing) continue;
+
+        await ActivityEntryModel.create({
+          student: studentId,
+          rotation: session.clinicalRotation ?? null,
+          umbrellaCategory: "OTHER",
+          entryDate: new Date(session.date),
+          category,
+          categoryLabel,
+          title: session.title || categoryLabel,
+          hours,
+          groupId: session.supervisorGroupId ? String(session.supervisorGroupId) : "",
+          groupLabel: session.supervisorGroupLabel || "",
+          supervisorName,
+          source: "clinical_attendance",
+          clinicalSessionId: session._id,
+          autoSigned: true,
+          approvalStatus: "approved",
+          approvedAt: signedAt,
+        });
+        created += 1;
+      }
+
+      return { success: true, created };
+    } catch (error) {
+      console.error("Error recording attendance logbook entries:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to record logbook entries.",
       };
     }
   }

@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { protect, authorize } from "../middleware/auth";
-import { createActivityEntry, getPendingEntries, getStudentLogbook, approveActivityEntry, rejectActivityEntry, getActivityEntry, listActivityEntries, } from "../controllers/activityEntry";
+import {
+    createActivityEntry,
+    getPendingEntries,
+    getStudentLogbook,
+    getStudentLogbookAll,
+    approveActivityEntry,
+    rejectActivityEntry,
+    getActivityEntry,
+    listActivityEntries,
+} from "../controllers/activityEntry";
 const router = Router();
 /**
  * POST /activity-entries
@@ -23,10 +32,20 @@ router.get("/pending", protect, authorize(["unitconsultant", "unitresident"]), g
  */
 router.get("/:entryId", protect, getActivityEntry);
 /**
+ * GET /activity-entries/logbook/:studentId
+ * Get student's approved logbook across all rotations (student-facing)
+ */
+router.get("/logbook/:studentId", protect, getStudentLogbook);
+/**
  * GET /activity-entries/logbook/:studentId/:rotationId
  * Get student's approved logbook for a rotation
  */
 router.get("/logbook/:studentId/:rotationId", protect, getStudentLogbook);
+/**
+ * Student-facing endpoints returning entries for all statuses
+ */
+router.get("/student/:studentId", protect, getStudentLogbookAll);
+router.get("/student/:studentId/:rotationId", protect, getStudentLogbookAll);
 /**
  * POST /activity-entries/:entryId/approve
  * Approve an activity entry (staff sign-off)

@@ -23,6 +23,7 @@ import {
   resolveStudentClinicalAssignments,
   type ClinicalAttendancePhaseContext,
 } from "../../utils/clinicalAttendanceAssignment";
+import activityLogbookService from "../../services/activityLogbookService";
 import {
   hasConfiguredAcademicClockPhases,
   phaseRequiresPostingSchedule,
@@ -1516,6 +1517,18 @@ export const endClinicalSession = async (req: Request, res: Response) => {
     session.complaintGraceUntil = new Date(session.endTime.getTime() + 20 * 60 * 1000);
 
     await session.save();
+
+    // Auto-sign logbook entries for present students (tagged by the team's
+    // scheduled activity for that day, e.g. theatre). Failures never block
+    // the session-end response.
+    try {
+      const logbookResult = await activityLogbookService.recordAttendanceLogbookEntries(session.toObject());
+      if (logbookResult?.created) {
+        console.log(`Auto-signed ${logbookResult.created} logbook entries for session ${String(session._id)}`);
+      }
+    } catch (logbookError: any) {
+      console.warn("Failed to auto-sign logbook entries from clinical attendance:", logbookError?.message ?? logbookError);
+    }
 
     emitSystemEvent("clinicalAttendance.session.completed", {
       sessionId,

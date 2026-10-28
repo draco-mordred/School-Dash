@@ -8,12 +8,10 @@ const ActivityEntrySchema = new Schema({
     rotation: {
         type: mongoose.Types.ObjectId,
         ref: "ClinicalRotation",
-        required: true,
     },
     unit: {
         type: mongoose.Types.ObjectId,
         ref: "HospitalUnit",
-        required: true,
     },
     supervisor: {
         type: mongoose.Types.ObjectId,
@@ -21,14 +19,18 @@ const ActivityEntrySchema = new Schema({
     },
     umbrellaCategory: {
         type: String,
-        enum: ["MEDICINE", "SURGERY"],
+        enum: ["MEDICINE", "SURGERY", "OTHER"],
         required: true,
+        default: "OTHER",
     },
     entryDate: {
         type: Date,
         required: true,
         validate: {
             validator: function (v) {
+                // Auto entries from clinical attendance may legitimately fall on
+                // weekends (call duty); only manual submissions are weekday-only.
+                if (this && this.source === "clinical_attendance") return true;
                 const day = v.getDay();
                 // 0 = Sunday, 6 = Saturday - reject weekends
                 return day !== 0 && day !== 6;
@@ -36,6 +38,29 @@ const ActivityEntrySchema = new Schema({
             message: "Clinical activity entries can only be documented for Monday through Friday.",
         },
     },
+    // Categorisation (clinical logbook trend)
+    category: {
+        type: String,
+        enum: ["clerking", "theatre", "clinic", "ward_round", "call_duty", "other"],
+        default: "other",
+    },
+    categoryLabel: { type: String, default: "" },
+    title: { type: String, default: "" },
+    hours: { type: Number, default: 8 },
+    groupId: { type: String, default: "" },
+    groupLabel: { type: String, default: "" },
+    supervisorName: { type: String, default: "" },
+    source: {
+        type: String,
+        enum: ["manual", "clinical_attendance"],
+        default: "manual",
+    },
+    clinicalSessionId: {
+        type: mongoose.Types.ObjectId,
+        ref: "ClinicalAttendance",
+        default: null,
+    },
+    autoSigned: { type: Boolean, default: false },
     // Shared metrics
     clinicsAttended: { type: Boolean, default: false },
     wardRoundsAttended: {
@@ -81,5 +106,7 @@ ActivityEntrySchema.index({ rotation: 1, approvalStatus: 1 });
 ActivityEntrySchema.index({ unit: 1, umbrellaCategory: 1 });
 ActivityEntrySchema.index({ approvalStatus: 1, supervisor: 1 });
 ActivityEntrySchema.index({ entryDate: 1, approvalStatus: 1 });
+ActivityEntrySchema.index({ student: 1, category: 1 });
+ActivityEntrySchema.index({ clinicalSessionId: 1, student: 1 }, { unique: true, sparse: true });
 const ActivityEntryModel = mongoose.model("ActivityEntry", ActivityEntrySchema, "activity_entries");
 export default ActivityEntryModel;
