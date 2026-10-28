@@ -79,31 +79,29 @@ function makePeriod(
 export function build500LevelTimetablePlan(clockPhase: string | undefined, courses: CourseLike[] = []): TimetablePlanDay[] {
   const phase = (clockPhase || "phase1").toLowerCase();
 
-  const buildPhase1 = () =>
-    DAYS.map((day) => {
-      if (day === "Friday") {
-        return {
-          day,
-          periods: [
-            makePeriod("course", "08:00", "10:00", "COM"),           // 8am - 10am: COM
-            makePeriod("empty", "10:00", "12:00"),                   // 10am - 12pm: Break
-            makePeriod("empty", "12:00", "13:00"),                   // 12pm - 1pm: Blank
-            makePeriod("course", "13:00", "15:00", "OBG"),           // 1pm - 3pm: OBG
-          ],
-        };
-      }
+  // Clinical posting day template (O&G-Peds style phases, per Israel):
+  // 08:00-10:00 morning meetings, 10:00-16:00 clinical activities with a
+  // 12:00-13:00 break, 16:00-18:00 call/tutorials, 18:00-22:00 night
+  // call. Clinical postings run every day of the week, weekends included.
+  const CLINICAL_DAYS = [
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
+  ];
 
-      // Mon-Thurs
-      return {
-        day,
-        periods: [
-          makePeriod("course", "08:00", "10:00", "PAE"),             // 8am - 10am: PAE
-          makePeriod("clinical", "10:00", "13:00"),                  // 10am - 1pm: CLINICAL
-          makePeriod("empty", "13:00", "13:30"),                     // 1pm - 1:30pm: Break
-          makePeriod("course", "13:30", "15:00", "OBG"),             // 1:30pm - 3pm: OBG
-        ],
-      };
-    });
+  const buildClinicalPostingPhase = (): TimetablePlanDay[] =>
+    CLINICAL_DAYS.map((day) => ({
+      day,
+      periods: [
+        makePeriod("clinical", "08:00", "10:00", null, { displayLabel: "Morning Meetings" }),
+        makePeriod("clinical", "10:00", "12:00", null, { displayLabel: "Clinical Activities" }),
+        makePeriod("empty", "12:00", "13:00", null, { displayLabel: "Break" }),
+        makePeriod("clinical", "13:00", "16:00", null, { displayLabel: "Clinical Activities" }),
+        makePeriod("clinical", "16:00", "18:00", null, { displayLabel: "Call / Tutorials" }),
+        makePeriod("clinical", "18:00", "22:00", null, { displayLabel: "Night Call" }),
+      ],
+    }));
+
+  const buildPhase1 = () => buildClinicalPostingPhase();
+
 
   const buildPhase2 = () =>
     DAYS.map((day, index) => {
@@ -119,31 +117,8 @@ export function build500LevelTimetablePlan(clockPhase: string | undefined, cours
       };
     });
 
-  const buildPhase3 = () =>
-    DAYS.map((day) => {
-      if (day === "Friday") {
-        return {
-          day,
-          periods: [
-            makePeriod("course", "08:00", "10:00", "COM"),           // 8am - 10am: COM
-            makePeriod("empty", "10:00", "12:00"),                   // 10am - 12pm: Break
-            makePeriod("empty", "12:00", "13:00"),                   // 12pm - 1pm: Blank
-            makePeriod("course", "13:00", "15:00", "OBG"),           // 1pm - 3pm: OBG
-          ],
-        };
-      }
+  const buildPhase3 = () => buildClinicalPostingPhase();
 
-      // Mon-Thurs: Morning meetings instead of lectures
-      return {
-        day,
-        periods: [
-          makePeriod("empty", "08:00", "10:00"),                     // 8am - 10am: Morning meetings (empty period)
-          makePeriod("clinical", "10:00", "13:00"),                  // 10am - 1pm: CLINICAL
-          makePeriod("empty", "13:00", "13:30"),                     // 1pm - 1:30pm: Break
-          makePeriod("course", "13:30", "15:00", "OBG"),             // 1:30pm - 3pm: OBG
-        ],
-      };
-    });
 
   const buildPhase4 = () =>
     DAYS.map((day) => ({
