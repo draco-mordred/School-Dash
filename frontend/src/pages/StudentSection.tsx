@@ -48,6 +48,22 @@ const formatDateKey = (value: Date | string) => {
   return normalized.toISOString().split("T")[0];
 };
 
+// Meta line under the period title in the day view.
+// - Optional blocks (Tutorials/Presentations, Call Duty/Tutorials) → unit assignment
+// - Clinical periods → clinical posting
+// - Real lectures → lecturer name (or "Lecturer not assigned")
+// - Open/empty periods → "No activity"
+const getPeriodMetaLine = (period: any) => {
+  const optionalLabel = String(period?.displayLabel ?? "").toLowerCase();
+  const isOptional =
+    period?.isOptional || /tutorials?|presentations?|call\s*duty/.test(optionalLabel);
+  if (isOptional) return "Based on Unit assignment";
+  if (period?.isClinical) return "Clinical posting — check your posting schedule";
+  if (!period?.subject?.name) return "No activity";
+  const code = period.subject?.code ? `${period.subject.code} · ` : "";
+  return `${code}${period.lecturer?.name ?? "Lecturer not assigned"}`;
+};
+
 export default function StudentSection({ title, description }: StudentSectionProps) {
   const location = useLocation();
   const { user } = useAuth();
@@ -600,10 +616,7 @@ export default function StudentSection({ title, description }: StudentSectionPro
                             <BookOpen className="h-4 w-4 text-primary" />
                             <p className="font-semibold">{period.subject?.name ?? period.displayLabel ?? "Open period"}</p>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {period.subject?.code ? `${period.subject.code} · ` : ""}
-                            {period.lecturer?.name ?? "Lecturer not assigned"}
-                          </p>
+                          <p className="text-sm text-muted-foreground">{getPeriodMetaLine(period)}</p>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <Clock3 className="h-4 w-4" />

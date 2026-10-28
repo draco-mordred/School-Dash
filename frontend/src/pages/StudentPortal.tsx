@@ -28,6 +28,17 @@ interface WeeklyAlert {
   lectures: LectureSummary[];
 }
 
+interface PortalExamItem {
+  _id: string;
+  title: string;
+  dueDate: string;
+  duration?: number;
+  subject?: { name?: string } | string | null;
+  status: "upcoming" | "submitted" | "result";
+  score?: number | null;
+  submittedAt?: string | null;
+}
+
 interface StudentPortalSummary {
   className: string | null;
   academicYear: string | null;
@@ -181,8 +192,67 @@ export default function StudentPortal() {
   const [postingProgress, setPostingProgress] = useState<PostingProgressState | null>(null);
   const [postingProgressError, setPostingProgressError] = useState<string | null>(null);
   const [studentAlertInsight, setStudentAlertInsight] = useState<InsightItem | null>(null);
+  const [examAlerts, setExamAlerts] = useState<PortalExamItem[]>([]);
+  const [examAlertsLoading, setExamAlertsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasTriggeredAttendanceAlertRef = useRef(false);
+
+  // Exams, tests & assessments — upcoming, submitted, and released results.
+  // Fetches the student's class exams, then each exam's result to find their
+  // submission (with auto-graded score).
+  useEffect(() => {
+    if (!user || user.role !== "student") return;
+    let cancelled = false;
+
+    const loadExamAlerts = async () => {
+      try {
+        setExamAlertsLoading(true);
+        const { data } = await api.get("/exams");
+        const exams = Array.isArray(data?.exams) ? data.exams : Array.isArray(data) ? data : [];
+
+        const enriched = await Promise.all(
+          exams.map(async (exam: any): Promise<PortalExamItem> => {
+            let submission: any = null;
+            try {
+              const res = await api.get(`/exams/${exam._id}/result`);
+              submission = res.data?.submission ?? res.data ?? null;
+            } catch {
+              submission = null;
+            }
+            const hasScore = submission && submission.score !== undefined && submission.score !== null;
+            const isSubmitted = !!submission;
+
+            return {
+              _id: exam._id,
+              title: exam.title ?? "Assessment",
+              dueDate: exam.dueDate,
+              duration: exam.duration,
+              subject: exam.subject ?? null,
+              status: hasScore ? "result" : isSubmitted ? "submitted" : "upcoming",
+              score: hasScore ? submission.score : null,
+              submittedAt: submission?.submittedAt ?? null,
+            };
+          }),
+        );
+
+        if (!cancelled) {
+          setExamAlerts(
+            enriched
+              .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()),
+          );
+        }
+      } catch {
+        if (!cancelled) setExamAlerts([]);
+      } finally {
+        if (!cancelled) setExamAlertsLoading(false);
+      }
+    };
+
+    void loadExamAlerts();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role, user?._id]);
 
   useEffect(() => {
     if (!user || user.role !== "student") {
@@ -552,11 +622,19 @@ export default function StudentPortal() {
         <div className="mb-6 break-inside-avoid">
           <Card>
             <CardHeader>
-              <div>
-                <CardTitle>Today's schedule</CardTitle>
-                <CardDescription>
-                  See what lectures are planned for {summary?.todayDay ?? "today"}.
-                </CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Today's schedule</CardTitle>
+                  <CardDescription>
+                    See what lectures are planned for {summary?.todayDay ?? "today"}.
+                  </CardDescription>
+                </div>
+                <Button asChild size="sm" className="shrink-0">
+                  <Link to="/student/schedule/today">
+                    View full schedule
+                    <ArrowRight className="ml-1 h-4 w-4" />
+                  </Link>
+                </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -566,33 +644,45 @@ export default function StudentPortal() {
                   <Skeleton className="h-12 w-full rounded-xl" />
                 </div>
               ) : summary?.todayLectures?.length ? (
-                summary.todayLectures.map((lecture, index) => (
-                  <div key={index} className="rounded-3xl border border-border bg-background p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-base font-semibold text-foreground">
-                          {typeof lecture.subject === "string"
-                            ? lecture.subject
-                            : lecture.subject?.name ?? "Untitled subject"}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {typeof lecture.lecturer === "string"
-                            ? lecture.lecturer
-                            : lecture.lecturer?.name ?? "No lecturer"}
-                        </p>
+                summary.todayLectures.map((lecture, index) => {
+                  const subjectName =
+                    typeof lecture.subject === "string"
+                      ? lecture.subject
+                      : lecture.subject?.name ?? null;
+                  const lecturerName =
+                    typeof lecture.lecturer === "string"
+                      ? lecture.lecturer
+                      : lecture.lecturer?.name ?? null;
+                  const metaLine = !subjectName && !lecturerName
+                    ? "No activity"
+                    : subjectName && !lecturerName
+                      ? "Lecturer not assigned"
+                      : lecturerName;
+
+                  return (
+                    <div key={index} className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <BookOpen className="h-4 w-4 text-primary" />
+                            <p className="font-semibold">{subjectName ?? "Open period"}</p>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{metaLine}</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Clock3 className="h-4 w-4" />
+                          <span>{lecture.startTime ?? "--"} – {lecture.endTime ?? "--"}</span>
+                          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
+                            {getLectureStatus(lecture, summary?.todayDay ?? WEEK_DAYS[(new Date().getDay() + 6) % 7])}
+                          </span>
+                        </div>
                       </div>
-                      <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold uppercase text-primary">
-                        {getLectureStatus(lecture, summary?.todayDay ?? WEEK_DAYS[(new Date().getDay() + 6) % 7])}
-                      </span>
                     </div>
-                    <p className="mt-3 text-sm text-muted-foreground">
-                      {lecture.startTime ?? "--"} – {lecture.endTime ?? "--"}
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
-                <div className="rounded-3xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
-                  No lectures scheduled for today.
+                <div className="rounded-2xl border border-dashed border-border bg-background p-6 text-center text-sm text-muted-foreground">
+                  There are no lectures scheduled for {summary?.todayDay ?? "today"} yet.
                 </div>
               )}
             </CardContent>
@@ -838,6 +928,57 @@ export default function StudentPortal() {
                   No weekly alerts available yet.
                 </div>
               )}
+
+              {/* Exams, tests & assessments — upcoming, submitted, released results */}
+              <div className="rounded-3xl border border-border bg-background p-4">
+                <p className="text-sm font-semibold text-foreground">Exams, tests & assessments</p>
+                {examAlertsLoading ? (
+                  <div className="mt-3 space-y-2">
+                    <Skeleton className="h-8 w-full rounded-xl" />
+                    <Skeleton className="h-8 w-full rounded-xl" />
+                  </div>
+                ) : examAlerts.length ? (
+                  <div className="mt-3 space-y-2">
+                    {examAlerts.slice(0, 5).map((exam) => (
+                      <div key={exam._id} className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {exam.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {typeof exam.subject === "string"
+                              ? exam.subject
+                              : exam.subject?.name ?? "—"} ·{" "}
+                            {exam.status === "result" && exam.submittedAt
+                              ? `Submitted ${new Date(exam.submittedAt).toLocaleDateString()}`
+                              : `Due ${new Date(exam.dueDate).toLocaleDateString()}`}
+                          </p>
+                        </div>
+                        <span
+                          className={
+                            "shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold uppercase " +
+                            (exam.status === "result"
+                              ? "bg-green-500/15 text-green-600"
+                              : exam.status === "submitted"
+                                ? "bg-blue-500/15 text-blue-600"
+                                : "bg-primary/10 text-primary")
+                          }
+                        >
+                          {exam.status === "result"
+                            ? `Result: ${exam.score}`
+                            : exam.status === "submitted"
+                              ? "Submitted"
+                              : "Upcoming"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No exams, tests or assessments available yet.
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>

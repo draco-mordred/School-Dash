@@ -4,8 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { useActivityNotifications } from "@/hooks/useActivityNotifications";
+import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
 import { ActivityCard, type ActivityStatus, type ActivityType } from "@/components/activities/ActivityStatusBadge";
 import { AlertCircle, Clock } from "lucide-react";
+
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+// Date (within the current week) for a weekday name like "Monday".
+const getWeekDateForDay = (dayName: string) => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const offset = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - offset);
+  const index = WEEKDAY_NAMES.findIndex((d) => d.toLowerCase() === String(dayName ?? "").toLowerCase());
+  if (index < 0) return null;
+  const date = new Date(start);
+  date.setDate(date.getDate() + index);
+  return date;
+};
 
 interface ScheduledActivity {
   id: string;
@@ -53,58 +69,85 @@ export default function ActivityDashboard() {
           endDate.setDate(endDate.getDate() + 7);
         }
 
-        // Fetch lectures from timetable
-        const timetableRes = await api.get(
-          `/timetables?userId=${user._id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`,
-        );
+        // Real endpoints: the class timetable (weekly days/periods) and the
+        // class rotation schedules. The old /timetables?userId=... and
+        // /rotation-schedules/events routes never existed and returned 404.
+        const studentClass = (user as any).studentClass ?? (user as any).studentClasses;
+        const classId =
+          studentClass && typeof studentClass === "object"
+            ? studentClass._id
+            : typeof studentClass === "string"
+              ? studentClass
+              : null;
+
+        if (!classId) {
+          setActivities([]);
+          return;
+        }
+
+        const [timetableRes, rotationRes] = await Promise.all([
+          api.get(`/timetables/${classId}`).catch(() => ({ data: { schedule: [] } })),
+          api.get("/rotation-schedules", { params: { classId } }).catch(() => ({ data: { schedules: [] } })),
+        ]);
+
         const lectures: ScheduledActivity[] = [];
+        const schedule = timetableRes.data?.schedule ?? [];
+        const todayName = WEEKDAY_NAMES[(new Date().getDay() + 6) % 7];
 
-        if (Array.isArray(timetableRes.data?.schedule)) {
-          timetableRes.data.schedule.forEach((day: any) => {
-            day.periods?.forEach((period: any) => {
-              if (!period.isClinical && !period.isOptional) {
-                const [sHour, sMin] = period.startTime.split(":").map(Number);
-                const [eHour, eMin] = period.endTime.split(":").map(Number);
-                const start = new Date(day.date);
-                start.setHours(sHour, sMin, 0, 0);
-                const end = new Date(start);
-                end.setHours(eHour, eMin, 0, 0);
+        schedule.forEach((day: any) => {
+          if (timeRange === "today" && String(day.day ?? "").toLowerCase() !== todayName.toLowerCase()) return;
+          const dayDate = getWeekDateForDay(day.day) ?? startDate;
+          (day.periods ?? []).forEach((period: any) => {
+            if (!period.subject || period.isClinical || period.isOptional) return;
+            const [sHour, sMin] = String(period.startTime ?? "00:00").split(":").map(Number);
+            const [eHour, eMin] = String(period.endTime ?? "00:00").split(":").map(Number);
+            const start = new Date(dayDate);
+            start.setHours(sHour || 0, sMin || 0, 0, 0);
+            const end = new Date(dayDate);
+            end.setHours(eHour || 0, eMin || 0, 0, 0);
 
-                if (start >= startDate && start < endDate) {
-                  lectures.push({
-                    id: `lecture-${day.date}-${period.startTime}`,
-                    title: period.subject?.name || "Lecture",
-                    type: "lecture",
-                    status: "scheduled",
-                    startTime: start,
-                    endTime: end,
-                    instructor: period.lecturer?.name,
-                  });
-                }
-              }
-            });
+            if (start >= startDate && start < endDate) {
+              lectures.push({
+                id: `lecture-${day.day}-${period.startTime}`,
+                title: period.subject?.name || "Lecture",
+                type: "lecture",
+                status: "scheduled",
+                startTime: start,
+                endTime: end,
+                instructor: period.lecturer?.name,
+                location: period.venue?.name,
+              });
+            }
           });
-        }
+        });
 
-        // Fetch clinical postings
-        const rotationRes = await api.get(
-          `/rotation-schedules/events?userId=${user._id}&start=${startDate.toISOString()}&end=${endDate.toISOString()}`,
-        );
+        // Clinical postings from the class rotation schedule timeline windows
         const clinicalActivities: ScheduledActivity[] = [];
+        const rotationSchedules = Array.isArray(rotationRes.data?.schedules)
+          ? rotationRes.data.schedules
+          : Array.isArray(rotationRes.data)
+            ? rotationRes.data
+            : [];
+        const studentId = user._id ? String(user._id) : "";
 
-        if (Array.isArray(rotationRes.data?.events)) {
-          rotationRes.data.events.forEach((event: any) => {
+        rotationSchedules.forEach((sched: any) => {
+          const timeline = Array.isArray(sched?.meta?.timeline) ? sched.meta.timeline : [];
+          timeline.forEach((window: any, index: number) => {
+            const view = buildTimelineWindowView(sched, window, index, studentId);
+            if (!view.matchesStudent || !view.startDate || !view.endDate) return;
+            if (view.endDate < startDate || view.startDate >= endDate) return;
             clinicalActivities.push({
-              id: event.id,
-              title: event.postingName || "Clinical Posting",
+              id: view.id ?? `rotation-${index}`,
+              title: view.postingName || "Clinical Posting",
               type: "clinical",
-              status: event.status || "scheduled",
-              startTime: new Date(event.startDate),
-              endTime: new Date(event.endDate),
-              postingName: event.postingName,
+              status: view.status === "current" ? "in-progress" : "scheduled",
+              startTime: view.startDate,
+              endTime: view.endDate,
+              postingName: view.postingName,
+              classId,
             });
           });
-        }
+        });
 
         // Combine and sort by start time
         const allActivities = [...lectures, ...clinicalActivities].sort(

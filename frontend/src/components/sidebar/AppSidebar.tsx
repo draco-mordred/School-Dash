@@ -255,6 +255,7 @@ export function AppSidebar({
             >
               <LogOut className="h-4 w-4" />
             </Button>
+            <ThemeToogle layout="col" />
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-primary text-primary-foreground">
               <RoleIcon className="h-4 w-4" />
             </span>

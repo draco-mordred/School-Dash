@@ -36,6 +36,7 @@ import { QuickActions } from "@/components/admin/dashboard/QuickActions";
 import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
 import { AIInsightWidget } from "@/components/dashboard/ai-insight-widget";
 import ActivityDashboard from "@/components/activities/ActivityDashboard";
+import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
 
 const DashboardChartShell = memo(function DashboardChartShell({ paused, children, className }: { paused: boolean; children: ReactNode; className?: string }) {
   if (paused) {
@@ -264,20 +265,48 @@ const Dashboard = memo(function Dashboard() {
           }
         }
 
-        // Fetch rotation stats scoped to the user
+        // Rotation progress — computed client-side from the student's class
+        // rotation schedules. (The old /clinical-rotations/stats endpoint never
+        // existed on the backend and always returned 404.)
         try {
-          const { data } = await api.get("/clinical-rotations/stats");
-          const counts: Record<string, number> = data.counts || {};
-          const completed = counts["completed"] || 0;
-          const active = counts["active"] || 0;
-          const upcoming = (counts["upcoming"] || 0) + (counts["pending_approval"] || 0);
-          const total = completed + active + upcoming || 1;
-          const computed = [
-            { name: "Completed", value: Math.round((completed / total) * 100), color: "#AD6BEE" },
-            { name: "In Progress", value: Math.round((active / total) * 100), color: "#A6D49F" },
-            { name: "Upcoming", value: Math.round((upcoming / total) * 100), color: "#C3D405" },
-          ];
-          setRotationStats(computed);
+          const studentClass = (user as any)?.studentClass ?? (user as any)?.studentClasses;
+          const rotationClassId =
+            studentClass && typeof studentClass === "object"
+              ? studentClass._id
+              : typeof studentClass === "string"
+                ? studentClass
+                : null;
+
+          if (rotationClassId) {
+            const { data } = await api.get("/rotation-schedules", { params: { classId: rotationClassId } });
+            const schedules = Array.isArray(data?.schedules) ? data.schedules : Array.isArray(data) ? data : [];
+            const studentId = user?._id ? String(user._id) : "";
+            const counts: Record<string, number> = { completed: 0, active: 0, upcoming: 0 };
+
+            schedules.forEach((schedule: any) => {
+              const timeline = Array.isArray(schedule?.meta?.timeline) ? schedule.meta.timeline : [];
+              timeline.forEach((window: any, index: number) => {
+                const view = buildTimelineWindowView(schedule, window, index, studentId);
+                if (!view.matchesStudent) return;
+                if (view.status === "completed") counts.completed += 1;
+                else if (view.status === "current") counts.active += 1;
+                else counts.upcoming += 1;
+              });
+            });
+
+            const completed = counts.completed || 0;
+            const active = counts.active || 0;
+            const upcoming = counts.upcoming || 0;
+            const total = completed + active + upcoming || 1;
+            const computed = [
+              { name: "Completed", value: Math.round((completed / total) * 100), color: "#AD6BEE" },
+              { name: "In Progress", value: Math.round((active / total) * 100), color: "#A6D49F" },
+              { name: "Upcoming", value: Math.round((upcoming / total) * 100), color: "#C3D405" },
+            ];
+            setRotationStats(computed);
+          } else {
+            setRotationStats(null);
+          }
         } catch (err) {
           setRotationStats(null);
         }

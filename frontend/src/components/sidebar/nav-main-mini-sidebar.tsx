@@ -66,6 +66,10 @@ export function NavMainMiniSidebar({
       <SidebarMenu className="space-y-0.5 px-1">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
+          // Highlight the icon of the active section (or the parent of an
+          // active sub-item), mirroring the expanded sidebar's active state.
+          const isItemActive =
+            item.isActive || !!item.items?.some((subItem) => subItem.isActive);
           // Use the item's real icon; the fallback is only for items that
           // genuinely have no icon configured (previously "Dashboard" was
           // hard-coded to a ⌂ text glyph instead of its real Home icon).
@@ -89,8 +93,10 @@ export function NavMainMiniSidebar({
                     <SidebarMenuButton
                       // tooltip={item.title}
                       className={cn(
-                        "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
-                        "hover:bg-accent hover:text-accent-foreground"
+                        "h-9 w-full flex items-center justify-center rounded-md border-l-2 transition-colors",
+                        isItemActive
+                          ? "border-l-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                          : "border-l-transparent text-foreground hover:bg-accent hover:text-accent-foreground"
                       )}
                     >
                       <Icon className="h-5 w-5" />
@@ -140,8 +146,10 @@ export function NavMainMiniSidebar({
                   <SidebarMenuButton
                     tooltip={item.title}
                     className={cn(
-                      "h-9 w-full flex items-center justify-center rounded-md transition-colors text-foreground",
-                      "hover:bg-accent hover:text-accent-foreground"
+                      "h-9 w-full flex items-center justify-center rounded-md border-l-2 transition-colors",
+                      isItemActive
+                        ? "border-l-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                        : "border-l-transparent text-foreground hover:bg-accent hover:text-accent-foreground"
                     )}
                   >
                     <Icon className="h-5 w-5" />
