@@ -11,6 +11,7 @@ import {
   resolveUnitPool,
   distributeStudentsRoundRobin,
   rotateLeft,
+  findStudentWindowOverlaps,
 } from '../utils/clinicalGrouping';
 
 // KRYSTA clinical posting generator (department/unit rotation model).
@@ -223,34 +224,32 @@ const findDepartmentSupervisors = async (departmentDoc: any, assignedSet?: Set<s
   return candidates;
 };
 
+// Unit group supervisors are selected ONLY from the lecturers of the
+// department this unit belongs to, and are unique across unit groups
+// (enforced by the caller's assignedSupervisorIds set). A unit's
+// designated supervisor is honored once — then consumed and never
+// reused for another unit group. A supervisor already serving as a
+// department group supervisor is never reused as a unit supervisor.
 const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: Set<string>) => {
   if (!unit) return null;
 
-  if (unit.supervisor) {
+  if (unit.supervisor && (!assignedSet || !assignedSet.has(String(unit.supervisor)))) {
     const supervisor = await User.findById(unit.supervisor).lean();
     if (supervisor) return String(supervisor._id);
   }
 
+  if (!departmentDoc) return null;
+
   const roles = ['teacher'];
   const query: any = {
     role: { $in: roles },
-    $or: [],
+    $or: [
+      { departmentId: departmentDoc._id },
+      { department: departmentDoc.name },
+      { department: departmentDoc.code },
+      { department: departmentDoc.departmentID },
+    ],
   };
-
-  if (unit.name) query.$or.push({ specialties: unit.name });
-  if (unit.code) query.$or.push({ specialties: unit.code });
-  if (unit.unitID) query.$or.push({ specialties: unit.unitID });
-
-  if (departmentDoc) {
-    query.$or.push({ departmentId: departmentDoc._id });
-    query.$or.push({ department: departmentDoc.name });
-    query.$or.push({ department: departmentDoc.code });
-    query.$or.push({ department: departmentDoc.departmentID });
-  }
-
-  if (!query.$or.length) {
-    delete query.$or;
-  }
 
   let candidates = await User.find(query as any).lean();
   if (!Array.isArray(candidates) || candidates.length === 0) return null;
@@ -565,6 +564,16 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
     const unused = unitPools[d].filter((u) => !usedByDept[d].has(String(u)));
     if (unused.length) unvisitedUnits.push({ departmentIndex: d, unitIds: unused });
   });
+
+  // 7. Invariant: a student is NEVER in more than one department group or
+  //    unit group at the same time. All timeline windows must be pairwise
+  //    disjoint per student — hard failure if the invariant is violated.
+  const overlapViolations = findStudentWindowOverlaps(timeline);
+  if (overlapViolations.length > 0) {
+    throw new Error(
+      'KRYSTA invariant violated: ' + overlapViolations.length + ' overlapping student window(s) — a student would be in more than one group at the same time. First: ' + overlapViolations[0],
+    );
+  }
 
   const createdByValue = createdBy && mongoose.Types.ObjectId.isValid(createdBy)
     ? new mongoose.Types.ObjectId(createdBy)

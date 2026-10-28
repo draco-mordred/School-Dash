@@ -4,6 +4,7 @@ import {
   resolveUnitPool,
   distributeStudentsRoundRobin,
   rotateLeft,
+  findStudentWindowOverlaps,
 } from '../src/utils/clinicalGrouping';
 
 describe('splitIntoBuckets', () => {
@@ -64,5 +65,34 @@ describe('rotateLeft', () => {
     expect(rotateLeft(['a', 'b', 'c'], 1)).toEqual(['b', 'c', 'a']);
     expect(rotateLeft(['a', 'b'], 3)).toEqual(['a', 'b']);
     expect(rotateLeft([], 2)).toEqual([]);
+  });
+});
+
+
+describe('findStudentWindowOverlaps', () => {
+  const win = (studentIds: string[], startDate: string, endDate: string) => ({ studentIds, startDate, endDate });
+
+  test('no violations when windows are disjoint or students differ', () => {
+    expect(findStudentWindowOverlaps([
+      win(['s1'], '2026-07-01T00:00:00Z', '2026-07-28T00:00:00Z'),
+      win(['s1'], '2026-07-28T00:00:00Z', '2026-08-25T00:00:00Z'),
+      win(['s2'], '2026-07-01T00:00:00Z', '2026-07-28T00:00:00Z'),
+    ])).toEqual([]);
+  });
+
+  test('flags a student in two groups at the same time', () => {
+    const v = findStudentWindowOverlaps([
+      win(['s1'], '2026-07-01T00:00:00Z', '2026-07-28T00:00:00Z'),
+      win(['s1'], '2026-07-15T00:00:00Z', '2026-08-15T00:00:00Z'),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('student s1');
+  });
+
+  test('ignores windows without usable dates', () => {
+    expect(findStudentWindowOverlaps([
+      { studentIds: ['s1'] },
+      win(['s1'], '2026-07-01T00:00:00Z', '2026-07-02T00:00:00Z'),
+    ])).toEqual([]);
   });
 });
