@@ -32,6 +32,50 @@ interface LogsResponse {
   total: number;
 }
 
+/**
+ * Renders an activity log's details safely:
+ * - The concise summary (everything before "Changes: {") is shown directly.
+ * - Any raw change payload after "Changes: {" (historical logs stored raw
+ *   JSON here) is hidden behind a "Show raw input" toggle at the bottom of
+ *   the log entry, so sensitive values aren't exposed at a glance.
+ */
+const LogDetails = ({ details }: { details: string }) => {
+  const [showRaw, setShowRaw] = useState(false);
+  const changesMarker = "Changes: {";
+  const splitIndex = details.indexOf(changesMarker);
+  const hasRawChanges = splitIndex >= 0;
+  const summary = hasRawChanges
+    ? details.slice(0, splitIndex).trim()
+    : details;
+  const rawChanges = hasRawChanges
+    ? details.slice(splitIndex + changesMarker.length - 1).trim()
+    : null;
+
+  return (
+    <div className="mt-0.5">
+      {summary && (
+        <p className="text-sm text-muted-foreground line-clamp-2">{summary}</p>
+      )}
+      {rawChanges && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setShowRaw((prev) => !prev)}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            {showRaw ? "Hide raw input" : "Show raw input"}
+          </button>
+          {showRaw && (
+            <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted p-2 text-[11px] leading-relaxed text-muted-foreground">
+              {rawChanges}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function ActivitiesLog() {
   const { user } = useAuth();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -175,11 +219,7 @@ export default function ActivitiesLog() {
                     </Badge>
                   </div>
                   <p className="mt-1 text-sm font-medium text-foreground">{log.action}</p>
-                  {log.details && (
-                    <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">
-                      {log.details}
-                    </p>
-                  )}
+                  {log.details && <LogDetails details={log.details} />}
                   <p className="mt-2 text-xs text-muted-foreground">
                     {format(new Date(log.createdAt), "MMM d, yyyy 'at' h:mm a")}
                   </p>

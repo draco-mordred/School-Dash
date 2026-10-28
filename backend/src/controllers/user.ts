@@ -1324,7 +1324,7 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                                         message: `Your profile was updated by ${updater.name || updater.email || 'an admin'}.`,
                                         type: 'info',
                                         isRead: false,
-                                        metadata: { updatedBy: updater._id, changes: req.body },
+                                        metadata: { updatedBy: updater._id, changedFields: Object.keys(req.body || {}) },
                                     }) as any;
                                     try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
                                 } catch (err) {
@@ -1335,12 +1335,17 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                             console.error('Failed to create profile-updated notification:', err);
                         }
             if (updater) {
-                //not responding at this point ... will continue the video for now ---to fix return to video at time: 1:30:45 / 7:05:54 ...
+                // Privacy: never log raw request bodies (they can contain
+                // passwords and other sensitive values). Log a concise
+                // summary of who changed what, for whom, and which fields.
+                const changedFields = Object.keys(req.body || {});
+                const changedSummary = changedFields.length
+                    ? ` Updated fields: ${changedFields.join(", ")}.`
+                    : "";
                 await logActivity({
                     userId: userId,
                     action: "Updated user",
-                    details: `Updated user ${updatedUser.email} (ID: ${updatedUser.idNumber}) successfully.
-                    Changes: ${JSON.stringify(req.body)}`
+                    details: `${updater.name || updater.email || "Admin"} updated ${updatedUser.name || updatedUser.email} (${updatedUser.email}, ID: ${updatedUser.idNumber}).${changedSummary}`
                 });
             }
 //             // res.status(200).json({ status: "Success!", message: `User '${updatedUser.name}' updated successfully`, data: updatedUser });

@@ -222,7 +222,7 @@ const OnboardingFlow = () => {
         {stage === "welcome" && (
           <div className={`transition-all duration-500 ease-out ${stageVisible ? "translate-x-0 opacity-100" : "translate-x-6 opacity-0"}`}>
             <DialogHeader>
-              <DialogTitle>Welcome to School Dash</DialogTitle>
+              <DialogTitle>Welcome to MedLog LMS</DialogTitle>
               <DialogDescription>
                 We&apos;re glad you&apos;re here. Here is a quick snapshot of your account before you get started.
               </DialogDescription>
