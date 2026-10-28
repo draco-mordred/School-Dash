@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Clock, User as UserIcon } from "lucide-react";
@@ -304,6 +304,32 @@ const DesktopGrid = ({
   timeSlots: string[];
   getRowLabel: (startTime: string) => string;
 }) => {
+  // Period hover popups are rendered in a FIXED overlay instead of absolutely
+  // inside the scrollable grid. Absolutely-positioned popups count as
+  // scrollable overflow, which used to reserve phantom space to the right
+  // and below the timetable. Fixed popups overlay the hovered period without
+  // adding any scroll extent.
+  const [popup, setPopup] = useState<{
+    x: number;
+    y: number;
+    below: boolean;
+    period: period;
+  } | null>(null);
+
+  const openPopup = (
+    event: React.MouseEvent<HTMLDivElement>,
+    period: period,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom > 300;
+    setPopup({
+      x: rect.left + rect.width / 2,
+      y: below ? rect.bottom + 8 : rect.top - 8,
+      below,
+      period,
+    });
+  };
+
   return (
     <div className="w-full rounded-md border overflow-visible">
       <ScrollArea className="w-full">
@@ -335,16 +361,13 @@ const DesktopGrid = ({
                     className="w-[calc(var(--spacing)*58)] shrink-0 border-r p-2 last:border-r-0 overflow-visible"
                   >
                     {period ? (() => {
-                      const detailItems = getPeriodDetailItems(
-                        period,
-                        currentPostingTitle,
-                        postingScheduleAvailable,
-                        currentPostingDepartmentGroup,
-                      );
-
                       return (
-                        <div className="group/period relative h-full w-full">
-                          <div className={`h-full w-full rounded-md border bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}>
+                        <div className="relative h-full w-full">
+                          <div
+                            onMouseEnter={(e) => openPopup(e, period)}
+                            onMouseLeave={() => setPopup(null)}
+                            className={`h-full w-full rounded-md border bg-card p-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg flex flex-col justify-between gap-2 border-l-4 ${getPeriodCardClassName(period)}`}
+                          >
                             <div>
                               <div className="flex items-center justify-between mb-2">
                                 <Badge variant="outline" className={`font-bold text-[10px] px-1.5 ${getPeriodBadgeClassName(period)}`}>
@@ -377,20 +400,6 @@ const DesktopGrid = ({
                               </div>
                             )}
                           </div>
-
-                          <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 w-64 -translate-x-1/2 origin-top scale-95 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm opacity-0 invisible transition-all duration-200 group-hover/period:visible group-hover/period:opacity-100 group-hover/period:translate-y-0 group-hover/period:scale-100">
-                            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                              Period details
-                            </p>
-                            <div className="space-y-1.5 text-sm">
-                              {detailItems.map((item) => (
-                                <div key={item.label} className="flex items-start justify-between gap-3">
-                                  <span className="text-muted-foreground">{item.label}</span>
-                                  <span className="text-right font-medium text-foreground">{item.value}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
                         </div>
                       );
                     })() : (
@@ -406,6 +415,45 @@ const DesktopGrid = ({
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+
+      {popup
+        ? (() => {
+            const popupItems = getPeriodDetailItems(
+              popup.period,
+              currentPostingTitle,
+              postingScheduleAvailable,
+              currentPostingDepartmentGroup,
+            );
+            const left = Math.min(
+              Math.max(popup.x, 140),
+              Math.max(140, window.innerWidth - 140),
+            );
+            return (
+              <div
+                className="pointer-events-none fixed z-[60] w-64 rounded-xl border border-border bg-popover/95 p-3 text-left shadow-xl backdrop-blur-sm animate-in fade-in-0 zoom-in-95"
+                style={{
+                  left,
+                  top: popup.y,
+                  transform: popup.below
+                    ? "translateX(-50%)"
+                    : "translate(-50%, -100%)",
+                }}
+              >
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  Period details
+                </p>
+                <div className="space-y-1.5 text-sm">
+                  {popupItems.map((item) => (
+                    <div key={item.label} className="flex items-start justify-between gap-3">
+                      <span className="text-muted-foreground">{item.label}</span>
+                      <span className="text-right font-medium text-foreground">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()
+        : null}
     </div>
   );
 };

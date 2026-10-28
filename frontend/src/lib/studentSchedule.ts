@@ -88,24 +88,41 @@ export const buildMonthViewDays = ({
   month,
   scheduleData,
   attendanceRecords,
-  activeDayName,
   today = new Date(),
 }: {
   year: number;
   month: number;
   scheduleData?: schedule[];
   attendanceRecords?: StudentAttendanceRecordLike[];
-  activeDayName: string;
   today?: Date;
 }): StudentMonthDay[] => {
-  const normalizedActiveDay = activeDayName.toLowerCase();
   const attendanceMap = new Map<string, AttendanceStatus>();
 
   attendanceRecords?.forEach((record) => {
     if (!record.date) return;
     const dateValue = new Date(record.date);
     if (Number.isNaN(dateValue.getTime())) return;
-    attendanceMap.set(formatDateKey(dateValue), normalizeAttendanceStatus(record.status));
+    const key = formatDateKey(dateValue);
+    const next = normalizeAttendanceStatus(record.status);
+    const prev = attendanceMap.get(key);
+    // A day counts as missed if any lecture that day was missed;
+    // otherwise any attended/present record marks the day attended.
+    const merged =
+      prev === "absent" || next === "absent"
+        ? "absent"
+        : next === "unknown"
+          ? (prev ?? "unknown")
+          : next;
+    attendanceMap.set(key, merged);
+  });
+
+  // Index the weekly timetable by day name so each calendar day reflects
+  // whether that weekday actually has lectures (not just today's weekday).
+  const scheduleByDay = new Map<string, schedule>();
+  scheduleData?.forEach((entry) => {
+    if (entry?.day) {
+      scheduleByDay.set(entry.day.toLowerCase(), entry);
+    }
   });
 
   const firstDayOfMonth = new Date(year, month, 1);
@@ -129,7 +146,8 @@ export const buildMonthViewDays = ({
     const date = new Date(year, month, day);
     const dayLabel = WEEKDAY_NAMES[(date.getDay() + 6) % 7];
     const normalizedDayLabel = dayLabel.toLowerCase();
-    const hasLecture = normalizedDayLabel === normalizedActiveDay;
+    const daySchedule = scheduleByDay.get(normalizedDayLabel);
+    const hasLecture = (daySchedule?.periods?.length ?? 0) > 0;
     const dateKey = formatDateKey(date);
     const status = attendanceMap.get(dateKey) ?? "unknown";
 

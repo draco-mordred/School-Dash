@@ -178,7 +178,6 @@ export default function StudentSection({ title, description }: StudentSectionPro
         month: currentMonth.getMonth(),
         scheduleData,
         attendanceRecords,
-        activeDayName: todayLabel,
         today: new Date(),
       }),
     [attendanceRecords, currentMonth, scheduleData, todayLabel],
@@ -642,18 +641,38 @@ export default function StudentSection({ title, description }: StudentSectionPro
 
               <div className="grid grid-cols-7 gap-2">
                 {monthDays.map((cell, index) => {
-                  const dotTone = cell.status === "absent" ? "bg-red-500" : cell.status === "present" ? "bg-green-500" : "bg-slate-300";
+                  // Legend colors: green = attended, red = missed, gray = pending.
+                  const dayTone = cell.hasLecture
+                    ? cell.status === "absent"
+                      ? "border-red-500/50 bg-red-500/15"
+                      : cell.status === "present"
+                        ? "border-green-500/50 bg-green-500/15"
+                        : "border-slate-400/50 bg-slate-400/15"
+                    : "border-border/70 bg-background";
+                  const dotTone =
+                    cell.status === "absent"
+                      ? "bg-red-500"
+                      : cell.status === "present"
+                        ? "bg-green-500"
+                        : "bg-slate-400";
+                  const statusLabel = cell.hasLecture
+                    ? cell.status === "absent"
+                      ? "Missed"
+                      : cell.status === "present"
+                        ? "Attended"
+                        : "Pending"
+                    : null;
                   return (
                     <div
                       key={`${cell.date.toISOString()}-${index}`}
-                      className={`min-h-24 rounded-2xl border p-3 ${cell.hasLecture ? "border-primary/30 bg-primary/5" : "border-border/70 bg-background"} ${cell.isToday ? "ring-2 ring-primary/50" : ""} ${!cell.isCurrentMonth ? "opacity-50" : ""}`}
+                      className={`min-h-24 rounded-2xl border p-3 transition-colors ${dayTone} ${cell.isToday ? "ring-2 ring-primary/50" : ""} ${!cell.isCurrentMonth ? "opacity-50" : ""}`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-semibold">{cell.dayNumber > 0 ? cell.dayNumber : ""}</span>
                         {cell.hasLecture ? <span className={`h-2.5 w-2.5 rounded-full ${dotTone}`} /> : null}
                       </div>
-                      <div className="mt-3 text-[11px] text-muted-foreground">
-                        {cell.hasLecture ? "Lecture" : cell.dayNumber > 0 ? "—" : ""}
+                      <div className="mt-3 text-[11px] font-medium text-muted-foreground">
+                        {statusLabel ?? (cell.dayNumber > 0 ? "No lecture" : "")}
                       </div>
                     </div>
                   );
