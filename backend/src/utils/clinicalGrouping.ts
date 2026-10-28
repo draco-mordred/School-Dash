@@ -64,3 +64,41 @@ export const rotateLeft = (items: string[], n: number): string[] => {
   const r = n % items.length;
   return items.slice(r).concat(items.slice(0, r));
 };
+
+export type WindowLike = {
+  studentIds?: unknown;
+  startDate?: unknown;
+  endDate?: unknown;
+  [key: string]: unknown;
+};
+
+// Invariant check: a student must NEVER be in more than one department
+// group or unit group at the same time. Returns one message per pair of
+// windows that overlap in time AND share a student; empty = valid.
+export const findStudentWindowOverlaps = (windows: WindowLike[]): string[] => {
+  const byStudent = new Map<string, Array<{ start: number; end: number; label: string }>>();
+  for (const w of Array.isArray(windows) ? windows : []) {
+    const s = w?.startDate ? new Date(String(w.startDate)).getTime() : NaN;
+    const e = w?.endDate ? new Date(String(w.endDate)).getTime() : NaN;
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    const label = new Date(s).toISOString() + '..' + new Date(e).toISOString();
+    for (const id of Array.isArray(w?.studentIds) ? w.studentIds : []) {
+      const key = String(id);
+      if (!byStudent.has(key)) byStudent.set(key, []);
+      byStudent.get(key)!.push({ start: s, end: e, label });
+    }
+  }
+  const violations: string[] = [];
+  for (const [student, wins] of byStudent) {
+    for (let i = 0; i < wins.length; i++) {
+      for (let j = i + 1; j < wins.length; j++) {
+        const a = wins[i];
+        const b = wins[j];
+        if (a.start < b.end && b.start < a.end) {
+          violations.push('student ' + student + ': window ' + a.label + ' overlaps window ' + b.label);
+        }
+      }
+    }
+  }
+  return violations;
+};

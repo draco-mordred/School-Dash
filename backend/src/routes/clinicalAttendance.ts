@@ -19,6 +19,7 @@ import {
   resolveClinicalAttendanceComplaint,
 } from "../controllers/clinicalAttendance";
 import { getMyClinicalTeam } from "../controllers/clinicalTeam";
+import { getMySupervisedGroups } from "../controllers/postingLayout";
 
 const clinicalAttendanceRouter = express.Router();
 
@@ -85,6 +86,14 @@ clinicalAttendanceRouter.get(
   protect,
   authorize(["student"]),
   getMyClinicalTeam,
+);
+
+// Lecturer/supervisor: the posting groups (department/unit) currently supervised by the caller
+clinicalAttendanceRouter.get(
+  "/my-supervised-groups",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  getMySupervisedGroups,
 );
 
 // Get student attendance record
