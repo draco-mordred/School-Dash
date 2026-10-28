@@ -44,7 +44,7 @@ export function useActivityNotifications(options: UseActivityNotificationsOption
     const fetchPending = async () => {
       setIsLoading(true);
       try {
-        const pending = await getPendingNotifications(user.id);
+        const pending = await getPendingNotifications(user._id);
         setNotifications(pending);
       } catch (err) {
         console.error("Failed to fetch pending notifications:", err);
@@ -61,10 +61,10 @@ export function useActivityNotifications(options: UseActivityNotificationsOption
     if (!enabled || !user || !isPermitted) return;
 
     const checkNotifications = async () => {
-      const dueNotifications = await checkAndSendDueNotifications(user.id);
+      const dueNotifications = await checkAndSendDueNotifications(user._id);
       if (dueNotifications.length > 0) {
         // Update state to reflect sent notifications
-        const pending = await getPendingNotifications(user.id);
+        const pending = await getPendingNotifications(user._id);
         setNotifications(pending);
       }
     };

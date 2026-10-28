@@ -312,7 +312,7 @@ const DesktopGrid = ({
   const [popup, setPopup] = useState<{
     x: number;
     y: number;
-    below: boolean;
+    above: boolean;
     period: period;
   } | null>(null);
 
@@ -321,11 +321,13 @@ const DesktopGrid = ({
     period: period,
   ) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const below = window.innerHeight - rect.bottom > 300;
+    // Float the popup just above the hovered period by default; flip below
+    // only when there isn't enough room above.
+    const above = rect.top > 300;
     setPopup({
       x: rect.left + rect.width / 2,
-      y: below ? rect.bottom + 8 : rect.top - 8,
-      below,
+      y: above ? rect.top - 10 : rect.bottom + 10,
+      above,
       period,
     });
   };
@@ -434,9 +436,9 @@ const DesktopGrid = ({
                 style={{
                   left,
                   top: popup.y,
-                  transform: popup.below
-                    ? "translateX(-50%)"
-                    : "translate(-50%, -100%)",
+                  transform: popup.above
+                    ? "translate(-50%, -100%)"
+                    : "translateX(-50%)",
                 }}
               >
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">

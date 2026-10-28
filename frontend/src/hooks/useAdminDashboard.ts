@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "./useAuth";
 
 export interface DashboardAcademicClassSummary {
   name: string;
@@ -116,9 +117,11 @@ export const buildAdminDashboardData = (
  * Handles loading and error states
  */
 export const useAdminDashboard = () => {
+  const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const isAdmin = user?.role === "admin";
 
   useEffect(() => {
     const fetchInitial = async () => {
@@ -135,7 +138,11 @@ export const useAdminDashboard = () => {
         setError(null);
         setLoading(false); // permit UI to render with primary data
 
-        // Background: fetch non-critical data (activities, users, classes, attendance)
+        // Background: fetch non-critical data (activities, users, classes, attendance).
+        // These endpoints are admin-only — skip them entirely for other roles so
+        // students/teachers don't trigger 403s in the console.
+        if (!isAdmin) return;
+
         try {
           const [activitiesRes, usersRes, classesRes, attendanceRes] = await Promise.all([
             api.get("/activities").catch(() => ({ data: [] })),
@@ -195,7 +202,7 @@ export const useAdminDashboard = () => {
     };
 
     fetchInitial();
-  }, []);
+  }, [isAdmin]);
 
   return { data, loading, error };
 };
