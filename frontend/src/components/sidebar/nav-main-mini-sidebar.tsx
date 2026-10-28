@@ -66,7 +66,10 @@ export function NavMainMiniSidebar({
       <SidebarMenu className="space-y-0.5 px-1">
         {items.map((item) => {
           const hasSubItems = item.items && item.items.length > 0;
-          const Icon = item.title === "Dashboard" ? DashboardFallbackIcon : (item.icon ?? DashboardFallbackIcon);
+          // Use the item's real icon; the fallback is only for items that
+          // genuinely have no icon configured (previously "Dashboard" was
+          // hard-coded to a ⌂ text glyph instead of its real Home icon).
+          const Icon = item.icon ?? DashboardFallbackIcon;
 
           return (
             <SidebarMenuItem key={item.title}>

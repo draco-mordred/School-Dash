@@ -18,8 +18,6 @@ export interface CreateNotificationPayload {
   actorRole?: NotificationRole;
 }
 
-const DUPLICATE_WINDOW_MS = 5 * 60 * 1000;
-
 export const formatNotificationForRole = (notification: any, role: NotificationRole | string) => {
   const baseNotification = {
     ...(notification ?? {}),
@@ -89,22 +87,18 @@ export const formatNotificationForRole = (notification: any, role: NotificationR
 };
 
 export const createNotificationIfUnique = async (payload: CreateNotificationPayload) => {
-  const now = new Date();
-  const duplicateSince = new Date(now.getTime() - DUPLICATE_WINDOW_MS);
-  const search = {
+  // Exact-content dedupe: remove ALL existing notifications for this user
+  // with the same title + message (regardless of age), then create a fresh
+  // one. One notification per content per user — recurring jobs (ticks,
+  // nudges, syncs) can no longer pile up duplicates, and the newest copy is
+  // always the one displayed.
+  await Notification.deleteMany({
     userId: payload.userId,
     title: payload.title,
     message: payload.message,
-    type: payload.type ?? "system",
-    createdAt: { $gte: duplicateSince },
-  } as any;
+  });
 
-  const existing = await Notification.findOne(search);
-  if (existing) {
-    return existing;
-  }
-
-  return Notification.create({
+  const notification = await Notification.create({
     userId: payload.userId,
     role: payload.role,
     title: payload.title,
@@ -116,6 +110,8 @@ export const createNotificationIfUnique = async (payload: CreateNotificationPayl
     actorName: payload.actorName,
     actorRole: payload.actorRole,
   });
+
+  return notification;
 };
 
 export const createNotificationAndEmitEvent = async (payload: CreateNotificationPayload) => {

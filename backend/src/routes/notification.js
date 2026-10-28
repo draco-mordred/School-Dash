@@ -53,10 +53,10 @@ router.get("/system", protect, async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(limit)
             .lean();
-        // Deduplicate by a key composed of type + createdAt ISO string
+        // Deduplicate by exact content (type + title + message)
         const seen = new Map();
         for (const n of notifications) {
-            const key = `${n.type}:${new Date(n.createdAt).toISOString()}`;
+            const key = `${n.type}:${n.title}:${n.message}`;
             if (!seen.has(key)) {
                 seen.set(key, n);
             }

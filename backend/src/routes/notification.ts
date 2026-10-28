@@ -62,10 +62,12 @@ router.get("/system", protect, async (req, res) => {
       .limit(limit)
       .lean();
 
-    // Deduplicate by a key composed of type + createdAt ISO string
+    // Deduplicate by exact content (type + title + message) — keeps one entry
+    // per distinct notification across recipients, without collapsing
+    // different notifications that happened to share a creation second.
     const seen = new Map<string, any>();
     for (const n of notifications) {
-      const key = `${n.type}:${new Date(n.createdAt).toISOString()}`;
+      const key = `${n.type}:${n.title}:${n.message}`;
       if (!seen.has(key)) {
         seen.set(key, n);
       }
