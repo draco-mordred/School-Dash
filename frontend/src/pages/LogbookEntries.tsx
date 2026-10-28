@@ -210,7 +210,7 @@ export default function LogbookEntries() {
       const category =
         entry.category === "other" && entry.categoryLabel
           ? entry.categoryLabel
-          : CATEGORY_LABELS[entry.category ?? ""] ?? entry.categoryLabel ?? entry.umbrellaCategory || "Other";
+          : (CATEGORY_LABELS[entry.category ?? ""] ?? entry.categoryLabel ?? entry.umbrellaCategory) || "Other";
       acc[category] = (acc[category] ?? 0) + 1;
       return acc;
     }, {});
