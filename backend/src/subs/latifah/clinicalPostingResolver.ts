@@ -3,6 +3,7 @@ import RotationPlan from "../../models/rotationPlan";
 import Timetable from "../../models/timetable";
 import ClinicalAttendance from "../../models/clinicalAttendance";
 import { Notification } from "../../models/notification";
+import { createNotificationIfUnique } from "../../utils/notificationUtils";
 
 // Phase H — clinical posting/team model (flow as described by Israel).
 //
@@ -381,7 +382,7 @@ export const runClinicalSessionNudges = async (now: Date = new Date()) => {
             "metadata.clinicalNudgeKey": nudgeKey,
           }).lean();
           if (already) continue;
-          await Notification.create({
+          await createNotificationIfUnique({
             userId: supervisorOid,
             role: "unitconsultant",
             title: "Create the clinical attendance session",
@@ -402,6 +403,7 @@ export const runClinicalSessionNudges = async (now: Date = new Date()) => {
               postingName: team.postingName,
               endTime: period.endTime,
               nudgeIndex,
+              repeatAllowed: true,
             },
           });
           nudged.push({
