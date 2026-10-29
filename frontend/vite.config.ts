@@ -8,11 +8,25 @@ import tailwindcss from "@tailwindcss/vite"
 // Vercel exposes VERCEL_GIT_PULL_REQUEST_ID (on PR preview + merge builds)
 // and VERCEL_GIT_COMMIT_SHA; local `bun dev` builds get a dev label.
 const now = new Date()
-const dateStamp = now.getDate() + "/" + (now.getMonth() + 1) + "/" + String(now.getFullYear()).slice(-2)
-const timeStamp = String(now.getHours()).padStart(2, "0") + ":" + String(now.getMinutes()).padStart(2, "0")
+// Africa/Lagos so the stamped build moment matches the team's clock.
+const stampParts = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Africa/Lagos",
+  day: "numeric",
+  month: "numeric",
+  year: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+}).formatToParts(now)
+const stampPart = (type: string) => stampParts.find((p) => p.type === type)?.value || ""
+const dateStamp = stampPart("day") + "/" + stampPart("month") + "/" + stampPart("year")
+const timeStamp = stampPart("hour") + ":" + stampPart("minute")
 const sha = (process.env.VERCEL_GIT_COMMIT_SHA || "").slice(0, 7) || "local"
-const pr = process.env.VERCEL_GIT_PULL_REQUEST_ID || ""
-const buildVersion = (pr ? "PR " + pr + " \u00b7 " : "") + sha + " \u00b7 " + dateStamp + " \u00b7 " + timeStamp
+// PR number: VERCEL_GIT_PULL_REQUEST_ID is not set on every Vercel deploy
+// type, so also parse "#N" out of the merge/squash commit message
+// ("Merge pull request #55 from ..." / "... (#54)") as a fallback.
+const pr = process.env.VERCEL_GIT_PULL_REQUEST_ID || (process.env.VERCEL_GIT_COMMIT_MESSAGE || "").match(/#(\d+)/)?.[1] || ""
+const buildVersion = (pr ? "PR " + pr + " · " : "") + sha + " · " + dateStamp + " · " + timeStamp
 
 // https://vite.dev/config/
 export default defineConfig({
