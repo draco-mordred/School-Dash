@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/components/provider/theme";
 import { RoleThemeWrapper } from "@/components/provider/RoleThemeWrapper";
 import { VercelMonitoring } from "@/components/provider/VercelMonitoring";
 import { OfflineModeProvider } from "@/components/provider/OfflineModeProvider";
+import BuildVersion from "@/components/BuildVersion";
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
@@ -36,9 +37,9 @@ createRoot(document.getElementById("root")!).render(
             <RouterProvider router={router} />
             <Toaster />
           </RoleThemeWrapper>
+          <BuildVersion />
         </OfflineModeProvider>
       </AuthProvider>
     </StrictMode>
   </ThemeProvider>,
 );
-
