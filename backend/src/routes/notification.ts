@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { protect } from "../middleware/auth";
 import { Notification } from "../models/notification";
-import { formatNotificationForRole } from "../utils/notificationUtils";
+import { formatNotificationForRole, normalizeNotificationContent } from "../utils/notificationUtils";
 import { addSSEClient } from "../utils/sse";
 // import { User } from "../models/user";
 
@@ -62,12 +62,14 @@ router.get("/system", protect, async (req, res) => {
       .limit(limit)
       .lean();
 
-    // Deduplicate by exact content (type + title + message) — keeps one entry
-    // per distinct notification across recipients, without collapsing
-    // different notifications that happened to share a creation second.
+    // Deduplicate by NORMALIZED content — type plus normalized title plus
+    // normalized message — one feed entry per distinct notification across
+    // recipients. Normalizing collapses near-duplicates that differ only in
+    // embedded dates, times, or counts, so recurring-job floods show as a
+    // single entry, while different wording still yields distinct entries.
     const seen = new Map<string, any>();
     for (const n of notifications) {
-      const key = `${n.type}:${n.title}:${n.message}`;
+      const key = `${n.type}:${normalizeNotificationContent(n.title)}:${normalizeNotificationContent(n.message)}`;
       if (!seen.has(key)) {
         seen.set(key, n);
       }

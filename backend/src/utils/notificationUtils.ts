@@ -84,17 +84,69 @@ export const formatNotificationForRole = (notification: any, role: NotificationR
   };
 };
 
+// Content normalizer for near-duplicate detection: collapses the volatile
+// parts of a notification — embedded dates, times, counts — so a recurring
+// job that embeds a changing timestamp or count cannot evade the
+// exact-content dedupe below. "Session starts at 10:00" and "Session starts
+// at 10:05" normalize to the same key.
+export const normalizeNotificationContent = (value: unknown): string =>
+  String(value ?? "")
+    .toLowerCase()
+    .replace(/\d+/g, "#")
+    .replace(/[^a-z#]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
 export const createNotificationIfUnique = async (payload: CreateNotificationPayload) => {
-  // Exact-content dedupe: remove ALL existing notifications for this user
-  // with the same title + message (regardless of age), then create a fresh
-  // one. One notification per content per user — recurring jobs (ticks,
-  // nudges, syncs) can no longer pile up duplicates, and the newest copy is
-  // always the one displayed.
+  // Three-tier dedupe — applies to EVERY notification type, content, and
+  // user, i.e. students, teachers, staff, and admins alike:
+  //
+  // Tier 1 — signature dedupe: callers that tag notifications with a stable
+  // metadata.dedupeKey keep at most ONE notification per user per key.
+  // Tier 2 — exact-content dedupe: remove ALL existing notifications for
+  // this user with the same title + message, regardless of age.
+  // Tier 3 — near-content dedupe within a 24h window: recurring jobs that
+  // embed a changing date/time/count in the title or message used to bypass
+  // the exact tier and flood the feed; the normalized match removes those
+  // near-dupes. Bounded to 24h so genuinely new events on later days are
+  // kept. Skipped when the sender marks metadata.repeatAllowed — deliberate
+  // recurring reminders keep their cadence.
+  const allowRepeats = payload.metadata?.repeatAllowed === true;
+  const dedupeKey = payload.metadata?.dedupeKey ? String(payload.metadata.dedupeKey) : null;
+  if (dedupeKey) {
+    await Notification.deleteMany({
+      userId: payload.userId,
+      "metadata.dedupeKey": dedupeKey,
+    });
+  }
+
   await Notification.deleteMany({
     userId: payload.userId,
     title: payload.title,
     message: payload.message,
   });
+
+  if (!allowRepeats) {
+    const normalizedTitle = normalizeNotificationContent(payload.title);
+    const normalizedMessage = normalizeNotificationContent(payload.message);
+    const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const recent = await Notification.find({
+      userId: payload.userId,
+      createdAt: { $gte: recentCutoff },
+    })
+      .select("_id title message")
+      .lean();
+    const staleIds = (recent as any[])
+      .filter(
+        (n: any) =>
+          normalizeNotificationContent(n.title) === normalizedTitle &&
+          normalizeNotificationContent(n.message) === normalizedMessage,
+      )
+      .map((n: any) => n._id);
+    if (staleIds.length > 0) {
+      await Notification.deleteMany({ _id: { $in: staleIds } });
+    }
+  }
 
   return Notification.create({
     userId: payload.userId,

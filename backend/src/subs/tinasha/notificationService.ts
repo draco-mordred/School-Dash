@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { Notification } from "../../models/notification";
 import User from "../../models/user";
 import { emitSystemEvent } from "../../events";
+import { createNotificationIfUnique as createUniqueNotification } from "../../utils/notificationUtils";
 
 export type NotificationRole = "admin" | "teacher" | "student" | "parent" | "unitconsultant" | "unitresident";
 export type NotificationType = "info" | "warning" | "success" | "error" | "attendance" | "timetable" | "system";
@@ -86,33 +87,11 @@ export const formatNotificationForRole = (notification: any, role: NotificationR
   };
 };
 
-export const createNotificationIfUnique = async (payload: CreateNotificationPayload) => {
-  // Exact-content dedupe: remove ALL existing notifications for this user
-  // with the same title + message (regardless of age), then create a fresh
-  // one. One notification per content per user — recurring jobs (ticks,
-  // nudges, syncs) can no longer pile up duplicates, and the newest copy is
-  // always the one displayed.
-  await Notification.deleteMany({
-    userId: payload.userId,
-    title: payload.title,
-    message: payload.message,
-  });
-
-  const notification = await Notification.create({
-    userId: payload.userId,
-    role: payload.role,
-    title: payload.title,
-    message: payload.message,
-    type: payload.type ?? "system",
-    isRead: false,
-    link: payload.link,
-    metadata: payload.metadata,
-    actorName: payload.actorName,
-    actorRole: payload.actorRole,
-  });
-
-  return notification;
-};
+// Delegates to the shared utils implementation so the dedupe behavior —
+// signature plus exact plus near-content, for ALL types, content, and
+// users — can never drift between the two modules.
+export const createNotificationIfUnique = async (payload: CreateNotificationPayload) =>
+  createUniqueNotification(payload as any);
 
 export const createNotificationAndEmitEvent = async (payload: CreateNotificationPayload) => {
   const notification = await createNotificationIfUnique(payload);
