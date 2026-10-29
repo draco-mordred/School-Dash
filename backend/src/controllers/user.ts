@@ -8,6 +8,7 @@ import ClassModel from "../models/classes";
 import CourseModel from "../models/courses";
 import { getAllDepartments } from "../constants/departments";
 import { Notification } from "../models/notification";
+import { createNotificationIfUnique } from "../utils/notificationUtils";
 
 const Faculty = FacultyModel as any;
 import { sendSSE } from "../utils/sse";
@@ -1059,13 +1060,12 @@ export const approvePendingUser = async (req: Request, res: Response): Promise<v
         user.approvedBy = user.approvedBy ?? (req as any).user?._id ?? null;
         await user.save();
 
-        await Notification.create({
+        await createNotificationIfUnique({
             userId: user._id,
             role: user.role as any,
             title: "Account approved",
             message: `Your account has been approved. You can now sign in with the password you created during registration.`,
             type: "success",
-            isRead: false,
             metadata: { approvedBy: (req as any).user?._id ?? null },
         });
 
@@ -1294,13 +1294,12 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                                 const classObj = newClass ? await ClassModel2.findById(newClass).select('name') : null;
                                 try {
                                     const notificationRole = updatedUser.role === 'unitconsultant' ? 'unitconsultant' : updatedUser.role === 'unitresident' ? 'unitresident' : updatedUser.role;
-                                    const created: any = await Notification.create({
+                                    const created: any = await createNotificationIfUnique({
                                         userId: updatedUser._id,
                                         role: notificationRole,
                                         title: 'Assigned to class',
                                         message: classObj ? `You have been assigned to ${classObj.name}.` : 'You have been assigned to a class.',
                                         type: 'info',
-                                        isRead: false,
                                         metadata: { classId: newClass, className: classObj?.name || null, updatedBy: userId },
                                     }) as any;
                                     try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }
@@ -1317,13 +1316,12 @@ export const updateUser = async (req: Request, res: Response) : Promise<void> =>
                             if (!isOwnProfile && updater) {
                                 try {
                                     const notificationRole = updatedUser.role === 'unitconsultant' ? 'unitconsultant' : updatedUser.role === 'unitresident' ? 'unitresident' : updatedUser.role;
-                                    const created: any = await Notification.create({
+                                    const created: any = await createNotificationIfUnique({
                                         userId: updatedUser._id,
                                         role: notificationRole,
                                         title: 'Profile updated',
                                         message: `Your profile was updated by ${updater.name || updater.email || 'an admin'}.`,
                                         type: 'info',
-                                        isRead: false,
                                         metadata: { updatedBy: updater._id, changedFields: Object.keys(req.body || {}) },
                                     }) as any;
                                     try { sendSSE('notification', created, String(created.userId)); } catch (err) { console.error('SSE send failed', err); }

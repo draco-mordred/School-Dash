@@ -662,14 +662,12 @@ export const rotationNotify = inngest.createFunction(
     }
 
     await step.run('create-notification', async () => {
-      const { Notification } = await import('../models/notification');
-      await Notification.create({
+      await createNotificationIfUnique({
         userId: new mongoose.Types.ObjectId(payload.userId),
         role: 'student',
         title: payload.title,
         message: payload.message,
         type: 'timetable',
-        isRead: false,
         link: payload.metadata?.link || null,
         metadata: payload.metadata || {},
       });

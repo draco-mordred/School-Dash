@@ -357,12 +357,38 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
   const unitSupervisors: Map<string, SupervisorRef>[] = [];
   for (let d = 0; d < numDepartments; d++) {
     const map = new Map<string, SupervisorRef>();
-    for (const unitId of unitPools[d]) {
-      const unitDoc = unitMaps[d].get(unitId) || null;
-      const id = await findUnitSupervisor(unitDoc, deptDocs[d], assignedSupervisorIds);
-      if (id) assignedSupervisorIds.add(id);
-      await markSupervisor(id);
-      map.set(unitId, { id, name: await getSupervisorName(id) });
+    const unitPool = unitPools[d];
+    if (unitPool.length > 0) {
+      // Rank the department's lecturers ONCE and distribute them across the
+      // department's units. Previously each unit ran its own per-unit
+      // supervisor-pool lookup — every per-unit pool starts at pointer 0, so
+      // every unit picked the same first candidate, and when a department
+      // had one or fewer matching lecturers every unit window fell back to
+      // the DEPARTMENT supervisor. The result was that all unit groups in a
+      // department shared one supervisor. Now: a unit's designated supervisor
+      // — unit.supervisor — is honored first; otherwise the next
+      // not-yet-used candidate is picked, unique across the whole run and
+      // excluding the department group supervisor; the ranked list is
+      // cycled only when there are fewer candidates than units.
+      const candidates = await findDepartmentSupervisors(deptDocs[d]);
+      const ranked = rankSupervisorCandidates(candidates).map((c: any) => String(c._id));
+      const deptSupId = deptSupervisors[d]?.id ? String(deptSupervisors[d].id) : null;
+      const cycling = ranked.filter((id: string) => id !== deptSupId);
+      const fallbackPool = cycling.length > 0 ? cycling : (deptSupId ? [deptSupId] : []);
+      for (let u = 0; u < unitPool.length; u++) {
+        const unitId = unitPool[u];
+        const unitDoc = unitMaps[d].get(unitId) || null;
+        let picked: string | null = null;
+        const designated = unitDoc?.supervisor ? String(unitDoc.supervisor) : null;
+        if (designated && !assignedSupervisorIds.has(designated)) {
+          picked = designated;
+        } else if (fallbackPool.length > 0) {
+          picked = fallbackPool.find((id: string) => !assignedSupervisorIds.has(id)) ?? fallbackPool[u % fallbackPool.length];
+        }
+        if (picked) assignedSupervisorIds.add(picked);
+        await markSupervisor(picked);
+        map.set(unitId, { id: picked, name: picked ? await getSupervisorName(picked) : null });
+      }
     }
     unitSupervisors.push(map);
   }
