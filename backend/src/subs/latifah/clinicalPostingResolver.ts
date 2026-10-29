@@ -395,7 +395,6 @@ export const runClinicalSessionNudges = async (now: Date = new Date()) => {
               String(period.endTime) +
               "). Create one so students can check in.",
             type: "attendance",
-            isRead: false,
             link: "/attendance",
             metadata: {
               clinicalNudgeKey: nudgeKey,
