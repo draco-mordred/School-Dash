@@ -1,6 +1,6 @@
 
 import { lazy, Suspense } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
@@ -104,6 +104,14 @@ const ActivitiesLogRoute = () => {
   return <ActivitiesLog />;
 };
 
+// PR E2 — dashboard consolidation: /dashboard is the students' home and
+// renders the student portal; every other role keeps the standard Dashboard.
+const DashboardRoute = () => {
+  const { user } = useAuth();
+  if (user?.role === "student") return <StudentPortal />;
+  return <Dashboard />;
+};
+
 export const router = createBrowserRouter([
   {
     children: [
@@ -124,7 +132,7 @@ export const router = createBrowserRouter([
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported
         children: [
-          { path: "dashboard", element: <Dashboard /> },
+          { path: "dashboard", element: <DashboardRoute /> }, // PR E2 — students see the portal here
           { path: "activities-log", element: <ActivitiesLogRoute /> },
           { path: "settings/academic-years", element: <AcademicYear /> },
           {
@@ -216,8 +224,8 @@ export const router = createBrowserRouter([
             element: <CoursesWrapper />,
           },
           {
-            path: "student-portal",
-            element: <StudentPortal />,
+            path: "student-portal", // PR E2 — legacy URL, redirects to the student home at /dashboard
+            element: <Navigate to="/dashboard" replace />,
           },
           {
             path: "student/academics/overview",

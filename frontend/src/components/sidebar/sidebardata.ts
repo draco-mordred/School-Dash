@@ -218,7 +218,7 @@ export const sidebardata = {
       icon: School,
       roles: ["student"],
       items: [
-        { title: "Overview", url: "/student-portal" },
+        { title: "Overview", url: "/dashboard" }, // PR E2 — the student home (portal) now lives at /dashboard
         { title: "Courses", url: "/courses" },
         { title: "Subjects", url: "/subjects" },
         { title: "Learning Materials", url: "/lms/materials" },

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AIInsightWidget, type InsightItem } from "@/components/dashboard/ai-insight-widget";
+import StudentDashboardCards from "@/components/dashboard/StudentDashboardCards";
 
 interface LectureSummary {
   subject: { _id: string; name: string } | string | null;
@@ -990,6 +991,9 @@ export default function StudentPortal() {
           </Card>
         </div>
       </div>
+
+      {/* PR E2 — the former /dashboard student cards now live below the portal */}
+      <StudentDashboardCards />
     </div>
   );
 }
