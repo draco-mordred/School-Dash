@@ -104,18 +104,12 @@ const ActivitiesLogRoute = () => {
   return <ActivitiesLog />;
 };
 
-// PR E2 — dashboard consolidation: students' single home is /board.
+// PR E2 — dashboard consolidation: /dashboard is the students' home and
+// renders the student portal; every other role keeps the standard Dashboard.
 const DashboardRoute = () => {
   const { user } = useAuth();
-  if (user?.role === "student") return <Navigate to="/board" replace />;
+  if (user?.role === "student") return <StudentPortal />;
   return <Dashboard />;
-};
-
-// PR E2 — /board renders the student portal; non-students go back to /dashboard.
-const StudentBoardRoute = () => {
-  const { user } = useAuth();
-  if (user && user.role !== "student") return <Navigate to="/dashboard" replace />;
-  return <StudentPortal />;
 };
 
 export const router = createBrowserRouter([
@@ -138,7 +132,7 @@ export const router = createBrowserRouter([
       {
         element: <PrivateRoutes />, // Assuming PrivateRoutes is imported
         children: [
-          { path: "dashboard", element: <DashboardRoute /> }, // PR E2 — students redirected to /board
+          { path: "dashboard", element: <DashboardRoute /> }, // PR E2 — students see the portal here
           { path: "activities-log", element: <ActivitiesLogRoute /> },
           { path: "settings/academic-years", element: <AcademicYear /> },
           {
@@ -230,12 +224,8 @@ export const router = createBrowserRouter([
             element: <CoursesWrapper />,
           },
           {
-            path: "board", // PR E2 — students' single home (the student portal)
-            element: <StudentBoardRoute />,
-          },
-          {
-            path: "student-portal", // PR E2 — legacy URL, kept as a redirect
-            element: <Navigate to="/board" replace />,
+            path: "student-portal", // PR E2 — legacy URL, redirects to the student home at /dashboard
+            element: <Navigate to="/dashboard" replace />,
           },
           {
             path: "student/academics/overview",

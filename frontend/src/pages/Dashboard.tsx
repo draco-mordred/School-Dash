@@ -175,13 +175,6 @@ const Dashboard = memo(function Dashboard() {
   const [classStatuses, setClassStatuses] = useState<ClassStatus[]>([]);
   const [parentChildren, setParentChildren] = useState<any[]>([]);
   const [childrenAttendance, setChildrenAttendance] = useState<Record<string, any>>({});
-  const [studentCourseGroups, setStudentCourseGroups] = useState<any[]>([
-    { label: "PED", code: "PED101", present: 28, absent: 4, late: 2, excused: 1, total: 35 },
-    { label: "O&G", code: "O&G202", present: 30, absent: 2, late: 1, excused: 0, total: 33 },
-    { label: "INT", code: "INT301", present: 25, absent: 6, late: 3, excused: 1, total: 35 },
-    { label: "SUR", code: "SUR104", present: 20, absent: 8, late: 2, excused: 0, total: 30 },
-    { label: "ANA", code: "ANA205", present: 32, absent: 1, late: 2, excused: 0, total: 35 },
-  ]);
 
   // Chart data — mock logbook entries for Jan–Jun
   const logbookData = useMemo(() => [
@@ -241,28 +234,6 @@ const Dashboard = memo(function Dashboard() {
             })
           );
           setChildrenAttendance(attendanceMap);
-        }
-
-        // Fetch student's own attendance for per-course-group charts
-        if (user?.role === "student") {
-          try {
-            const { data } = await api.get("/attendance/me");
-            const records = data.records ?? [];
-            // Group records by course code prefix (e.g., "PED", "O&G")
-            const groupMap: Record<string, any> = {};
-            records.forEach((rec: any) => {
-              const code = rec.course?.code ?? rec.course?.name ?? "Unknown";
-              const prefix = code.replace(/[^A-Za-z]/g, "").split("").slice(0, 3).join("") || code.slice(0, 3);
-              if (!groupMap[prefix]) {
-                groupMap[prefix] = { label: prefix, code, present: 0, absent: 0, late: 0, excused: 0, total: 0 };
-              }
-              groupMap[prefix][rec.status] = (groupMap[prefix][rec.status] ?? 0) + 1;
-              groupMap[prefix].total += 1;
-            });
-            setStudentCourseGroups(Object.values(groupMap));
-          } catch {
-            setStudentCourseGroups([]);
-          }
         }
 
         // Rotation progress — computed client-side from the student's class
@@ -334,9 +305,8 @@ const Dashboard = memo(function Dashboard() {
 
   const isAdmin = user?.role === "admin";
   const isTeacher = user?.role === "teacher" || user?.role === "unitconsultant" || user?.role === "unitresident";
-  const isStudent = user?.role === "student";
   const isParent = user?.role === "parent";
-  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent || isStudent;
+  const canViewMordredInsights = isAdmin || isTeacher || user?.role === "unitconsultant" || user?.role === "unitresident" || isParent;
   const resolvedAdminDashboardData = useMemo(() => adminDashboardData ?? {
     stats: {
       totalStudents: 0,
@@ -398,17 +368,12 @@ const Dashboard = memo(function Dashboard() {
       { id: "timetable-teacher", title: "Timetable", icon: "clock", onClick: () => navigate("/timetable") },
       { id: "results", title: "Results", icon: "trending-up", onClick: () => navigate("/lms/exams") },
     ] : []),
-    ...(isStudent ? [
-      { id: "my-attendance", title: "My Attendance", icon: "bar-chart", onClick: () => navigate("/attendance") },
-      { id: "my-timetable", title: "Timetable", icon: "clock", onClick: () => navigate("/timetable") },
-      { id: "my-courses", title: "Courses", icon: "book-open", onClick: () => navigate("/courses") },
-    ] : []),
     ...(isParent ? [
       { id: "linked-students", title: "My Children", icon: "users", onClick: () => navigate("/settings/account") },
       { id: "child-attendance", title: "Children's Attendance", icon: "bar-chart", onClick: () => navigate("/attendance") },
       { id: "child-timetable", title: "Timetables", icon: "clock", onClick: () => navigate("/timetable") },
     ] : []),
-  ], [isAdmin, isTeacher, isStudent, isParent, navigate]);
+  ], [isAdmin, isTeacher, isParent, navigate]);
 
   // Precompute role rows to keep JSX simpler and avoid TSX parser ambiguities
   const roleRows = useMemo(() => roleStats.map((stat: any) => {
@@ -716,7 +681,7 @@ const Dashboard = memo(function Dashboard() {
       {/* ══ QUICK SETTINGS TILES ════════════════════════════════ */}
       <div>
         <h2 className="mb-3 text-sm font-medium text-muted-foreground uppercase tracking-wider">
-          {isAdmin ? "Admin Tools" : isTeacher ? "Teacher Tools" : isStudent ? "Student Tools" : "Quick Access"}
+          {isAdmin ? "Admin Tools" : isTeacher ? "Teacher Tools" : "Quick Access"}
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {quickTiles.map((tile) => (
@@ -980,147 +945,6 @@ const Dashboard = memo(function Dashboard() {
             </div>
           )}
 
-          {/* Student: Course Subject Group Attendance Charts */}
-          {isStudent && studentCourseGroups.length > 0 && (
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-                <div>
-                  <h3 className="text-sm font-semibold">Attendance by Subject</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Attendance across your course subject groups</p>
-                </div>
-                <button
-                  onClick={() => navigate("/attendance")}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  View All
-                </button>
-              </div>
-              <div className="p-5">
-                <div className="flex gap-4 overflow-x-auto pb-2">
-                  {studentCourseGroups.map((group) => {
-                    const total = group.total || 1;
-                    const presentPct = Math.round(((group.present ?? 0) / total) * 100);
-                    const chartData = [
-                      { name: "Present", value: group.present ?? 0, fill: "#22c55e" },
-                      { name: "Absent", value: group.absent ?? 0, fill: "#ef4444" },
-                      { name: "Late", value: group.late ?? 0, fill: "#eab308" },
-                      { name: "Excused", value: group.excused ?? 0, fill: "#3b82f6" },
-                    ].filter((d) => d.value > 0);
-                    return (
-                      <div key={group.label} className="shrink-0 w-44 flex flex-col items-center rounded-lg border border-border p-4 space-y-3">
-                        <span className="text-sm font-semibold">{group.label}</span>
-                        <div className="relative">
-                          <DashboardChartShell paused={pauseCharts} className="h-[80px] w-[80px]">
-                            <ResponsiveContainer width={80} height={80}>
-                              <PieChart>
-                                <Pie
-                                  data={chartData}
-                                  dataKey="value"
-                                  nameKey="name"
-                                  cx="50%"
-                                  cy="50%"
-                                  innerRadius={22}
-                                  outerRadius={36}
-                                  paddingAngle={2}
-                                >
-                                  {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                                  ))}
-                                </Pie>
-                                <Tooltip
-                                  formatter={(value: number, name: string) => [`${value}`, name]}
-                                  contentStyle={{
-                                    background: "hsl(var(--card))",
-                                    border: "1px solid hsl(var(--border))",
-                                    borderRadius: "8px",
-                                    fontSize: "11px",
-                                  }}
-                                />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          </DashboardChartShell>
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span
-                              className={cn(
-                                "text-xs font-bold",
-                                presentPct >= 75
-                                  ? "text-green-600 dark:text-green-400"
-                                  : presentPct >= 50
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-red-600 dark:text-red-400"
-                              )}
-                            >
-                              {presentPct}%
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center">
-                          {chartData.map((d) => (
-                            <div key={d.name} className="flex items-center gap-1">
-                              <div className="h-2 w-2 rounded-full" style={{ backgroundColor: d.fill }} />
-                              <span className="text-[10px] text-muted-foreground">{d.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* TEST: Dummy bar charts for ResponsiveContainer */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Group Attendance Bar</p>
-                    <div className="h-40">
-                      <DashboardChartShell paused={pauseCharts}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={[{ name: "PED", present: 28, absent: 4 }, { name: "O&G", present: 30, absent: 2 }, { name: "INT", present: 25, absent: 6 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
-                            <Bar dataKey="present" fill="#22c55e" radius={[3, 3, 0, 0]} />
-                            <Bar dataKey="absent" fill="#ef4444" radius={[3, 3, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </DashboardChartShell>
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-border p-3">
-                    <p className="text-xs font-medium mb-2 text-muted-foreground">Test — Weekly Trend Line</p>
-                    <div className="h-40">
-                      <DashboardChartShell paused={pauseCharts}>
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={[{ day: "Mon", rate: 85 }, { day: "Tue", rate: 92 }, { day: "Wed", rate: 78 }, { day: "Thu", rate: 95 }]} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                            <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                            <Tooltip contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "8px", fontSize: "11px" }} />
-                            <Line type="monotone" dataKey="rate" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </DashboardChartShell>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Student empty state */}
-          {isStudent && !loading && studentCourseGroups.length === 0 && (
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="px-5 py-4 border-b border-border">
-                <h3 className="text-sm font-semibold">Attendance by Subject</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">No attendance data yet</p>
-              </div>
-              <div className="p-5">
-                <p className="text-sm text-muted-foreground py-4 text-center">
-                  No attendance records found for your courses.
-                </p>
-              </div>
-            </div>
-          )}
         </div>
 
           {/* Right column simplified for parsing/debug */}
