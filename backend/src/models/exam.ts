@@ -3,7 +3,7 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IQuestion {
   _id: mongoose.Types.ObjectId;
   questionText: string;
-  type: "MCQ" | "Sort answer" | "Essay";
+  type: "MCQ" | "SHORT_ANSWER" | "ESSAY"; // must match schema enum
   options?: string[]; // only for MCQs
   correctAnswer: string;
   points: number;

@@ -32,7 +32,9 @@ const Exam = () => {
   // Student Answers State: { [questionId]: "Selected Option" }
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const totalPoints = submission && exam ? exam.questions.length : 0;
+  const totalPoints = submission && exam
+    ? exam.questions.reduce((sum, q) => sum + (q.points || 1), 0)
+    : 0;
   const percentage =
     submission && totalPoints > 0
       ? Math.round((submission.score / totalPoints) * 100)
@@ -79,11 +81,6 @@ const Exam = () => {
   }
 
   if (!exam) {
-    navigate("/lms/exams");
-    return;
-  }
-
-  if (!exam.isActive && !isTeacher) {
     navigate("/lms/exams");
     return;
   }

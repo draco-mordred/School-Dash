@@ -88,9 +88,11 @@ export const deleteExam = async (req: Request, res: Response) => {
     }
 
     if (user.role !== "admin" && exam.lecturer.toString() !== user._id.toString()) {
-      return res.status(401).json({ message: "Not authorized to delete this exam!" });
+      return res.status(403).json({ message: "Not authorized to delete this exam!" });
     }
 
+    // Remove the exam AND its submissions together so no orphaned submissions remain.
+    await Submission.deleteMany({ exam: examId });
     await Exam.findByIdAndDelete(examId);
     await logActivity({
       userId: user._id,
@@ -161,14 +163,8 @@ export const getExams = async (
         return res.json([]);
       }
 
-      // Remove expired exams for the class so they no longer appear to students.
-      try {
-        await Exam.deleteMany({ class: studentClassId, dueDate: { $lt: new Date() } });
-      } catch (err) {
-        // Non-fatal: log and continue
-        console.warn('Failed to cleanup expired exams for class', studentClassId, err);
-      }
-
+      // NOTE: expired exams are NOT deleted — the query below simply filters them
+      // out for students. Deleting exams here orphaned submissions/results.
       // Only return active/upcoming exams for students
       query = { class: studentClassId, isActive: true, dueDate: { $gte: new Date() } };
     } else if (user.role === "teacher") {
@@ -282,7 +278,7 @@ try {
     exam.lecturer.toString() !== user._id.toString()
   ) {
     return res
-    .status(401)
+    .status(403)
     .json({
       message: `Not authorized to modify this exam!`
     })
@@ -337,7 +333,15 @@ try {
   //2. Fetch full exam with answers.
   const exam = await Exam.findById(examId).select("+questions.correctAnswer");
   if (!exam) return res.status(404).json({ message: `Exam not found!`});
-  
+
+  //2b. Server-side availability guards (the frontend-only check is not sufficient).
+  if (!exam.isActive) {
+    return res.status(403).json({ message: `This exam is not active!` });
+  }
+  if (new Date(exam.dueDate).getTime() < Date.now()) {
+    return res.status(403).json({ message: `This exam has expired!` });
+  }
+
   //3. Calculate Score
   const { score, totalPoints } = scoreSubmission(
     exam as any,
@@ -379,8 +383,15 @@ export const getExamResult = async (
   res: Response
 ) => {
   try {
-    const studentId = (req as any).user._id;
+    const user = (req as any).user;
     const examId = req.params.id;
+    // Students always see their own submission. Staff (teacher/admin/unit roles)
+    // must pass ?studentId=<id> to view a specific student's submission.
+    const isStaff = ["admin", "teacher", "unitconsultant", "unitresident"].includes(user.role);
+    const studentId = isStaff ? (req.query.studentId as string | undefined) : user._id;
+    if (!studentId) {
+      return res.status(400).json({ message: "studentId query parameter is required for staff users" });
+    }
 
     const submission = await Submission.findOne({
       exam: examId,
@@ -388,7 +399,7 @@ export const getExamResult = async (
     }).populate({
       path: 'exam',
       select: "title questions._id questions.correctAnswer", // FORCE SELECT CORRECT ANSWERS
-    });
+    }).populate("student", "name idNumber email");
 
     if (!submission){
       return res.status(404).json({ message: `No submission found!`});
@@ -442,6 +453,100 @@ export const regradeExamSubmissions = async (
       examId,
       submissions: submissions.length,
       updated,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Generate (append) more AI questions for an existing exam
+// @route   POST /api/exams/:id/generate-questions
+// @access  Private (owner teacher/admin)
+export const generateExamQuestions = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const examId = req.params.id;
+    const { topic, difficulty, count } = req.body;
+    if (!topic || !String(topic).trim()) {
+      return res.status(400).json({ message: "topic is required" });
+    }
+
+    const exam = await Exam.findById(examId).populate("course", "name");
+    if (!exam) {
+      return res.status(404).json({ message: "Exam not found!" });
+    }
+
+    const user = (req as any).user;
+    if (user.role !== "admin" && exam.lecturer?.toString() !== user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to modify this exam!" });
+    }
+
+    const numCount = typeof count === "number" ? count : count ? Number(count) : 3;
+    if (!Number.isFinite(numCount) || numCount < 1 || numCount > 20) {
+      return res.status(400).json({ message: "count must be a number between 1 and 20" });
+    }
+
+    await logActivity({
+      userId: user._id,
+      action: `User triggered additional question generation for exam ${examId}`,
+    });
+
+    await inngest.send({
+      name: "exam/generate-questions",
+      data: {
+        examId,
+        topic: String(topic).trim(),
+        subjectName: (exam as any).course?.name ?? null,
+        difficulty: difficulty || "Medium",
+        count: numCount,
+      },
+    });
+
+    return res.status(202).json({ message: "Question generation started" });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Delete a single question from an exam
+// @route   DELETE /api/exams/:id/questions/:questionId
+// @access  Private (owner teacher/admin)
+export const deleteExamQuestion = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { id: examId, questionId } = req.params;
+    const user = (req as any).user;
+
+    const exam = await Exam.findById(examId);
+    if (!exam) {
+      return res.status(404).json({ message: "Exam not found!" });
+    }
+
+    if (user.role !== "admin" && exam.lecturer?.toString() !== user._id.toString()) {
+      return res.status(403).json({ message: "Not authorized to modify this exam!" });
+    }
+
+    const before = exam.questions.length;
+    exam.questions = exam.questions.filter(
+      (q: any) => q._id?.toString() !== questionId
+    );
+    if (exam.questions.length === before) {
+      return res.status(404).json({ message: "Question not found!" });
+    }
+
+    await exam.save();
+    await logActivity({
+      userId: user._id,
+      action: `User ${user._id} deleted question ${questionId} from exam ${examId}`,
+    });
+
+    return res.json({
+      message: "Question deleted",
+      remaining: exam.questions.length,
     });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });

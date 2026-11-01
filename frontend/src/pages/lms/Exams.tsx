@@ -169,8 +169,10 @@ const Exams = () => {
               <CardHeader>
                 <div className="pb-2">
                   <Badge>
-                    {exam.isActive || new Date(exam.dueDate) < date
-                      ? "Active"
+                    {exam.isActive
+                      ? new Date(exam.dueDate) < date
+                        ? "Expired"
+                        : "Active"
                       : "Inactive"}
                   </Badge>
                   <span className="text-xs text-muted-foreground ml-2">
