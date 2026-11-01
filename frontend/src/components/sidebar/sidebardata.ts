@@ -170,6 +170,7 @@ export const sidebardata = {
         { title: "Departments", url: "/departments", roles: ["admin"] },
         { title: "Units", url: "/units", roles: ["admin"] },
         { title: "Venues & Locations", url: "/settings/venues", roles: ["admin"] },
+        { title: "Class Locations", url: "/settings/class-locations", roles: ["admin"] },
         { title: "School Settings", url: "/settings/general", roles: ["admin"] },
         { title: "Academic Year Settings", url: "/settings/academic-years", roles: ["admin"] },
         { title: "Roles & Permissions", url: "/settings/roles", roles: ["admin"] },

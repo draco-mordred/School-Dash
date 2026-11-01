@@ -26,6 +26,8 @@ export interface IInstitution extends Document {
   brandingSettings: mongoose.Types.ObjectId;
   administratorUser: mongoose.Types.ObjectId;
   applicationSettings: mongoose.Types.ObjectId;
+  // PR B: campus GPS (JUTH Lamingo seeded via config sync; admin-editable)
+  campusLocation?: { lat: number; lng: number; radiusMeters: number } | null;
 }
 
 const InstitutionSchema = new Schema<IInstitution>(
@@ -93,6 +95,12 @@ const InstitutionSchema = new Schema<IInstitution>(
       type: Schema.Types.ObjectId,
       ref: "ApplicationSettings",
       required: true,
+    },
+    // PR B: campus GPS (JUTH Lamingo seeded via config sync; admin-editable)
+    campusLocation: {
+      lat: { type: Number, default: null },
+      lng: { type: Number, default: null },
+      radiusMeters: { type: Number, default: null },
     },
   },
   { timestamps: true }

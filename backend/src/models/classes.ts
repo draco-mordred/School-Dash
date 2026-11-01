@@ -9,6 +9,8 @@ export interface IClass extends Document {
   courses: mongoose.Types.ObjectId[]; // List of Courses taught in this class.
   students: mongoose.Types.ObjectId[]; // List of Students enrolled.
   capacity: number; // Max number of Students allowed (optional).
+  // PR B: per-class default lecture location (admin "Class Locations" page)
+  defaultLectureVenue?: mongoose.Types.ObjectId | null;
   cloudStorage: {
     provider: "google-drive" | "onedrive" | "dropbox" | "other";
     rootUrl: string;
@@ -56,6 +58,12 @@ const classSchema = new Schema<IClass>(
     capacity: {
       type: Number,
       default: 200,
+    },
+    // PR B: per-class default lecture location (admin "Class Locations" page)
+    defaultLectureVenue: {
+      type: Schema.Types.ObjectId,
+      ref: "Venue",
+      default: null,
     },
     cloudStorage: {
       provider: {

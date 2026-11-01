@@ -7,7 +7,12 @@ export type CheckinLocationType = "lecture_hall" | "clinical_ward" | "lab" | "cl
 export type CheckinMethod = "qr_code" | "nfc" | "biometric" | "manual" | "gps";
 
 // Check-in status
-export type CheckinStatus = "pending" | "verified" | "rejected" | "expired";
+export type CheckinStatus =
+  | "pending"
+  | "verified"
+  | "rejected"
+  | "expired"
+  | "unverified";
 
 /**
  * Proximity Check-in Model
@@ -138,7 +143,7 @@ const ProximityCheckinSchema = new Schema<IProximityCheckin>(
     },
     status: {
       type: String,
-      enum: ["pending", "verified", "rejected", "expired"],
+      enum: ["pending", "verified", "rejected", "expired", "unverified"],
       default: "pending",
       index: true,
     },
