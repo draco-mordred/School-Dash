@@ -95,7 +95,7 @@ export default function StudentUpcomingPage() {
             <CardDescription>Your next posting windows, exams and deadlines in one place.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline" size="sm"><Link to="/student-portal">Back to Portal</Link></Button>
+            <Button asChild variant="outline" size="sm"><Link to="/board">Back to Portal</Link></Button>
             <Button asChild size="sm"><Link to="/student/schedule/calendar">Calendar</Link></Button>
           </div>
         </CardHeader>

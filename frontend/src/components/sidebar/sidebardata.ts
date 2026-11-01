@@ -181,17 +181,25 @@ export const sidebardata = {
     // ═══════════════════════════════════════════════════════════════
     // NON-ADMIN MODULES
     // ═══════════════════════════════════════════════════════════════
+    // PR E2 — students' single home is the board (student portal at /board).
+    {
+      title: "Dashboard",
+      url: "/board",
+      icon: Home,
+      isActive: true,
+      roles: ["student"],
+    },
     {
       title: "Dashboard",
       url: "/dashboard",
       icon: Home,
       isActive: true,
-      roles: ["teacher", "student", "parent"],
+      roles: ["teacher", "parent"],
       items: [
         {
           title: "Dashboard",
           url: "/dashboard",
-          roles: ["teacher", "student", "parent"],
+          roles: ["teacher", "parent"],
         },
         // Activities Log removed for teachers — it is an admin-only
         // monitoring component (see Reports & Analytics for admins).
@@ -218,7 +226,7 @@ export const sidebardata = {
       icon: School,
       roles: ["student"],
       items: [
-        { title: "Overview", url: "/student-portal" },
+        { title: "Overview", url: "/board" }, // PR E2 — student portal now lives at /board
         { title: "Courses", url: "/courses" },
         { title: "Subjects", url: "/subjects" },
         { title: "Learning Materials", url: "/lms/materials" },

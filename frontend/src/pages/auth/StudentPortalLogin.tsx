@@ -142,7 +142,7 @@ export default function StudentPortalLogin() {
       }
 
       toast.success(`Welcome, ${response.data.user?.name || "Student"}`);
-      navigate("/dashboard");
+      navigate("/board"); // PR E2 — student portal is the single student home
     } catch (error: unknown) {
       const responseMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
       const msg = responseMessage || "Login failed. Please check your credentials.";

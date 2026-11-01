@@ -121,7 +121,7 @@ export default function StudentAcademicsOverviewPage() {
               <Link to="/student/logbook/statistics"><BookOpen className="mr-1 h-4 w-4" /> Logbook statistics</Link>
             </Button>
             <Button asChild size="sm">
-              <Link to="/student-portal">Portal <ArrowRight className="ml-1 h-4 w-4" /></Link>
+              <Link to="/board">Portal <ArrowRight className="ml-1 h-4 w-4" /></Link>
             </Button>
           </div>
         </CardContent>
