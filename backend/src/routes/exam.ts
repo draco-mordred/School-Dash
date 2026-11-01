@@ -3,6 +3,7 @@ import express from "express";
 import {
   triggerExamGeneration,
   regradeExamSubmissions,
+  createExam,
   getExams,
   submitExam,
   getExamById,
@@ -20,6 +21,14 @@ examRouter.post(
   protect,
   authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
   triggerExamGeneration
+);
+
+// Create/Publish a manual exam (teacher/admin)
+examRouter.post(
+  "/",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  createExam
 );
 // STudent Routes
 examRouter.post(

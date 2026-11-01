@@ -102,7 +102,7 @@ const Exams = () => {
                       <div key={ex._id} className="flex items-center justify-between p-2 border rounded">
                         <div>
                           <div className="font-medium">{ex.title}</div>
-                          <div className="text-xs text-muted-foreground">{ex.subject?.name ?? '—'}</div>
+                          <div className="text-xs text-muted-foreground">{(ex.course ?? ex.subject)?.name ?? '—'}</div>
                         </div>
                         <div className="text-right text-sm text-muted-foreground">
                           <div>{new Date(ex.dueDate).toLocaleString()}</div>
@@ -139,7 +139,7 @@ const Exams = () => {
                       <CardContent className="space-y-2 text-sm text-muted-foreground">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4" />
-                          {exam.subject?.name ?? "—"}
+                          {(exam.course ?? exam.subject)?.name ?? "—"}
                         </div>
                         <div className="flex items-center gap-2">
                           <Users className="h-4 w-4" />
@@ -182,7 +182,7 @@ const Exams = () => {
               <CardContent className="space-y-2 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  {exam.subject?.name ?? "—"}
+                  {(exam.course ?? exam.subject)?.name ?? "—"}
                 </div>
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4" />
@@ -220,7 +220,7 @@ const Exams = () => {
       <ExamGenerator
         open={isGenOpen}
         onOpenChange={setIsGenOpen}
-        onSuccess={fetchExams}
+        onSuccess={() => (examsResource as any).refetch?.()}
       />
     </div>
   );

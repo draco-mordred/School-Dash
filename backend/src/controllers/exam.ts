@@ -17,6 +17,7 @@ export const triggerExamGeneration = async (
     const {
       title,
       subject,
+      course,
       class: classId,
       duration,
       dueDate,
@@ -25,15 +26,21 @@ export const triggerExamGeneration = async (
       count,
     } = req.body;
 
-    const subjectDoc = await CourseModel.findById(subject);
-    if (!subjectDoc) {
-      return res.status(404).json({ message: `Subject not found!` });
+    // The Exam schema's ref is `course` (there is no `subject` field).
+    // Older clients send the course id under the `subject` key — accept either.
+    const courseId = course ?? subject;
+    if (!courseId) {
+      return res.status(400).json({ message: `Course is required!` });
+    }
+    const courseDoc = await CourseModel.findById(courseId);
+    if (!courseDoc) {
+      return res.status(404).json({ message: `Course not found!` });
     }
 
     const lecturerId = (req as any).user._id;
     const draftExam = await Exam.create({
       title: title || `Auto-Generated ${topic}`,
-      subject,
+      course: courseId,
       class: classId,
       lecturer: lecturerId,
       duration: duration || 60,
@@ -54,7 +61,7 @@ export const triggerExamGeneration = async (
       data: {
         examId: draftExam._id,
         topic,
-        subjectName: subjectDoc?.name,
+        subjectName: courseDoc?.name,
         difficulty: difficulty || "Medium",
         count: typeof count === "number" ? count : count ? Number(count) : 10,
       },
@@ -104,8 +111,15 @@ export const createExam = async (
   res: Response
 ) => {
   try {
+    const { title, course, class: classId, duration, dueDate } = req.body;
+    if (!title || !course || !classId || !duration || !dueDate) {
+      return res.status(400).json({
+        message: "title, course, class, duration and dueDate are required",
+      });
+    }
     const exam = await Exam.create({
       ...req.body,
+      course,
       lecturer: (req as any).user._id, // From Auth Middleware.
     });
     const userId = (req as any).user._id;
@@ -164,7 +178,7 @@ export const getExams = async (
 
 
     const exams = await Exam.find(query)
-    .populate("subject", "name subjects.subjectID")
+    .populate("course", "name code courseID")
     .populate("class", "name section")
     .select("-questions.correctAnswer");
 
@@ -186,7 +200,7 @@ export const getExamById = async (
 
     //1. Initiate the query
     let query = Exam.findById(examId)
-        .populate("subject", "name code subjects.subjectID")
+        .populate("course", "name code courseID")
         .populate("class", "name section")
         .populate("lecturer", "name email idNumber");
 
@@ -207,17 +221,24 @@ export const getExamById = async (
       return res.status(404).json({ message: `Exam not found!` });
     };
 
-    //5. Security Check (Optional but recommended): ensure Students only access their class exams.
-    if (user.role === "student" && exam.class.toString() !== user.studentClass.toString()) {
-      // Assuming user.studentClass is a string or ObjectId
-      // We compare it with the exam.class._id (which might be populted or an ID)
-      const examClassId = exam.class._id ? exam.class._id.toString() : exam.class.toString();
-      const userClassId = user.studentClass ? user.studentClass.toString() : "";
-
-      if (examClassId !== userClassId){
+    //5. Security Check: ensure Students only access their class exams.
+    // (user.studentClass may be unset — resolve the class id via the same
+    // fallback chain getExams uses, instead of crashing with a 500.)
+    if (user.role === "student") {
+      const examClassId = exam.class?._id
+        ? exam.class._id.toString()
+        : exam.class?.toString() ?? "";
+      const userClassId =
+        user.studentClasses?.[0]?._id?.toString() ||
+        user.studentClass?._id?.toString() ||
+        user.StudentClass?._id?.toString() ||
+        user.StudentClass?.toString() ||
+        user.studentClass?.toString() ||
+        "";
+      if (examClassId && userClassId && examClassId !== userClassId) {
         return res.status(403).json({
           message: `You are not authorized to view this exam!`
-        })
+        });
       }
     }
     res.json(exam);

@@ -128,7 +128,8 @@ export interface question {
 export interface exam {
   _id: string;
   title: string;
-  subject: courses;
+  course?: courses; // The Exam schema's real ref (populated by the API)
+  subject?: courses; // Legacy — the backend no longer stores this field
   class: Class;
   teacher: user;
   duration: number; // in minutes

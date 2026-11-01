@@ -65,7 +65,7 @@ export const ExamQuestionManager = ({
         topic,
         difficulty,
         count: parseInt(count),
-        subjectId: exam.subject._id,
+        subjectId: (exam.course ?? exam.subject)?._id,
       });
 
       toast.success("Questions generated successfully!");
@@ -179,7 +179,7 @@ export const ExamQuestionManager = ({
               Generate Questions
             </DialogTitle>
             <DialogDescription>
-              Add more questions to "{exam.title}" from the {exam.subject.name}{" "}
+              Add more questions to "{exam.title}" from the {(exam.course ?? exam.subject)?.name ?? "the course"}{" "}
               subject
             </DialogDescription>
           </DialogHeader>
