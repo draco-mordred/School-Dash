@@ -10,7 +10,7 @@ describe("student schedule helpers", () => {
     const cells = buildMonthViewDays({
       year: 2026,
       month: 6,
-      scheduleData: [{ day: "Monday", periods: [] }],
+      scheduleData: [{ day: "Monday", periods: [{ startTime: "08:00", endTime: "10:00" } as any] }],
       attendanceRecords: [
         { date: "2026-07-06", status: "present" },
         { date: "2026-07-13", status: "absent" },

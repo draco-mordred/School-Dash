@@ -29,8 +29,9 @@ describe("haversineMeters", () => {
 
   test("long distances are plausible (JUTH -> Lagos)", () => {
     const distance = haversineMeters(JUTH.lat, JUTH.lng, 6.5244, 3.3792);
-    expect(distance).toBeGreaterThan(250000);
-    expect(distance).toBeLessThan(350000);
+    // Jos -> Lagos is roughly 711 km by great-circle; keep a wide band.
+    expect(distance).toBeGreaterThan(600000);
+    expect(distance).toBeLessThan(800000);
   });
 });
 

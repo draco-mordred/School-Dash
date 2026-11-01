@@ -43,7 +43,8 @@ describe('resolveUnitPool', () => {
 describe('distributeStudentsRoundRobin', () => {
   test('strict round-robin: every unit gets a student before wrapping', () => {
     const groups = distributeStudentsRoundRobin(['s0', 's1', 's2', 's3', 's4'], 4);
-    expect(groups).toEqual([['s0'], ['s1'], ['s2'], ['s3', 's4']]);
+    // Student i -> unit (i % unitCount): the 5th student wraps to unit 0.
+    expect(groups).toEqual([['s0', 's4'], ['s1'], ['s2'], ['s3']]);
   });
 
   test('25 students / 10 units -> all 10 units non-empty, 5x3 + 5x2', () => {
@@ -63,7 +64,8 @@ describe('distributeStudentsRoundRobin', () => {
 describe('rotateLeft', () => {
   test('rotates by n with wraparound', () => {
     expect(rotateLeft(['a', 'b', 'c'], 1)).toEqual(['b', 'c', 'a']);
-    expect(rotateLeft(['a', 'b'], 3)).toEqual(['a', 'b']);
+    // 3 mod 2 = 1, so a 2-element list rotated by 3 shifts by one.
+    expect(rotateLeft(['a', 'b'], 3)).toEqual(['b', 'a']);
     expect(rotateLeft([], 2)).toEqual([]);
   });
 });
