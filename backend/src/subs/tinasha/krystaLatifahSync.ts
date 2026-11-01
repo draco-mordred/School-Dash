@@ -18,6 +18,8 @@ import {
   pickTarget,
   type CheckinTarget,
 } from "../../utils/checkinProximity";
+import { buildCheckinDedupeQuery } from "../../utils/checkinProximity";
+import { inngest } from "../../inngest/client";
 
 /**
  * KRYSTA-LATIFAH Sync Service
@@ -112,6 +114,19 @@ export const addToOfflineQueue = (type: OfflineSyncItem["type"], data: any) => {
     retryCount: 0,
   });
   console.log(`➕ Added to offline queue: ${type} (Queue size: ${offlineSyncQueue.length})`);
+  // PR C — durable recovery: the in-memory queue is lost on restart or
+  // redeploy, so checkin items are ALSO emitted as an Inngest event, which
+  // retries durably via the Process-Offline-Proximity-Checkin function.
+  if (type === "checkin") {
+    inngest
+      .send({
+        name: "krysta-latifah/checkin.offline",
+        data: { checkinData: data, userId: data?.student },
+      })
+      .catch((err: unknown) =>
+        console.warn("offline checkin event emit failed", err),
+      );
+  }
 };
 
 /**
@@ -318,8 +333,25 @@ export const processProximityCheckin = async (
     const classId = new mongoose.Types.ObjectId(checkinData.classId);
     const academicYear = new mongoose.Types.ObjectId(checkinData.academicYear);
     
-    // Create proximity checkin record
-    const checkin = await ProximityCheckin.create({
+    // PR C — idempotency: never create a duplicate checkin for the same
+    // student + session/period. Replays (offline retries, cron re-runs,
+    // double taps) reuse the existing record instead of inserting a new one.
+    const dedupeQuery = buildCheckinDedupeQuery({
+      student,
+      lectureSessionId: checkinData.lectureSessionId
+        ? new mongoose.Types.ObjectId(checkinData.lectureSessionId)
+        : undefined,
+      clinicalSessionId: checkinData.clinicalSessionId
+        ? new mongoose.Types.ObjectId(checkinData.clinicalSessionId)
+        : undefined,
+      timetablePeriodId: checkinData.timetablePeriodId
+        ? new mongoose.Types.ObjectId(checkinData.timetablePeriodId)
+        : undefined,
+    });
+    const existing = await ProximityCheckin.findOne(dedupeQuery).sort({
+      createdAt: -1,
+    });
+    const checkin = existing ?? (await ProximityCheckin.create({
       student,
       studentIdNumber: checkinData.studentIdNumber,
       locationType: checkinData.locationType as any,
@@ -340,10 +372,10 @@ export const processProximityCheckin = async (
       timetablePeriodId: checkinData.timetablePeriodId ? new mongoose.Types.ObjectId(checkinData.timetablePeriodId) : undefined,
       status: "pending",
       isWithinRange: true, // Will be validated below
-      syncStatus: "synced",
+      syncStatus: "pending",
       syncAttempts: 0,
       createdBy: userId ? new mongoose.Types.ObjectId(userId) : student,
-    });
+    }));
     
     // PR B — resolve the REAL target location instead of comparing the
     // student's GPS against itself (the old code passed the student's own
@@ -361,6 +393,7 @@ export const processProximityCheckin = async (
       const patch: any = {
         isWithinRange: verdict.isWithinRange,
         status: verdict.status,
+        syncStatus: "synced", // PR C — final state, cron must not re-pick it
       };
       if (verdict.distanceFromTarget !== null) {
         patch.distanceFromTarget = verdict.distanceFromTarget;
@@ -420,6 +453,7 @@ export const processProximityCheckin = async (
     // Verified: store the REAL distance and mark verified.
     await ProximityCheckin.findByIdAndUpdate(checkin._id, {
       status: "verified",
+      syncStatus: "synced", // PR C
       isWithinRange: true,
       distanceFromTarget: verdict.distanceFromTarget,
       verifiedAt: new Date(),
@@ -459,6 +493,92 @@ export const processProximityCheckin = async (
       addToOfflineQueue("checkin", checkinData);
     }
     
+    throw error;
+  }
+};
+
+/**
+ * PR C — idempotent re-processing of an EXISTING pending checkin row
+ * (used by the Process-Pending-Checkins cron). Never creates a new
+ * record: re-runs verdict + attendance + compliance against the stored
+ * row, marks it synced on any final outcome, and tracks attempts so
+ * rows that keep failing eventually become syncStatus "failed" with the
+ * error preserved for the audit trail.
+ */
+export const reprocessPendingCheckin = async (
+  checkinId: mongoose.Types.ObjectId | string,
+) => {
+  const checkin: any = await ProximityCheckin.findById(checkinId);
+  if (!checkin) {
+    return { success: false, message: "Checkin not found" };
+  }
+
+  const checkinData = {
+    student: checkin.student,
+    studentIdNumber: checkin.studentIdNumber,
+    locationType: checkin.locationType,
+    locationName: checkin.locationName,
+    classroomId: checkin.classroomId,
+    clinicalUnitId: checkin.clinicalUnitId,
+    gpsCoordinates: checkin.gpsCoordinates,
+    checkinMethod: checkin.checkinMethod,
+    classId: checkin.classId,
+    academicYear: checkin.academicYear,
+    lectureSessionId: checkin.lectureSessionId,
+    clinicalSessionId: checkin.clinicalSessionId,
+    timetablePeriodId: checkin.timetablePeriodId,
+  };
+
+  try {
+    const target = await resolveCheckinTarget(checkinData);
+    const verdict = evaluateCheckinProximity({
+      studentGps: checkin.gpsCoordinates as any,
+      target,
+      checkinMethod: String(checkin.checkinMethod ?? ""),
+    });
+
+    if (verdict.status === "verified") {
+      await ProximityCheckin.findByIdAndUpdate(checkin._id, {
+        status: "verified",
+        syncStatus: "synced",
+        syncError: "",
+        isWithinRange: true,
+        distanceFromTarget: verdict.distanceFromTarget,
+        verifiedAt: new Date(),
+      });
+      await updateAttendancesFromCheckin({
+        checkinId: checkin._id,
+        student: checkin.student,
+        classId: checkin.classId,
+        academicYear: checkin.academicYear,
+      });
+      return { success: true, status: "verified" };
+    }
+
+    const patch: any = {
+      isWithinRange: verdict.isWithinRange,
+      status: verdict.status,
+      syncStatus: "synced",
+      syncError: "",
+    };
+    if (verdict.distanceFromTarget !== null) {
+      patch.distanceFromTarget = verdict.distanceFromTarget;
+    }
+    if (verdict.status === "pending") {
+      patch.notes =
+        "No target location configured for this checkin — admin review required";
+    }
+    await ProximityCheckin.findByIdAndUpdate(checkin._id, patch);
+    return { success: false, status: verdict.status };
+  } catch (error: any) {
+    const attempts = (checkin.syncAttempts ?? 0) + 1;
+    const gaveUp = attempts >= SYNC_CONFIG.MAX_SYNC_RETRIES;
+    await ProximityCheckin.findByIdAndUpdate(checkin._id, {
+      syncAttempts: attempts,
+      lastSyncAttempt: new Date(),
+      ...(gaveUp ? { syncStatus: "failed" } : {}),
+      syncError: String(error?.message ?? error).slice(0, 500),
+    });
     throw error;
   }
 };
@@ -1137,5 +1257,6 @@ export default {
   calculateDistance,
   validateProximity,
   addToOfflineQueue,
+  reprocessPendingCheckin,
   SYNC_CONFIG,
 };

@@ -1202,30 +1202,14 @@ export const processPendingCheckins = inngest.createFunction(
 
     for (const checkin of pendingCheckins) {
       try {
-        await step.run(`process-checkin-${checkin._id}`, async () => {
-          // For pending checkins, we need to process them as if they just came in
-          const { processProximityCheckin } = await import("../subs/tinasha/krystaLatifahSync");
-          
-          const result = await processProximityCheckin(
-            {
-              student: checkin.student,
-              studentIdNumber: checkin.studentIdNumber,
-              locationType: checkin.locationType,
-              locationName: checkin.locationName,
-              classroomId: checkin.classroomId,
-              clinicalUnitId: checkin.clinicalUnitId,
-              gpsCoordinates: checkin.gpsCoordinates,
-              checkinMethod: checkin.checkinMethod,
-              classId: checkin.classId,
-              academicYear: checkin.academicYear,
-              lectureSessionId: checkin.lectureSessionId,
-              clinicalSessionId: checkin.clinicalSessionId,
-              timetablePeriodId: checkin.timetablePeriodId,
-            },
-            checkin.createdBy
+        await step.run(`reprocess-checkin-${checkin._id}`, async () => {
+          // PR C — idempotent: re-process the EXISTING row (verdict +
+          // attendance + compliance); never create a duplicate checkin record.
+          const { reprocessPendingCheckin } = await import(
+            "../subs/tinasha/krystaLatifahSync"
           );
-          
-          results.push({ checkinId: checkin._id, success: result.success });
+          const result = await reprocessPendingCheckin(checkin._id);
+          results.push({ checkinId: checkin._id, success: result?.success ?? false });
           processed++;
         });
       } catch (error) {
