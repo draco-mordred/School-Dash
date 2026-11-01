@@ -77,10 +77,16 @@ const normalizeAttendanceStatus = (status?: string | null): AttendanceStatus => 
   }
 };
 
+// PR F — local calendar date, not toISOString(): ISO conversion shifts the
+// key BACK one day in every timezone ahead of UTC (e.g. Africa/Lagos UTC+1),
+// so month-view statuses landed on the wrong day for Nigerian users.
 const formatDateKey = (value: Date | string) => {
   const normalized = value instanceof Date ? value : new Date(value);
-  normalized.setHours(0, 0, 0, 0);
-  return normalized.toISOString().split("T")[0];
+  if (Number.isNaN(normalized.getTime())) return "";
+  const year = normalized.getFullYear();
+  const month = String(normalized.getMonth() + 1).padStart(2, "0");
+  const day = String(normalized.getDate()).padStart(2, "0");
+  return year + "-" + month + "-" + day;
 };
 
 export const buildMonthViewDays = ({
