@@ -15,7 +15,7 @@ This implementation provides **real-time synchronization** between **KRYSTA** (C
   - GPS coordinates validation with configurable range (default: 100m)
   - Support for both lecture (LATIFAH) and clinical (KRYSTA) sessions
   - Offline queue support for network issues
-  - Automatic cleanup via TTL index (7 days)
+  - Automatic cleanup via TTL index (7 days, PENDING offline-sync rows only — verified/rejected/failed checkins are kept forever as the audit trail)
 
 **Supported Checkin Types**:
 - `lecture_hall` - For academic lecture attendance
@@ -168,6 +168,8 @@ const SYNC_CONFIG = {
 3. For each rule type:
    - lecture_before_clinical: Verifies lecture attendance before clinical
    - minimum_lecture_attendance: Checks if student meets minimum %
+   - clinical_attendance_required: Flags missing attendance for expected, already-started clinical sessions
+   - sequential_attendance: Enforces requiredSequence (default lecture → clinical) per clinical session
    - time_window_validation: Ensures clinical within hours after lecture
 4. Violations logged to ComplianceLog
 5. Notifications sent based on rule configuration
@@ -375,6 +377,9 @@ The system is designed to handle network problems gracefully:
 - All endpoints require authentication via JWT
 - Role-based access control enforced
 - Students can only access their own data
+- Parents can only access records of their own linked children
+- Teachers can only access students in classes they teach
+- Unit consultants/residents can only access students they supervise
 - Teachers can only access their classes' data
 - Admins have full access
 - GPS coordinates stored but can be disabled if privacy concerns
