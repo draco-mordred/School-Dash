@@ -10,6 +10,14 @@ import AcademicClock from "../../models/academicClock";
 import User from "../../models/user";
 import { emitSystemEvent } from "../../events";
 import { createNotificationAndEmitEvent } from "./notificationService";
+import Venue from "../../models/venue";
+import LectureSession from "../../models/lectureSession";
+import Institution from "../../models/institution";
+import {
+  evaluateCheckinProximity,
+  pickTarget,
+  type CheckinTarget,
+} from "../../utils/checkinProximity";
 
 /**
  * KRYSTA-LATIFAH Sync Service
@@ -160,6 +168,126 @@ export const validateProximity = (
 };
 
 /**
+ * PR B — resolve the REAL GPS target for a proximity checkin.
+ * Priority: class default lecture location -> period/session venue ->
+ * clinical fallback (institution campus GPS). Returns null when nothing
+ * is configured (the checkin then stays pending and flags admins).
+ */
+const resolveCheckinTarget = async (
+  checkinData: {
+    classId: mongoose.Types.ObjectId | string;
+    lectureSessionId?: mongoose.Types.ObjectId | string;
+    timetablePeriodId?: mongoose.Types.ObjectId | string;
+    clinicalSessionId?: mongoose.Types.ObjectId | string;
+  },
+): Promise<CheckinTarget | null> => {
+  const candidates: Array<CheckinTarget | null> = [];
+
+  // 1. Class default lecture location (admin "Class Locations" page)
+  try {
+    const cls = await ClassModel.findById(checkinData.classId as any)
+      .populate({ path: "defaultLectureVenue", match: { isActive: { $ne: false } } })
+      .lean<any>();
+    const venue = cls?.defaultLectureVenue;
+    if (venue) {
+      candidates.push({
+        name: venue.name ?? "Class default location",
+        lat: Number(venue.lat),
+        lng: Number(venue.lng),
+        radiusMeters: Number(venue.radiusMeters ?? 150),
+        source: "class_default",
+      });
+    }
+  } catch (err) {
+    console.warn("resolveCheckinTarget: class default lookup failed", err);
+  }
+
+  // 2. Period/session venue (lecture session snapshot or timetable period venue)
+  try {
+    if (checkinData.lectureSessionId) {
+      const session = await LectureSession.findById(
+        checkinData.lectureSessionId as any,
+      ).lean<any>();
+      const snap = session?.venueSnapshot;
+      if (
+        snap &&
+        Number.isFinite(Number(snap?.lat)) &&
+        Number.isFinite(Number(snap?.lng)) &&
+        (Number(snap.lat) !== 0 || Number(snap.lng) !== 0)
+      ) {
+        candidates.push({
+          name: snap.name || "Lecture venue",
+          lat: Number(snap.lat),
+          lng: Number(snap.lng),
+          radiusMeters: Number(snap.radiusMeters ?? 150),
+          source: "period_venue",
+        });
+      } else if (session?.venue) {
+        const venue = await Venue.findById(session.venue).lean<any>();
+        if (venue && venue.isActive !== false) {
+          candidates.push({
+            name: venue.name,
+            lat: Number(venue.lat),
+            lng: Number(venue.lng),
+            radiusMeters: Number(venue.radiusMeters ?? 150),
+            source: "period_venue",
+          });
+        }
+      }
+    } else if (checkinData.timetablePeriodId) {
+      const timetable = await Timetable.findOne({
+        "schedule.periods._id": checkinData.timetablePeriodId as any,
+      }).lean<any>();
+      const period = (timetable?.schedule ?? [])
+        .flatMap((day: any) => day?.periods ?? [])
+        .find((p: any) => String(p?._id) === String(checkinData.timetablePeriodId));
+      const venueId = period?.venue ? String(period.venue) : "";
+      if (/^[a-fA-F0-9]{24}$/.test(venueId)) {
+        const venue = await Venue.findById(venueId).lean<any>();
+        if (venue && venue.isActive !== false) {
+          candidates.push({
+            name: venue.name,
+            lat: Number(venue.lat),
+            lng: Number(venue.lng),
+            radiusMeters: Number(venue.radiusMeters ?? 150),
+            source: "period_venue",
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("resolveCheckinTarget: period venue lookup failed", err);
+  }
+
+  // 3. Clinical session location: clinical sessions only carry a free-text
+  // location (no admin-configured coordinates yet), so clinical checkins
+  // fall back to the institution campus GPS below.
+
+  // 4. Institution campus GPS (JUTH Lamingo seeded via config sync)
+  try {
+    const institution = await Institution.findOne().lean<any>();
+    const campus = institution?.campusLocation;
+    if (
+      campus &&
+      Number.isFinite(Number(campus?.lat)) &&
+      Number.isFinite(Number(campus?.lng))
+    ) {
+      candidates.push({
+        name: "Institution campus",
+        lat: Number(campus.lat),
+        lng: Number(campus.lng),
+        radiusMeters: Number(campus.radiusMeters ?? 1000),
+        source: "institution_campus",
+      });
+    }
+  } catch (err) {
+    console.warn("resolveCheckinTarget: institution campus lookup failed", err);
+  }
+
+  return pickTarget(candidates);
+};
+
+/**
  * Process a proximity checkin
  */
 export const processProximityCheckin = async (
@@ -217,45 +345,86 @@ export const processProximityCheckin = async (
       createdBy: userId ? new mongoose.Types.ObjectId(userId) : student,
     });
     
-    // Validate proximity if GPS data available
-    if (checkinData.gpsCoordinates) {
-      // For now, we'll validate against a known location
-      // In production, this would be the expected location for the session
-      const validation = validateProximity(
-        checkin,
-        { gpsCoordinates: checkinData.gpsCoordinates, locationType: checkinData.locationType }
-      );
-      
-      if (!validation.isValid) {
-        await ProximityCheckin.findByIdAndUpdate(checkin._id, {
-          isWithinRange: false,
-          distanceFromTarget: validation.distance,
-          status: "rejected",
-        });
-        
+    // PR B — resolve the REAL target location instead of comparing the
+    // student's GPS against itself (the old code passed the student's own
+    // coordinates as the target, so the distance was always 0 m).
+    // Resolution order: class default lecture location -> period/session
+    // venue -> clinical fallback (institution campus GPS).
+    const target = await resolveCheckinTarget(checkinData);
+    const verdict = evaluateCheckinProximity({
+      studentGps: checkinData.gpsCoordinates as any,
+      target,
+      checkinMethod: String(checkinData.checkinMethod ?? ""),
+    });
+
+    if (verdict.status !== "verified") {
+      const patch: any = {
+        isWithinRange: verdict.isWithinRange,
+        status: verdict.status,
+      };
+      if (verdict.distanceFromTarget !== null) {
+        patch.distanceFromTarget = verdict.distanceFromTarget;
+      }
+      if (verdict.status === "pending") {
+        patch.notes =
+          "No target location configured for this checkin — admin review required";
+      }
+      await ProximityCheckin.findByIdAndUpdate(checkin._id, patch);
+
+      if (verdict.status === "pending") {
+        // Flag admins: checkins cannot be verified without a configured target.
+        try {
+          const admins = await User.find({ role: "admin" }).select("_id").lean();
+          for (const admin of admins) {
+            await createNotificationAndEmitEvent({
+              userId: admin._id,
+              role: "admin",
+              title: "Proximity checkin needs review",
+              message:
+                "A proximity checkin could not be verified because no target location is configured. Set default class locations under Settings → Class Locations.",
+              type: "attendance",
+              link: "/settings/class-locations",
+            });
+          }
+        } catch (err) {
+          console.warn("Failed to flag admins for target-less checkin", err);
+        }
+      }
+
+      if (verdict.status === "rejected") {
         emitSystemEvent("krysta-latifah.checkin.rejected", {
           checkinId: checkin._id.toString(),
           student: student.toString(),
           reason: "Out of range",
-          distance: validation.distance,
+          distance: verdict.distanceFromTarget,
         });
-        
+
         return {
           success: false,
           checkin,
           message: "Checkin rejected - out of range",
-          distance: validation.distance,
+          distance: verdict.distanceFromTarget,
         };
       }
+
+      return {
+        success: false,
+        checkin,
+        message:
+          verdict.status === "unverified"
+            ? "Checkin recorded as unverified - no student GPS"
+            : "Checkin pending - no target location configured",
+      };
     }
-    
-    // Verify the checkin
+
+    // Verified: store the REAL distance and mark verified.
     await ProximityCheckin.findByIdAndUpdate(checkin._id, {
       status: "verified",
+      isWithinRange: true,
+      distanceFromTarget: verdict.distanceFromTarget,
       verifiedAt: new Date(),
     });
-    
-    // Update attendance based on checkin
+        // Update attendance based on checkin
     await updateAttendancesFromCheckin({
       checkinId: checkin._id,
       student,

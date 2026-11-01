@@ -63,6 +63,7 @@ import ClassCourseMaterialsPage from "@/pages/lms/ClassCourseMaterialsPage";
 import ClassOverviewPage from "@/pages/lms/ClassOverviewPage";
 import Account from "@/pages/settings/Account";
 import VenuesPage from "@/pages/settings/Venues";
+import ClassLocationsPage from "@/pages/settings/ClassLocations";
 import Notifications from "@/pages/Notifications";
 import InstitutionSetupPage from "@/pages/setup/InstitutionSetupPage";
 import SchoolProfile from "@/pages/SchoolProfile";
@@ -375,6 +376,10 @@ export const router = createBrowserRouter([
           {
             path: "settings/venues",
             element: <VenuesPage />,
+          },
+          {
+            path: "settings/class-locations",
+            element: <ClassLocationsPage />,
           },
           {
             path: "lms/assignments",

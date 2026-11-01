@@ -63,8 +63,10 @@ import clinicalAttendanceRouter from "./routes/clinicalAttendance"; // import cl
 import activityNotificationRouter from "./routes/activityNotification"; // import activity notification routes
 import proximityCheckinRouter from "./routes/proximityCheckin"; // import proximity checkin routes
 import complianceRouter from "./routes/compliance"; // import compliance routes
+import classLocationsRouter from "./routes/classLocations"; // PR B — class default locations routes
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
+import { syncJuthInstitutionConfig } from "./config/juthInstitution";
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
@@ -330,6 +332,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/mordred`, mordredAIRouter);
   app.use(`${prefix}/proximity`, proximityCheckinRouter);
   app.use(`${prefix}/compliance`, complianceRouter);
+  app.use(`${prefix}/class-locations`, classLocationsRouter);
 };
 
 for (const prefix of routePrefixes) {
@@ -377,6 +380,9 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 if (!isVercelRuntime) {
   connectDB().then(async () => {
     await backfillMissingInns();
+    await syncJuthInstitutionConfig().catch((err: unknown) =>
+      console.warn("JUTH config sync skipped:", err),
+    );
     app.listen(PORT, () => {
       console.log(`Server is running on http://localhost:${PORT}`);
     });
@@ -416,6 +422,9 @@ if (!isVercelRuntime) {
 } else {
   connectDB().then(async () => {
       await backfillMissingInns();
+      await syncJuthInstitutionConfig().catch((err: unknown) =>
+        console.warn("JUTH config sync skipped:", err),
+      );
   }).catch((error) => {
       console.error("Failed to connect to the database on Vercel startup:", error);
   });

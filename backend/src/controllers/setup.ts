@@ -108,7 +108,7 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
     console.info("Request /api/setup/status: received (cache miss)");
 
     const institution = await Institution.findOne()
-      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings assessmentSettings')
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings attendanceSettings assessmentSettings campusLocation')
       .lean()
       .exec()
       .then((value) => value as any);
@@ -211,6 +211,7 @@ export const getSetupStatus = async (_req: Request, res: Response) => {
             timezone: institution.timezone,
             logoUrl: institution.logoUrl || "",
             backgroundImageUrl: (institution as any).backgroundImageUrl || "",
+            campusLocation: (institution as any).campusLocation ?? null,
             brandingSettings,
             attendanceSettings,
             assessmentSettings,
@@ -281,6 +282,36 @@ export const updateSetup = async (req: Request, res: Response) => {
       }
     }
 
+    // PR B: campus GPS (JUTH Lamingo seed / admin-editable institution profile)
+    const campusLocationInput = (institutionProfile as Record<string, unknown>)
+      .campusLocation as
+      | { lat?: unknown; lng?: unknown; radiusMeters?: unknown }
+      | null
+      | undefined;
+    if (campusLocationInput && typeof campusLocationInput === "object") {
+      const campusLat = Number((campusLocationInput as any).lat);
+      const campusLng = Number((campusLocationInput as any).lng);
+      const campusRadius = Number(
+        (campusLocationInput as any).radiusMeters ?? 1000,
+      );
+      if (
+        Number.isFinite(campusLat) &&
+        campusLat >= -90 &&
+        campusLat <= 90 &&
+        Number.isFinite(campusLng) &&
+        campusLng >= -180 &&
+        campusLng <= 180
+      ) {
+        (institutionUpdates as any).campusLocation = {
+          lat: campusLat,
+          lng: campusLng,
+          radiusMeters:
+            Number.isFinite(campusRadius) && campusRadius > 0
+              ? campusRadius
+              : 1000,
+        };
+      }
+    }
     let brandingData: { primaryColor?: string; accentColor?: string } | null = null;
     if (brandingSettings && typeof brandingSettings === "object") {
       const brandingUpdate: Record<string, string> = {};
@@ -318,7 +349,7 @@ export const updateSetup = async (req: Request, res: Response) => {
     lastCacheTime = 0;
 
     const updatedInstitution = await Institution.findById(existingInstitution._id)
-      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings')
+      .select('name shortName type country state city addressLine1 addressLine2 contactEmail phone website description academicCalendarType timezone logoUrl backgroundImageUrl brandingSettings campusLocation')
       .lean()
       .exec();
 
@@ -352,6 +383,7 @@ export const updateSetup = async (req: Request, res: Response) => {
         timezone: updatedInstitution.timezone,
         logoUrl: updatedInstitution.logoUrl || "",
         backgroundImageUrl: updatedInstitution.backgroundImageUrl || "",
+        campusLocation: (updatedInstitution as any).campusLocation ?? null,
         brandingSettings: brandingData
           ? {
               primaryColor: brandingData.primaryColor || "#2563eb",

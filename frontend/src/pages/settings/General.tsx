@@ -8,7 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Pencil, Plus, Trash, Upload, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Pencil,
+  Plus,
+  Trash,
+  Upload,
+  ChevronDown,
+  ChevronUp,
+  LocateFixed,
+} from "lucide-react";
 import CustomAlert from "@/components/global/CustomAlert";
 import Search from "@/components/global/Search";
 import type { department } from "@/types";
@@ -52,6 +60,10 @@ type InstitutionProfile = {
   timezone: string;
   logoUrl: string;
   backgroundImageUrl: string;
+  // PR B: campus GPS (JUTH Lamingo seed / admin-editable)
+  campusLat: string;
+  campusLng: string;
+  campusRadiusMeters: string;
 };
 
 const normalizeUnitName = (unitEntry: DepartmentUnitMeta | string) =>
@@ -312,6 +324,9 @@ const SchoolSettings = () => {
     timezone: "",
     logoUrl: "",
     backgroundImageUrl: "",
+    campusLat: "",
+    campusLng: "",
+    campusRadiusMeters: "1000",
   });
   const [institutionLoading, setInstitutionLoading] = useState(false);
   const [institutionSaving, setInstitutionSaving] = useState(false);
@@ -341,6 +356,18 @@ const SchoolSettings = () => {
           timezone: institution.timezone || "",
           logoUrl: institution.logoUrl || "",
           backgroundImageUrl: institution.backgroundImageUrl || "",
+          campusLat:
+            (institution as any).campusLocation?.lat != null
+              ? String((institution as any).campusLocation.lat)
+              : "",
+          campusLng:
+            (institution as any).campusLocation?.lng != null
+              ? String((institution as any).campusLocation.lng)
+              : "",
+          campusRadiusMeters:
+            (institution as any).campusLocation?.radiusMeters != null
+              ? String((institution as any).campusLocation.radiusMeters)
+              : "1000",
         });
       }
     } catch (error) {
@@ -390,6 +417,28 @@ const SchoolSettings = () => {
       const payload = {
         institutionProfile: {
           ...institutionProfile,
+          campusLocation: (() => {
+            const lat = Number(institutionProfile.campusLat);
+            const lng = Number(institutionProfile.campusLng);
+            const radius = Number(institutionProfile.campusRadiusMeters || "1000");
+            if (
+              institutionProfile.campusLat.trim() === "" ||
+              institutionProfile.campusLng.trim() === "" ||
+              !Number.isFinite(lat) ||
+              lat < -90 ||
+              lat > 90 ||
+              !Number.isFinite(lng) ||
+              lng < -180 ||
+              lng > 180
+            ) {
+              return null;
+            }
+            return {
+              lat,
+              lng,
+              radiusMeters: Number.isFinite(radius) && radius > 0 ? radius : 1000,
+            };
+          })(),
         },
       };
       const response = await api.patch("/setup", payload);
@@ -413,6 +462,18 @@ const SchoolSettings = () => {
           timezone: updated.timezone || prev.timezone,
           logoUrl: updated.logoUrl || prev.logoUrl,
           backgroundImageUrl: updated.backgroundImageUrl || prev.backgroundImageUrl,
+          campusLat:
+            (updated as any).campusLocation?.lat != null
+              ? String((updated as any).campusLocation.lat)
+              : prev.campusLat,
+          campusLng:
+            (updated as any).campusLocation?.lng != null
+              ? String((updated as any).campusLocation.lng)
+              : prev.campusLng,
+          campusRadiusMeters:
+            (updated as any).campusLocation?.radiusMeters != null
+              ? String((updated as any).campusLocation.radiusMeters)
+              : prev.campusRadiusMeters,
         }));
       }
       toast.success("Institution settings saved.");
@@ -814,6 +875,62 @@ const SchoolSettings = () => {
                     placeholder="Semester"
                     disabled={institutionLoading}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-campus-lat" className="text-slate-200">Campus Latitude</Label>
+                  <Input
+                    id="institution-campus-lat"
+                    value={institutionProfile.campusLat}
+                    onChange={(event) => updateInstitutionField("campusLat", event.target.value)}
+                    placeholder="e.g. 9.87589"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-campus-lng" className="text-slate-200">Campus Longitude</Label>
+                  <Input
+                    id="institution-campus-lng"
+                    value={institutionProfile.campusLng}
+                    onChange={(event) => updateInstitutionField("campusLng", event.target.value)}
+                    placeholder="e.g. 8.8834"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution-campus-radius" className="text-slate-200">Campus Radius (meters)</Label>
+                  <Input
+                    id="institution-campus-radius"
+                    value={institutionProfile.campusRadiusMeters}
+                    onChange={(event) => updateInstitutionField("campusRadiusMeters", event.target.value)}
+                    placeholder="1000"
+                    disabled={institutionLoading}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full border-white/20 bg-slate-950/40 text-slate-100 hover:bg-slate-950/60"
+                    disabled={institutionSaving}
+                    onClick={() => {
+                      if (!navigator.geolocation) {
+                        toast.error("Geolocation is not supported on this device.");
+                        return;
+                      }
+                      navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                          updateInstitutionField("campusLat", String(position.coords.latitude));
+                          updateInstitutionField("campusLng", String(position.coords.longitude));
+                          toast.success("Campus GPS calibrated from this device.");
+                        },
+                        () => toast.error("Could not read device GPS. Check location permissions."),
+                        { enableHighAccuracy: true, timeout: 15000 },
+                      );
+                    }}
+                  >
+                    <LocateFixed className="mr-2 h-4 w-4" />
+                    Calibrate campus GPS here
+                  </Button>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
