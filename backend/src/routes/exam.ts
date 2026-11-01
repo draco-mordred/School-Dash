@@ -2,6 +2,7 @@ import express from "express";
 
 import {
   triggerExamGeneration,
+  regradeExamSubmissions,
   getExams,
   submitExam,
   getExamById,
@@ -26,6 +27,14 @@ examRouter.post(
   protect,
   authorize(["admin", "student"]),
   submitExam
+);
+
+// Admin-only: regrade all submissions for an exam (re-scores with corrected answer key)
+examRouter.post(
+  "/:id/regrade",
+  protect,
+  authorize(["admin"]),
+  regradeExamSubmissions
 );
 
 examRouter.patch(
