@@ -235,7 +235,7 @@ export default function StudentPortal() {
               title: exam.title ?? "Assessment",
               dueDate: exam.dueDate,
               duration: exam.duration,
-              subject: exam.subject ?? null,
+              subject: exam.course ?? exam.subject ?? null,
               status: hasScore ? "result" : isSubmitted ? "submitted" : "upcoming",
               score: hasScore ? submission.score : null,
               submittedAt: submission?.submittedAt ?? null,
