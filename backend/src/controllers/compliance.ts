@@ -6,8 +6,8 @@ import User from "../models/user";
 import ClassModel from "../models/classes";
 import { 
   validateCompliance, 
-  getUnifiedAttendanceReport, 
-  getClassComplianceSummary 
+  getUnifiedAttendanceReport as syncGetUnifiedAttendanceReport, 
+  getClassComplianceSummary as syncGetClassComplianceSummary 
 } from "../subs/tinasha/krystaLatifahSync";
 import { emitSystemEvent } from "../events";
 import { logActivity } from "../utils/activitieslog";
@@ -464,7 +464,7 @@ export const getClassComplianceSummary = async (req: Request, res: Response) => 
       }
     }
     
-    const result = await getClassComplianceSummary(
+    const result = await syncGetClassComplianceSummary(
       new mongoose.Types.ObjectId(classId),
       academicYear ? new mongoose.Types.ObjectId(String(academicYear)) : user.academicYear?._id,
       startDate ? new Date(String(startDate)) : undefined,
@@ -514,7 +514,7 @@ export const getUnifiedAttendanceReport = async (req: Request, res: Response) =>
       });
     }
     
-    const result = await getUnifiedAttendanceReport(
+    const result = await syncGetUnifiedAttendanceReport(
       new mongoose.Types.ObjectId(targetStudent),
       new mongoose.Types.ObjectId(targetClass),
       new mongoose.Types.ObjectId(targetYear),

@@ -5,6 +5,7 @@ import { inngest } from "../inngest"
 import Exam from "../models/exam";
 import CourseModel from "../models/courses";
 import Submission from "../models/submission";
+import { scoreSubmission } from "../utils/examScoring";
 
 // @desc    Trigger AI Exam Generation
 // @route   POST /api/exams/generate
@@ -193,6 +194,9 @@ export const getExamById = async (
     // The "+" syntax forces selection of fields marked as { select: false } in SChema
     if (user.role === "teacher" || user.role === "admin") {
       query = query.select("+questions.correctAnswer");
+    } else {
+      // Explicitly hide correct answers from non-teacher/admin roles (defense in depth)
+      query = query.select("-questions.correctAnswer");
     }
 
     //3. Execute Query
@@ -310,22 +314,14 @@ try {
     return res.status(400).json({ message: `You have already submitted this exam!` });
   }
   //2. Fetch full exam with answers.
-  const exam = await Exam.findById(examId).select("+questions.correctAnswers");
+  const exam = await Exam.findById(examId).select("+questions.correctAnswer");
   if (!exam) return res.status(404).json({ message: `Exam not found!`});
   
-  //3. Claculate Score
-  let score = 0;
-  let totalPoints = 0;
-
-  exam.questions.forEach((question) => {
-    totalPoints += question.points;
-    const studentAns = answers.find(
-      (a: any) => a.questionId === question._id.toString()
-    );
-    if (studentAns && studentAns.answer === question.correctAnswer) {
-      score += question.points;
-    }
-  });
+  //3. Calculate Score
+  const { score, totalPoints } = scoreSubmission(
+    exam as any,
+    Array.isArray(answers) ? answers : []
+  );
   // 4. Save Submission
   const examObjectId = new mongoose.Types.ObjectId(examId);
   const studentObjectId = new mongoose.Types.ObjectId(studentId);
@@ -370,7 +366,7 @@ export const getExamResult = async (
       student: studentId,
     }).populate({
       path: 'exam',
-      select: "title questions._id questions.correctAnswers", // FORCE SELECT CORRECT ANSWERS
+      select: "title questions._id questions.correctAnswer", // FORCE SELECT CORRECT ANSWERS
     });
 
     if (!submission){
@@ -380,7 +376,53 @@ export const getExamResult = async (
     res.json(submission);
   } catch (error: any) {
     res.status(500).json({
-      messgae: `${error.message}`
+      message: `${error.message}`
     })
   }
 }
+
+// @desc    Regrade all submissions for an exam (fixes historically misgraded scores)
+// @route   POST /api/exams/:id/regrade
+// @access  Private (Admin only)
+export const regradeExamSubmissions = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const user = (req as any).user;
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ message: "Only administrators can regrade exams" });
+    }
+
+    const examId = req.params.id;
+    const exam = await Exam.findById(examId).select("+questions.correctAnswer");
+    if (!exam) {
+      return res.status(404).json({ message: "Exam not found!" });
+    }
+
+    const submissions = await Submission.find({ exam: examId });
+    let updated = 0;
+    for (const submission of submissions) {
+      const { score } = scoreSubmission(exam as any, (submission as any).answers ?? []);
+      if (score !== (submission as any).score) {
+        (submission as any).score = score;
+        await submission.save();
+        updated++;
+      }
+    }
+
+    await logActivity({
+      userId: user._id,
+      action: `Admin regraded exam ${examId}: ${updated}/${submissions.length} submissions updated`,
+    });
+
+    return res.status(200).json({
+      message: "Regrade complete",
+      examId,
+      submissions: submissions.length,
+      updated,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
