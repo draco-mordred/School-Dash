@@ -241,16 +241,24 @@ const ProximityCheckinSchema = new Schema<IProximityCheckin>(
 
 // Compound indexes for common queries
 ProximityCheckinSchema.index({ student: 1, checkinTime: -1 });
-ProximityCheckinSchema.index({ classId: 1, date: -1 });
+ProximityCheckinSchema.index({ classId: 1, checkinTime: -1 }); // PR C — "date" field never existed on this model
 ProximityCheckinSchema.index({ locationType: 1, checkinTime: -1 });
 ProximityCheckinSchema.index({ syncStatus: 1, lastSyncAttempt: 1 });
 ProximityCheckinSchema.index({ lectureSessionId: 1 });
 ProximityCheckinSchema.index({ clinicalSessionId: 1 });
 
-// TTL index for automatic cleanup of old pending checkins (after 7 days)
+// PR C — TTL applies ONLY to unprocessed offline-sync rows (syncStatus
+// "pending"); verified/rejected/failed rows are the audit trail and are
+// kept forever. The previous unfiltered TTL index deleted ALL checkins
+// after 7 days. NOTE: the old index (checkinTime_1) must be dropped once
+// after this deploy so mongoose recreates it with the partial filter:
+//   use medlog  ->  db.proximitycheckins.dropIndex("checkinTime_1")
 ProximityCheckinSchema.index(
   { checkinTime: 1 },
-  { expireAfterSeconds: 7 * 24 * 60 * 60 }
+  {
+    expireAfterSeconds: 7 * 24 * 60 * 60,
+    partialFilterExpression: { syncStatus: "pending" },
+  }
 );
 
 export default mongoose.model<IProximityCheckin>(

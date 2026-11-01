@@ -57,6 +57,35 @@ export const pickTarget = (
       Number(c.radiusMeters) > 0,
   ) ?? null;
 
+export interface CheckinDedupeInput {
+  student: unknown;
+  lectureSessionId?: unknown;
+  clinicalSessionId?: unknown;
+  timetablePeriodId?: unknown;
+  nowMs?: number;
+}
+
+// PR C — natural key that makes checkin processing idempotent: one checkin
+// per student per session/period. When no session ref exists at all, taps
+// within 60 seconds collapse into a single record.
+export const buildCheckinDedupeQuery = (
+  input: CheckinDedupeInput,
+): Record<string, unknown> => {
+  const { student, lectureSessionId, clinicalSessionId, timetablePeriodId } = input;
+  const query: Record<string, unknown> = { student };
+  if (lectureSessionId) {
+    query.lectureSessionId = lectureSessionId;
+  } else if (clinicalSessionId) {
+    query.clinicalSessionId = clinicalSessionId;
+  } else if (timetablePeriodId) {
+    query.timetablePeriodId = timetablePeriodId;
+  } else {
+    const nowMs = input.nowMs ?? Date.now();
+    query.checkinTime = { $gte: new Date(nowMs - 60 * 1000) };
+  }
+  return query;
+};
+
 export interface CheckinVerdict {
   status: "verified" | "rejected" | "unverified" | "pending";
   isWithinRange: boolean;

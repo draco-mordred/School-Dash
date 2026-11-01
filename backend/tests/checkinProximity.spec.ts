@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildCheckinDedupeQuery,
   evaluateCheckinProximity,
   haversineMeters,
   pickTarget,
@@ -117,5 +118,44 @@ describe("evaluateCheckinProximity", () => {
       checkinMethod: "gps",
     });
     expect(verdict.status).toBe("rejected");
+  });
+});
+
+describe("buildCheckinDedupeQuery (PR C idempotency)", () => {
+  test("lecture session takes precedence over other refs", () => {
+    const q = buildCheckinDedupeQuery({
+      student: "s1",
+      lectureSessionId: "L1",
+      clinicalSessionId: "C1",
+      timetablePeriodId: "P1",
+    });
+    expect(q.lectureSessionId).toBe("L1");
+    expect(q.clinicalSessionId).toBeUndefined();
+    expect(q.timetablePeriodId).toBeUndefined();
+    expect(q.checkinTime).toBeUndefined();
+  });
+
+  test("clinical session used when no lecture session", () => {
+    const q = buildCheckinDedupeQuery({
+      student: "s1",
+      clinicalSessionId: "C1",
+      timetablePeriodId: "P1",
+    });
+    expect(q.clinicalSessionId).toBe("C1");
+    expect(q.timetablePeriodId).toBeUndefined();
+  });
+
+  test("timetable period used when no sessions", () => {
+    const q = buildCheckinDedupeQuery({
+      student: "s1",
+      timetablePeriodId: "P1",
+    });
+    expect(q.timetablePeriodId).toBe("P1");
+    expect(q.checkinTime).toBeUndefined();
+  });
+
+  test("60-second time-window fallback when no refs at all", () => {
+    const q: any = buildCheckinDedupeQuery({ student: "s1", nowMs: 1000000 });
+    expect(q.checkinTime.$gte.getTime()).toBe(1000000 - 60 * 1000);
   });
 });
