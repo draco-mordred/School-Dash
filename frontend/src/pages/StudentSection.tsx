@@ -11,6 +11,7 @@ import {
   buildMonthViewDays,
   getScheduleForDay,
   getTodayDayLabel,
+  WEEKDAY_NAMES, // PR E1 — week view
   type StudentScheduleViewMode,
 } from "@/lib/studentSchedule";
 import { buildTimelineWindowView } from "@/lib/rotationScheduleViews";
@@ -73,6 +74,7 @@ export default function StudentSection({ title, description }: StudentSectionPro
   const isClinicalTeamView = location.pathname.includes("/student/clinicals/team");
   const isClinicalHistoryView = location.pathname.includes("/student/clinicals/history");
   const isStudentUpcomingView = location.pathname.includes("/student/schedule/upcoming");
+  const isWeekView = location.pathname.includes("/student/schedule/week"); // PR E1 — real week view
   const isClinicalScheduleView = isClinicalCalendarView || isClinicalDailyView;
   const isRotationScheduleView = isClinicalTeamView || isClinicalHistoryView || isStudentUpcomingView || isClinicalCalendarView || isClinicalDailyView;
 
@@ -429,7 +431,7 @@ export default function StudentSection({ title, description }: StudentSectionPro
             <CardTitle>{title}</CardTitle>
             <CardDescription>{description}</CardDescription>
           </div>
-          {!isClinicalScheduleView ? (
+          {!isClinicalScheduleView && !isWeekView ? ( // PR E1 — no day/month toggle on the week page
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant={viewMode === "day" ? "default" : "outline"} onClick={() => setViewMode("day")}>
                 Today
@@ -444,14 +446,16 @@ export default function StudentSection({ title, description }: StudentSectionPro
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/50 px-4 py-3">
             <div>
               <p className="text-sm font-semibold">
-                {isClinicalCalendarView ? `Clinical calendar · ${monthLabel}` : isClinicalDailyView ? `Clinical activities · ${selectedClinicalDate.toLocaleDateString("en", { month: "short", day: "numeric" })}` : viewMode === "day" ? `Today · ${todayLabel}` : `Month view · ${monthLabel}`}
+                {isClinicalCalendarView ? `Clinical calendar · ${monthLabel}` : isClinicalDailyView ? `Clinical activities · ${selectedClinicalDate.toLocaleDateString("en", { month: "short", day: "numeric" })}` : isWeekView ? `Week view` : viewMode === "day" ? `Today · ${todayLabel}` : `Month view · ${monthLabel}`}
               </p>
               <p className="text-sm text-muted-foreground">
                 {isClinicalCalendarView
                   ? "Your approved clinical activities for the selected month."
                   : isClinicalDailyView
                     ? "A focused view of the day’s clinical activities, supervisors, and attendance status."
-                    : viewMode === "day"
+                    : isWeekView
+                      ? "Your lectures and sessions for each day of the current week."
+                      : viewMode === "day"
                       ? "Your lectures and sessions for the current day."
                       : "Lecture days for the selected month with attendance markers."}
               </p>
@@ -597,6 +601,41 @@ export default function StudentSection({ title, description }: StudentSectionPro
                     There are no clinical activities logged for {selectedClinicalDate.toLocaleDateString("en", { month: "short", day: "numeric" })} yet.
                   </div>
                 )}
+              </div>
+            </div>
+          ) : isWeekView ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                <span>{"Week view · week of " + todayLabel}</span>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {WEEKDAY_NAMES.map((dayName) => {
+                  const daySchedule = getScheduleForDay(scheduleData, dayName);
+                  const periods = daySchedule?.periods ?? [];
+                  const isToday = dayName === todayLabel;
+                  return (
+                    <div key={dayName} className={"rounded-2xl border p-4 " + (isToday ? "border-primary/40 bg-primary/5" : "border-border/70 bg-background")}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold">{dayName}</p>
+                        {isToday ? <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold uppercase text-primary">Today</span> : null}
+                      </div>
+                      {periods.length ? (
+                        <div className="mt-3 space-y-2">
+                          {periods.map((period) => (
+                            <div key={period._id} className="rounded-xl border border-border/70 bg-muted/40 p-2">
+                              <p className="text-sm font-medium">{period.subject?.name ?? period.displayLabel ?? "Open period"}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{period.startTime} – {period.endTime}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{getPeriodMetaLine(period)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-xs text-muted-foreground">No lectures scheduled.</p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : viewMode === "day" ? (

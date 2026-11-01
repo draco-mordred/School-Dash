@@ -250,7 +250,7 @@ export const sidebardata = {
         { title: "Postings", url: "/clinical-rotations" },
         { title: "Rotation Schedule", url: "/rotation-schedule" },
         { title: "My Team", url: "/student/clinicals/team" },
-        // { title: "Clinical Attendance", url: "/student/clinicals/attendance" },
+        { title: "Clinical Attendance", url: "/student/clinicals/attendance" }, // PR E1 — route now renders the real page
         { title: "Your Rotations History", url: "/student/clinicals/history" },
 
         { title: "Daily activities", url: "/student/schedule/daily-activities" },
@@ -304,7 +304,7 @@ export const sidebardata = {
       items: [
         { title: "Weekly Timetable", url: "/timetable" },
         { title: "Today", url: "/student/schedule/today" },
-        // { title: "Download", url: "/student/timetable/download" },
+        { title: "Download", url: "/student/timetable/download" }, // PR E1 — ICS/PDF export page
       ],
     },
     {

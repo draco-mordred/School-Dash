@@ -35,6 +35,10 @@ import AttendanceOverview from "@/pages/academics/AttendanceOverview";
 import AcademicCalendar from "@/pages/academics/AcademicCalendar";
 import StudentPortal from "@/pages/StudentPortal";
 import StudentSection from "@/pages/StudentSection";
+// PR E1 — real pages replacing placeholder StudentSection routes
+import StudentAcademicsOverviewPage from "@/pages/StudentAcademicsOverviewPage";
+import StudentUpcomingPage from "@/pages/StudentUpcomingPage";
+import StudentTimetableDownloadPage from "@/pages/StudentTimetableDownloadPage";
 import LogbookEntries from "@/pages/LogbookEntries";
 import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
@@ -217,7 +221,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/academics/overview",
-            element: <StudentSection title="Academics Overview" description="A student-friendly overview of your academic progress and resources." />,
+            element: <StudentAcademicsOverviewPage /> // PR E1 — reuses the portal dashboard cards
           },
           {
             path: "subjects",
@@ -233,7 +237,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/clinicals/attendance",
-            element: <StudentSection title="Clinical Attendance" description="Track your clinical attendance and session status." />,
+            element: <StudentClinicalAttendancePage /> // PR E1 — reuse the real clinical attendance page
           },
           {
             path: "student/clinicals/history",
@@ -269,11 +273,11 @@ export const router = createBrowserRouter([
           },
           {
             path: "student/schedule/upcoming",
-            element: <StudentSection title="Upcoming" description="Track upcoming sessions, rotations, and deadlines." />,
+            element: <StudentUpcomingPage /> // PR E1 — reuses the portal upcoming cards (exams + posting windows + deadlines)
           },
           {
             path: "student/timetable/download",
-            element: <StudentSection title="Download Timetable" description="Download your timetable as a PDF or calendar file." />,
+            element: <StudentTimetableDownloadPage /> // PR E1 — client-side ICS + print-to-PDF export
           },
           {
             path: "student/attendance/academic",
@@ -411,7 +415,7 @@ export const router = createBrowserRouter([
           },
           {
             path: "semesters",
-            element: <StudentSection title="Semesters" description="Manage and view semesters." />,
+            element: <AcademicYear /> // PR E1 — semesters is an admin-only concept; students see academic-year display
           },
           {
             path: "timetable/calendar",
