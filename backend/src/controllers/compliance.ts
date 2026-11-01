@@ -11,6 +11,7 @@ import {
 } from "../subs/tinasha/krystaLatifahSync";
 import { emitSystemEvent } from "../events";
 import { logActivity } from "../utils/activitieslog";
+import { checkComplianceAccess } from "../utils/complianceScope"; // PR D
 
 /**
  * Compliance Controller
@@ -325,23 +326,18 @@ export const triggerComplianceCheck = async (req: Request, res: Response) => {
       });
     }
     
-    // Verify access
-    if (user.role === "student" && user._id.toString() !== targetStudent.toString()) {
+    // PR D — real ownership scoping. Previously only students and
+    // subject-teachers were checked; parent/teacher/unit roles could pass
+    // ANY studentId/classId and read another student's compliance data.
+    const access = await checkComplianceAccess(user, {
+      studentId: targetStudent,
+      classId: targetClass,
+    });
+    if (!access.allowed) {
       return res.status(403).json({
         success: false,
-        message: "You can only check your own compliance",
+        message: access.reason ?? "You do not have access to this student's compliance data",
       });
-    }
-    
-    if (user.role === "teacher" && user.teacherSubject) {
-      // Check if student is in teacher's class
-      const student = await User.findById(targetStudent).select("studentClasses");
-      if (!student?.studentClasses?.some((c) => c.toString() === targetClass.toString())) {
-        return res.status(403).json({
-          success: false,
-          message: "This student is not in your class",
-        });
-      }
     }
     
     const result = await validateCompliance({
@@ -391,6 +387,18 @@ export const getStudentViolations = async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: "Class information is required",
+      });
+    }
+    
+    // PR D — ownership scoping (was: no check at all for any role).
+    const access = await checkComplianceAccess(user, {
+      studentId: targetStudent,
+      classId: targetClass,
+    });
+    if (!access.allowed) {
+      return res.status(403).json({
+        success: false,
+        message: access.reason ?? "You do not have access to this student's compliance data",
       });
     }
     
@@ -453,10 +461,47 @@ export const getClassComplianceSummary = async (req: Request, res: Response) => 
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
     
-    // Verify user has access to this class
-    if (user.role !== "admin" && user.role !== "teacher") {
-      const studentClass = user.studentClasses?.[0]?._id || user.studentClass?._id;
-      if (studentClass !== classId) {
+    // PR D — class-level access scoping. The old check compared a
+    // (possibly populated) ObjectId with the string param — always unequal —
+    // and gave every teacher/unit role full access to every class.
+    // Now: admin = all; teacher = only classes they teach (teacherClasses or
+    // classTeacher); unit consultant/resident = only classes containing at
+    // least one student they supervise; every other role = denied.
+    if (user.role !== "admin") {
+      const cls: any = await ClassModel.findById(classId)
+        .select("students classTeacher")
+        .lean();
+      if (!cls) {
+        return res.status(404).json({
+          success: false,
+          message: "Class not found",
+        });
+      }
+      if (user.role === "teacher") {
+        const teachesClass =
+          (user.teacherClasses ?? []).some(
+            (c: any) => String(c?._id ?? c) === String(classId)
+          ) || String(cls.classTeacher) === String(user._id);
+        if (!teachesClass) {
+          return res.status(403).json({
+            success: false,
+            message: "You do not teach this class",
+          });
+        }
+      } else if (user.role === "unitconsultant" || user.role === "unitresident") {
+        const supervised = (user.supervisorStudents ?? []).map((s: any) =>
+          String(s?._id ?? s)
+        );
+        const overlap = (cls.students ?? []).some((s: any) =>
+          supervised.includes(String(s))
+        );
+        if (!overlap) {
+          return res.status(403).json({
+            success: false,
+            message: "You do not supervise any student in this class",
+          });
+        }
+      } else {
         return res.status(403).json({
           success: false,
           message: "You do not have access to this class",
@@ -506,11 +551,16 @@ export const getUnifiedAttendanceReport = async (req: Request, res: Response) =>
       });
     }
     
-    // Verify access
-    if (user.role === "student" && user._id.toString() !== targetStudent.toString()) {
+    // PR D — ownership scoping (was: only students were checked; parents,
+    // teachers and unit roles could pull ANY student's unified report).
+    const access = await checkComplianceAccess(user, {
+      studentId: targetStudent,
+      classId: targetClass,
+    });
+    if (!access.allowed) {
       return res.status(403).json({
         success: false,
-        message: "You can only view your own attendance report",
+        message: access.reason ?? "You do not have access to this student's report",
       });
     }
     

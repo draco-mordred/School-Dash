@@ -332,6 +332,15 @@ export const processProximityCheckin = async (
     const student = new mongoose.Types.ObjectId(checkinData.student);
     const classId = new mongoose.Types.ObjectId(checkinData.classId);
     const academicYear = new mongoose.Types.ObjectId(checkinData.academicYear);
+
+    // PR D — enforce rules with actions.blockClinicalAttendance: a student
+    // with an open blocked violation cannot record clinical attendance.
+    if (checkinData.clinicalSessionId && (await isClinicalCheckinBlocked(student, classId))) {
+      return {
+        success: false,
+        message: "Clinical attendance blocked by an open compliance violation",
+      };
+    }
     
     // PR C — idempotency: never create a duplicate checkin for the same
     // student + session/period. Replays (offline retries, cron re-runs,
@@ -740,37 +749,167 @@ export const validateCompliance = async (
             today
           )));
           break;
+
+        // PR D — the two rule types below previously fell through the switch
+        // silently: admins could configure them but they were never checked.
+        case "clinical_attendance_required":
+          violations.push(...(await checkClinicalAttendanceRequired(
+            student,
+            classId,
+            academicYear,
+            rule,
+            today
+          )));
+          break;
+
+        case "sequential_attendance":
+          violations.push(...(await checkSequentialAttendance(
+            student,
+            classId,
+            academicYear,
+            rule,
+            today
+          )));
+          break;
       }
     }
     
-    // Log violations
+    // PR D — log violations idempotently and enforce the rule's actions.
+    // Fixes found in audit:
+    // (1) The old gate read a nonexistent notification flag on the rule
+    //     (rules use actions.notifyStudent), so configured student
+    //     notifications could never fire.
+    // (2) complianceRuleId is a required field on ComplianceLog but was
+    //     never populated, so ComplianceLog.create() always failed
+    //     validation — NO violation was ever actually logged.
+    // (3) Without a dedupe key, every checkin/compliance run re-logged
+    //     the same violation (one row per run per student).
     for (const violation of violations) {
-      await ComplianceLog.create({
-        ...violation,
-        academicYear,
-        classId,
+      const actions: any = violation.actions ?? {};
+
+      // Duplicate guard: one open log per (student, class, rule, type, day).
+      const alreadyLogged = await ComplianceLog.findOne({
         student,
+        classId,
+        ruleName: violation.ruleName,
+        logType: violation.logType,
+        status: "open",
+        createdAt: { $gte: today },
+      }).select("_id");
+      if (alreadyLogged) {
+        continue;
+      }
+
+      const actionsTaken: any = {
+        studentNotified: false,
+        supervisorNotified: false,
+        adminNotified: false,
+        clinicalBlocked: !!actions.blockClinicalAttendance,
+        autoMarkedAbsent: false,
+      };
+
+      // Notifications only for error/critical severities (anti-spam).
+      if (violation.severity === "critical" || violation.severity === "error") {
+        if (actions.notifyStudent) {
+          try {
+            await createNotificationAndEmitEvent({
+              userId: student,
+              role: "student",
+              title: `Attendance Compliance Alert: ${violation.title}`,
+              message: violation.message,
+              type: "attendance",
+              link: "/attendance",
+            });
+            actionsTaken.studentNotified = true;
+          } catch (err) {
+            console.warn("compliance student notification failed", err);
+          }
+        }
+
+        if (actions.notifySupervisor) {
+          try {
+            const cls = await ClassModel.findById(classId).select("classTeacher");
+            if (cls?.classTeacher) {
+              await createNotificationAndEmitEvent({
+                userId: cls.classTeacher,
+                role: "teacher",
+                title: `Compliance alert: ${violation.title}`,
+                message: violation.message,
+                type: "attendance",
+                link: "/attendance",
+              });
+              actionsTaken.supervisorNotified = true;
+            }
+          } catch (err) {
+            console.warn("compliance supervisor notification failed", err);
+          }
+        }
+
+        // Admin copy ONLY when the rule explicitly opts in via
+        // actions.notifyAdmin (opt-in per rule, not a blanket copy —
+        // blanket copies flooded the admin notification feed).
+        if (actions.notifyAdmin) {
+          try {
+            const admins = await User.find({ role: "admin" }).select("_id").lean();
+            for (const admin of admins) {
+              await createNotificationAndEmitEvent({
+                userId: admin._id,
+                role: "admin",
+                title: `Compliance alert: ${violation.title}`,
+                message: violation.message,
+                type: "attendance",
+                link: "/attendance",
+              });
+            }
+            actionsTaken.adminNotified = admins.length > 0;
+          } catch (err) {
+            console.warn("compliance admin notification failed", err);
+          }
+        }
+
+        // PR D — enforce autoMarkAbsent against the referenced clinical
+        // session (student not already present/late -> attendee absent).
+        if (actions.autoMarkAbsent && violation.details?.clinicalSessionId) {
+          try {
+            const clinicalSession = await ClinicalAttendance.findById(
+              violation.details.clinicalSessionId
+            );
+            const attendee = (clinicalSession?.attendees ?? []).find(
+              (a: any) => String(a.student) === student.toString()
+            ) as any;
+            if (
+              clinicalSession &&
+              attendee &&
+              !["present", "late"].includes(String(attendee.status))
+            ) {
+              attendee.status = "absent";
+              await clinicalSession.save();
+              actionsTaken.autoMarkedAbsent = true;
+            }
+          } catch (err) {
+            console.warn("compliance autoMarkAbsent failed", err);
+          }
+        }
+      }
+
+      // actions.requireApproval stays informational: the violation remains
+      // "open" until a staff member resolves or waives it.
+      await ComplianceLog.create({
+        student,
+        classId,
+        academicYear,
+        complianceRuleId: violation.complianceRuleId,
+        logType: violation.logType,
+        ruleName: violation.ruleName,
+        severity: violation.severity,
+        title: violation.title,
+        message: violation.message,
+        details: violation.details ?? {},
+        lectureTime: violation.lectureTime ?? null,
+        clinicalTime: violation.clinicalTime ?? null,
+        actionsTaken,
         createdBy: new mongoose.Types.ObjectId(data.student),
       });
-      
-      // Notify if configured
-      if (violation.severity === "critical" || violation.severity === "error") {
-        // Notify student
-        if (violation.actions?.studentNotified) {
-          await createNotificationAndEmitEvent({
-            userId: student,
-            role: "student",
-            title: `Attendance Compliance Alert: ${violation.title}`,
-            message: violation.message,
-            type: "attendance",
-            link: "/attendance",
-          });
-        }
-        
-        // Admin copy removed: student compliance violations are recorded in
-        // ComplianceLog (monitorable via reports) — copying every violation
-        // to all admins flooded the admin notification feed.
-      }
     }
     
     emitSystemEvent("krysta-latifah.compliance.checked", {
@@ -842,6 +981,7 @@ const checkLectureBeforeClinical = async (
       // No lecture attended before clinical
       violations.push({
         logType: "lecture_before_clinical_violation",
+        complianceRuleId: rule._id, // PR D — required field, was never set (create() always failed validation)
         ruleName: rule.name,
         severity: rule.severity,
         title: `No lecture attendance before clinical session`,
@@ -906,6 +1046,7 @@ const checkMinimumAttendance = async (
   if (percentage < minPercentage || attendedLectures < minCount) {
     violations.push({
       logType: "minimum_attendance_violation",
+      complianceRuleId: rule._id, // PR D — required field, was never set (create() always failed validation)
       ruleName: rule.name,
       severity: rule.severity,
       title: `Minimum lecture attendance not met`,
@@ -972,6 +1113,7 @@ const checkTimeWindow = async (
       if (hoursDiff > maxHours) {
         violations.push({
           logType: "time_window_violation",
+          complianceRuleId: rule._id, // PR D — required field, was never set (create() always failed validation)
           ruleName: rule.name,
           severity: rule.severity,
           title: `Clinical session too far from last lecture`,
@@ -992,6 +1134,164 @@ const checkTimeWindow = async (
   }
   
   return violations;
+};
+
+/**
+ * PR D — previously-unhandled rule type: clinical_attendance_required.
+ * For every clinical session today that the student was expected to
+ * attend and that has already started, flag a violation when no
+ * present/late attendee record exists for them.
+ */
+const checkClinicalAttendanceRequired = async (
+  student: mongoose.Types.ObjectId,
+  classId: mongoose.Types.ObjectId,
+  academicYear: mongoose.Types.ObjectId,
+  rule: any,
+  today: Date
+): Promise<any[]> => {
+  const violations: any[] = [];
+  const now = new Date();
+
+  const clinicalSessions = await ClinicalAttendance.find({
+    classId,
+    academicYear,
+    date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+  });
+
+  const studentClinicalSessions = clinicalSessions.filter((session) =>
+    session.expectedStudents?.some((s) => s.toString() === student.toString())
+  );
+
+  for (const clinicalSession of studentClinicalSessions) {
+    const clinicalStart = new Date(clinicalSession.startTime);
+    if (clinicalStart > now) {
+      continue; // session has not started yet — attendance cannot be judged
+    }
+    const attendee = (clinicalSession.attendees ?? []).find(
+      (a: any) => String(a.student) === student.toString()
+    ) as any;
+    const attended =
+      attendee && ["present", "late"].includes(String(attendee.status));
+    if (!attended) {
+      violations.push({
+        logType: "clinical_attendance_violation",
+        complianceRuleId: rule._id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        title: `Clinical attendance required`,
+        message: `Student has no recorded attendance for clinical session (${clinicalSession.title})`,
+        details: {
+          clinicalSessionId: clinicalSession._id,
+          clinicalStartTime: clinicalSession.startTime,
+          attendeeStatus: attendee ? String(attendee.status) : "none",
+        },
+        clinicalTime: clinicalStart,
+        actions: rule.actions,
+      });
+    }
+  }
+
+  return violations;
+};
+
+/**
+ * PR D — previously-unhandled rule type: sequential_attendance. Honors
+ * conditions.requiredSequence (default ["lecture", "clinical"]): for each
+ * clinical session today the student must have a lecture attendance
+ * record dated before the clinical session started.
+ */
+const checkSequentialAttendance = async (
+  student: mongoose.Types.ObjectId,
+  classId: mongoose.Types.ObjectId,
+  academicYear: mongoose.Types.ObjectId,
+  rule: any,
+  today: Date
+): Promise<any[]> => {
+  const violations: any[] = [];
+  const now = new Date();
+
+  const sequence: string[] =
+    Array.isArray(rule.conditions.requiredSequence) &&
+    rule.conditions.requiredSequence.length > 0
+      ? rule.conditions.requiredSequence
+      : ["lecture", "clinical"];
+
+  if (
+    !sequence.includes("lecture") ||
+    !sequence.includes("clinical") ||
+    sequence.indexOf("lecture") > sequence.indexOf("clinical")
+  ) {
+    console.warn(
+      `Skipping sequential rule ${rule.name}: unsupported requiredSequence`,
+      sequence
+    );
+    return violations;
+  }
+
+  const lectures = await Attendance.find({
+    student,
+    class: classId,
+    academicYear,
+    date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+  }).sort({ date: 1 });
+
+  const clinicalSessions = await ClinicalAttendance.find({
+    classId,
+    academicYear,
+    date: { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
+  }).sort({ startTime: 1 });
+
+  const studentClinicalSessions = clinicalSessions.filter((session) =>
+    session.expectedStudents?.some((s) => s.toString() === student.toString())
+  );
+
+  for (const clinicalSession of studentClinicalSessions) {
+    const clinicalStart = new Date(clinicalSession.startTime);
+    if (clinicalStart > now) {
+      continue; // session has not started yet
+    }
+    const hasLectureBefore = lectures.some(
+      (lecture) => new Date(lecture.date) <= clinicalStart
+    );
+    if (!hasLectureBefore) {
+      violations.push({
+        logType: "sequential_attendance_violation",
+        complianceRuleId: rule._id,
+        ruleName: rule.name,
+        severity: rule.severity,
+        title: `Required attendance sequence not followed`,
+        message: `Student attended clinical session (${clinicalSession.title}) without a prior lecture attendance record (required sequence: ${sequence.join(" → ")})`,
+        details: {
+          clinicalSessionId: clinicalSession._id,
+          clinicalStartTime: clinicalSession.startTime,
+          lecturesToday: lectures.length,
+          requiredSequence: sequence,
+        },
+        clinicalTime: clinicalStart,
+        actions: rule.actions,
+      });
+    }
+  }
+
+  return violations;
+};
+
+/**
+ * PR D — enforcement helper for rule action blockClinicalAttendance:
+ * a student with an open blocked violation cannot record clinical
+ * attendance (checked in processProximityCheckin).
+ */
+export const isClinicalCheckinBlocked = async (
+  student: mongoose.Types.ObjectId,
+  classId: mongoose.Types.ObjectId,
+): Promise<boolean> => {
+  const blocked = await ComplianceLog.countDocuments({
+    student,
+    classId,
+    status: "open",
+    "actionsTaken.clinicalBlocked": true,
+  });
+  return blocked > 0;
 };
 
 /**
@@ -1258,5 +1558,6 @@ export default {
   validateProximity,
   addToOfflineQueue,
   reprocessPendingCheckin,
+  isClinicalCheckinBlocked,
   SYNC_CONFIG,
 };
