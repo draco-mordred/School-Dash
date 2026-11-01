@@ -67,6 +67,7 @@ import classLocationsRouter from "./routes/classLocations"; // PR B — class de
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
+import { ensureProximityTtlIndexCurrent } from "./utils/migrations"; // PR D-followup — one-time stale TTL index migration
 
 //Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
@@ -380,6 +381,7 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 if (!isVercelRuntime) {
   connectDB().then(async () => {
     await backfillMissingInns();
+    await ensureProximityTtlIndexCurrent(); // PR D-followup — drops stale pre-PR-C TTL index if present
     await syncJuthInstitutionConfig().catch((err: unknown) =>
       console.warn("JUTH config sync skipped:", err),
     );
@@ -422,6 +424,7 @@ if (!isVercelRuntime) {
 } else {
   connectDB().then(async () => {
       await backfillMissingInns();
+      await ensureProximityTtlIndexCurrent(); // PR D-followup — drops stale pre-PR-C TTL index if present
       await syncJuthInstitutionConfig().catch((err: unknown) =>
         console.warn("JUTH config sync skipped:", err),
       );
