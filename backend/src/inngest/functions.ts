@@ -367,16 +367,70 @@ export const generateTimeTable = inngest.createFunction(
   }
 )
 
-//Next generate exam
-export const generateExam = inngest.createFunction(
-    { id: "Generate-Exam", 
-    triggers: { 
-      event: "exam/generate"
-    } 
+// Validates AI question output. Throws NonRetriableError (no infinite retries)
+// when the model returns malformed JSON or questions that fail the schema checks.
+function parseAiQuestions(text: string): Array<{
+  questionText: string;
+  type: string;
+  options: string[];
+  correctAnswer: string;
+  points: number;
+}> {
+  const cleanJSON = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleanJSON);
+  } catch (err) {
+    throw new NonRetriableError(
+      "AI returned invalid JSON for exam generation: " + (err as Error).message
+    );
+  }
+  const arr = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.questions)
+      ? parsed.questions
+      : null;
+  if (!arr) {
+    throw new NonRetriableError("AI exam response was not a JSON array of questions");
+  }
+  const valid = arr
+    .filter(
+      (q: any) =>
+        q &&
+        typeof q.questionText === "string" &&
+        Array.isArray(q.options) &&
+        q.options.length >= 2 &&
+        typeof q.correctAnswer === "string" &&
+        q.options.map(String).includes(q.correctAnswer)
+    )
+    .map((q: any) => ({
+      questionText: String(q.questionText),
+      type: "MCQ",
+      options: q.options.map(String),
+      correctAnswer: String(q.correctAnswer),
+      points: Number(q.points) > 0 ? Number(q.points) : 1,
+    }));
+  if (valid.length === 0) {
+    throw new NonRetriableError(
+      "AI returned no valid questions (questionText/options/correctAnswer validation failed)"
+    );
+  }
+  return valid;
+}
+
+//Generate additional questions for an EXISTING exam (appended, exam state preserved)
+export const generateMoreExamQuestions = inngest.createFunction(
+    { id: "Generate-Exam-Questions",
+    triggers: {
+      event: "exam/generate-questions"
+    }
   },
   async ({ event, step }) => {
     const { examId, topic, subjectName, difficulty, count } = event.data;
-    const aiExam = await step.run("generate-exam-logic", async () => {
+    const newQuestions = await step.run("generate-extra-questions-logic", async () => {
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if(!apiKey) {
       throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")
@@ -386,9 +440,9 @@ export const generateExam = inngest.createFunction(
     You are a strict medical Teacher. Create a JSON array of ${count} multiple-choice questions for a Medical School Exam.
 
       CONTEXT:
-    - Subject: ${subjectName}
+    - Subject: ${subjectName ?? "the course"}
     - Topic: ${topic}
-    - Hours: ${difficulty}
+    - Difficulty: ${difficulty}
 
     STRICT JSON SCHEMA (Array of Objects):
     [
@@ -412,12 +466,71 @@ export const generateExam = inngest.createFunction(
       prompt,
       model: activeModel,
     })
-    // Parse Response and Sanitize JSON
-    const cleanJSON = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-    return JSON.parse(cleanJSON);
+    return parseAiQuestions(text);
+    });
+    await step.run("append-exam-questions", async () => {
+      const exam = await Exam.findById(examId);
+      if (!exam) {
+        throw new NonRetriableError(`Exam ${examId} not found!`);
+      }
+      exam.questions.push(...newQuestions);
+      await exam.save();
+      return { success: true, count: newQuestions.length };
+    });
+    return {
+      success: true,
+      message: "Questions generated and appended successfully",
+    };
+  }
+)
+
+//Next generate exam
+export const generateExam = inngest.createFunction(
+    { id: "Generate-Exam", 
+    triggers: { 
+      event: "exam/generate"
+    } 
+  },
+  async ({ event, step }) => {
+    const { examId, topic, subjectName, difficulty, count } = event.data;
+    const aiExam = await step.run("generate-exam-logic", async () => {
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if(!apiKey) {
+      throw new NonRetriableError("GOOGLE_GENERATIVE_AI_API_KEY is missing! (!-_-)")
+    }
+
+    const prompt = `
+    You are a strict medical Teacher. Create a JSON array of ${count} multiple-choice questions for a Medical School Exam.
+
+      CONTEXT:
+    - Subject: ${subjectName}
+    - Topic: ${topic}
+    - Difficulty: ${difficulty}
+
+    STRICT JSON SCHEMA (Array of Objects):
+    [
+      {
+        "questionText": "Question string",
+        "type": "MCQ",
+        "options": [ "Option A", "Option B", "Option C", "Option D", "Option E" ],
+        "correctAnswer": "The exact string of the correct option",
+        "points": 1
+      }
+    ]
+    RULES:
+    1. Output ONLY raw JSON. No Markdown.
+    2. Ensure correct answer matches one of the options exactly.
+      `;
+    const google = createGoogleGenerativeAI({
+      apiKey,
+    });
+    const activeModel = google("gemini-3-flash-preview")
+    const {text} = await generateText({
+      prompt,
+      model: activeModel,
+    })
+    // Parse Response, validate shape, and fail non-retriably on bad AI output
+    return parseAiQuestions(text);
     });
     // Saved Timetable Template
     await step.run("save-exam", async () => {

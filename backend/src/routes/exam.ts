@@ -10,6 +10,8 @@ import {
   toggleExamStatus,
   getExamResult,
   deleteExam,
+  generateExamQuestions,
+  deleteExamQuestion,
 } from "../controllers/exam";
 
 import { protect , authorize } from "../middleware/auth";
@@ -44,6 +46,22 @@ examRouter.post(
   protect,
   authorize(["admin"]),
   regradeExamSubmissions
+);
+
+// Teacher/admin: generate (append) more AI questions for an existing exam
+examRouter.post(
+  "/:id/generate-questions",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  generateExamQuestions
+);
+
+// Teacher/admin: delete a single question from an exam
+examRouter.delete(
+  "/:id/questions/:questionId",
+  protect,
+  authorize(["admin", "teacher", "unitconsultant", "unitresident"]),
+  deleteExamQuestion
 );
 
 examRouter.patch(
