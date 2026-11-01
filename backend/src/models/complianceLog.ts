@@ -6,7 +6,8 @@ export type ComplianceLogType =
   | "minimum_attendance_violation" 
   | "clinical_attendance_violation" 
   | "time_window_violation" 
-  | "proximity_violation";
+  | "proximity_violation"
+  | "sequential_attendance_violation"; // PR D — new log type for sequential_attendance rules
 
 // Resolution status
 export type ResolutionStatus = "open" | "resolved" | "acknowledged" | "escalated" | "waived";
@@ -123,6 +124,7 @@ const ComplianceLogSchema = new Schema<IComplianceLog>(
         "clinical_attendance_violation",
         "time_window_violation",
         "proximity_violation",
+        "sequential_attendance_violation", // PR D
       ],
       required: true,
       index: true,
