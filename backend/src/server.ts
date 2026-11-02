@@ -68,14 +68,16 @@ import gradesRouter from "./routes/grades"; // PR G1 — grading/GPA routes
 import "./models/courseGrade"; // ensure CourseGrade mongoose model is registered
 import eligibilityRouter from "./routes/eligibility"; // PR G2 — eligibility/result-release-gate routes
 import "./models/studentFinance"; // ensure StudentFinance mongoose model is registered
+import progressionRouter from "./routes/progression"; // PR G3 — progression/clock-sync routes
+import "./models/progressionRecord"; // ensure ProgressionRecord mongoose model is registered
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
 import { ensureProximityTtlIndexCurrent } from "./utils/migrations"; // PR D-followup — one-time stale TTL index migration
 
-//Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
+//Add this line to set custom DNS servers for the application, which can help with connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
-// The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/
+// The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns/) and Cloudflare's DNS server (https://developers.cloudflare.com/speed/public-dns/
 
 //load variables from the .env file
 dotenv.config();
@@ -142,21 +144,21 @@ try {
 } catch (err) {
   // Silently fail if logging fails in serverless
 }
- 
-//next we'll add security middleware/headers + make sure to listen on our *root file* for changes
+
+//next we'll add security middleware/headers + make sure to listen for changes on our *root file*
 const { json, urlencoded } = createBodyParsers();
-app.use(helmet()); // Security middleware to set various HTTP headers for app security
+app.use(helmet()); // Security middleware to set various security headers for app security
 app.use(json); // Middleware to parse JSON bodies
 app.use(urlencoded); // Middleware to parse URL-encoded bodies
 app.use(cookieParser()); // Middleware to parse cookies
 
 //log http requests to console
-// NODE_ENV missing in .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV variable, you can add it to your .env file like this: NODE_ENV=development
+// NODE_ENV missing in the .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV to "development" in your .env file then add it to the .env file as follows: NODE_ENV=development
 if (process.env.NODE_ENV === "development") {
-  app.use(morgan("dev")); // HTTP request logger middleware for development
+  app.use(morgan("dev")); // HTTP request logger middleware
 }
 
-//cross-origin resource sharing (CORS) middleware to allow requests from different origins
+//cross-origin resource sharing (CORS) to allow requests from different applications
 const configuredOrigins = [
   normalizeOrigin(process.env.CLIENT_URL),
   normalizeOrigin(process.env.LOCAL_CLIENT_URL),
@@ -200,7 +202,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   })
 );
- 
+
 //Health cheack route to check if the server is running
 app.get("/", (req: Request, res: Response) => {
   res.status(200).json({
@@ -228,7 +230,7 @@ app.use((req: Request, res: Response, next: Function) => {
 
   res.on("finish", () => clearTimeout(timeoutId));
   res.on("close", () => clearTimeout(timeoutId));
-  
+
   next();
 });
 
@@ -340,6 +342,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/class-locations`, classLocationsRouter);
   app.use(`${prefix}/grades`, gradesRouter); // PR G1 — grading/GPA routes
   app.use(`${prefix}/eligibility`, eligibilityRouter); // PR G2 — eligibility/result-release-gate routes
+  app.use(`${prefix}/progression`, progressionRouter); // PR G3 — progression/clock-sync routes
 };
 
 for (const prefix of routePrefixes) {
@@ -402,14 +405,14 @@ if (!isVercelRuntime) {
 //         const { processDueScheduledNotifications, updateRotationStatuses } = await import('./workers/scheduledNotificationsWorker');
 //         // run immediately and then every 60s
 //         processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
-//         // also update rotation statuses on the same cadence
-//         updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+//         // update rotation statuses on the same cadence
+//         updateRotationStatuses().catch((e: any) => console.error('rotation schedule status update error', e));
 //         setInterval(() => {
 //           processDueScheduledNotifications().catch((e: any) => console.error('scheduled worker error', e));
-//           updateRotationStatuses().catch((e: any) => console.error('rotation status worker error', e));
+//           updateRotationStatuses().catch((e: any) => console.error('rotation schedule status update error', e));
 //         }, 60 * 1000);
 //       } catch (err) {
-//         console.warn('Scheduled notifications worker not started', (err as Error).message);
+//         console.warn('Scheduled notifications worker not started', err.message);
 //       }
 //     } else {
 //       console.log('Using Inngest delayed scheduling for rotation notifications; DB worker disabled.');
@@ -420,7 +423,7 @@ if (!isVercelRuntime) {
 //       const { initWebSocket } = require('./utils/ws');
 //       initWebSocket(server as any);
 //     } catch (err) {
-//       // not critical if ws package isn't installed
+//       // not critical if ws package is not installed
 //       console.warn('WebSocket init failed or not available', err);
 //     }
 
