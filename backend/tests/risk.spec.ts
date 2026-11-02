@@ -61,7 +61,6 @@ describe("PR H — risk tiers", () => {
     const three = classifyStudentRisk({ missedAssessments: 3 });
     expect(three.tier).toBe("high");
     expect(three.factors.map((f) => f.code)).toContain("missed-assessments");
-    expect(three.risk.factors ?? []).not.toBeNull();
   });
 
   test("trend slope + drop math", () => {
@@ -105,10 +104,12 @@ describe("PR H — exam overlap windows", () => {
   });
 
   test("windowsOverlap: strict — touching boundaries do NOT overlap", () => {
-    const a = examTimeWindow(base, 60);
+    const a = examTimeWindow(base, 60); // [10:00, 11:00]
+    // ends exactly when a starts -> touching, NOT overlapping
     expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T10:30:00Z"), 30))).toBe(true);
     expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T11:00:00Z"), 30))).toBe(false);
-    expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T08:00:00Z"), 120))).toBe(true);
+    expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T08:00:00Z"), 130))).toBe(true);
+    expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T08:00:00Z"), 120))).toBe(false);
     expect(windowsOverlap(a, examTimeWindow(new Date("2026-11-02T12:00:00Z"), 30))).toBe(false);
   });
 
