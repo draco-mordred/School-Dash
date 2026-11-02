@@ -88,7 +88,7 @@ export const computeStudentAttendancePercent = async (studentId: string) => {
     { $match: { "attendees.student": toObjectId(studentId) } },
     { $unwind: "$attendees" },
     { $match: { "attendees.student": toObjectId(studentId) } },
-    { $group: { _id: null, total: { $sum: 1 }, attended: { $sum: { $cond: [{ $in: ["$attendees.status", ["present", "late", "excused", "on-leave"]] }, 1, 0] } } },
+    { $group: { _id: null, total: { $sum: 1 }, attended: { $sum: { $cond: [{ $in: ["$attendees.status", ["present", "late", "excused", "on-leave"]] }, 1, 0] } } } },
   ]);
   const attended = (lectureAgg[0]?.attended ?? 0) + (clinicalAgg[0]?.attended ?? 0);
   const total = (lectureAgg[0]?.total ?? 0) + (clinicalAgg[0]?.total ?? 0);
