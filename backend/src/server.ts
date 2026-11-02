@@ -1,4 +1,5 @@
 
+
 // console.log("Hello via Bun!");
 
 //let's create a simple server
@@ -70,6 +71,7 @@ import eligibilityRouter from "./routes/eligibility"; // PR G2 — eligibility/r
 import "./models/studentFinance"; // ensure StudentFinance mongoose model is registered
 import progressionRouter from "./routes/progression"; // PR G3 — progression/clock-sync routes
 import "./models/progressionRecord"; // ensure ProgressionRecord mongoose model is registered
+import riskRouter from "./routes/risk"; // PR H — predictive risk + overlap-warning routes
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
@@ -77,7 +79,7 @@ import { ensureProximityTtlIndexCurrent } from "./utils/migrations"; // PR D-fol
 
 //Add this line to set custom DNS servers for the application, which can help with connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
-// The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns/) and Cloudflare's DNS server (https://developers.cloudflare.com/speed/public-dns/
+// The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns/) and the Cloudflare's public DNS server (https://1.1.1.1/dns/)
 
 //load variables from the .env file
 dotenv.config();
@@ -145,7 +147,7 @@ try {
   // Silently fail if logging fails in serverless
 }
 
-//next we'll add security middleware/headers + make sure to listen for changes on our *root file*
+//next we add security middleware/headers + make sure to listen for changes on our *root file*
 const { json, urlencoded } = createBodyParsers();
 app.use(helmet()); // Security middleware to set various security headers for app security
 app.use(json); // Middleware to parse JSON bodies
@@ -153,7 +155,7 @@ app.use(urlencoded); // Middleware to parse URL-encoded bodies
 app.use(cookieParser()); // Middleware to parse cookies
 
 //log http requests to console
-// NODE_ENV missing in the .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV to "development" in your .env file then add it to the .env file as follows: NODE_ENV=development
+// NODE_ENV missing in the .env file, but it is set to "development" by default when running with nodemon, so the morgan middleware will be used for logging HTTP requests in development mode. If you want to explicitly set the NODE_ENV to "development" in the .env file, then add the NODE_ENV=development to the .env file as follows: NODE_ENV=development
 if (process.env.NODE_ENV === "development") {
   app.use(morgan("dev")); // HTTP request logger middleware
 }
@@ -174,16 +176,13 @@ const isAllowedOrigin = (origin?: string) => {
   if (!origin) {
     return true;
   }
-
   const normalizedOrigin = normalizeOrigin(origin);
   if (!normalizedOrigin) {
     return true;
   }
-
   if (configuredOrigins.includes(normalizedOrigin)) {
     return true;
   }
-
   try {
     const hostname = new URL(normalizedOrigin).hostname;
     return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".vercel.app") || hostname.endsWith(".fly.dev");
@@ -343,6 +342,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/grades`, gradesRouter); // PR G1 — grading/GPA routes
   app.use(`${prefix}/eligibility`, eligibilityRouter); // PR G2 — eligibility/result-release-gate routes
   app.use(`${prefix}/progression`, progressionRouter); // PR G3 — progression/clock-sync routes
+  app.use(`${prefix}/risk`, riskRouter); // PR H — predictive risk + overlap-warning routes
 };
 
 for (const prefix of routePrefixes) {
@@ -382,8 +382,7 @@ app.use((err: Error, req: Request, res: Response, next: Function) => {
 //or write normally without the next function if you don't need it
 // app.use(
 //   (err: Error, req: Request, res: Response) => {
-//   console.error(err.stack);
-//   res.status(500).json({ status: "Error!", message: err.message });
+//   console.error(err.stack); res.status(500).json({ status: "Error!", message: err.message })
 // });
 
 // Start the server and listen on the specified port
@@ -424,7 +423,7 @@ if (!isVercelRuntime) {
 //       initWebSocket(server as any);
 //     } catch (err) {
 //       // not critical if ws package is not installed
-//       console.warn('WebSocket init failed or not available', err);
+//       console.warn('WebSocket init failed or not available', err.message);
 //     }
 
   }).catch((error) => {
@@ -446,5 +445,5 @@ export default app;
 //you can use any of these scripts to run the server with nodemon or bun
   // "scripts": {
   //   "dev": "nodemon --exec bun run index.ts",
-  //   "start": "bun --watch index.ts"
+  //     "start": "bun --watch index.ts"
   // },
