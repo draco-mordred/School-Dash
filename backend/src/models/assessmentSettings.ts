@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from "mongoose";
 import { DEFAULT_GRADING_POLICY, type GradeBand } from "../utils/grading";
 import { DEFAULT_ELIGIBILITY_POLICY, type EligibilityPolicy } from "../utils/eligibility";
+import { DEFAULT_PROGRESSION_POLICY, type ProgressionPolicy } from "../utils/progression";
 
 export interface IGradingPolicy {
   caWeightPercent: number;
@@ -26,6 +27,9 @@ export interface IAssessmentSettings extends Document {
   // PR G2: institution-configurable exam-eligibility policy (seeded once by
   // config/juthInstitution.ts; admin edits always win afterwards).
   eligibilityPolicy: EligibilityPolicy;
+  // PR G3: institution-configurable progression policy (exam-cycle ladder,
+  // clock sync); seeded once by config/juthInstitution.ts, admin edits win.
+  progressionPolicy: ProgressionPolicy;
 }
 
 const GradeBandSchema = new Schema(
@@ -64,6 +68,14 @@ const AssessmentSettingsSchema = new Schema<IAssessmentSettings>(
       attendanceCutoffPercent: { type: Number, default: DEFAULT_ELIGIBILITY_POLICY.attendanceCutoffPercent },
       requireSchoolFees: { type: Boolean, default: DEFAULT_ELIGIBILITY_POLICY.requireSchoolFees },
       requireDepartmentalClearance: { type: Boolean, default: DEFAULT_ELIGIBILITY_POLICY.requireDepartmentalClearance },
+    },
+    // PR G3: exam-cycle progression policy (ladder as Mixed so institutions can
+    // configure their own step sequence; JUTH MBBS ladder is seeded once).
+    progressionPolicy: {
+      passMarkPercent: { type: Number, default: DEFAULT_PROGRESSION_POLICY.passMarkPercent },
+      requireAllReleased: { type: Boolean, default: DEFAULT_PROGRESSION_POLICY.requireAllReleased },
+      clockSyncRequired: { type: Boolean, default: DEFAULT_PROGRESSION_POLICY.clockSyncRequired },
+      ladder: { type: Schema.Types.Mixed, default: () => DEFAULT_PROGRESSION_POLICY.ladder },
     },
   },
   { timestamps: true }
