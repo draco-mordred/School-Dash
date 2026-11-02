@@ -64,6 +64,8 @@ import activityNotificationRouter from "./routes/activityNotification"; // impor
 import proximityCheckinRouter from "./routes/proximityCheckin"; // import proximity checkin routes
 import complianceRouter from "./routes/compliance"; // import compliance routes
 import classLocationsRouter from "./routes/classLocations"; // PR B — class default locations routes
+import gradesRouter from "./routes/grades"; // PR G1 — grading/GPA routes
+import "./models/courseGrade"; // ensure CourseGrade mongoose model is registered
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
@@ -334,6 +336,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/proximity`, proximityCheckinRouter);
   app.use(`${prefix}/compliance`, complianceRouter);
   app.use(`${prefix}/class-locations`, classLocationsRouter);
+  app.use(`${prefix}/grades`, gradesRouter); // PR G1 — grading/GPA routes
 };
 
 for (const prefix of routePrefixes) {

@@ -114,6 +114,14 @@ export const createExam = async (
 ) => {
   try {
     const { title, course, class: classId, duration, dueDate } = req.body;
+    // PR G1: validate grading-related exam fields
+    const assessmentKind = req.body.assessmentKind ?? "major_exam";
+    if (assessmentKind !== "major_exam" && assessmentKind !== "ca_test") {
+      return res.status(400).json({ message: "assessmentKind must be major_exam or ca_test" });
+    }
+    if (req.body.maxScore != null && (!Number.isFinite(Number(req.body.maxScore)) || Number(req.body.maxScore) <= 0)) {
+      return res.status(400).json({ message: "maxScore must be a positive number" });
+    }
     if (!title || !course || !classId || !duration || !dueDate) {
       return res.status(400).json({
         message: "title, course, class, duration and dueDate are required",

@@ -20,7 +20,11 @@ export interface IExam extends Document {
   isActive: boolean;
   // here we want to target the subjects within the course so that we can use the subject names to choose which subjects we want to generate questions for
   courseSubjects: mongoose.Types.ObjectId[];
-
+  // PR G1: "major_exam" = the ONE major exam for the course;
+  // "ca_test" = a cumulative CA test (series, averaged into the CA).
+  assessmentKind: "major_exam" | "ca_test";
+  // Optional explicit max score; when null the max is the sum of question points.
+  maxScore?: number | null;
 }
 
 const examSchema = new Schema(
@@ -42,6 +46,9 @@ const examSchema = new Schema(
       },
     ],
     courseSubjects: [{ type: Schema.Types.ObjectId, ref: "Subject" }],
+    // PR G1 grading fields
+    assessmentKind: { type: String, enum: ["major_exam", "ca_test"], default: "major_exam" },
+    maxScore: { type: Number, default: null, min: 0 },
   },
   { timestamps: true }
 );
