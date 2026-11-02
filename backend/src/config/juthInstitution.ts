@@ -2,6 +2,7 @@ import Institution from "../models/institution";
 import AssessmentSettings from "../models/assessmentSettings";
 import { DEFAULT_GRADING_POLICY, type GradingPolicy } from "../utils/grading";
 import { DEFAULT_ELIGIBILITY_POLICY, type EligibilityPolicy } from "../utils/eligibility";
+import { DEFAULT_PROGRESSION_POLICY, type ProgressionPolicy } from "../utils/progression";
 
 // JUTH institution config file (PR B + PR G1).
 // The JUTH-specific campus GPS and grading policy are synchronized into the
@@ -27,6 +28,12 @@ export const JUTH_GRADING_POLICY: GradingPolicy = DEFAULT_GRADING_POLICY;
 // JUTH eligibility policy seed (PR G2): CA threshold, attendance cutoff, and
 // required fees/clearance. Seeded once; admins can change it afterwards.
 export const JUTH_ELIGIBILITY_POLICY: EligibilityPolicy = DEFAULT_ELIGIBILITY_POLICY;
+
+// JUTH exam-cycle progression ladder seed (PR G3): 100 → 200 → 300 → 400A →
+// 500A/500B → 600A/600B → graduate, with 400B ≈ 500A / 500B ≈ 600A clock-phase
+// equivalences and the 3rd-MBBS-fail → repeat-400-from-scratch rule. Seeded
+// once into AssessmentSettings.progressionPolicy; admins can change it after.
+export const JUTH_PROGRESSION_POLICY: ProgressionPolicy = DEFAULT_PROGRESSION_POLICY;
 
 export const isInstitutionJuth = (name?: string, shortName?: string) => {
   const norm = (value?: string) => String(value ?? "").trim().toLowerCase();
@@ -54,8 +61,15 @@ const seedJuthGradingPolicy = async (institution: any) => {
   ) {
     settings.eligibilityPolicy = JUTH_ELIGIBILITY_POLICY;
   }
+  if (
+    !settings.progressionPolicy ||
+    !Array.isArray(settings.progressionPolicy?.ladder) ||
+    settings.progressionPolicy.ladder.length === 0
+  ) {
+    settings.progressionPolicy = JUTH_PROGRESSION_POLICY;
+  }
   await settings.save();
-  console.log("JUTH grading + eligibility policies seeded (CA 40% / exam 60%, CA /25, 5.0 GPA; CA threshold 40%, attendance cutoff 75%)");
+  console.log("JUTH grading + eligibility + progression policies seeded (CA 40% / exam 60%, CA /25, 5.0 GPA; CA threshold 40%, attendance cutoff 75%; MBBS ladder 100→600B)");
   return { seeded: true };
 };
 
