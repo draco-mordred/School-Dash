@@ -246,7 +246,7 @@ export default function StudentAcademicAttendancePage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex h-full flex-1 flex-col space-y-4 overflow-hidden pt-5">
+        <CardContent className="flex flex-1 flex-col space-y-4 overflow-hidden pt-5">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>{course.totalSessions} total sessions</span>
             <span>{course.attendedSessions} attended</span>
