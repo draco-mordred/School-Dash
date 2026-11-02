@@ -24,7 +24,10 @@ jobs:
       - name: Run tests
         shell: bash
         run: set -o pipefail; bun test tests 2>&1 | tee bun-test-output.log
-      - name: Report failure on the PR
+      - name: Build (esbuild bundle — catches errors Render Docker build would hit)
+        shell: bash
+        run: set -o pipefail; bun run build 2>&1 | tee bun-build-output.log
+      - name: Report test failure on the PR
         if: failure() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
@@ -32,12 +35,29 @@ jobs:
             const fs = require("fs");
             let log = "";
             try { log = fs.readFileSync("backend/bun-test-output.log", "utf8"); } catch {}
+            if (!log) return;
             const tail = log.slice(-6000);
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: "**Backend tests (bun) failed** (CI)\n\n```\n" + tail + "\n```",
+            });
+      - name: Report build failure on the PR
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            let log = "";
+            try { log = fs.readFileSync("backend/bun-build-output.log", "utf8"); } catch {}
+            if (!log) return;
+            const tail = log.slice(-8000);
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "**Backend build (esbuild bundle) failed** (CI — this is what breaks the Render Docker build)\n\n```\n" + tail + "\n```",
             });
 
 
@@ -72,4 +92,3 @@ jobs:
               issue_number: context.issue.number,
               body: "**Frontend tests (vitest) failed** (CI)\n\n```\n" + tail + "\n```",
             });
-
