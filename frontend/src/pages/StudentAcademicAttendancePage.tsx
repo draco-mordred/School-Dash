@@ -246,7 +246,7 @@ export default function StudentAcademicAttendancePage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-col space-y-4 overflow-hidden pt-5">
+        <CardContent className="flex h-full flex-1 flex-col space-y-4 overflow-hidden pt-5">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>{course.totalSessions} total sessions</span>
             <span>{course.attendedSessions} attended</span>
@@ -366,7 +366,7 @@ export default function StudentAcademicAttendancePage() {
               <div className="flex items-start gap-2">
                 <BrainCircuit className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
-                  <p className="font-semibold">MORDRED insight</p>
+                  <p className="font-semibold">DALE insight</p>
                   <p className="mt-1">{alertInsight.message || "A tailored attendance reminder has been created for you."}</p>
                 </div>
               </div>
