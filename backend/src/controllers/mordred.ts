@@ -2,10 +2,11 @@ import { type Request, type Response } from "express";
 import mongoose from "mongoose";
 import MordredMessage from "../models/mordredMessenger";
 import Course from "../models/courses";
+import Class from "../models/classes";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateObject, generateText, streamText } from "ai"; // Vercel AI SDK helper for structured schemas
+import { createMistral } from "@ai-sdk/mistral";
+import { generateText, tool } from "ai"; // Vercel AI SDK — PR M1 agentic tool flow
 import { z } from "zod";
-import { routeTaskToStaff } from "../services/mordredEngine";
 import { inngest } from "../inngest/client";
 import Attendance from "../models/attendance";
 import MordredLog from "../models/mordredLog";
@@ -13,45 +14,115 @@ import User from "../models/user";
 import { createNotificationIfUnique } from "../utils/notificationUtils";
 import { buildMordredFallbackResponse } from "../utils/mordredFallback";
 import { normalizeRole } from "../middleware/auth";
+import { toolsForRole } from "../utils/mordredTools";
+import {
+  checkAndIncrementMordredUsage,
+  executeMordredTool,
+  resolveMordredProvider,
+} from "../services/mordredEngine";
+import { getStudentRiskSnapshot, getClassRiskOverview } from "../services/riskService";
 
 const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent", "student"]);
-const systemActionType = z.enum([
-  "NONE",
-  "UPDATE_PROFILE",
-  "REQUEST_ROLE_CHANGE",
-  "CREATE_USER",
-  "DELETE_USER",
-  "SEND_ALERT",
-  "ESCALATE_TO_ADMIN",
-]);
-
-const isAdminRole = (role?: string) => normalizeRole(role) === "admin";
 const isInsightRole = (role?: string) => permittedInsightRoles.has(normalizeRole(role));
 
-const handleAdminSystemAction = async (action: any, user: any) => {
-  if (!action || action.actionType === "NONE") return "";
-
-  // Placeholder system-action handling for admin requests. This can be extended
-  // to invoke actual admin workflows such as profile updates, role changes, or alerts.
-  console.log(`MORDRED system action requested by admin ${user?.email || user?._id}:`, action);
-
-  switch (action.actionType) {
-    case "UPDATE_PROFILE":
-      return ` System action prepared: update profile request recorded.`;
-    case "REQUEST_ROLE_CHANGE":
-      return ` System action prepared: role change request recorded.`;
-    case "CREATE_USER":
-      return ` System action prepared: user creation workflow flagged.`;
-    case "DELETE_USER":
-      return ` System action prepared: user deletion workflow flagged.`;
-    case "SEND_ALERT":
-      return ` System action prepared: alert dispatch request recorded.`;
-    case "ESCALATE_TO_ADMIN":
-      return ` System action prepared: escalation workflow queued.`;
-    default:
-      return "";
-  }
+// ─── PR M1 — agentic tool wiring ──────────────────────────────────────
+// Tool access is resolved from the RBAC registry; the engine re-checks
+// permissions at execution time (defense in depth).
+const MORDRED_TOOL_INPUTS: Record<string, any> = {
+  get_my_attendance: z.object({}),
+  get_my_results_and_gpa: z.object({}),
+  get_my_risk_snapshot: z.object({}),
+  get_my_upcoming_exams: z.object({}),
+  post_attendance_concern: z.object({
+    note: z.string().describe("Short description of the attendance concern"),
+  }),
+  request_escalation: z.object({
+    department: z
+      .string()
+      .optional()
+      .describe("Department to route the ticket to, e.g. Surgery, Paediatrics"),
+    details: z.string().optional().describe("Extra details for the staff member"),
+  }),
+  get_class_risk_overview: z.object({
+    classId: z.string().describe("Mongo id of the class"),
+  }),
+  get_student_risk_snapshot: z.object({
+    studentId: z.string().describe("Mongo id of the student"),
+  }),
+  check_exam_overlap: z.object({
+    classId: z.string().describe("Mongo id of the class"),
+    dueDate: z.string().describe("ISO date of the proposed exam"),
+    duration: z.number().describe("Exam duration in minutes"),
+    excludeExamId: z.string().optional().describe("Exam id to exclude from the check"),
+  }),
+  flag_student_for_attention: z.object({
+    studentId: z.string().describe("Mongo id of the student"),
+    reason: z.string().describe("Why the student needs attention"),
+  }),
+  release_course_results: z.object({
+    courseId: z.string().describe("Mongo id of the course"),
+    override: z
+      .boolean()
+      .optional()
+      .describe("Force release even if eligibility gates are not met"),
+  }),
+  override_withheld_result: z.object({
+    courseId: z.string().describe("Mongo id of the course"),
+    studentId: z.string().describe("Mongo id of the student"),
+    override: z.boolean().optional().describe("True to force-show the withheld result"),
+  }),
+  recompute_course_results: z.object({
+    courseId: z.string().describe("Mongo id of the course"),
+  }),
+  send_system_alert: z.object({
+    title: z.string().describe("Alert title"),
+    message: z.string().describe("Alert body"),
+    targetRole: z
+      .string()
+      .optional()
+      .describe("Recipient role: student, teacher, unitconsultant, unitresident, parent, admin"),
+  }),
 };
+
+const buildDaleTools = (role: string, userId: any, userName?: string) => {
+  const toolsUsed: string[] = [];
+  const daleTools: Record<string, any> = {};
+  for (const name of toolsForRole(role)) {
+    const inputSchema = MORDRED_TOOL_INPUTS[name];
+    if (!inputSchema) continue;
+    daleTools[name] = tool({
+      description: `DALE tool: ${name}`,
+      inputSchema,
+      execute: async (args: any) => {
+        toolsUsed.push(name);
+        try {
+          return await executeMordredTool(name, args, { userId, role, userName });
+        } catch (error: any) {
+          // Surface the error to the model so it can inform the user instead
+          // of failing the whole generation.
+          return { error: error?.message || "Tool execution failed." };
+        }
+      },
+    });
+  }
+  return { daleTools, toolsUsed };
+};
+
+const DALE_SYSTEM_PROMPT = [
+  "You are DALE, the AI steward of the Medlog LMS (internally known as the MORDRED engine).",
+  "Your persona is a vigilant, polite, and clinically precise digital steward for medical students and staff.",
+  "",
+  "Rules:",
+  "1. You may ONLY use the tools provided for this user role. Never claim access you do not have.",
+  "2. Use tools to fetch live data (attendance, results, risk, exams) — NEVER fabricate numbers.",
+  "3. For general study/policy questions, answer directly, concise and supportive.",
+  "4. If the user reports a bug, missing attendance logs, logbook errors, or timetable conflicts, use the",
+  "   request_escalation tool so a human staff member is routed a ticket.",
+  "5. Admin tools that require confirmation (releases, overrides, recomputes, alerts) must be used only",
+  "   when the admin clearly asks for that action.",
+  "6. NEVER provide medical advice or diagnosis.",
+  "7. Keep replies short (under 120 words unless a tool result requires more).",
+].join("\n");
 
 export const saveChatMessage = async (
   req: Request, 
@@ -75,7 +146,7 @@ export const saveChatMessage = async (
     );
 
     if (!savedLog) return res.status(404).json({ message: "Message link not found." });
-    return res.status(200).json({ success: true, message: "Secured by MORDRED." });
+    return res.status(200).json({ success: true, message: "Secured by DALE." });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -111,12 +182,11 @@ export const getCourseSummary = async (req: Request, res: Response) => {
 
     const buildFallbackText = () => {
       const sentencePool = [
-        `MORDRED AI says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
+        `DALE AI says: ${courseTitle} is a key course for ${studentClassName}${departmentName ? ` in the ${departmentName} department` : ""}.${semesterLabel}`,
         `It helps students in ${studentClassName} build strong foundations and make sense of how the subject connects to their current learning goals.`,
         `This course is designed to support your class with real classroom relevance and future study readiness.`,
         `You will gain knowledge that ties directly into your timetable, assessments, and the broader program for ${studentClassName}.`,
         `The syllabus focuses on practical understanding, giving you a clear reason why this course is important to your academic progress.`,
-        // `Even when the AI service is unavailable, this summary helps you see how ${course.name} fits into your journey.`,
       ];
       return sentencePool
         .sort(() => Math.random() - 0.5)
@@ -124,9 +194,10 @@ export const getCourseSummary = async (req: Request, res: Response) => {
         .join("\n");
     };
 
-    const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
-    if (!apiKey) {
-      console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using course-summary fallback.");
+    const geminiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+    const mistralKey = (process.env.MISTRAL_API_KEY || "").trim();
+    if (!geminiKey && !mistralKey) {
+      console.warn("⚠️ DALE Configuration Warning: AI credentials are missing. Using course-summary fallback.");
       return res.status(200).json({
         _id: `mordred-course-summary-fallback-${Date.now()}`,
         sender: "mordred_ai",
@@ -135,25 +206,35 @@ export const getCourseSummary = async (req: Request, res: Response) => {
       });
     }
 
-    const models = {
-      geminiAI: "google/gemini-3.5-pro",
-      openAI: "openai/gpt-5.5",
+    const runSummary = async () => {
+      // PR M1: provider chain — Mistral first (when configured), Gemini fallback.
+      if (mistralKey) {
+        try {
+          const mistral = createMistral({ apiKey: mistralKey });
+          const { text } = await generateText({
+            model: mistral(process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest"),
+            prompt: `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`,
+            temperature: 0.4,
+          });
+          return String(text ?? "").trim();
+        } catch (mistralError) {
+          console.warn("⚠️ DALE Mistral course summary failed, trying Gemini.", mistralError);
+        }
+      }
+      const googleAI = createGoogleGenerativeAI({ apiKey: geminiKey });
+      const { text } = await generateText({
+        model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+        prompt: `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`,
+        temperature: 0.4,
+      });
+      return String(text ?? "").trim();
     };
 
     try {
-      const googleAI = createGoogleGenerativeAI({ apiKey });
-      const vercelModel = process.env.MORDRED_MODEL || models.geminiAI;
-      const { text } = await generateText({
-        model: vercelModel,
-        prompt: `You are MORDRED, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with \"MORDRED AI says:\" and do not exceed six lines.`,
-        temperature: 0.4,
-        max_tokens: 220,
-      });
-
-      const summaryText = String(text ?? "").trim() || buildFallbackText();
-      const normalizedText = summaryText.startsWith("MORDRED AI says:")
+      const summaryText = (await runSummary()) || buildFallbackText();
+      const normalizedText = summaryText.startsWith("DALE AI says:")
         ? summaryText
-        : `MORDRED AI says: ${summaryText}`;
+        : `DALE AI says: ${summaryText}`;
 
       return res.status(200).json({
         _id: new mongoose.Types.ObjectId(),
@@ -177,189 +258,117 @@ export const getCourseSummary = async (req: Request, res: Response) => {
 };
 
 export const mordredsWords = async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  const { message, studentContext } = req.body;
+  const userRole = String(user?.role ?? "").trim().toLowerCase();
+
   try {
-    const { message, studentContext } = req.body;
-    const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
-    const canExecuteSystemActions = isAdminRole(userRole);
+    // PR M1: daily per-user message caps (RBAC registry driven).
+    const usage = await checkAndIncrementMordredUsage(user?._id, "messages");
+    if (!usage.allowed) {
+      return res.status(200).json({
+        _id: new mongoose.Types.ObjectId(),
+        sender: "mordred_ai",
+        text: `You have reached your daily DALE chat limit (${usage.cap} messages for your role). Please try again tomorrow.`,
+        is_ticket_created: false,
+        toolsUsed: [],
+        provider: "limit",
+        fallbackUsed: true,
+      });
+    }
 
-    const apiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
-
-    if (!apiKey) {
-      console.warn("⚠️ MORDRED Configuration Warning: AI credentials are missing. Using fallback response.");
+    const provider = resolveMordredProvider();
+    if (provider === "none") {
+      console.warn("⚠️ DALE Configuration Warning: AI credentials are missing. Using fallback response.");
       return res.status(200).json(
-        buildMordredFallbackResponse(
-          "missing credentials",
-          message,
-          studentContext,
-          userRole
-        )
+        buildMordredFallbackResponse("missing credentials", message, studentContext, userRole)
       );
     }
-    const models = {
-      geminiAI: 'google/gemini-3.5-pro',
-      openAI: 'openai/gpt-5.5',
-      anthropicAI: 'anthropic/claude-fable-5',
-      xAI: 'xai/grok-4.5',
-      ossAI: 'moonshotai/kimi-k2.7-code'
-    }
-    try {
-      const googleAI = createGoogleGenerativeAI({ apiKey });
-      // const vercelAI = streamText({
-      //   //so I want the model here to pick from any of the available models in the models variable at a time
-      //   model: models,
-      //   prompt: "why is the sky blue?"
-      // })
-      const activeModel = googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash");
-      const vercelModel = models.geminiAI;
-      const { object: mordredDecision } = await generateObject({
-        model: vercelModel,
-        system: `
-        You are MORDRED (Medlog Operational Rotation, Dialogue, & Record Engagement Director).
-        Your persona is a vigilant, polite, and clinically precise digital steward.
-        
-        Your job is to read student messages and do one of two things:
-        1. ANSWER directly if it's a general question about medical school policies, rotations, or tips.
-        2. ESCALATE by creating a ticket if they are reporting a software bug, hardware issue, missing attendance logs, or a direct complaint that requires human admin intervention.
-        // We provide a strict schema to ensure MORDRED's responses are machine-readable and actionable and also limit the scope of the AI's responses to avoid hallucinations or irrelevant answers, and each student can only have one active ticket at a time, so MORDRED should check for existing tickets before creating a new one. and Limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
-        3. The schema is designed to ensure that MORDRED's responses are structured and actionable, allowing the backend to process them effectively.
-        4. If the student is asking about attendance, logbook issues, or timetable conflicts, MORDRED should always escalate to a human staff member and not attempt to answer directly.
-        5. If the student is asking about general questions, MORDRED should answer directly and not escalate.
-        6. If the student is asking about a bug or issue, MORDRED should escalate to a human staff member and not answer directly.
-        7. If the student is asking about a timetable conflict, MORDRED should escalate to a human staff member and not answer directly.
-        8. MORDRED should always be polite, professional, and concise in its responses, and should never provide medical advice or diagnosis.
-        9. MORDRED should always check for existing tickets before creating a new one, and should only create a new ticket if there are no existing tickets for the student.
-        10. MORDRED should always limit ANSWERS to 5 per student per day to avoid spam and ensure quality responses.
-        
-        user: 
-        User ID: ${(req as any).user._id}. 
-        User Name: ${(req as any).user.name}. 
-        User Email: ${(req as any).user.email}. 
-        User Role: ${userRole}. 
-        User Permissions: ${canExecuteSystemActions ? "admin system actions allowed" : "non-admin profile/role requests only"}. 
-        Student Department: ${studentContext.department}. 
-        Student Rotation Unit: ${studentContext.rotationUnit}. 
-        Student Rotation Start Date: ${studentContext.rotationStartDate}. 
-        Student Rotation End Date: ${studentContext.rotationEndDate}.,
-        input: 'Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}.',
-        `,
-        
-        schema: z.object({
-          reply: z.string().describe("Your conversational response back to the student."),
-          shouldEscalate: z.boolean().describe("Set to true ONLY if a human staff member needs to fix a bug, logbook issue, or attendance error."),
-          issueCategory: z.enum(["NONE", "ATTENDANCE_BUG", "LOGBOOK_ERROR", "TIMETABLE_CONFLICT", "OTHER"]).describe("The classification category of the problem."),
-          systemAction: z
-            .object({
-              actionType: systemActionType,
-              details: z.string().optional(),
-            })
-            .optional()
-            .describe("Structured system action request. Only admins may execute real system actions."),
-        }),
-        prompt: `Student says: "${message}". Student Current Rotation Context: ${JSON.stringify(studentContext)}`,
-      });
 
-      const systemAction = mordredDecision.systemAction ?? { actionType: "NONE" };
+    const { daleTools, toolsUsed } = buildDaleTools(userRole, user?._id, user?.name);
 
-      if (!canExecuteSystemActions && systemAction.actionType !== "NONE") {
-        mordredDecision.reply = `As a non-admin user, I cannot execute system-level changes. ${mordredDecision.reply}`;
-        systemAction.actionType = "NONE";
-        systemAction.details = undefined;
-      }
+    const runDale = async () => {
+      const geminiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
+      const mistralKey = (process.env.MISTRAL_API_KEY || "").trim();
 
-      if (mordredDecision.shouldEscalate) {
+      const contextBlock = [
+        `User ID: ${user?._id}.`,
+        `User Name: ${user?.name}.`,
+        `User Email: ${user?.email}.`,
+        `User Role: ${userRole}.`,
+        `Student Department: ${studentContext?.department ?? "N/A"}.`,
+        `Student Rotation Unit: ${studentContext?.rotationUnit ?? "N/A"}.`,
+        `Student Rotation Start Date: ${studentContext?.rotationStartDate ?? "N/A"}.`,
+        `Student Rotation End Date: ${studentContext?.rotationEndDate ?? "N/A"}.`,
+      ].join("\n");
+
+      const commonParams: any = {
+        system: `${DALE_SYSTEM_PROMPT}\n\n${contextBlock}`,
+        prompt: `User says: "${message}". User Context: ${JSON.stringify(studentContext ?? {})}.`,
+        tools: daleTools,
+        maxSteps: 5,
+        temperature: 0.4,
+      };
+
+      if (mistralKey) {
         try {
-          const assignedStaff = await routeTaskToStaff(
-            studentContext.department,
-            "is_available_for_escalations",
-            (req as any).user._id
-          );
-
-          await inngest.send({
-            name: "mordred/ticket.created",
-            data: {
-              ticketId: (req as any).user._id,
-              departmentName: studentContext.department,
-              assignedTo: assignedStaff?._id || "SUPER_ADMIN",
-            },
+          const mistral = createMistral({ apiKey: mistralKey });
+          const result = await generateText({
+            ...commonParams,
+            model: mistral(process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest"),
           });
-
-          mordredDecision.reply += ` [System Notice: I have flagged this anomaly and routed a ticket to ${assignedStaff?.name || "the admin desk"}.]`;
-
-          const actorName = "MORDRED AI";
-          const requestedBy = (req as any).user?.name || (req as any).user?.email || "A user";
-          const notificationMessage = `MORDRED flagged an anomaly for ${requestedBy} and routed a ticket to ${assignedStaff?.name || "the admin desk"}.`;
-          const adminUsers = await User.find({ role: "admin", isActive: true }).select("_id").lean();
-          if (adminUsers.length > 0) {
-            await Promise.all(
-              adminUsers.map((admin) =>
-                createNotificationIfUnique({
-                  userId: admin._id,
-                  role: "admin",
-                  title: "MORDRED Alert: Anomaly Ticket Routed",
-                  message: notificationMessage,
-                  type: "system",
-                  actorName,
-                  actorRole: "admin",
-                  metadata: {
-                    studentId: (req as any).user?._id,
-                    assignedStaffId: assignedStaff?._id,
-                    issueCategory: mordredDecision.issueCategory,
-                  },
-                })
-              )
-            );
-          }
-        } catch (escalationError) {
-          console.error("⚠️ MORDRED escalation flow failed, continuing with fallback response.", escalationError);
+          return { text: result.text, provider: "mistral" as const };
+        } catch (mistralError) {
+          console.warn("⚠️ DALE Mistral request failed, falling back to Gemini.", mistralError);
+          if (!geminiKey) throw mistralError;
         }
       }
 
-      let adminActionNote = "";
-      if (canExecuteSystemActions && systemAction.actionType !== "NONE") {
-        adminActionNote = await handleAdminSystemAction(systemAction, (req as any).user);
+      const googleAI = createGoogleGenerativeAI({ apiKey: geminiKey });
+      const result = await generateText({
+        ...commonParams,
+        model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+      });
+      return { text: result.text, provider: "gemini" as const };
+    };
+
+    try {
+      const { text, provider: usedProvider } = await runDale();
+      const reply = String(text ?? "").trim();
+      if (!reply) {
+        return res.status(200).json(
+          buildMordredFallbackResponse("empty model response", message, studentContext, userRole)
+        );
       }
 
       return res.status(200).json({
         _id: new mongoose.Types.ObjectId(),
         sender: "mordred_ai",
-        text: `${mordredDecision.reply}${adminActionNote}`.trim(),
-        is_ticket_created: mordredDecision.shouldEscalate,
-        systemAction: canExecuteSystemActions ? systemAction : undefined,
+        text: reply,
+        is_ticket_created: toolsUsed.includes("request_escalation"),
+        toolsUsed,
+        provider: usedProvider,
+        fallbackUsed: false,
       });
     } catch (error: any) {
-      console.error("⚠️ MORDRED AI request failed, returning a safe fallback response.", error);
+      console.error("⚠️ DALE AI request failed, returning a safe fallback response.", error);
       return res.status(200).json(
-        buildMordredFallbackResponse(
-          error?.message || "AI request failed",
-          message,
-          studentContext,
-          userRole
-        )
+        buildMordredFallbackResponse(error?.message || "AI request failed", message, studentContext, userRole)
       );
     }
-
- } catch (error: any) {
-  if (error.message.includes("API key") || error.message.includes("identity")) {
-    await MordredLog.create({
-      logType: "API_FAILURE",
-      message: "Google Gemini Authentication Failure",
-      details: error.message
-    });
+  } catch (error: any) {
+    if (error?.message?.includes("API key") || error?.message?.includes("identity")) {
+      await MordredLog.create({
+        logType: "API_FAILURE",
+        message: "AI Provider Authentication Failure",
+        details: error.message,
+      });
+    }
+    return res.status(200).json(
+      buildMordredFallbackResponse(error?.message || "unexpected error", message, req.body?.studentContext, userRole)
+    );
   }
-  return res.status(200).json(buildMordredFallbackResponse(error?.message || "unexpected error", message, studentContext, userRole));
-}
 };
-// Show me how to run this and test in Thunder Client:
-// POST http://localhost:5000/mordred/chat/handle
-// Headers:
-// Content-Type: application/json
-// Authorization: Bearer <your_token_here>
-// Body:
-// {
-//   "messageId": "<message_id>",
-//   "uniqueToken": "<unique_token>"
-// }
-// Replace <message_id> and <unique_token> with the actual values you want to test.
 
 export const trackMordredPerformance = async (
   req: Request, 
@@ -394,13 +403,7 @@ export const trackMordredPerformance = async (
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
-}
-
-
-export const testWhatsAppAlert = async (
-  req: Request, 
-  res: Response
-) => {}
+};
 
 export const createPostingAttendanceAlert = async (
   req: Request,
@@ -437,7 +440,7 @@ export const createPostingAttendanceAlert = async (
         activeLocationValue,
         overallPercent,
       },
-      actorName: user.name || "MORDRED",
+      actorName: user.name || "DALE",
       actorRole: "student",
     });
 
@@ -462,15 +465,16 @@ export const dynamicAIInsights = async (
   req: Request, 
   res: Response
 ) => {
-   try {
-    const userRole = String((req as any).user?.role ?? "").trim().toLowerCase();
+  try {
+    const user = (req as any).user;
+    const userRole = String(user?.role ?? "").trim().toLowerCase();
     if (!isInsightRole(userRole)) {
-      return res.status(403).json({ message: "Access denied. MORDRED insights are only available to admin, teacher, unitconsultant, unitresident, and parent users." });
+      return res.status(403).json({ message: "Access denied. DALE insights are only available to admin, teacher, unitconsultant, unitresident, parent, and student users." });
     }
 
-    const dynamicInsights = [];
+    const dynamicInsights: any[] = [];
 
-    // Insight 1: Check for any API failures logged by MORDRED's runtime engines
+    // Insight 1: Check for any API failures logged by the engine runtime
     const criticalFailures = await MordredLog.find({ logType: "API_FAILURE", resolved: false }).limit(2);
     for (const failure of criticalFailures) {
       dynamicInsights.push({
@@ -483,7 +487,6 @@ export const dynamicAIInsights = async (
     }
 
     // Insight 2: Query students whose active class attendance averages drop below safety thresholds (e.g., 75%)
-    // Adjust field names to match your schema structures if necessary
     const lowAttendanceStudents = await User.find({
       role: "student",
       isActive: true,
@@ -502,7 +505,6 @@ export const dynamicAIInsights = async (
     }
 
     // Insight 3: Dynamic Check for any Lectures marked as unattended or missing logs
-    // Look for records where the date passed but no check-in exists or completion flag is false
     const missedRotationsCount = await Attendance.countDocuments({
       status: "absent",
       createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Past 24 hours
@@ -518,13 +520,59 @@ export const dynamicAIInsights = async (
       });
     }
 
+    // Insight 4 (PR M1 — unified with PR H risk engine): role-scoped risk snapshots.
+    try {
+      if (userRole === "student") {
+        const snapshot: any = await getStudentRiskSnapshot(user?._id);
+        if (snapshot?.risk?.tier && snapshot.risk.tier !== "low") {
+          dynamicInsights.push({
+            id: `dale-risk-${String(user?._id)}`,
+            type: snapshot.risk.tier === "high" ? "WARNING" : "INFO",
+            targetUser: user?.name || "You",
+            message: `DALE Risk Engine: your overall risk tier is ${snapshot.risk.tier}${snapshot.risk.score ? ` (score ${snapshot.risk.score})` : ""}. Keep attendance above 75% and stay on top of pending assessments.`,
+            timestamp: "Calculated Recently"
+          });
+        }
+      } else if (["teacher", "unitconsultant", "unitresident"].includes(userRole)) {
+        const classes: any[] = await Class.find({ classTeacher: user?._id }).limit(2);
+        for (const cls of classes) {
+          const overview: any = await getClassRiskOverview(cls._id);
+          if (overview?.highRisk?.length > 0) {
+            dynamicInsights.push({
+              id: `dale-class-risk-${cls._id.toString()}`,
+              type: "WARNING",
+              targetUser: cls.name || "Class",
+              message: `DALE Risk Engine: ${overview.highRisk.length} student(s) in ${cls.name || "your class"} are in the high-risk tier${overview.highRisk[0]?.name ? `, including ${overview.highRisk[0].name}` : ""}.`,
+              timestamp: "Calculated Recently"
+            });
+          }
+        }
+      } else if (userRole === "admin") {
+        const classes: any[] = await Class.find().limit(3);
+        for (const cls of classes) {
+          const overview: any = await getClassRiskOverview(cls._id);
+          if (overview?.highRisk?.length > 0) {
+            dynamicInsights.push({
+              id: `dale-class-risk-${cls._id.toString()}`,
+              type: "WARNING",
+              targetUser: cls.name || "Class",
+              message: `DALE Risk Engine: ${overview.highRisk.length} high-risk student(s) detected in ${cls.name || "a class"}${overview.highRisk[0]?.name ? `, including ${overview.highRisk[0].name}` : ""}.`,
+              timestamp: "Calculated Recently"
+            });
+          }
+        }
+      }
+    } catch (riskError) {
+      console.warn("⚠️ DALE risk insight aggregation skipped:", (riskError as Error).message);
+    }
+
     // Fallback item if your database is completely clean during testing
     if (dynamicInsights.length === 0) {
       dynamicInsights.push({
         id: "clean_slate",
         type: "INFO",
         targetUser: "All Staff",
-        message: "MORDRED Engine Audit complete. No system flags, lecture absences, or attendance warnings detected.",
+        message: "DALE Engine Audit complete. No system flags, lecture absences, or attendance warnings detected.",
         timestamp: "Just Now"
       });
     }
@@ -533,4 +581,4 @@ export const dynamicAIInsights = async (
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }
-}
+};
