@@ -291,7 +291,7 @@ export default function StudentCourses() {
       }
     } catch (error) {
       console.error("Failed to fetch course summary:", error);
-      setCourseSummaryError("Unable to fetch MORDRED summary right now. Showing a template summary instead.");
+      setCourseSummaryError("Unable to fetch DALE summary right now. Showing a template summary instead.");
       setCourseSummaryText(getCourseSummaryLines(course).join("\n"));
     } finally {
       setCourseSummaryLoading(false);
