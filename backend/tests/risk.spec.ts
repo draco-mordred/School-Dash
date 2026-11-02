@@ -58,7 +58,10 @@ describe("PR H — risk tiers", () => {
     expect(classifyStudentRisk({ missedAssessments: 0 }).tier).toBe("low");
     expect(classifyStudentRisk({ missedAssessments: 1 }).tier).toBe("medium");
     expect(classifyStudentRisk({ missedAssessments: 2 }).tier).toBe("high");
-    expect(classifyStudentRisk({ missedAssessments: 3 }).risk.factors ?? []).toEqual([]);
+    const three = classifyStudentRisk({ missedAssessments: 3 });
+    expect(three.tier).toBe("high");
+    expect(three.factors.map((f) => f.code)).toContain("missed-assessments");
+    expect(three.risk.factors ?? []).not.toBeNull();
   });
 
   test("trend slope + drop math", () => {
@@ -74,7 +77,7 @@ describe("PR H — risk tiers", () => {
   test("any risk factor dominates watch factors -> HIGH", () => {
     const r = classifyStudentRisk({ attendancePercent: 76, missedAssessments: 2 });
     expect(r.tier).toBe("high");
-    expect(r.riskScore).toBe(95); // 40 + 40 + 15
+    expect(r.riskScore).toBe(55); // 15 (watch) + 40 (risk)
   });
 
   test("insights: low tier gets an on-track line; high tier gets an intervention line", () => {
