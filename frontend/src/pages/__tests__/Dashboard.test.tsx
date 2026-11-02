@@ -4,7 +4,10 @@ import { MemoryRouter } from "react-router-dom";
 
 vi.mock("@/hooks/useAuth", () => ({
   useAuth: () => ({
-    user: { _id: "user-1", role: "admin" },
+    // ActivityDashboard renders on the non-admin Dashboard branch (admins get
+    // the specialized Institutional Operations Center view), so exercise a
+    // teacher user here.
+    user: { _id: "user-1", role: "teacher" },
     year: "2024/2025",
   }),
 }));

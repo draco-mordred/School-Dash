@@ -67,7 +67,14 @@ describe("Student clinical attendance page", () => {
     await waitFor(() => expect(generateButton).toBeEnabled());
     fireEvent.click(generateButton);
 
-    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/clinical-attendance/qr/generate", { sessionId: "session-1" }));
+    // I4 GPS: the generate call now includes optional `coords` (null in jsdom,
+    // which has no geolocation), so match on the sessionId rather than the full payload.
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/clinical-attendance/qr/generate",
+        expect.objectContaining({ sessionId: "session-1" }),
+      ),
+    );
     expect(await screen.findByAltText("Attendance QR code")).toBeInTheDocument();
     expect(screen.getByText("123456")).toBeInTheDocument();
 
