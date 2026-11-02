@@ -48,13 +48,13 @@ export function MordredChatPanel() {
   //           )}
   //         </div>
   //       ))}
-  //       {loading && <div className="text-xs text-slate-400 animate-pulse">MORDRED is evaluating...</div>}
+  //       {loading && <div className="text-xs text-slate-400 animate-pulse">DALE is evaluating...</div>}
   //     </div>
   //     <div className="p-3 border-t flex gap-2">
   //       <input 
   //         value={input} 
   //         onChange={(e) => setInput(e.target.value)}
-  //         placeholder="State your query to MORDRED..." 
+  //         placeholder="State your query to DALE..." 
   //         className="flex-1 px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
   //       />
   //       <button onClick={handleSend} className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-blue-700">
@@ -72,10 +72,10 @@ export function MordredChatPanel() {
           const isUser = msg.sender === "student";
           return (
             <div key={msg._id} className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-              {/* Profile Initial Indicator Avatar for MORDRED */}
+              {/* Profile Initial Indicator Avatar for DALE */}
               {!isUser && (
                 <div className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[10px] font-bold mr-2 shadow-sm shrink-0 self-end mb-5">
-                  M
+                  D
                 </div>
               )}
               
@@ -139,7 +139,7 @@ export function MordredChatPanel() {
           value={input} 
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          placeholder="message MORDRED..." 
+          placeholder="message DALE..." 
           className="flex-1 px-4 py-2 bg-muted/10 border-none rounded-full text-sm placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-border transition"
         />
         <button 

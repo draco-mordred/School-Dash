@@ -38,7 +38,7 @@ export function MordredFloatingChat() {
           }`}
         >
           <div id="mordredChatHeader" className="bg-primary text-primary-foreground p-3 flex justify-between items-center">
-            <span className="font-bold text-sm tracking-wide">Chat with MORDRED</span>
+            <span className="font-bold text-sm tracking-wide">Chat with DALE</span>
             <button
               onClick={closeChat}
               className="text-muted-foreground hover:text-primary-foreground text-xs px-2 py-1 rounded hover:bg-primary/10 transition"

@@ -32,7 +32,7 @@ export function useMordred() {
 
       const data = await res.json();
       console.log("⚔️ MORDRED Payload Raw Data:", data);
-      const validatedText = data.text || data.reply || "MORDRED Engine warning: Communication stream returned an empty response cluster.";
+      const validatedText = data.text || data.reply || "DALE Engine warning: Communication stream returned an empty response cluster.";
 
       const aiMsg: Message = {
         _id: data._id || String(Date.now() + 1),
