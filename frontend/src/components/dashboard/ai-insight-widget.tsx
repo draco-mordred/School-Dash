@@ -57,7 +57,7 @@ export function AIInsightWidget({ prependInsights = [] }: AIInsightWidgetProps) 
     return (
       <div className="p-6 border border-border rounded-xl bg-card text-sm text-muted-foreground flex items-center gap-2">
         <span className="w-2 h-2 rounded-full bg-primary animate-ping"></span>
-        MORDRED Engine is auditing database log matrices...
+        DALE Engine is auditing database log matrices...
       </div>
     );
   }
@@ -65,7 +65,7 @@ export function AIInsightWidget({ prependInsights = [] }: AIInsightWidgetProps) 
   if (error && combinedInsights.length === 0) {
     return (
       <div className="p-6 border border-destructive/20 rounded-xl bg-destructive/10 text-xs text-destructive-foreground font-medium">
-        ⚠️ MORDRED Dashboard Sync Interruption: {error}
+        ⚠️ DALE Dashboard Sync Interruption: {error}
       </div>
     );
   }
@@ -78,7 +78,7 @@ export function AIInsightWidget({ prependInsights = [] }: AIInsightWidgetProps) 
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          <h3 className="font-bold text-slate-900 text-sm tracking-wide">🧠 MORDRED Automation Insights</h3>
+          <h3 className="font-bold text-slate-900 text-sm tracking-wide">🧠 DALE Automation Insights</h3>
         </div>
         <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
           Live System Audit
