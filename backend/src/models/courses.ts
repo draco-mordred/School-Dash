@@ -61,6 +61,9 @@ export interface ICourse extends Document {
   subjects: ICourseSubject[];
 
   academicYear: mongoose.Types.ObjectId;
+
+  // PR G1: credit units for GPA weighting (defaults to 1)
+  creditUnits?: number;
 }
 
 const StudentClassMembershipSchema = new Schema<IStudentClassMembership>(
@@ -147,6 +150,9 @@ const CourseSchema = new Schema<ICourse>(
       required: false,
       index: true,
     },
+
+    // PR G1: credit-unit weighting for GPA (defaults to 1)
+    creditUnits: { type: Number, default: 1, min: 0 },
   },
   { timestamps: true }
 );
