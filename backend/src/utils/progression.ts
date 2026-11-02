@@ -18,7 +18,9 @@ export interface ProgressionStep {
   // For "repeat_from": the step the student repeats from (e.g. failing the
   // 3rd MBBS at the 400A → 500A transition repeats 400 from scratch).
   repeatFromStep?: string | null;
-  // Clock-phase equivalences: steps sharing the same AcademicClock phase.
+  // Clock-phase equivalences: steps/sub-levels sharing the same AcademicClock
+  // phase (e.g. "400B" ≈ "500A"). Equivalences are symmetric and may reference
+  // sub-level aliases that are not ladder steps themselves.
   equivalentSteps?: string[];
 }
 
@@ -123,19 +125,21 @@ export const repeatTargetFor = (
 };
 
 // Clock-phase equivalence (NOV 2026 ADDITIONS b): 400B ≈ 500A, 500B ≈ 600A —
-// symmetric, so either direction shares the same AcademicClock phase.
+// symmetric. Either side may be a sub-level alias (e.g. "400B") that is not a
+// ladder step itself: the equivalence declared on a ladder step (500A/600A)
+// covers the alias.
 export const sharesClockPhase = (
   ladder: ProgressionStep[] | null | undefined,
   a?: string | null,
   b?: string | null,
 ): boolean => {
+  if (a == null || b == null) return false;
+  if (String(a) === String(b)) return true;
   const sa = findLadderStep(ladder, a);
   const sb = findLadderStep(ladder, b);
-  if (!sa || !sb) return false;
-  if (sa.id === sb.id) return true;
-  return (
-    (sa.equivalentSteps ?? []).includes(sb.id) ||
-    (sb.equivalentSteps ?? []).includes(sa.id)
+  return Boolean(
+    (sa?.equivalentSteps ?? []).includes(String(b)) ||
+      (sb?.equivalentSteps ?? []).includes(String(a))
   );
 };
 
