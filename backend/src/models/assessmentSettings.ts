@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document } from "mongoose";
 import { DEFAULT_GRADING_POLICY, type GradeBand } from "../utils/grading";
+import { DEFAULT_ELIGIBILITY_POLICY, type EligibilityPolicy } from "../utils/eligibility";
 
 export interface IGradingPolicy {
   caWeightPercent: number;
@@ -22,6 +23,9 @@ export interface IAssessmentSettings extends Document {
   // PR G1: institution-configurable grading policy (JUTH values are seeded
   // once by config/juthInstitution.ts; admin edits always win afterwards).
   gradingPolicy: IGradingPolicy;
+  // PR G2: institution-configurable exam-eligibility policy (seeded once by
+  // config/juthInstitution.ts; admin edits always win afterwards).
+  eligibilityPolicy: EligibilityPolicy;
 }
 
 const GradeBandSchema = new Schema(
@@ -53,6 +57,13 @@ const AssessmentSettingsSchema = new Schema<IAssessmentSettings>(
         type: [GradeBandSchema],
         default: () => DEFAULT_GRADING_POLICY.gradeBands,
       },
+    },
+    // PR G2: exam-eligibility / result-release-gate policy
+    eligibilityPolicy: {
+      caThresholdPercent: { type: Number, default: DEFAULT_ELIGIBILITY_POLICY.caThresholdPercent },
+      attendanceCutoffPercent: { type: Number, default: DEFAULT_ELIGIBILITY_POLICY.attendanceCutoffPercent },
+      requireSchoolFees: { type: Boolean, default: DEFAULT_ELIGIBILITY_POLICY.requireSchoolFees },
+      requireDepartmentalClearance: { type: Boolean, default: DEFAULT_ELIGIBILITY_POLICY.requireDepartmentalClearance },
     },
   },
   { timestamps: true }

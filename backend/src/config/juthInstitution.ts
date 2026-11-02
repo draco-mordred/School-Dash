@@ -1,6 +1,7 @@
 import Institution from "../models/institution";
 import AssessmentSettings from "../models/assessmentSettings";
 import { DEFAULT_GRADING_POLICY, type GradingPolicy } from "../utils/grading";
+import { DEFAULT_ELIGIBILITY_POLICY, type EligibilityPolicy } from "../utils/eligibility";
 
 // JUTH institution config file (PR B + PR G1).
 // The JUTH-specific campus GPS and grading policy are synchronized into the
@@ -23,6 +24,10 @@ export const JUTH_INSTITUTION_CONFIG = {
 // so it stays institution-configurable; admins can change it afterwards.
 export const JUTH_GRADING_POLICY: GradingPolicy = DEFAULT_GRADING_POLICY;
 
+// JUTH eligibility policy seed (PR G2): CA threshold, attendance cutoff, and
+// required fees/clearance. Seeded once; admins can change it afterwards.
+export const JUTH_ELIGIBILITY_POLICY: EligibilityPolicy = DEFAULT_ELIGIBILITY_POLICY;
+
 export const isInstitutionJuth = (name?: string, shortName?: string) => {
   const norm = (value?: string) => String(value ?? "").trim().toLowerCase();
   return JUTH_INSTITUTION_CONFIG.matchNames.some(
@@ -43,8 +48,14 @@ const seedJuthGradingPolicy = async (institution: any) => {
     return { seeded: false, reason: "already-set" };
   }
   settings.gradingPolicy = JUTH_GRADING_POLICY;
+  if (
+    !settings.eligibilityPolicy ||
+    settings.eligibilityPolicy?.caThresholdPercent == null
+  ) {
+    settings.eligibilityPolicy = JUTH_ELIGIBILITY_POLICY;
+  }
   await settings.save();
-  console.log("JUTH grading policy seeded (CA 40% / exam 60%, CA tests /25, 5.0 GPA)");
+  console.log("JUTH grading + eligibility policies seeded (CA 40% / exam 60%, CA /25, 5.0 GPA; CA threshold 40%, attendance cutoff 75%)");
   return { seeded: true };
 };
 

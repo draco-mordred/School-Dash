@@ -66,6 +66,8 @@ import complianceRouter from "./routes/compliance"; // import compliance routes
 import classLocationsRouter from "./routes/classLocations"; // PR B — class default locations routes
 import gradesRouter from "./routes/grades"; // PR G1 — grading/GPA routes
 import "./models/courseGrade"; // ensure CourseGrade mongoose model is registered
+import eligibilityRouter from "./routes/eligibility"; // PR G2 — eligibility/result-release-gate routes
+import "./models/studentFinance"; // ensure StudentFinance mongoose model is registered
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
@@ -337,6 +339,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/compliance`, complianceRouter);
   app.use(`${prefix}/class-locations`, classLocationsRouter);
   app.use(`${prefix}/grades`, gradesRouter); // PR G1 — grading/GPA routes
+  app.use(`${prefix}/eligibility`, eligibilityRouter); // PR G2 — eligibility/result-release-gate routes
 };
 
 for (const prefix of routePrefixes) {
