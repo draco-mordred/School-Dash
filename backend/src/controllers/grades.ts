@@ -5,6 +5,7 @@ import AssessmentSettings from "../models/assessmentSettings";
 import Institution from "../models/institution";
 import { DEFAULT_GRADING_POLICY, computeGpa, type GradeBand, type GradingPolicy } from "../utils/grading";
 import { recomputeCourseResults, resolveGradingPolicy } from "../services/gradingService";
+import { applyResultReleaseGate } from "../services/eligibilityService";
 import { logActivity } from "../utils/activitieslog";
 
 // PR G1 — grading/GPA controllers.
@@ -149,15 +150,20 @@ export const releaseCourseResults = async (req: Request, res: Response) => {
       return res.status(403).json({ status: "Error!", message: "Only admins can release course results" });
     }
     const released = req.body?.released !== false;
-    const outcome = await CourseGrade.updateMany(
-      { course: req.params.courseId },
-      { $set: { released } }
-    );
+    // PR G2: release runs through the result-release gate — students with
+    // outstanding eligibility issues get their result WITHHELD (unless the
+    // admin passes override:true or a per-student adminOverride is set).
+    const override = req.body?.override === true;
+    const outcome = await applyResultReleaseGate(req.params.courseId, {
+      released,
+      override,
+      actorId: user._id.toString(),
+    });
     await logActivity({
       userId: user._id,
       action: (released ? "Released" : "Unreleased") + " results for course " + req.params.courseId,
     }).catch(() => undefined);
-    res.json({ status: "Success", released, modified: outcome.modifiedCount ?? 0 });
+    res.json({ status: "Success", released, override, ...outcome });
   } catch (err) {
     res.status(500).json({ status: "Error!", message: (err as Error).message });
   }
@@ -176,7 +182,12 @@ export const getMyResults = async (req: Request, res: Response) => {
     const gpa = computeGpa(
       grades.map((g) => ({ gradePoints: g.gradePoints, creditUnits: g.creditUnits }))
     );
-    res.json({ results: grades, gpa, gpaScale: DEFAULT_GRADING_POLICY.gpaScale });
+    // PR G2: withheld results are listed (with reasons, no scores) so the
+    // student knows what to clear.
+    const withheld: any[] = await CourseGrade.find({ student: user._id, withheld: true })
+      .populate("course", "name code courseID")
+      .select("course withheld withheldReasons");
+    res.json({ results: grades, gpa, gpaScale: DEFAULT_GRADING_POLICY.gpaScale, withheldResults: withheld });
   } catch (err) {
     res.status(500).json({ status: "Error!", message: (err as Error).message });
   }

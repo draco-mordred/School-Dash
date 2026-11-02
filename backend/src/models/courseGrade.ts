@@ -17,8 +17,13 @@ export interface ICourseGrade extends Document {
   passed: boolean;
   hasCa: boolean;
   hasExam: boolean;
-  // G1 groundwork: results are hidden from students until released (G2 gates this).
+  // G1 groundwork: results are hidden from students until released.
   released: boolean;
+  // PR G2 result-release gate: outstanding eligibility issues withhold the
+  // result even after an admin releases the course (admin can override).
+  withheld: boolean;
+  withheldReasons: string[];
+  adminOverride: boolean;
   computedAt: Date;
 }
 
@@ -40,6 +45,10 @@ const CourseGradeSchema = new Schema<ICourseGrade>(
     hasCa: { type: Boolean, default: false },
     hasExam: { type: Boolean, default: false },
     released: { type: Boolean, default: false },
+    // PR G2 result-release gate
+    withheld: { type: Boolean, default: false },
+    withheldReasons: { type: [String], default: [] },
+    adminOverride: { type: Boolean, default: false },
     computedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }
