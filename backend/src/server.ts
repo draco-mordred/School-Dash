@@ -42,7 +42,8 @@ import {
   scheduledKrystaLatifahSync,
   processPendingCheckins,
   notifyOfflineStatus,
-  lectureAttendancePlanner,
+  lectureAtte
+ndancePlanner,
   lectureAttendanceTick,
   lectureAttendanceSlaSweeper,
   lectureAttendanceDayClose,
@@ -68,12 +69,15 @@ import gradesRouter from "./routes/grades"; // PR G1 — grading/GPA routes
 import "./models/courseGrade"; // ensure CourseGrade mongoose model is registered
 import eligibilityRouter from "./routes/eligibility"; // PR G2 — eligibility/result-release-gate routes
 import "./models/studentFinance"; // ensure StudentFinance mongoose model is registered
+import progressionRouter from "./routes/progression"; // PR G3 — exam-cycle progression routes
+import "./models/studentProgression"; // ensure StudentProgression mongoose model is registered
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
 import { ensureProximityTtlIndexCurrent } from "./utils/migrations"; // PR D-followup — one-time stale TTL index migration
 
-//Add this line to set custom DNS servers for the application, which can help resolve connectivity issues with MongoDB Atlas
+//Add this line to set custom DNS servers for the a
+pplication, which can help resolve connectivity issues with MongoDB Atlas
 dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
 // The above line sets the DNS servers to Google's public DNS servers (https://developers.google.com/speed/public-dns), as well as Cloudflare's DNS server (https://developers.cloudflare.com/
 
@@ -132,6 +136,7 @@ try {
   console.log(`   Environment: ${isVercelRuntime ? "🟦 VERCEL/SERVERLESS" : "🟩 LOCAL DEVELOPMENT"}`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Node Env: ${process.env.NODE_ENV || "not set"}`);
+
   console.log(`   API Base: ${apiBase || "(root)"}`);
   console.log(`   Route Prefixes: ${routePrefixes.join(", ") || "(none)"}`);
   console.log(`   Vercel Flag: ${process.env.VERCEL || "not set"}`);
@@ -170,7 +175,8 @@ const configuredOrigins = [
 
 const isAllowedOrigin = (origin?: string) => {
   if (!origin) {
-    return true;
+ 
+   return true;
   }
 
   const normalizedOrigin = normalizeOrigin(origin);
@@ -234,7 +240,8 @@ app.use((req: Request, res: Response, next: Function) => {
 
 app.use((req: Request, res: Response, next: Function) => {
   const requestPath = req.path || "/";
-  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === "/api/setup/status" || requestPath.endsWith("/setup/status");
+  const isSetupStatusRequest = requestPath === "/setup/status" || requestPath === 
+"/api/setup/status" || requestPath.endsWith("/setup/status");
 
   if (!isSetupStatusRequest) {
     next();
@@ -296,7 +303,8 @@ app.use(async (req: Request, res: Response, next: Function) => {
 const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/users`, userRoutes);
   app.use(`${prefix}/activities`, LogsRouter);
-  app.use(`${prefix}/academic-years`, academicYearRouter);
+  app.use(`${prefix}/academic-years`, academicY
+earRouter);
   app.use(`${prefix}/academic-clocks`, academicClockRouter);
   app.use(`${prefix}/classes`, classRouter);
   app.use(`${prefix}/courses`, courseRouter);
@@ -340,13 +348,15 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/class-locations`, classLocationsRouter);
   app.use(`${prefix}/grades`, gradesRouter); // PR G1 — grading/GPA routes
   app.use(`${prefix}/eligibility`, eligibilityRouter); // PR G2 — eligibility/result-release-gate routes
+  app.use(`${prefix}/progression`, progressionRouter); // PR G3 — exam-cycle progression routes
 };
 
 for (const prefix of routePrefixes) {
   mountRoutes(prefix);
 }
 
-// Debug: list all registered routes (useful in serverless where /api prefix may be stripped)
+// Debug: list all registe
+red routes (useful in serverless where /api prefix may be stripped)
 app.get(`${apiBase}/_routes`, (req: Request, res: Response) => {
   try {
     const stack = (app as any)._router?.stack || [];
@@ -395,7 +405,8 @@ if (!isVercelRuntime) {
       console.log(`Server is running on http://localhost:${PORT}`);
     });
 
-      // Start scheduled notifications worker (runs every minute) only when not using Inngest scheduling
+      // Start scheduled notificatio
+ns worker (runs every minute) only when not using Inngest scheduling
 //     const useInngest = process.env.USE_INNGEST_SCHEDULING === "1" || process.env.USE_INNGEST_SCHEDULING === "true";
 //     if (!useInngest) {
 //       try {
@@ -435,7 +446,8 @@ if (!isVercelRuntime) {
         console.warn("JUTH config sync skipped:", err),
       );
   }).catch((error) => {
-      console.error("Failed to connect to the database on Vercel startup:", error);
+      console.error("F
+ailed to connect to the database on Vercel startup:", error);
   });
 }
 

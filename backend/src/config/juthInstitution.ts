@@ -2,6 +2,7 @@ import Institution from "../models/institution";
 import AssessmentSettings from "../models/assessmentSettings";
 import { DEFAULT_GRADING_POLICY, type GradingPolicy } from "../utils/grading";
 import { DEFAULT_ELIGIBILITY_POLICY, type EligibilityPolicy } from "../utils/eligibility";
+import { DEFAULT_PROGRESSION_POLICY, type ProgressionPolicy } from "../utils/progression";
 
 // JUTH institution config file (PR B + PR G1).
 // The JUTH-specific campus GPS and grading policy are synchronized into the
@@ -28,6 +29,12 @@ export const JUTH_GRADING_POLICY: GradingPolicy = DEFAULT_GRADING_POLICY;
 // required fees/clearance. Seeded once; admins can change it afterwards.
 export const JUTH_ELIGIBILITY_POLICY: EligibilityPolicy = DEFAULT_ELIGIBILITY_POLICY;
 
+// JUTH progression ladder seed (PR G3): the exam-cycle ladder
+// 100 -> 200 -> 300 -> 400A/B -> 500A/B -> 600A/B with the 3rd-MBBS
+// repeat-from-400 rule and the 400B≈500A / 500B≈600A clock phase
+// equivalences. Seeded once; admins can change it afterwards.
+export const JUTH_PROGRESSION_POLICY: ProgressionPolicy = DEFAULT_PROGRESSION_POLICY;
+
 export const isInstitutionJuth = (name?: string, shortName?: string) => {
   const norm = (value?: string) => String(value ?? "").trim().toLowerCase();
   return JUTH_INSTITUTION_CONFIG.matchNames.some(
@@ -38,7 +45,8 @@ export const isInstitutionJuth = (name?: string, shortName?: string) => {
 const seedJuthGradingPolicy = async (institution: any) => {
   const settingsId = institution.assessmentSettings;
   if (!settingsId) return { seeded: false, reason: "no-assessment-settings" };
-  const settings: any = await AssessmentSettings.findById(settingsId);
+  const settings: any = await AssessmentSettings.findById(settin
+gsId);
   if (!settings) return { seeded: false, reason: "settings-not-found" };
   if (
     settings.gradingPolicy &&
@@ -49,13 +57,20 @@ const seedJuthGradingPolicy = async (institution: any) => {
   }
   settings.gradingPolicy = JUTH_GRADING_POLICY;
   if (
+    !settings.progressionPolicy ||
+    !Array.isArray(settings.progressionPolicy?.stages) ||
+    settings.progressionPolicy.stages.length === 0
+  ) {
+    settings.progressionPolicy = JUTH_PROGRESSION_POLICY;
+  }
+  if (
     !settings.eligibilityPolicy ||
     settings.eligibilityPolicy?.caThresholdPercent == null
   ) {
     settings.eligibilityPolicy = JUTH_ELIGIBILITY_POLICY;
   }
   await settings.save();
-  console.log("JUTH grading + eligibility policies seeded (CA 40% / exam 60%, CA /25, 5.0 GPA; CA threshold 40%, attendance cutoff 75%)");
+  console.log("JUTH grading + eligibility + progression policies seeded (CA 40% / exam 60%, CA /25, 5.0 GPA; CA threshold 40%, attendance cutoff 75%; ladder 100->600B)");
   return { seeded: true };
 };
 
