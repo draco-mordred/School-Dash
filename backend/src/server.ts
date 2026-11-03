@@ -338,6 +338,7 @@ const mountRoutes = (prefix: string) => {
       lectureAttendanceTick,
       lectureAttendanceSlaSweeper,
       lectureAttendanceDayClose,
+      dmAutoClear,
     ]
   }));
   app.use(`${prefix}/mordred`, mordredAIRouter);
