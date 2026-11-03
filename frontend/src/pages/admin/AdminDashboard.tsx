@@ -9,10 +9,11 @@ import { OperationalAlerts } from "@/components/admin/dashboard/OperationalAlert
 import { RecentActivityFeed } from "@/components/admin/dashboard/RecentActivityFeed";
 import { QuickActions } from "@/components/admin/dashboard/QuickActions";
 import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets";
+import { DaleDiagnosticsCard } from "@/components/admin/dashboard/DaleDiagnosticsCard";
 
 /**
  * Admin Dashboard Page
- * 
+ *
  * Institutional Command Center displaying:
  * - KPI Cards (Total Students, Staff, Sessions)
  * - Academic & Clinical Snapshots
@@ -20,6 +21,7 @@ import { AnalyticsWidgets } from "@/components/admin/dashboard/AnalyticsWidgets"
  * - Recent Activity Feed
  * - Quick Action Buttons
  * - Analytics Widgets
+ * - DALE AI Diagnostics (debug button — provider key health)
  */
 export const AdminDashboard = () => {
   const { user } = useAuth();
@@ -50,6 +52,11 @@ export const AdminDashboard = () => {
           Welcome to the Admin Portal, {user?.name}. Institutional Command Center.
         </p>
       </div>
+
+      {/* DALE AI Diagnostics — quick debug for provider keys */}
+      <section>
+        <DaleDiagnosticsCard />
+      </section>
 
       {/* KPI Cards */}
       <section>
