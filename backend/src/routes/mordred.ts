@@ -1,31 +1,36 @@
 import { saveChatMessage, mordredsWords, trackMordredPerformance, dynamicAIInsights, getCourseSummary, createPostingAttendanceAlert } from "../controllers/mordred";
+import { getProviderHealth } from "../controllers/mordredHealth";
 import express from "express";
 import { protect, authorize } from "../middleware/auth";
 
 const mordredAIRouter = express.Router();
 
 mordredAIRouter.post(
-  "/save-message", 
-  protect, 
+  "/save-message",
+  protect,
   saveChatMessage
-); //How can I test this in Thunder CLient: POST http://localhost:5000/api/mordred/save-message
-// Body: {"message": "Hello, Mordred!"}
-// Headers: {"Authorization": "Bearer <token>"}
-// Note: Replace <token> with your actual token.
-// Make sure to include the correct token in the Authorization header to authenticate the request.
+);
 
 mordredAIRouter.post(
-  "/chat/handle", 
+  "/chat/handle",
   protect,
   mordredsWords
-); //How can I test this in Thunder CLient: POST http://localhost:5000/mordred/saveChatMessage
-// Headers:
+);
 
 mordredAIRouter.get(
   "/admin/diagnostics",
   protect,
   authorize(["admin"]),
   trackMordredPerformance
+);
+
+// NEW — live AI provider health: which keys the backend process can see +
+// a real one-token test call per key with the true error messages.
+mordredAIRouter.get(
+  "/admin/provider-health",
+  protect,
+  authorize(["admin"]),
+  getProviderHealth
 );
 
 mordredAIRouter.post(
