@@ -136,7 +136,7 @@ export const aiModerate = async (
     try {
       const google = createGoogleGenerativeAI({ apiKey });
       const { text: out } = await generateText({
-        model: google(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+        model: google(process.env.MORDRED_MODEL || "gemini-3.8-flash"),
         prompt,
         temperature: 0,
       });
@@ -244,12 +244,13 @@ export const sendDm = async (
     return { status: "unavailable", caution: "User not available." };
   }
 
-  // 3. Students cannot @-mention admins unless that admin enabled their chat.
+  // 3. DM defaults: students/staff receive DMs by default; admins are opt-in
+  // (chat disabled by default) EXCEPT from other admins, who can always reach them.
   const senderRole = String(sender?.role ?? "").trim().toLowerCase();
   const recipientRole = String(recipient.role ?? "").trim().toLowerCase();
   if (recipientRole === "admin") {
     const adminChatEnabled = await getChatEnabled(recipient._id);
-    if (!adminChatEnabled) {
+    if (!adminChatEnabled && senderRole !== "admin") {
       return { status: "unavailable", caution: "User not available." };
     }
   }
