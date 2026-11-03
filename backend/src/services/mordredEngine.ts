@@ -57,13 +57,28 @@ export async function routeTaskToStaff(departmentName: string, taskType: string,
   }
 }
 
-// ─── PR M1 — provider chain ────────────────────────────────────────
-// Mistral (La Plateforme) is the primary provider when MISTRAL_API_KEY is
-// set; Google Gemini is the fallback provider; the deterministic template
-// fallback in utils/mordredFallback is the last resort (controllers).
+// ─── Provider chain with interchangeable key pools ─────────────────
+// Keys are tried in order within a provider pool (e.g. MISTRAL_API_KEY
+// then MISTRAL_API_KEY_2) before falling back to the next provider, so
+// multiple keys of the same provider are used interchangeably.
+export const getMistralApiKeys = (): string[] =>
+  [process.env.MISTRAL_API_KEY, process.env.MISTRAL_API_KEY_2]
+    .map((key) => String(key ?? "").trim())
+    .filter(Boolean);
+
+export const getGoogleApiKeys = (): string[] =>
+  [
+    process.env.AI_GATEWAY_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY_2,
+  ]
+    .map((key) => String(key ?? "").trim())
+    .filter(Boolean);
+
 export const resolveMordredProvider = (): "mistral" | "gemini" | "none" => {
-  if ((process.env.MISTRAL_API_KEY || "").trim()) return "mistral";
-  if ((process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim()) return "gemini";
+  if (getMistralApiKeys().length > 0) return "mistral";
+  if (getGoogleApiKeys().length > 0) return "gemini";
   return "none";
 };
 

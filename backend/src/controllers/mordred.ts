@@ -18,6 +18,8 @@ import { toolsForRole } from "../utils/mordredTools";
 import {
   checkAndIncrementMordredUsage,
   executeMordredTool,
+  getGoogleApiKeys,
+  getMistralApiKeys,
   resolveMordredProvider,
 } from "../services/mordredEngine";
 import { getStudentRiskSnapshot, getClassRiskOverview } from "../services/riskService";
@@ -194,9 +196,9 @@ export const getCourseSummary = async (req: Request, res: Response) => {
         .join("\n");
     };
 
-    const geminiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
-    const mistralKey = (process.env.MISTRAL_API_KEY || "").trim();
-    if (!geminiKey && !mistralKey) {
+    const mistralKeys = getMistralApiKeys();
+    const googleKeys = getGoogleApiKeys();
+    if (mistralKeys.length === 0 && googleKeys.length === 0) {
       console.warn("⚠️ DALE Configuration Warning: AI credentials are missing. Using course-summary fallback.");
       return res.status(200).json({
         _id: `mordred-course-summary-fallback-${Date.now()}`,
@@ -206,28 +208,37 @@ export const getCourseSummary = async (req: Request, res: Response) => {
       });
     }
 
+    const summaryPrompt = `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`;
+
     const runSummary = async () => {
-      // PR M1: provider chain — Mistral first (when configured), Gemini fallback.
-      if (mistralKey) {
+      // Key pools: try each Mistral key in order, then each Google key.
+      for (const apiKey of mistralKeys) {
         try {
-          const mistral = createMistral({ apiKey: mistralKey });
+          const mistral = createMistral({ apiKey });
           const { text } = await generateText({
             model: mistral(process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest"),
-            prompt: `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`,
+            prompt: summaryPrompt,
             temperature: 0.4,
           });
           return String(text ?? "").trim();
         } catch (mistralError) {
-          console.warn("⚠️ DALE Mistral course summary failed, trying Gemini.", mistralError);
+          console.warn(`⚠️ DALE Mistral course summary failed (key ${mistralKeys.indexOf(apiKey) + 1}/${mistralKeys.length}), trying next key.`, mistralError);
         }
       }
-      const googleAI = createGoogleGenerativeAI({ apiKey: geminiKey });
-      const { text } = await generateText({
-        model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
-        prompt: `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`,
-        temperature: 0.4,
-      });
-      return String(text ?? "").trim();
+      for (const apiKey of googleKeys) {
+        try {
+          const googleAI = createGoogleGenerativeAI({ apiKey });
+          const { text } = await generateText({
+            model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+            prompt: summaryPrompt,
+            temperature: 0.4,
+          });
+          return String(text ?? "").trim();
+        } catch (googleError) {
+          console.warn(`⚠️ DALE Gemini course summary failed (key ${googleKeys.indexOf(apiKey) + 1}/${googleKeys.length}), trying next key.`, googleError);
+        }
+      }
+      throw new Error("All DALE provider keys failed.");
     };
 
     try {
@@ -288,8 +299,8 @@ export const mordredsWords = async (req: Request, res: Response) => {
     const { daleTools, toolsUsed } = buildDaleTools(userRole, user?._id, user?.name);
 
     const runDale = async () => {
-      const geminiKey = (process.env.AI_GATEWAY_API_KEY || process.env.GEMINI_API_KEY || "").trim();
-      const mistralKey = (process.env.MISTRAL_API_KEY || "").trim();
+      const mistralKeys = getMistralApiKeys();
+      const googleKeys = getGoogleApiKeys();
 
       const contextBlock = [
         `User ID: ${user?._id}.`,
@@ -310,26 +321,32 @@ export const mordredsWords = async (req: Request, res: Response) => {
         temperature: 0.4,
       };
 
-      if (mistralKey) {
+      // Key pools: try each Mistral key in order, then each Google key.
+      for (const apiKey of mistralKeys) {
         try {
-          const mistral = createMistral({ apiKey: mistralKey });
+          const mistral = createMistral({ apiKey });
           const result = await generateText({
             ...commonParams,
             model: mistral(process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest"),
           });
           return { text: result.text, provider: "mistral" as const };
         } catch (mistralError) {
-          console.warn("⚠️ DALE Mistral request failed, falling back to Gemini.", mistralError);
-          if (!geminiKey) throw mistralError;
+          console.warn(`⚠️ DALE Mistral request failed (key ${mistralKeys.indexOf(apiKey) + 1}/${mistralKeys.length}), trying next key.`, mistralError);
         }
       }
-
-      const googleAI = createGoogleGenerativeAI({ apiKey: geminiKey });
-      const result = await generateText({
-        ...commonParams,
-        model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
-      });
-      return { text: result.text, provider: "gemini" as const };
+      for (const apiKey of googleKeys) {
+        try {
+          const googleAI = createGoogleGenerativeAI({ apiKey });
+          const result = await generateText({
+            ...commonParams,
+            model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+          });
+          return { text: result.text, provider: "gemini" as const };
+        } catch (googleError) {
+          console.warn(`⚠️ DALE Gemini request failed (key ${googleKeys.indexOf(apiKey) + 1}/${googleKeys.length}), trying next key.`, googleError);
+        }
+      }
+      throw new Error("All DALE provider keys failed.");
     };
 
     try {
