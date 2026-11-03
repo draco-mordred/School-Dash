@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
-import api from "@/lib/api";
+import { api } from "@/lib/api";
 
 interface LiveTest { provider: string; keyIndex: number; ok: boolean; error?: string; errorName?: string; sample?: string; ms?: number }
 interface Health {
