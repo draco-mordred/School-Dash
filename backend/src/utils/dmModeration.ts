@@ -175,7 +175,7 @@ export const shouldPreserveDm = (dm: {
   hasOpenCase?: boolean;
 }): boolean => {
   if (dm.preserved) return true;
-  if (dm.verdict === "soft_flag" || dm.verdict === "blocked") return true;
+  if (dm.verdict === "soft_flag" || dm.verdict === "soft_flagged" || dm.verdict === "blocked") return true;
   if (dm.hasOpenCase) return true;
   return false;
 };
