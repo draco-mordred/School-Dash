@@ -1322,3 +1322,18 @@ export const lectureAttendanceDayClose = inngest.createFunction(
     return { success: true, ...result };
   }
 );
+
+
+// ─── PR M2 — DM weekly auto-clear (design point 6) ──────────────────────
+// Preservation whitelist (flagged/escalation evidence, pending-report cases)
+// is re-asserted BEFORE any deletion; clean DMs auto-delete after 7 days.
+export const dmAutoClear = inngest.createFunction(
+  { id: "DM-Auto-Clear", triggers: { cron: "20 3 * * *" } },
+  async ({ step }) => {
+    const result = await step.run("run-dm-auto-clear", async () => {
+      const { runDmAutoClear } = await import("../services/dmService");
+      return await runDmAutoClear(new Date());
+    });
+    return { success: true, ...result };
+  }
+);

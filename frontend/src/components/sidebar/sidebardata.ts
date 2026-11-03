@@ -152,6 +152,7 @@ export const sidebardata = {
         { title: "System Alerts", url: "/reports/system-alerts", roles: ["admin"] },
         { title: "Priorities and Problems", url: "/reports/priorities", roles: ["admin"] },
         { title: "Global Feedback & Complaints", url: "/reports/feedback", roles: ["admin"] },
+        { title: "DM Moderation", url: "/dm-moderation", roles: ["admin"] }, // PR M2
       ],
     },
     {

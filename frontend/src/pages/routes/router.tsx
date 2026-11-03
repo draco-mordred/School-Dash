@@ -74,6 +74,7 @@ import SchoolProfile from "@/pages/SchoolProfile";
 import SetupRouteGate from "@/pages/routes/SetupRouteGate";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import { useAuth } from "@/hooks/useAuth";
+import DmModerationQueue from "@/pages/admin/DmModerationQueue"; // PR M2 — admin DM moderation queue
 
 // Wrapper component for courses route - renders based on user role
 const CoursesWrapper = () => {
@@ -102,6 +103,13 @@ const ActivitiesLogRoute = () => {
   const { user } = useAuth();
   if (user?.role !== "admin") return <NotFound />;
   return <ActivitiesLog />;
+};
+
+// PR M2 — DM moderation queue is admin-only; non-admins get NotFound
+const DmModerationQueueRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <NotFound />;
+  return <DmModerationQueue />;
 };
 
 // PR E2 — dashboard consolidation: /dashboard is the students' home and
@@ -134,6 +142,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "dashboard", element: <DashboardRoute /> }, // PR E2 — students see the portal here
           { path: "activities-log", element: <ActivitiesLogRoute /> },
+          { path: "dm-moderation", element: <DmModerationQueueRoute /> }, // PR M2
           { path: "settings/academic-years", element: <AcademicYear /> },
           {
             path: "users",

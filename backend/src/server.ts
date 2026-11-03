@@ -47,6 +47,7 @@ import {
   lectureAttendanceTick,
   lectureAttendanceSlaSweeper,
   lectureAttendanceDayClose,
+  dmAutoClear,
 } from "./inngest/functions";
 import timeRouter from "./routes/timetable";
 import examRouter from "./routes/exam";
@@ -72,6 +73,10 @@ import "./models/studentFinance"; // ensure StudentFinance mongoose model is reg
 import progressionRouter from "./routes/progression"; // PR G3 — progression/clock-sync routes
 import "./models/progressionRecord"; // ensure ProgressionRecord mongoose model is registered
 import riskRouter from "./routes/risk"; // PR H — predictive risk + overlap-warning routes
+import dmRouter from "./routes/dm"; // PR M2 — DM + moderation routes
+import "./models/dmMessage"; // ensure DmMessage mongoose model is registered
+import "./models/dmCase"; // ensure DmCase mongoose model is registered
+import "./models/dmChatSetting"; // ensure DmChatSetting mongoose model is registered
 import { createBodyParsers } from "./utils/bodyParser";
 import { backfillMissingInns } from "./controllers/user";
 import { syncJuthInstitutionConfig } from "./config/juthInstitution";
@@ -343,6 +348,7 @@ const mountRoutes = (prefix: string) => {
   app.use(`${prefix}/eligibility`, eligibilityRouter); // PR G2 — eligibility/result-release-gate routes
   app.use(`${prefix}/progression`, progressionRouter); // PR G3 — progression/clock-sync routes
   app.use(`${prefix}/risk`, riskRouter); // PR H — predictive risk + overlap-warning routes
+  app.use(`${prefix}/dm`, dmRouter); // PR M2 — DM + moderation routes
 };
 
 for (const prefix of routePrefixes) {
