@@ -1094,7 +1094,7 @@ export default function AppShell({ children }: PropsWithChildren) {
               {children ?? <Outlet />}
             </div>
           </main>
-          {/* <MordredFloatingChat /> */}
+          {isProtected && <MordredFloatingChat />}
           {isProtected && (
             <footer
               id="app-footer"
