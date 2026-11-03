@@ -1,0 +1,48 @@
+/* ─── PR M7 — DALE chat UI overhaul animations + glassmorphism ───────── */
+@keyframes dale-pop-in {
+  0% { opacity: 0; transform: scale(0.86) translateY(24px); }
+  60% { opacity: 1; transform: scale(1.03) translateY(-4px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes dale-pop-out {
+  0% { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(0.9) translateY(18px); }
+}
+@keyframes dale-msg-in-left {
+  0% { opacity: 0; transform: translateX(-14px) scale(0.96); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes dale-msg-in-right {
+  0% { opacity: 0; transform: translateX(14px) scale(0.96); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes dale-chip-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--dale-accent-rgb, 110, 86, 207), 0.45); transform: scale(1); }
+  50% { box-shadow: 0 0 0 5px rgba(var(--dale-accent-rgb, 110, 86, 207), 0); transform: scale(1.04); }
+}
+.dale-pop-in { animation: dale-pop-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.dale-pop-out { animation: dale-pop-out 200ms ease-in both; }
+.dale-msg-left { animation: dale-msg-in-left 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.dale-msg-right { animation: dale-msg-in-right 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.dale-chip-pulse { animation: dale-chip-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dale-pop-in, .dale-pop-out, .dale-msg-left, .dale-msg-right, .dale-chip-pulse { animation: none; }
+}
+/* iPhone-style glassmorphism */
+.dale-glass {
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+.dale-glass-header {
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.dale-glass-bubble {
+  background: color-mix(in srgb, var(--muted) 62%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
