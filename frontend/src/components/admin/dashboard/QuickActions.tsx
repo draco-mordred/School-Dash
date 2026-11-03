@@ -13,6 +13,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import type { VariantProps } from "class-variance-authority";
 import { buttonVariants } from "@/components/ui/button";
+import { DaleDiagnosticsCard } from "./DaleDiagnosticsCard";
 
 export interface QuickAction {
   id: string;
@@ -105,6 +106,10 @@ export const QuickActions = ({
               {action.label}
             </Button>
           ))}
+        </div>
+        {/* DALE AI Diagnostics — quick provider-key health check for admins */}
+        <div className="mt-4">
+          <DaleDiagnosticsCard />
         </div>
       </CardContent>
     </Card>
