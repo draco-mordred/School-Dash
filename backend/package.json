@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.71",
-    "@ai-sdk/mistral": "latest",
+    "@ai-sdk/mistral": "^2.0.0",
     "ai": "^6.0.177",
     "bcryptjs": "^3.0.3",
     "chat": "^4.33.0",
