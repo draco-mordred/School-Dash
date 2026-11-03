@@ -71,7 +71,7 @@ export const getProviderHealth = async (req: Request, res: Response) => {
     try {
       const googleAI = createGoogleGenerativeAI({ apiKey: googleKeys[i] });
       const { text } = await generateText({
-        model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+        model: googleAI(process.env.MORDRED_MODEL || "gemini-3.8-flash"),
         prompt: "Reply with the single word: healthy",
         maxOutputTokens: 16,
       });
@@ -97,7 +97,7 @@ export const getProviderHealth = async (req: Request, res: Response) => {
   const anyOk = liveTests.some((t) => t.ok);
   const modelVersions = {
     mistralModel: process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest",
-    googleModel: process.env.MORDRED_MODEL || "gemini-2.0-flash",
+    googleModel: process.env.MORDRED_MODEL || "gemini-3.8-flash",
   };
 
   return res.status(200).json({

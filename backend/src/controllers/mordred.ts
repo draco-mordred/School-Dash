@@ -143,7 +143,7 @@ export const saveChatMessage = async (
         $set: {
           is_saved: true,
           chat_token: uniqueToken,
-          expires_at: null // Setting to null clears the TTL deletion timer completely
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // PR M10: saved messages persist max 30 days (was null = permanent)
         }
       },
       { returnDocument: 'after' }
@@ -231,7 +231,7 @@ export const getCourseSummary = async (req: Request, res: Response) => {
         try {
           const googleAI = createGoogleGenerativeAI({ apiKey });
           const { text } = await generateText({
-            model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+            model: googleAI(process.env.MORDRED_MODEL || "gemini-3.8-flash"),
             prompt: summaryPrompt,
             temperature: 0.4,
           });
@@ -366,7 +366,7 @@ export const mordredsWords = async (req: Request, res: Response) => {
           const googleAI = createGoogleGenerativeAI({ apiKey });
           const result = await generateText({
             ...commonParams,
-            model: googleAI(process.env.MORDRED_MODEL || "gemini-2.0-flash"),
+            model: googleAI(process.env.MORDRED_MODEL || "gemini-3.8-flash"),
           });
           return { text: result.text, provider: "gemini" as const };
         } catch (googleError) {
