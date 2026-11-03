@@ -24,7 +24,7 @@ export function MordredChatPanel({
   const { user } = useAuth();
   const { messages, loading, sendMessage, saveMessage } = useMordred();
   const [input, setInput] = useState("");
-  const [tab, setTab] = useState<"dale" | "dms">("dale");
+  const [tab, setTab] = useState<"dale" | "dms" | "settings">("dale");
   const [showSettings, setShowSettings] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [animations, setAnimations] = useState(true);
@@ -93,7 +93,7 @@ export function MordredChatPanel({
             className={`px-2.5 py-1 text-[11px] font-bold rounded-full transition ${tab === "dms" ? "text-white" : "text-muted-foreground hover:text-primary"}`}
             style={tab === "dms" ? { backgroundColor: accent.color } : {}}>DMs</button>
           <div className="relative">
-            <button onClick={() => setShowSettings((s) => !s)} title="Chat settings"
+            <button onClick={() => setTab(tab === "settings" ? "dale" : "settings")} title="Chat settings" className={tab === "settings" ? "p-1.5 rounded-full text-primary hover:text-primary hover:bg-muted/60 transition" : "p-1.5 rounded-full text-muted-foreground hover:text-primary hover:bg-muted/60 transition"}
               className="p-1.5 rounded-full text-muted-foreground hover:text-primary hover:bg-muted/60 transition">⚙</button>
             {showSettings && (
               <div className={`absolute right-0 top-9 z-20 w-60 rounded-xl border border-border shadow-xl p-3 text-xs space-y-3 dale-pop-in ${glass ? "dale-glass" : "bg-card"}`}>
@@ -128,7 +128,42 @@ export function MordredChatPanel({
       </div>
 
       {/* Body */}
-      {tab === "dms" ? (
+      {tab === "settings" ? (
+        <div className="flex-1 p-4 overflow-y-auto space-y-4 text-sm">
+          <p className="font-bold text-base">Chat Settings</p>
+          <div className="space-y-3">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <span>Animations &amp; expressions</span>
+              <input type="checkbox" checked={animations} className="accent-primary"
+                onChange={(e) => { setAnimations(e.target.checked); setAnimationsEnabled(e.target.checked); }} />
+            </label>
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <span>Glassmorphism effect</span>
+              <input type="checkbox" checked={glass} className="accent-primary"
+                onChange={(e) => { setGlass(e.target.checked); setGlassEnabled(e.target.checked); }} />
+            </label>
+          </div>
+          <div>
+            <p className="font-semibold mb-2">Accent color</p>
+            <div className="flex gap-2">
+              {DALE_ACCENTS.map((a) => (
+                <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); }}
+                  className={`w-6 h-6 rounded-full border-2 transition ${accent.color === a.color ? "border-foreground scale-110" : "border-transparent"}`}
+                  style={{ backgroundColor: a.color }} />
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="font-semibold mb-1">Chat persistence</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Your conversation stays while the app is open and closing the panel only hides it. Unsaved
+              messages auto-clear after 12 hours; use 💾 Keep Message to keep one for up to 30 days.
+            </p>
+          </div>
+          <button onClick={() => setTab("dale")} className="px-3 py-1.5 rounded-full text-xs font-bold text-white transition"
+            style={{ backgroundColor: accent.color }}>← Back to chat</button>
+        </div>
+      ) : tab === "dms" ? (
         <DmPanel expanded={expanded} onSwitchToDale={() => { setTab("dale"); onSwitchToDale?.(); }} />
       ) : (
         <>
