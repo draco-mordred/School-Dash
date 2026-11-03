@@ -23,6 +23,8 @@ import {
   resolveMordredProvider,
 } from "../services/mordredEngine";
 import { getStudentRiskSnapshot, getClassRiskOverview } from "../services/riskService";
+import { extractMentionEmail } from "../utils/dmModeration";
+import { sendDmFromMention } from "../services/dmService"; // PR M2 — @mention DM flow
 
 const permittedInsightRoles = new Set(["admin", "teacher", "unitconsultant", "unitresident", "parent", "student"]);
 const isInsightRole = (role?: string) => permittedInsightRoles.has(normalizeRole(role));
@@ -274,6 +276,31 @@ export const mordredsWords = async (req: Request, res: Response) => {
   const userRole = String(user?.role ?? "").trim().toLowerCase();
 
   try {
+    // PR M2 — @email mention → DM another user. Generic responses prevent
+    // email enumeration; DMs are moderated before delivery (design points 4-10).
+    const mentionEmail = extractMentionEmail(String(message ?? ""));
+    if (mentionEmail) {
+      const dmResult = await sendDmFromMention(user, String(message));
+      const dmTexts: Record<string, string> = {
+        delivered: `DALE delivered your direct message to ${dmResult.recipientName ?? "the user"}. They will see it in their DALE inbox.`,
+        soft_flagged: `DALE delivered your direct message to ${dmResult.recipientName ?? "the user"}, but our moderation system flagged it: ${dmResult.caution ?? "please keep conversations respectful."}`,
+        blocked: dmResult.caution ?? "Your message was blocked by moderation and not delivered.",
+        unavailable: "User not available.",
+        frozen: dmResult.caution ?? "Your chat is frozen pending admin review.",
+        suspended: dmResult.caution ?? "Your chat is currently suspended.",
+      };
+      return res.status(200).json({
+        _id: new mongoose.Types.ObjectId(),
+        sender: "mordred_ai",
+        text: dmTexts[dmResult.status] ?? "Your message could not be delivered.",
+        is_ticket_created: false,
+        toolsUsed: ["dm_mention"],
+        provider: "dm",
+        fallbackUsed: false,
+        dm: dmResult,
+      });
+    }
+
     // PR M1: daily per-user message caps (RBAC registry driven).
     const usage = await checkAndIncrementMordredUsage(user?._id, "messages");
     if (!usage.allowed) {
