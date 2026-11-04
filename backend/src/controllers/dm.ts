@@ -29,7 +29,7 @@ export const sendDmController = async (req: Request, res: Response) => {
     const result = await sendDm(user, targetEmail, String(message));
     // Generic "user not available" prevents email enumeration.
     if (result.status === "unavailable") {
-      return res.status(200).json({ status: "unavailable", message: "User not available." });
+      return res.status(200).json({ status: "unavailable", message: result.caution || "User not available." });
     }
     return res.status(200).json(result);
   } catch (error: any) {

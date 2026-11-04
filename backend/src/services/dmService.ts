@@ -79,6 +79,10 @@ const notifyAllAdmins = async (title: string, message: string, metadata: Record<
 // DM needs a stricter look), the provider chain evaluates it too. The AI can
 // UPGRADE a soft flag to hard, never downgrade a hard block (fail-safe). If
 // every provider key fails, the deterministic verdict stands.
+// PR M15 — normalize a recipient email: strip leading @/@+, trim, lowercase.
+const normalizeDmEmail = (raw: unknown) =>
+  String(raw ?? "").trim().replace(/^[+@]+/, "").toLowerCase();
+
 export const aiModerate = async (
   text: string,
   strict: boolean
@@ -235,9 +239,10 @@ export const sendDm = async (
 
   // 2. Resolve recipient. Generic responses prevent email enumeration.
   const recipient: any = await User.findOne({
-    email: String(recipientEmail).trim().toLowerCase(),
+    email: normalizeDmEmail(recipientEmail),
     isActive: { $ne: false },
   })
+    .collation({ locale: "en", strength: 2 })
     .select("name email role")
     .lean();
   if (!recipient) {
