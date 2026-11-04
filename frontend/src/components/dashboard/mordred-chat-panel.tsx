@@ -8,8 +8,24 @@ import { DaleEmojiPicker } from "./dale-emoji-picker";
 import { quickRepliesForRole, WELCOME_FOR_ROLE } from "../../utils/daleQuickReplies";
 import {
   animationsEnabled, setAnimationsEnabled, glassEnabled, setGlassEnabled,
-  DALE_ACCENTS, getAccent, setAccent,
+  DALE_ACCENTS, getAccent, setAccent, getBubbleStyle, setBubbleStyleSaved,
 } from "../../utils/daleSettings";
+
+// PR M16 — per-user bubble style presets.
+const BUBBLE_STYLES: Record<string, { user: string; ai: string }> = {
+  messenger: { user: "rounded-2xl", ai: "rounded-2xl" },
+  ios: { user: "rounded-2xl rounded-tr-sm", ai: "rounded-2xl rounded-bl-sm" },
+  square: { user: "rounded-none", ai: "rounded-none" },
+  whatsapp: { user: "rounded-lg rounded-tr-none", ai: "rounded-lg rounded-tl-none" },
+};
+
+// PR M16 — accent color also drives the user's overall UI primary color.
+const applyAccentToRoot = (color: string) => {
+  try {
+    document.documentElement.style.setProperty("--primary", color);
+    document.documentElement.style.setProperty("--ring", color);
+  } catch {}
+};
 
 // PR M7 — chat UI overhaul: iPhone glassmorphism, per-message animations,
 // emoji picker, pulsating quick replies after EVERY AI response, and a
@@ -30,12 +46,16 @@ export function MordredChatPanel({
   const [animations, setAnimations] = useState(true);
   const [glass, setGlass] = useState(true);
   const [accent, setAccentState] = useState(DALE_ACCENTS[0]);
+  const [bubbleStyle, setBubbleStyle] = useState("ios");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setAnimations(animationsEnabled());
     setGlass(glassEnabled());
-    try { setAccentState(getAccent()); } catch {}
+    const savedAccent = getAccent();
+    setAccentState(savedAccent);
+    applyAccentToRoot(savedAccent.color);
+    setBubbleStyle(getBubbleStyle());
   }, []);
 
   useEffect(() => {
@@ -104,7 +124,7 @@ export function MordredChatPanel({
                     onChange={(e) => { setAnimations(e.target.checked); setAnimationsEnabled(e.target.checked); }} />
                 </label>
                 <label className="flex items-center justify-between gap-2 cursor-pointer">
-                  <span>Glassmorphism effect</span>
+                  <span>Transparent UI</span>
                   <input type="checkbox" checked={glass} className="accent-primary"
                     onChange={(e) => { setGlass(e.target.checked); setGlassEnabled(e.target.checked); }} />
                 </label>
@@ -112,7 +132,7 @@ export function MordredChatPanel({
                   <p className="font-semibold mb-1.5">Accent color</p>
                   <div className="flex gap-2">
                     {DALE_ACCENTS.map((a) => (
-                      <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); }}
+                      <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); applyAccentToRoot(a.color); }}
                         className={`w-5 h-5 rounded-full border-2 transition ${accent.color === a.color ? "border-foreground scale-110" : "border-transparent"}`}
                         style={{ backgroundColor: a.color }} />
                     ))}
@@ -138,7 +158,7 @@ export function MordredChatPanel({
                 onChange={(e) => { setAnimations(e.target.checked); setAnimationsEnabled(e.target.checked); }} />
             </label>
             <label className="flex items-center justify-between gap-2 cursor-pointer">
-              <span>Glassmorphism effect</span>
+              <span>Transparent UI</span>
               <input type="checkbox" checked={glass} className="accent-primary"
                 onChange={(e) => { setGlass(e.target.checked); setGlassEnabled(e.target.checked); }} />
             </label>
@@ -147,11 +167,21 @@ export function MordredChatPanel({
             <p className="font-semibold mb-2">Accent color</p>
             <div className="flex gap-2">
               {DALE_ACCENTS.map((a) => (
-                <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); }}
+                <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); applyAccentToRoot(a.color); }}
                   className={`w-6 h-6 rounded-full border-2 transition ${accent.color === a.color ? "border-foreground scale-110" : "border-transparent"}`}
                   style={{ backgroundColor: a.color }} />
               ))}
             </div>
+          </div>
+          <div>
+            <p className="font-semibold mb-2">Bubble style</p>
+            <select value={bubbleStyle} onChange={(e) => { setBubbleStyle(e.target.value); setBubbleStyleSaved(e.target.value); }}
+              className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm">
+              <option value="messenger">Messenger</option>
+              <option value="ios">iOS</option>
+              <option value="square">Square</option>
+              <option value="whatsapp">WhatsApp</option>
+            </select>
           </div>
           <div>
             <p className="font-semibold mb-1">Chat persistence</p>
@@ -191,8 +221,8 @@ export function MordredChatPanel({
                   <div className={`flex flex-col max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
                     <div className={`px-4 py-2.5 shadow-sm text-sm leading-relaxed whitespace-pre-wrap ${
                       isSystem ? "bg-destructive/10 text-destructive rounded-xl text-xs"
-                      : isUser ? "text-white rounded-2xl rounded-tr-sm"
-                      : glass ? "dale-glass-bubble text-foreground rounded-2xl rounded-bl-sm" : "bg-muted text-foreground rounded-2xl rounded-bl-sm"}`}
+                      : isUser ? ("text-white " + (BUBBLE_STYLES[bubbleStyle] || BUBBLE_STYLES.ios).user)
+                      : glass ? ("dale-glass-bubble text-foreground " + (BUBBLE_STYLES[bubbleStyle] || BUBBLE_STYLES.ios).ai) : ("bg-muted text-foreground " + (BUBBLE_STYLES[bubbleStyle] || BUBBLE_STYLES.ios).ai)}`}
                       style={isUser ? { backgroundColor: accent.color } : {}}>
                       {msg.text}
                     </div>
