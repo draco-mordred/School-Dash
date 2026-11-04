@@ -45,3 +45,12 @@ export const togglePinPartner = (partnerId: string): string[] => {
   setPinnedPartnerIds(next);
   return next;
 };
+
+// PR M16 — bubble style (messenger | ios | square | whatsapp), per user.
+export const BUBBLE_KEY = "dale-bubble-style";
+export const getBubbleStyle = (): string => {
+  try { return localStorage.getItem(BUBBLE_KEY) || "ios"; } catch { return "ios"; }
+};
+export const setBubbleStyleSaved = (style: string) => {
+  try { localStorage.setItem(BUBBLE_KEY, style); } catch {}
+};
