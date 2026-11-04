@@ -251,7 +251,7 @@ export const sendDm = async (
   if (recipientRole === "admin") {
     const adminChatEnabled = await getChatEnabled(recipient._id);
     if (!adminChatEnabled && senderRole !== "admin") {
-      return { status: "unavailable", caution: "User not available." };
+      return { status: "unavailable", caution: "This administrator has DMs turned off. Admins receive DMs on opt-in — they can enable theirs in chat settings. Admins can always reach each other." };
     }
   }
 
