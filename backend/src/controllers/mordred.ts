@@ -285,7 +285,7 @@ export const mordredsWords = async (req: Request, res: Response) => {
         delivered: `DALE delivered your direct message to ${dmResult.recipientName ?? "the user"}. They will see it in their DALE inbox.`,
         soft_flagged: `DALE delivered your direct message to ${dmResult.recipientName ?? "the user"}, but our moderation system flagged it: ${dmResult.caution ?? "please keep conversations respectful."}`,
         blocked: dmResult.caution ?? "Your message was blocked by moderation and not delivered.",
-        unavailable: "User not available.",
+        unavailable: dmResult.caution || "User not available.",
         frozen: dmResult.caution ?? "Your chat is frozen pending admin review.",
         suspended: dmResult.caution ?? "Your chat is currently suspended.",
       };
