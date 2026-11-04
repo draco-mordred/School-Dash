@@ -40,11 +40,10 @@ DmMessageSchema.index(
 );
 
 const defaultExpiry = () => new Date(Date.now() + DM_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-DmMessageSchema.pre("save", function (next) {
+DmMessageSchema.pre("save", async function () {
   if (this.isNew && this.expiresAt === null && !this.preserved) {
     (this as any).expiresAt = defaultExpiry();
   }
-  next();
 });
 
 export default mongoose.model<IDmMessage>("DmMessage", DmMessageSchema);
