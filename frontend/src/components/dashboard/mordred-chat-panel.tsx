@@ -19,14 +19,6 @@ const BUBBLE_STYLES: Record<string, { user: string; ai: string }> = {
   whatsapp: { user: "rounded-lg rounded-tr-none", ai: "rounded-lg rounded-tl-none" },
 };
 
-// PR M16 — accent color also drives the user's overall UI primary color.
-const applyAccentToRoot = (color: string) => {
-  try {
-    document.documentElement.style.setProperty("--primary", color);
-    document.documentElement.style.setProperty("--ring", color);
-  } catch {}
-};
-
 // PR M7 — chat UI overhaul: iPhone glassmorphism, per-message animations,
 // emoji picker, pulsating quick replies after EVERY AI response, and a
 // settings customizer (animations, glass effect, accent color).
@@ -54,7 +46,6 @@ export function MordredChatPanel({
     setGlass(glassEnabled());
     const savedAccent = getAccent();
     setAccentState(savedAccent);
-    applyAccentToRoot(savedAccent.color);
     setBubbleStyle(getBubbleStyle());
   }, []);
 
@@ -132,7 +123,7 @@ export function MordredChatPanel({
                   <p className="font-semibold mb-1.5">Accent color</p>
                   <div className="flex gap-2">
                     {DALE_ACCENTS.map((a) => (
-                      <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); applyAccentToRoot(a.color); }}
+                      <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); }}
                         className={`w-5 h-5 rounded-full border-2 transition ${accent.color === a.color ? "border-foreground scale-110" : "border-transparent"}`}
                         style={{ backgroundColor: a.color }} />
                     ))}
@@ -167,7 +158,7 @@ export function MordredChatPanel({
             <p className="font-semibold mb-2">Accent color</p>
             <div className="flex gap-2">
               {DALE_ACCENTS.map((a) => (
-                <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); applyAccentToRoot(a.color); }}
+                <button key={a.color} title={a.name} onClick={() => { setAccent(a.color); setAccentState(a); }}
                   className={`w-6 h-6 rounded-full border-2 transition ${accent.color === a.color ? "border-foreground scale-110" : "border-transparent"}`}
                   style={{ backgroundColor: a.color }} />
               ))}
