@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Search from "@/components/global/Search";
 import type { schedule } from "@/types";
-import DayTimetable from "@/components/calendar/DayTimetable";
+import DayTimelineWindows from "@/components/calendar/DayTimelineWindows";
 import MonthViewCalendar from "@/components/calendar/MonthViewCalendar";
 import DayPopupBubble from "@/components/calendar/DayPopupBubble";
 import DayGroupsBoard from "@/components/calendar/DayGroupsBoard";
@@ -567,6 +567,11 @@ export default function ClinicalSchedules() {
       !selectedPostingId || event.postingId === selectedPostingId;
     return searchMatches && statusMatches && postingMatches;
   });
+
+  const dayViewEvents = useMemo(
+    () => [...filteredEvents, ...dayTimetableEvents],
+    [filteredEvents, dayTimetableEvents],
+  );
 
   const monthDayLineItems = useMemo<DayLineItemsMap>(() => {
     const lineItems: DayLineItemsMap = {};
@@ -1127,75 +1132,43 @@ export default function ClinicalSchedules() {
                         }
                       />
                     </div>
-                    <DayTimetable
-                    events={[...filteredEvents, ...dayTimetableEvents]}
-                    date={currentDate}
-                    onEventClick={(ev) => {
-                      if (!ev.id || ev.id.startsWith("tt-")) {
-                        toast.info(
-                          "Timetable periods come from the class timetable.",
-                        );
-                        return;
-                      }
-                      setSelectedEvent({
-                        id: ev.id || "",
-                        title: ev.postingName || "Clinical activity",
-                        start: new Date(ev.startDate),
-                        end: new Date(ev.endDate),
-                        scheduleId: ev.scheduleId,
-                        postingId: ev.postingId,
-                        postingName: ev.postingName,
-                        status: normalizeStatus(ev.status),
-                        supervisorName: ev.supervisorName,
-                        extendedProps: {
-                          status: normalizeStatus(ev.status),
-                          scheduleId: ev.scheduleId,
-                        },
-                      });
-                      setOpenDetails(true);
-                    }}
-                    onEventDrop={async (ev, newStartISO, newEndISO) => {
-                      if (!ev.id || ev.id.startsWith("tt-")) {
-                        toast.info(
-                          "Timetable periods are fixed in the class timetable.",
-                        );
-                        return;
-                      }
-                      try {
-                        const eid = ev.id as string;
-                        const parts = eid.split("-");
-                        const idx = Number(parts.pop());
-                        const scheduleId = parts.join("-");
-                        if (!scheduleId || isNaN(idx))
-                          throw new Error("Invalid event id");
-                        const payload = {
-                          startDate: newStartISO,
-                          endDate: newEndISO,
-                        };
-                        await api.patch(
-                          `/rotation-schedules/${scheduleId}/windows/${idx}`,
-                          payload,
-                        );
-                        setEvents((prev) =>
-                          prev.map((e) =>
-                            e.id === eid
-                              ? {
-                                  ...e,
-                                  startDate: payload.startDate,
-                                  endDate: payload.endDate,
-                                }
-                              : e,
-                          ),
-                        );
-                        invalidateAdminData("rotation-schedules");
-                        toast.success("Posting window rescheduled");
-                      } catch (err) {
-                        console.error("Reschedule failed", err);
-                        toast.error("Failed to reschedule posting window");
-                      }
-                    }}
-                    onDateChange={handleDateChange}
-                  />
+                    <DayTimelineWindows
+                      events={dayViewEvents.map((e) => ({
+                        id: e.id || "",
+                        postingName: e.postingName || "Clinical activity",
+                        startDate: e.startDate,
+                        endDate: e.endDate,
+                        status: normalizeStatus(e.status),
+                        supervisorName: e.supervisorName,
+                        isTimetable: (e.id || "").startsWith("tt-"),
+                      }))}
+                      date={currentDate}
+                      onEventClick={(ev) => {
+                        const full = dayViewEvents.find((x) => x.id === ev.id);
+                        if (!full || !full.id || full.id.startsWith("tt-")) {
+                          toast.info(
+                            "Timetable periods come from the class timetable.",
+                          );
+                          return;
+                        }
+                        setSelectedEvent({
+                          id: full.id,
+                          title: full.postingName || "Clinical activity",
+                          start: new Date(full.startDate),
+                          end: new Date(full.endDate),
+                          scheduleId: full.scheduleId,
+                          postingId: full.postingId,
+                          postingName: full.postingName,
+                          status: normalizeStatus(full.status),
+                          supervisorName: full.supervisorName,
+                          extendedProps: {
+                            status: normalizeStatus(full.status),
+                            scheduleId: full.scheduleId,
+                          },
+                        });
+                        setOpenDetails(true);
+                      }}
+                    />
                   </>
                 ) : view === "month" ? (
                   <>
