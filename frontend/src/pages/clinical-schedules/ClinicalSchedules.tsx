@@ -35,6 +35,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import DayTimetable from "@/components/calendar/DayTimetable";
 import MonthViewCalendar from "@/components/calendar/MonthViewCalendar";
 import DayPopupBubble from "@/components/calendar/DayPopupBubble";
+import DayGroupsBoard from "@/components/calendar/DayGroupsBoard";
 import {
   Dialog,
   DialogContent,
@@ -261,11 +262,35 @@ export default function ClinicalSchedules() {
     };
   }, [openDetails]);
 
+  // Day view: full posting layout (department groups -> unit groups) for
+  // the selected class, from GET /rotation-schedules/class/:classId/posting-layout.
+  useEffect(() => {
+    if (view !== "day" || !selectedClass) return;
+    let cancelled = false;
+    setPostingLayoutLoading(true);
+    api
+      .get(`/rotation-schedules/class/${selectedClass}/posting-layout`)
+      .then((res) => {
+        if (!cancelled) setPostingLayout(res.data?.data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setPostingLayout(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPostingLayoutLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view, selectedClass]);
+
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedPostingId, setSelectedPostingId] = useState<string | null>(
     null,
   );
+  const [postingLayout, setPostingLayout] = useState<any>(null);
+  const [postingLayoutLoading, setPostingLayoutLoading] = useState(false);
   const classesResource = useAdminClassOptions();
   const timetableResource = useAdminTimetable(selectedClass);
   const scheduleRange = useMemo(() => {
@@ -343,22 +368,27 @@ export default function ClinicalSchedules() {
 
   const popupClinicalPostings = useMemo(() => {
     if (!hoveredDay) return [];
+    const dayStart = new Date(
+      hoveredDay.getFullYear(),
+      hoveredDay.getMonth(),
+      hoveredDay.getDate(),
+    );
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const formatTime = (iso: string) =>
+      new Date(iso).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
     return events
-      .filter((evt) => {
-        const eventStart = new Date(evt.startDate);
-        return (
-          eventStart.getFullYear() === hoveredDay.getFullYear() &&
-          eventStart.getMonth() === hoveredDay.getMonth() &&
-          eventStart.getDate() === hoveredDay.getDate()
-        );
-      })
+      .filter(
+        (evt) =>
+          new Date(evt.startDate) < dayEnd && new Date(evt.endDate) >= dayStart,
+      )
       .map((evt) => ({
         id: evt.id || "",
-        time: new Date(evt.startDate).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        }),
+        time: `${formatTime(evt.startDate)} – ${formatTime(evt.endDate)}`,
         postingName: evt.postingName || "Clinical Activity",
         status: computeEventStatus(evt),
       }));
@@ -577,13 +607,13 @@ export default function ClinicalSchedules() {
         }
       }
 
+      const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
       const dayEvents = filteredEvents.filter((event) => {
-        const eventDate = new Date(event.startDate);
-        return (
-          eventDate.getFullYear() === date.getFullYear() &&
-          eventDate.getMonth() === date.getMonth() &&
-          eventDate.getDate() === date.getDate()
-        );
+        const eventStart = new Date(event.startDate);
+        const eventEnd = new Date(event.endDate);
+        return eventStart < dayEnd && eventEnd >= dayStart;
       });
 
       if (dayEvents.length > 0) {
@@ -1084,7 +1114,26 @@ export default function ClinicalSchedules() {
             <div className="min-h-[520px] overflow-hidden bg-background md:min-h-[700px] lg:min-h-[760px]">
               <div ref={dayViewContainerRef} className="h-full relative">
                 {view === "day" ? (
-                  <DayTimetable
+                  <>
+                    <div className="border-b border-border">
+                      <DayGroupsBoard
+                        date={new Date(currentDate)}
+                        layout={postingLayout}
+                        loading={postingLayoutLoading}
+                        dayTimetable={
+                          timetableSchedule.find(
+                            (day) =>
+                              day.day.toLowerCase() ===
+                              new Date(currentDate)
+                                .toLocaleDateString("en-US", {
+                                  weekday: "long",
+                                })
+                                .toLowerCase(),
+                          ) ?? null
+                        }
+                      />
+                    </div>
+                    <DayTimetable
                     events={filteredEvents}
                     date={currentDate}
                     onEventClick={(ev) => {
@@ -1141,6 +1190,7 @@ export default function ClinicalSchedules() {
                     }}
                     onDateChange={handleDateChange}
                   />
+                  </>
                 ) : view === "month" ? (
                   <>
                     <div className="p-4">

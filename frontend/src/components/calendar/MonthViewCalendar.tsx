@@ -14,6 +14,13 @@ interface Activity {
 interface DayData {
   date: Date;
   activities: Activity[];
+  lineItems?: MonthDayLineItems | null;
+}
+
+export interface MonthDayLineItems {
+  timetable?: { title: string; time: string };
+  optional?: { title: string; time: string };
+  clinical?: { title: string; postingName: string; time: string; status?: string };
 }
 
 interface Props {
@@ -25,8 +32,14 @@ interface Props {
     extendedProps?: { status?: string };
   }>;
   currentDate: Date;
+  dayLineItems?: Record<string, MonthDayLineItems>;
   onDateSelect: (date: Date) => void;
-  onDayHover?: (date: Date, activities: Activity[]) => void;
+  onDayHover?: (
+    date: Date,
+    lineItems: MonthDayLineItems | null,
+    activities: Activity[],
+    anchorRect?: DOMRect,
+  ) => void;
   onDayLeave?: () => void;
   isLoading?: boolean;
 }
@@ -42,7 +55,7 @@ const statusMetadata: Record<string, { label: string; bgClass: string; badgeClas
 
 const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export default function MonthViewCalendar({ events, currentDate, onDateSelect, onDayHover, onDayLeave, isLoading }: Props) {
+export default function MonthViewCalendar({ events, currentDate, dayLineItems, onDateSelect, onDayHover, onDayLeave, isLoading }: Props) {
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
 
   const { monthDays, monthLabel } = useMemo(() => {
@@ -85,6 +98,9 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
     return monthDays.map((day) => {
       if (!day) return null;
 
+      const dayKey = day.date.toISOString().split("T")[0];
+      const lineItems = dayLineItems?.[dayKey] ?? null;
+
       const dayActivities = events
         .filter((evt) => {
           const eventStart = new Date(evt.start);
@@ -105,9 +121,10 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
       return {
         ...day,
         activities: dayActivities,
+        lineItems,
       };
     });
-  }, [monthDays, events]);
+  }, [monthDays, events, dayLineItems]);
 
   const handlePrevMonth = () => {
     const newDate = new Date(currentDate);
@@ -125,11 +142,14 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
     onDateSelect(day.date);
   };
 
-  const handleDayHover = (day: DayData | null) => {
+  const handleDayHover = (day: DayData | null, e?: { currentTarget?: HTMLElement }) => {
     if (!day) return;
     const dateKey = day.date.toISOString().split("T")[0];
     setHoveredDate(dateKey);
-    onDayHover?.(day.date, day.activities);
+    const rect = e?.currentTarget
+      ? (e.currentTarget as HTMLElement).getBoundingClientRect()
+      : undefined;
+    onDayHover?.(day.date, day.lineItems ?? null, day.activities, rect);
   };
 
   const handleDayLeave = () => {
@@ -203,7 +223,7 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
                 return (
                   <div
                     key={`day-${dateKey}`}
-                    onMouseEnter={() => handleDayHover(day)}
+                    onMouseEnter={(e) => handleDayHover(day, e)}
                     onMouseLeave={handleDayLeave}
                     onClick={() => handleDayClick(day)}
                     className={`group relative aspect-square cursor-pointer transition-all duration-200`}
@@ -226,27 +246,63 @@ export default function MonthViewCalendar({ events, currentDate, onDateSelect, o
                         {day.date.getDate()}
                       </div>
 
-                      {/* Activity dots */}
-                      {hasActivities && (
-                        <div className="flex flex-wrap gap-1">
-                          {day.activities.slice(0, 2).map((activity, idx) => {
+                      {/* Color-coded day summary (Legend colors) */}
+                      {(() => {
+                        const li = day.lineItems ?? null;
+                        const chips: Array<{ key: string; label: string; badgeClass: string }> = [];
+                        if (li?.timetable) {
+                          chips.push({
+                            key: "lecture",
+                            label: `Lecture ${li.timetable.time}`,
+                            badgeClass: "bg-sky-100 text-sky-700 border-sky-300",
+                          });
+                        }
+                        if (li?.optional) {
+                          chips.push({
+                            key: "optional",
+                            label: "Other activity",
+                            badgeClass: "bg-indigo-100 text-indigo-700 border-indigo-300",
+                          });
+                        }
+                        if (li?.clinical) {
+                          const st = (li.clinical.status ?? "default") as keyof typeof statusMetadata;
+                          const meta = statusMetadata[st] || statusMetadata.default;
+                          const count = day.activities.length > 1 ? ` ×${day.activities.length}` : "";
+                          chips.push({
+                            key: "clinical",
+                            label: `Clinical${count}`,
+                            badgeClass: meta.badgeClass,
+                          });
+                        }
+                        if (chips.length === 0 && hasActivities) {
+                          day.activities.slice(0, 2).forEach((activity, idx) => {
                             const meta = statusMetadata[activity.status] || statusMetadata.default;
-                            return (
+                            chips.push({
+                              key: `act-${idx}`,
+                              label: activity.status === "default" ? "Scheduled" : meta.label,
+                              badgeClass: meta.badgeClass,
+                            });
+                          });
+                        }
+                        if (chips.length === 0) return null;
+                        return (
+                          <div className="flex flex-wrap gap-1">
+                            {chips.slice(0, 2).map((chip) => (
                               <Badge
-                                key={`${activity.id}-${idx}`}
-                                className={`text-[9px] px-1.5 py-0 h-4 truncate ${meta.badgeClass} border`}
+                                key={chip.key}
+                                className={`text-[9px] px-1.5 py-0 h-4 truncate ${chip.badgeClass} border`}
                               >
-                                {activity.status === "default" ? "Scheduled" : meta.label}
+                                {chip.label}
                               </Badge>
-                            );
-                          })}
-                          {day.activities.length > 2 && (
-                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 text-muted-foreground">
-                              +{day.activities.length - 2}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
+                            ))}
+                            {chips.length > 2 && (
+                              <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 text-muted-foreground">
+                                +{chips.length - 2}
+                              </Badge>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Activity preview on hover */}
                       {isHovered && hasActivities && (
