@@ -22,7 +22,10 @@ interface Props {
   clinicalPostings: ClinicalPosting[];
   isVisible: boolean;
   position?: "top" | "bottom" | "auto";
+  anchorRect?: DOMRect | null;
   onClose?: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }
 
 const statusMetadata: Record<string, { label: string; badgeClass: string }> = {
@@ -40,7 +43,10 @@ export default function DayPopupBubble({
   clinicalPostings,
   isVisible,
   position = "auto",
+  anchorRect,
   onClose,
+  onMouseEnter,
+  onMouseLeave,
 }: Props) {
   const bubbleRef = useRef<HTMLDivElement>(null);
 
@@ -75,12 +81,47 @@ export default function DayPopupBubble({
           ? "translate-y-0 scale-100 opacity-100"
           : "-translate-y-2 scale-95 opacity-0 pointer-events-none"
       }`}
-      style={{
-        top: position === "bottom" ? "auto" : "50%",
-        bottom: position === "bottom" ? "20px" : "auto",
-        left: "50%",
-        transform: `translateX(-50%) ${position === "bottom" ? "" : "translateY(-50%)"}`,
-      }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={
+        anchorRect
+          ? (() => {
+              // Anchor the popup over the hovered day cell: centered on the
+              // cell, clamped to the viewport, flipping above/below as space
+              // allows.
+              const bubbleWidth = 320;
+              const margin = 8;
+              const estimatedHeight = 420;
+              const left = Math.min(
+                Math.max(
+                  margin,
+                  anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
+                ),
+                window.innerWidth - bubbleWidth - margin,
+              );
+              const fitsBelow =
+                anchorRect.bottom + estimatedHeight + margin <=
+                window.innerHeight;
+              const top = fitsBelow
+                ? anchorRect.bottom + margin
+                : Math.max(
+                    margin,
+                    anchorRect.top - estimatedHeight - margin,
+                  );
+              return {
+                top: `${top}px`,
+                left: `${left}px`,
+                bottom: "auto",
+                transform: "none",
+              };
+            })()
+          : {
+              top: position === "bottom" ? "auto" : "50%",
+              bottom: position === "bottom" ? "20px" : "auto",
+              left: "50%",
+              transform: `translateX(-50%) ${position === "bottom" ? "" : "translateY(-50%)"}`,
+            }
+      }
     >
       {/* Backdrop blur container */}
       <div className="absolute inset-0 rounded-2xl bg-background/25 backdrop-blur-xl" />

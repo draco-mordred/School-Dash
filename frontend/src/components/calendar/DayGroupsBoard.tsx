@@ -100,6 +100,7 @@ export default function DayGroupsBoard({
 
   const periods = useMemo(() => dayTimetable?.periods ?? [], [dayTimetable]);
   const postings = layout?.postings ?? [];
+  const isWeekend = dayIndex === 0 || dayIndex === 6;
 
   return (
     <div className="space-y-4">
@@ -111,33 +112,20 @@ export default function DayGroupsBoard({
             activities for this day.
           </p>
         </div>
-        {loading && (
-          <Badge variant="secondary" className="animate-pulse">
-            Loading groups…
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {isWeekend && <Badge variant="outline">Weekend</Badge>}
+          {loading && (
+            <Badge variant="secondary" className="animate-pulse">
+              Loading groups…
+            </Badge>
+          )}
+        </div>
       </div>
 
-      {periods.length > 0 && (
-        <div className="rounded-2xl border border-border bg-background p-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-            Class timetable for this day
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {periods.map((period, idx) => (
-              <Badge
-                key={`${period.startTime}-${idx}`}
-                variant="outline"
-                className="text-[11px]"
-              >
-                {period.startTime} – {period.endTime} ·{" "}
-                {period.displayLabel ||
-                  period.subject?.name ||
-                  period.subject?.code ||
-                  "Class session"}
-              </Badge>
-            ))}
-          </div>
+      {isWeekend && periods.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-border bg-background p-3 text-xs text-muted-foreground">
+          Weekend — no lectures are scheduled for this class. Clinical
+          activities follow the posting schedule below.
         </div>
       )}
 
