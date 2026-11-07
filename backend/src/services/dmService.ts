@@ -8,6 +8,7 @@
 import mongoose from "mongoose";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createMistral } from "@ai-sdk/mistral";
+import { createGroq } from "@ai-sdk/groq";
 import { generateText } from "ai";
 import User from "../models/user";
 import DmMessage from "../models/dmMessage";
@@ -15,7 +16,7 @@ import DmCase from "../models/dmCase";
 import DmChatSetting from "../models/dmChatSetting";
 import ActivitiesLog from "../models/activitieslog";
 import { createNotificationIfUnique } from "../utils/notificationUtils";
-import { getMistralApiKeys, getGoogleApiKeys } from "./mordredEngine";
+import { getMistralApiKeys, getGoogleApiKeys, getGroqApiKeys } from "./mordredEngine";
 import {
   classifyMessage,
   extractMentionEmail,
@@ -87,9 +88,10 @@ export const aiModerate = async (
   text: string,
   strict: boolean
 ): Promise<{ verdict: ModerationVerdict; reasons: string[] } | null> => {
+  const groqKeys = getGroqApiKeys();
   const mistralKeys = getMistralApiKeys();
   const googleKeys = getGoogleApiKeys();
-  if (mistralKeys.length === 0 && googleKeys.length === 0) return null;
+  if (groqKeys.length === 0 && mistralKeys.length === 0 && googleKeys.length === 0) return null;
 
   const prompt = [
     "You are a school chat moderation engine. Classify this direct message between users of a medical school LMS.",
@@ -122,6 +124,20 @@ export const aiModerate = async (
     }
   };
 
+  for (const apiKey of groqKeys) {
+    try {
+      const groq = createGroq({ apiKey });
+      const { text: out } = await generateText({
+        model: groq(process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+        prompt,
+        temperature: 0,
+      });
+      const parsed = parse(out);
+      if (parsed) return parsed;
+    } catch (err) {
+      console.warn("DALE DM AI moderation (groq key) failed:", (err as Error).message);
+    }
+  }
   for (const apiKey of mistralKeys) {
     try {
       const mistral = createMistral({ apiKey });
