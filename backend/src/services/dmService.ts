@@ -30,6 +30,35 @@ import {
 
 const CONTEXT_WINDOW_SIZE = 3;
 
+// ─── Typing indicators (in-memory, ~8s TTL — instant-feel build) ──────
+const TYPING_TTL_MS = 8000;
+const typingByUser = new Map<string, Map<string, number>>();
+
+export const setTyping = (userId: any, partnerId: string) => {
+  const me = String(userId ?? "");
+  const partner = String(partnerId ?? "");
+  if (!me || !partner) return;
+  let partners = typingByUser.get(me);
+  if (!partners) {
+    partners = new Map();
+    typingByUser.set(me, partners);
+  }
+  partners.set(partner, Date.now());
+};
+
+export const getTypingToMe = (userId: any): string[] => {
+  const me = String(userId ?? "");
+  const now = Date.now();
+  const typers: string[] = [];
+  for (const [typerId, partners] of typingByUser.entries()) {
+    const at = partners.get(me);
+    if (!at) continue;
+    if (now - at < TYPING_TTL_MS) typers.push(typerId);
+    else partners.delete(me);
+  }
+  return typers;
+};
+
 const notifyUser = async (
   userId: any,
   role: string,
@@ -448,7 +477,15 @@ export const getMyConversations = async (userId: any) => {
       lastAt: dm.createdAt,
     });
   }
-  return Array.from(byPartner.values());
+  // Instant-feel: bulk-stamp delivery receipts for messages addressed
+  // to me (once), and report who is typing at me right now (TTL map).
+  const toMeIds = dms
+    .filter((dm) => String(dm.recipient?._id) === String(userId) && !dm.deliveredAt)
+    .map((dm) => dm._id);
+  if (toMeIds.length > 0) {
+    await DmMessage.updateMany({ _id: { $in: toMeIds } }, { $set: { deliveredAt: new Date() } });
+  }
+  return { conversations: Array.from(byPartner.values()), typingFrom: getTypingToMe(userId) };
 };
 
 export const getThread = async (userId: any, partnerId: string) => {
@@ -462,13 +499,55 @@ export const getThread = async (userId: any, partnerId: string) => {
     .sort({ createdAt: 1 })
     .limit(200)
     .lean();
-  return dms.map((dm) => ({
-    _id: dm._id,
-    fromMe: String(dm.sender) === String(userId),
-    text: dm.text,
-    verdict: dm.verdict,
-    at: dm.createdAt,
-  }));
+  // Instant-feel: stamp read receipts on the partner's messages to me.
+  await DmMessage.updateMany(
+    { sender: partnerId, recipient: userId, verdict: { $ne: "blocked" }, readAt: null },
+    { $set: { readAt: new Date() } }
+  );
+  const now = new Date();
+  return dms.map((dm) => {
+    const fromMe = String(dm.sender) === String(userId);
+    return {
+      _id: dm._id,
+      fromMe,
+      text: dm.text,
+      verdict: dm.verdict,
+      at: dm.createdAt,
+      deliveredAt: fromMe ? dm.deliveredAt ?? null : dm.deliveredAt ?? now,
+      readAt: fromMe ? dm.readAt ?? null : dm.readAt ?? now,
+      pinned: Boolean(dm.pinned),
+      preserved: Boolean(dm.preserved),
+    };
+  });
+};
+
+// ─── Message actions (participants only): pin + save/preserve ────────
+export const togglePinMessage = async (userId: any, messageId: string, pinned: boolean) => {
+  const res: any = await DmMessage.updateOne(
+    { _id: messageId, $or: [{ sender: userId }, { recipient: userId }] },
+    { $set: { pinned: pinned === true } }
+  );
+  if (!res || (res.matchedCount ?? 0) === 0) throw new Error("Message not found.");
+  return { pinned: pinned === true };
+};
+
+export const togglePreserveMessage = async (userId: any, messageId: string, preserve: boolean) => {
+  const found: any = await DmMessage.findOne({
+    _id: messageId,
+    $or: [{ sender: userId }, { recipient: userId }],
+  });
+  if (!found) throw new Error("Message not found.");
+  if (preserve) {
+    // Save beats the 7-day auto-clear.
+    found.preserved = true;
+    found.expiresAt = null;
+  } else {
+    if (found.verdict !== "delivered") throw new Error("Flagged messages stay preserved as moderation evidence.");
+    found.preserved = false;
+    found.expiresAt = new Date(Date.now() + DM_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  }
+  await found.save();
+  return { preserved: found.preserved === true };
 };
 
 // ─── User moderation self-view + appeal ───────────────────────────────

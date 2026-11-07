@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 // PR M2 — Direct Messages hook: conversations, thread, send, moderation
@@ -19,6 +19,10 @@ export interface DmThreadMessage {
   text: string;
   verdict: string;
   at: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  pinned?: boolean;
+  preserved?: boolean;
 }
 
 export interface DmModerationCase {
@@ -66,11 +70,19 @@ export function useDirectMessages() {
   const [chatEnabled, setChatEnabledState] = useState<boolean>(true);
   const [transparencyNote, setTransparencyNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [typingFrom, setTypingFrom] = useState<string[]>([]);
+  const activePartnerRef = useRef<DmConversation | null>(null);
+  const lastTypingSent = useRef(0);
+
+  useEffect(() => {
+    activePartnerRef.current = activePartner;
+  }, [activePartner]);
 
   const refreshConversations = useCallback(async () => {
     try {
       const res = await api.get("/dm/conversations");
       setConversations(res.data?.conversations ?? []);
+      setTypingFrom(res.data?.typingFrom ?? []);
     } catch (err) {
       console.error("DM conversations failed", err);
     }
@@ -107,6 +119,64 @@ export function useDirectMessages() {
       setLoading(false);
     }
   }, []);
+
+  // Silent thread refresh for the polling loop (no loading flicker).
+  const refreshThread = useCallback(async (partnerId: string) => {
+    try {
+      const res = await api.get(`/dm/thread/${partnerId}`);
+      setThread(res.data?.messages ?? []);
+    } catch {
+      // silent: polling refresh must never surface errors
+    }
+  }, []);
+
+  // Instant-feel: 5s auto-refresh of conversations + the open thread.
+  useEffect(() => {
+    const id = setInterval(() => {
+      refreshConversations();
+      const partner = activePartnerRef.current;
+      if (partner) refreshThread(partner.partnerId);
+    }, 5000);
+    return () => clearInterval(id);
+  }, [refreshConversations, refreshThread]);
+
+  // Typing indicator: throttled emit (at most once per 3s) while composing.
+  const emitTyping = useCallback(async (partnerId: string) => {
+    const now = Date.now();
+    if (now - lastTypingSent.current < 3000) return;
+    lastTypingSent.current = now;
+    try {
+      await api.post("/dm/typing", { recipientId: partnerId });
+    } catch {
+      // non-critical
+    }
+  }, []);
+
+  const setPinned = useCallback(
+    async (messageId: string, pinned: boolean) => {
+      try {
+        await api.patch(`/dm/messages/${messageId}/pin`, { pinned });
+        const partner = activePartnerRef.current;
+        if (partner) refreshThread(partner.partnerId);
+      } catch (err) {
+        console.error("DM pin failed", err);
+      }
+    },
+    [refreshThread]
+  );
+
+  const setPreserved = useCallback(
+    async (messageId: string, preserve: boolean) => {
+      try {
+        await api.patch(`/dm/messages/${messageId}/preserve`, { preserve });
+        const partner = activePartnerRef.current;
+        if (partner) refreshThread(partner.partnerId);
+      } catch (err) {
+        console.error("DM save failed", err);
+      }
+    },
+    [refreshThread]
+  );
 
   const sendDm = useCallback(
     async (toEmail: string, message: string): Promise<DmSendResult | null> => {
@@ -169,6 +239,11 @@ export function useDirectMessages() {
     refreshConversations,
     refreshModeration,
     openThread,
+    refreshThread,
+    typingFrom,
+    emitTyping,
+    setPinned,
+    setPreserved,
     sendDm,
     submitAppeal,
     toggleChatEnabled,

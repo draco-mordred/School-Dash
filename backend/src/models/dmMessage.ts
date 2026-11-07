@@ -12,6 +12,9 @@ export interface IDmMessage extends Document {
   preserved: boolean;
   caseId: mongoose.Types.ObjectId | null;
   expiresAt: Date | null;
+  deliveredAt: Date | null;
+  readAt: Date | null;
+  pinned: boolean;
 }
 
 const DmMessageSchema = new Schema<IDmMessage>(
@@ -28,6 +31,9 @@ const DmMessageSchema = new Schema<IDmMessage>(
     preserved: { type: Boolean, default: false },
     caseId: { type: Schema.Types.ObjectId, ref: "DmCase", default: null },
     expiresAt: { type: Date, default: null },
+    deliveredAt: { type: Date, default: null },
+    readAt: { type: Date, default: null },
+    pinned: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

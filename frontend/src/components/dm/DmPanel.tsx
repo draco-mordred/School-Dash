@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDirectMessages, DmSendResult, DmConversation } from "../../hooks/useDirectMessages";
 import { getPinnedPartnerIds, togglePinPartner } from "../../utils/daleSettings";
 
@@ -29,6 +29,10 @@ export function DmPanel({
     transparencyNote,
     loading,
     openThread,
+    typingFrom,
+    emitTyping,
+    setPinned,
+    setPreserved,
     sendDm,
     submitAppeal,
     toggleChatEnabled,
@@ -44,6 +48,15 @@ export function DmPanel({
   const [appealMsg, setAppealMsg] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [pins, setPins] = useState<string[]>(() => getPinnedPartnerIds());
+  const threadEndRef = useRef<HTMLDivElement>(null);
+  const partnerTyping = Boolean(
+    activePartner && typingFrom.includes(activePartner.partnerId)
+  );
+
+  // Instant-feel: keep the thread pinned to the newest message/bubble.
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [thread.length, partnerTyping]);
 
   const frozen = Boolean(moderation?.frozen);
   const suspended = Boolean(moderation?.suspended);
@@ -163,22 +176,77 @@ export function DmPanel({
         {!loading && thread.length === 0 && <p className="text-xs text-muted-foreground">No messages yet.</p>}
         {thread.map((msg) => (
           <div key={msg._id} className={`flex ${msg.fromMe ? "justify-end" : "justify-start"}`}>
-            <div
-              className={`px-3 py-2 rounded-2xl max-w-[80%] ${
-                msg.fromMe
-                  ? "bg-primary text-primary-foreground rounded-tr-sm"
-                  : "bg-muted text-foreground rounded-bl-sm"
-              } ${msg.verdict === "soft_flagged" ? "ring-1 ring-amber-400" : ""}`}
-            >
-              {msg.text}
+            <div className="flex flex-col max-w-[80%] group/msg">
+              <div
+                className={`px-3 py-2 rounded-2xl ${
+                  msg.fromMe
+                    ? "bg-primary text-primary-foreground rounded-tr-sm"
+                    : "bg-muted text-foreground rounded-bl-sm"
+                } ${msg.verdict === "soft_flagged" ? "ring-1 ring-amber-400" : ""} ${msg.pinned ? "ring-1 ring-primary/60" : ""}`}
+              >
+                {msg.text}
+              </div>
+              <div
+                className={`flex items-center gap-1 mt-0.5 ${
+                  msg.fromMe ? "justify-end" : "justify-start"
+                }`}
+              >
+                <button
+                  title={msg.pinned ? "Unpin message" : "Pin message"}
+                  onClick={() => setPinned(msg._id, !msg.pinned)}
+                  className={`text-[11px] px-1 rounded transition ${
+                    msg.pinned ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+                  }`}
+                >
+                  {msg.pinned ? "📌" : "📍"}
+                </button>
+                <button
+                  title={
+                    msg.preserved
+                      ? "Saved — click to unsave (auto-clears after 7 days)"
+                      : "Save message (keeps it past the 7-day auto-clear)"
+                  }
+                  onClick={() => setPreserved(msg._id, !msg.preserved)}
+                  className={`text-[11px] px-1 rounded transition ${
+                    msg.preserved ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"
+                  }`}
+                >
+                  {msg.preserved ? "🔖" : "💾"}
+                </button>
+                {msg.fromMe && (
+                  <span
+                    title={
+                      msg.readAt ? "Read" : msg.deliveredAt ? "Delivered" : "Sent"
+                    }
+                    className={`text-[10px] font-bold ml-1 ${
+                      msg.readAt ? "text-primary" : "text-muted-foreground/60"
+                    }`}
+                  >
+                    {msg.readAt || msg.deliveredAt ? "✓✓" : "✓"}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}
+        {partnerTyping && (
+          <div className="flex justify-start">
+            <div className="px-4 py-3 rounded-2xl bg-muted text-foreground rounded-bl-sm flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/70 animate-bounce" />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:150ms]" />
+              <span className="w-2 h-2 rounded-full bg-muted-foreground/70 animate-bounce [animation-delay:300ms]" />
+            </div>
+          </div>
+        )}
+        <div ref={threadEndRef} />
       </div>
       <div className="p-3 border-t border-border bg-card flex gap-2 items-center">
         <input
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            if (activePartner) emitTyping(activePartner.partnerId);
+          }}
           onKeyDown={(e) => e.key === "Enter" && handleReply()}
           disabled={!canSend}
           placeholder={canSend ? `Reply to ${activePartner.partnerName}…` : "Chat is unavailable"}
