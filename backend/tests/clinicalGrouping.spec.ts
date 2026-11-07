@@ -5,12 +5,20 @@ import {
   distributeStudentsRoundRobin,
   rotateLeft,
   findStudentWindowOverlaps,
+  pickUnusedCandidate,
 } from '../src/utils/clinicalGrouping';
 
 describe('splitIntoBuckets', () => {
-  test('equal split, remainder goes to the LAST group', () => {
+  test('equal split, remainder spread one per group', () => {
     const buckets = splitIntoBuckets(['a', 'b', 'c', 'd', 'e', 'f', 'g'], 5);
-    expect(buckets.map((b) => b.studentIds.length)).toEqual([1, 1, 1, 1, 3]);
+    expect(buckets.map((b) => b.studentIds.length)).toEqual([2, 2, 1, 1, 1]);
+  });
+
+  test('102 students / 5 groups -> 21,21,20,20,20 (never differs by more than 1)', () => {
+    const students = Array.from({ length: 102 }, (_, i) => `s${i}`);
+    const buckets = splitIntoBuckets(students, 5);
+    expect(buckets.map((b) => b.studentIds.length)).toEqual([21, 21, 20, 20, 20]);
+    expect(new Set(buckets.flatMap((b) => b.studentIds)).size).toBe(102);
   });
 
   test('50 students / 5 sub-postings -> 10 students in each of 5 groups', () => {
@@ -70,6 +78,17 @@ describe('rotateLeft', () => {
   });
 });
 
+
+describe('pickUnusedCandidate', () => {
+  test('returns the first unused candidate', () => {
+    expect(pickUnusedCandidate(['a', 'b', 'c'], new Set(['b']))).toBe('a');
+  });
+
+  test('returns null when every candidate is already assigned (never duplicates)', () => {
+    expect(pickUnusedCandidate(['a', 'b'], new Set(['a', 'b']))).toBeNull();
+    expect(pickUnusedCandidate([], new Set())).toBeNull();
+  });
+});
 
 describe('findStudentWindowOverlaps', () => {
   const win = (studentIds: string[], startDate: string, endDate: string) => ({ studentIds, startDate, endDate });

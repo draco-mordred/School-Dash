@@ -7,8 +7,9 @@ export type DepartmentGroup = {
   studentIds: string[];
 };
 
-// Equal split of students across `bucketCount` groups; the remainder
-// goes to the LAST group (102 students / 5 groups -> 20,20,20,20,22).
+// Equal split of students across `bucketCount` groups; the remainder is
+// spread ONE PER GROUP across the first groups (102 students / 5 groups
+// -> 21,21,20,20,20) so group sizes never differ by more than one.
 export function splitIntoBuckets(
   items: string[],
   bucketCount: number,
@@ -19,16 +20,26 @@ export function splitIntoBuckets(
 
   const buckets: DepartmentGroup[] = [];
   const base = Math.floor(items.length / bucketCount);
+  const remainder = items.length % bucketCount;
   let cursor = 0;
 
   for (let index = 0; index < bucketCount; index++) {
-    const size = index === bucketCount - 1 ? items.length - cursor : base;
+    const size = base + (index < remainder ? 1 : 0);
     buckets.push({ groupIndex: index, studentIds: items.slice(cursor, cursor + size) });
     cursor += size;
   }
 
   return buckets;
 }
+
+// First candidate not already assigned, or null when every candidate is
+// taken — used to guarantee supervisor uniqueness across groups: when
+// the pool is exhausted we leave the slot UNASSIGNED (and surface an
+// admin alert) rather than re-using a supervisor.
+export const pickUnusedCandidate = (
+  pool: string[],
+  assigned: Set<string>,
+): string | null => pool.find((id) => !assigned.has(id)) ?? null;
 
 export const normalizeUnitIds = (identifiers: unknown): string[] => {
   if (!Array.isArray(identifiers)) return [];
