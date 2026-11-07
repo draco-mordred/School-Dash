@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { X, Clock, BookOpen, Stethoscope } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { X, Clock, BookOpen, Stethoscope, CalendarClock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface Lecture {
@@ -19,6 +19,7 @@ interface ClinicalPosting {
 interface Props {
   date: Date;
   lectures: Lecture[];
+  optionalLectures?: Lecture[];
   clinicalPostings: ClinicalPosting[];
   isVisible: boolean;
   position?: "top" | "bottom" | "auto";
@@ -40,6 +41,7 @@ const statusMetadata: Record<string, { label: string; badgeClass: string }> = {
 export default function DayPopupBubble({
   date,
   lectures,
+  optionalLectures = [],
   clinicalPostings,
   isVisible,
   position = "auto",
@@ -49,6 +51,14 @@ export default function DayPopupBubble({
   onMouseLeave,
 }: Props) {
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const [measuredHeight, setMeasuredHeight] = useState(380);
+
+  useLayoutEffect(() => {
+    if (!isVisible) return;
+    if (bubbleRef.current) {
+      setMeasuredHeight(bubbleRef.current.offsetHeight);
+    }
+  }, [isVisible, lectures, optionalLectures, clinicalPostings]);
 
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -71,7 +81,36 @@ export default function DayPopupBubble({
 
   if (!isVisible) return null;
 
-  const hasActivities = lectures.length > 0 || clinicalPostings.length > 0;
+  const hasActivities =
+    lectures.length > 0 ||
+    optionalLectures.length > 0 ||
+    clinicalPostings.length > 0;
+
+  // Tooltip placement: the popup sits directly ABOVE the hovered day
+  // cell, centered on it and clamped to the viewport; it only falls
+  // below the cell when there is not enough room above.
+  let placement: { top: number; left: number; above: boolean } | null = null;
+  if (anchorRect) {
+    const bubbleWidth = 320;
+    const margin = 8;
+    const gap = 10;
+    const left = Math.min(
+      Math.max(
+        margin,
+        anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
+      ),
+      window.innerWidth - bubbleWidth - margin,
+    );
+    const spaceAbove = anchorRect.top - gap - margin;
+    const above = spaceAbove >= measuredHeight;
+    const top = above
+      ? anchorRect.top - measuredHeight - gap
+      : Math.min(
+          anchorRect.bottom + gap,
+          Math.max(margin, window.innerHeight - measuredHeight - margin),
+        );
+    placement = { top: Math.max(margin, top), left, above };
+  }
 
   return (
     <div
@@ -84,37 +123,13 @@ export default function DayPopupBubble({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       style={
-        anchorRect
-          ? (() => {
-              // Anchor the popup over the hovered day cell: centered on the
-              // cell, clamped to the viewport, flipping above/below as space
-              // allows.
-              const bubbleWidth = 320;
-              const margin = 8;
-              const estimatedHeight = 420;
-              const left = Math.min(
-                Math.max(
-                  margin,
-                  anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
-                ),
-                window.innerWidth - bubbleWidth - margin,
-              );
-              const fitsBelow =
-                anchorRect.bottom + estimatedHeight + margin <=
-                window.innerHeight;
-              const top = fitsBelow
-                ? anchorRect.bottom + margin
-                : Math.max(
-                    margin,
-                    anchorRect.top - estimatedHeight - margin,
-                  );
-              return {
-                top: `${top}px`,
-                left: `${left}px`,
-                bottom: "auto",
-                transform: "none",
-              };
-            })()
+        placement
+          ? {
+              top: `${placement.top}px`,
+              left: `${placement.left}px`,
+              bottom: "auto",
+              transform: "none",
+            }
           : {
               top: position === "bottom" ? "auto" : "50%",
               bottom: position === "bottom" ? "20px" : "auto",
@@ -128,15 +143,22 @@ export default function DayPopupBubble({
 
       {/* Glass card */}
       <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-background/95 shadow-[0_24px_70px_-24px_rgba(110,86,207,0.35)]">
-        {/* Decorative triangle pointer */}
-        <div className="absolute -bottom-3 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-border/70 bg-background/95" />
+        {/* Decorative triangle pointer (points at the hovered day) */}
+        <div
+          className={
+            "absolute left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 bg-background/95 " +
+            (placement && !placement.above
+              ? "-top-3 border-t border-l border-border/70"
+              : "-bottom-3 border-b border-r border-border/70")
+          }
+        />
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
           <div>
             <p className="text-sm font-semibold">{dateLabel}</p>
             <p className="text-xs text-muted-foreground">
-              {hasActivities ? `${lectures.length + clinicalPostings.length} activities` : "No activities"}
+              {hasActivities ? `${lectures.length + optionalLectures.length + clinicalPostings.length} activities` : "No activities"}
             </p>
           </div>
           {onClose && (
@@ -175,6 +197,32 @@ export default function DayPopupBubble({
                         )}
                         {lecture.code && (
                           <p className="text-[11px] text-muted-foreground/70">{lecture.code}</p>
+                        )}
+                        {lecture.lecturer && (
+                          <p className="text-[11px] text-muted-foreground italic">by {lecture.lecturer}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Other Activities Section */}
+              {optionalLectures.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <CalendarClock className="h-4 w-4 text-indigo-500" />
+                    <p className="text-xs font-semibold text-muted-foreground">Other Activities</p>
+                  </div>
+                  <div className="space-y-2 pl-6">
+                    {optionalLectures.map((lecture, idx) => (
+                      <div key={`optional-${idx}`} className="rounded-lg border border-border/50 bg-muted/30 p-2 text-xs space-y-1">
+                        <div className="flex items-center gap-2 text-foreground font-medium">
+                          <Clock className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                          {lecture.time}
+                        </div>
+                        {lecture.subject && (
+                          <p className="text-muted-foreground">{lecture.subject}</p>
                         )}
                         {lecture.lecturer && (
                           <p className="text-[11px] text-muted-foreground italic">by {lecture.lecturer}</p>
