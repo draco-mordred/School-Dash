@@ -34,6 +34,7 @@ interface Props {
   currentDate: Date;
   dayLineItems?: Record<string, MonthDayLineItems>;
   onDateSelect: (date: Date) => void;
+  onMonthNavigate?: (date: Date) => void;
   onDayHover?: (
     date: Date,
     lineItems: MonthDayLineItems | null,
@@ -55,7 +56,7 @@ const statusMetadata: Record<string, { label: string; bgClass: string; badgeClas
 
 const DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export default function MonthViewCalendar({ events, currentDate, dayLineItems, onDateSelect, onDayHover, onDayLeave, isLoading }: Props) {
+export default function MonthViewCalendar({ events, currentDate, dayLineItems, onDateSelect, onMonthNavigate, onDayHover, onDayLeave, isLoading }: Props) {
   const [hoveredDate, setHoveredDate] = useState<string | null>(null);
 
   const { monthDays, monthLabel } = useMemo(() => {
@@ -129,13 +130,13 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
   const handlePrevMonth = () => {
     const newDate = new Date(currentDate);
     newDate.setMonth(newDate.getMonth() - 1);
-    onDateSelect(newDate);
+    (onMonthNavigate ?? onDateSelect)(newDate);
   };
 
   const handleNextMonth = () => {
     const newDate = new Date(currentDate);
     newDate.setMonth(newDate.getMonth() + 1);
-    onDateSelect(newDate);
+    (onMonthNavigate ?? onDateSelect)(newDate);
   };
 
   const handleDayClick = (day: DayData) => {
@@ -195,7 +196,14 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
         {/* Day headers */}
         <div className="mb-4 grid grid-cols-7 gap-2">
           {DAYS_OF_WEEK.map((day) => (
-            <div key={day} className="text-center text-xs font-semibold text-muted-foreground">
+            <div
+              key={day}
+              className={`text-center text-xs font-semibold ${
+                day === "Sat" || day === "Sun"
+                  ? "italic text-muted-foreground/70"
+                  : "text-muted-foreground"
+              }`}
+            >
               {day}
             </div>
           ))}
@@ -303,6 +311,15 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
                           </div>
                         );
                       })()}
+
+                      {day.activities.length === 0 &&
+                        !day.lineItems &&
+                        (day.date.getDay() === 0 ||
+                          day.date.getDay() === 6) && (
+                          <div className="text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                            Weekend
+                          </div>
+                        )}
 
                       {/* Activity preview on hover */}
                       {isHovered && hasActivities && (

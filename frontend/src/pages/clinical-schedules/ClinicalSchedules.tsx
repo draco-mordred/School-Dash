@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useCallback,
-  type WheelEvent,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -27,11 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import Search from "@/components/global/Search";
-import FullCalendar from "@fullcalendar/react";
 import type { schedule } from "@/types";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import interactionPlugin from "@fullcalendar/interaction";
 import DayTimetable from "@/components/calendar/DayTimetable";
 import MonthViewCalendar from "@/components/calendar/MonthViewCalendar";
 import DayPopupBubble from "@/components/calendar/DayPopupBubble";
@@ -221,7 +210,6 @@ export default function ClinicalSchedules() {
   const [currentDate, setCurrentDate] = useState<string>(
     new Date().toISOString(),
   );
-  const calendarRef = useRef<InstanceType<typeof FullCalendar> | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<SelectedEvent | null>(
     null,
   );
@@ -421,7 +409,6 @@ export default function ClinicalSchedules() {
 
   const handleDateChange = (value: string) => {
     setCurrentDate(value);
-    calendarRef.current?.getApi()?.gotoDate(value);
   };
 
   useEffect(() => {
@@ -528,6 +515,47 @@ export default function ClinicalSchedules() {
       };
     });
   }, [events, timetableClinicalPeriodTime]);
+
+  // Pseudo events from the CLASS TIMETABLE for the selected day, so the
+  // existing day calendar shows lectures and clinical periods in their
+  // proper time frames alongside the posting windows. Weekends with no
+  // timetable periods produce nothing (weekend rule respected).
+  const dayTimetableEvents = useMemo(() => {
+    const d = new Date(currentDate);
+    if (Number.isNaN(d.getTime())) return [];
+    const dayLabel = d.toLocaleDateString("en-US", { weekday: "long" });
+    const scheduleForDay = timetableSchedule.find(
+      (day) => day.day.toLowerCase() === dayLabel.toLowerCase(),
+    );
+    const periods = scheduleForDay?.periods ?? [];
+    const toISO = (time: string) => {
+      const dd = new Date(d);
+      const [h, m] = time.split(":").map(Number);
+      dd.setHours(h || 0, m || 0, 0, 0);
+      return dd.toISOString();
+    };
+    return periods.map((period, idx) => ({
+      id: `tt-${d.toISOString().split("T")[0]}-${idx}`,
+      postingName:
+        (period.isClinical
+          ? "Clinical: "
+          : period.isOptional
+            ? "Optional: "
+            : "Lecture: ") +
+        (period.displayLabel ||
+          period.subject?.name ||
+          period.subject?.code ||
+          "Class session"),
+      startDate: toISO(period.startTime),
+      endDate: toISO(period.endTime),
+      status: period.isClinical
+        ? "planned"
+        : period.isOptional
+          ? "default"
+          : "assigned",
+      supervisorName: period.lecturer?.name,
+    }));
+  }, [currentDate, timetableSchedule]);
 
   const filteredEvents = eventsWithTimetableTime.filter((event) => {
     const searchMatches =
@@ -646,7 +674,7 @@ export default function ClinicalSchedules() {
     monday.setDate(date.getDate() - dayIndex);
     monday.setHours(0, 0, 0, 0);
 
-    return Array.from({ length: 5 }, (_, index) => {
+    return Array.from({ length: 7 }, (_, index) => {
       const dayDate = new Date(monday);
       dayDate.setDate(monday.getDate() + index);
 
@@ -658,6 +686,7 @@ export default function ClinicalSchedules() {
         day: "numeric",
       });
       const dayKey = dayDate.toISOString().split("T")[0];
+      const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
 
       const scheduleForDay = timetableSchedule.find(
         (scheduleDay) =>
@@ -692,6 +721,7 @@ export default function ClinicalSchedules() {
         dayLabel,
         dateLabel,
         dayKey,
+        isWeekend,
         timetablePeriod,
         optionalPeriods,
         clinicalPostings,
@@ -706,7 +736,15 @@ export default function ClinicalSchedules() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     }
-    return Array.from(map.entries());
+    const isActiveList = (windows: PostingWindow[]) =>
+      windows.some(
+        (w) =>
+          new Date(w.startDate).getTime() <= Date.now() &&
+          Date.now() <= new Date(w.endDate).getTime(),
+      );
+    return Array.from(map.entries()).sort(
+      (a, b) => Number(isActiveList(b[1])) - Number(isActiveList(a[1])),
+    );
   }, [filteredEvents]);
 
   const statusCounts = useMemo(() => {
@@ -741,69 +779,29 @@ export default function ClinicalSchedules() {
     });
   }, [currentDate, view]);
 
-  useEffect(() => {
-    const api = calendarRef.current?.getApi();
-    if (!api) return;
-
-    if (view === "day") {
-      api.changeView("timeGridDay");
-    } else if (view === "week") {
-      api.changeView("timeGridWeek");
-    } else {
-      api.changeView("dayGridMonth");
-    }
-    api.gotoDate(currentDate);
-  }, [view, currentDate]);
-
-  const scrollTimer = useRef<number | null>(null);
-  const dayViewContainerRef = useRef<HTMLDivElement | null>(null);
-
   const goToToday = () => {
-    calendarRef.current?.getApi()?.today();
     setCurrentDate(new Date().toISOString());
   };
 
   const openPrintView = () => {
     window.print();
   };
-  const goToPrev = () => calendarRef.current?.getApi()?.prev();
-  const goToNext = () => calendarRef.current?.getApi()?.next();
 
-  const handleDayViewScroll = useCallback(
-    (deltaY: number, nativeEvent?: WheelEvent) => {
-      if (view !== "day" || Math.abs(deltaY) < 10) return;
-      // if nativeEvent provided, we can preventDefault because listener will be non-passive
-      try {
-        nativeEvent?.preventDefault();
-      } catch {
-        // Ignore any preventDefault errors
-      }
-      if (scrollTimer.current) return;
-
-      if (deltaY > 0) {
-        goToNext();
-      } else {
-        goToPrev();
-      }
-
-      scrollTimer.current = window.setTimeout(() => {
-        scrollTimer.current = null;
-      }, 300);
-    },
-    [view],
-  );
-
-  useEffect(() => {
-    const el = dayViewContainerRef.current;
-    if (!el) return;
-    const wheelHandler = (e: WheelEvent) => handleDayViewScroll(e.deltaY, e);
-    // add native listener with passive: false so preventDefault is allowed
-    el.addEventListener("wheel", wheelHandler as unknown as EventListener, {
-      passive: false,
-    });
-    return () =>
-      el.removeEventListener("wheel", wheelHandler as unknown as EventListener);
-  }, [view, handleDayViewScroll]);
+  const stepDate = (direction: 1 | -1) => {
+    const d = new Date(currentDate);
+    if (Number.isNaN(d.getTime())) {
+      setCurrentDate(new Date().toISOString());
+      return;
+    }
+    if (view === "month") {
+      d.setMonth(d.getMonth() + direction);
+    } else {
+      d.setDate(d.getDate() + direction);
+    }
+    setCurrentDate(d.toISOString());
+  };
+  const goToPrev = () => stepDate(-1);
+  const goToNext = () => stepDate(1);
 
   return (
     <div className="p-6 space-y-6">
@@ -811,30 +809,10 @@ export default function ClinicalSchedules() {
         <div>
           <h1 className="text-2xl font-semibold">Clinical Schedules</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            View schedule windows by class, posting, and timeline.
+            A calendar of each class's lectures and clinical activities.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={view === "day" ? "default" : "ghost"}
-            onClick={() => setView("day")}
-          >
-            Day
-          </Button>
-          <Button
-            variant={view === "week" ? "default" : "ghost"}
-            onClick={() => setView("week")}
-          >
-            Week
-          </Button>
-          <Button
-            variant={view === "month" ? "default" : "ghost"}
-            onClick={() => setView("month")}
-          >
-            Month
-          </Button>
-        </div>
       </div>
 
       <div className="space-y-6">
@@ -852,7 +830,7 @@ export default function ClinicalSchedules() {
               defaultValue={selectedClass || undefined}
               onValueChange={(v) => setSelectedClass(v)}
             >
-              <TabsList className="flex max-w-full flex-wrap gap-2 overflow-x-auto pb-1 pr-2 sm:flex-nowrap">
+              <TabsList className="mx-auto flex w-full max-w-full flex-wrap justify-center gap-2 overflow-x-auto pb-1 sm:flex-nowrap">
                 {loadingClasses ? (
                   <div className="px-4 py-2">Loading…</div>
                 ) : (
@@ -876,8 +854,8 @@ export default function ClinicalSchedules() {
             <div>
               <CardTitle>Schedule controls</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Search postings, filter statuses, and export the current
-                schedule.
+                Navigate the calendar, jump to the active posting, and focus
+                what matters.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -887,8 +865,25 @@ export default function ClinicalSchedules() {
               <Button size="sm" variant="outline" onClick={openPrintView}>
                 Print
               </Button>
-              <Button size="sm" variant="outline">
-                Quick action
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const nowMs = Date.now();
+                  const active = eventsWithTimetableTime.find(
+                    (w) =>
+                      new Date(w.startDate).getTime() <= nowMs &&
+                      nowMs <= new Date(w.endDate).getTime(),
+                  );
+                  if (!active) {
+                    toast.info("No active posting window covers today");
+                    return;
+                  }
+                  setCurrentDate(new Date(active.startDate).toISOString());
+                  setSelectedPostingId(active.postingId ?? null);
+                }}
+              >
+                Jump to active posting
               </Button>
             </div>
           </CardHeader>
@@ -916,29 +911,21 @@ export default function ClinicalSchedules() {
                 </div>
                 <div className="rounded-2xl border border-border bg-card p-3">
                   <div className="text-xs font-medium uppercase text-muted-foreground">
-                    Status filters
+                    Status filter
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant={statusFilter === "all" ? "default" : "outline"}
-                      onClick={() => setStatusFilter("all")}
-                    >
-                      All
-                    </Button>
-                    {statusOptions.map((option) => (
-                      <Button
-                        key={option.key}
-                        size="sm"
-                        variant={
-                          statusFilter === option.key ? "default" : "outline"
-                        }
-                        onClick={() => setStatusFilter(option.key)}
-                      >
-                        {option.label}
-                      </Button>
-                    ))}
-                  </div>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="mt-3 w-full">
+                      <SelectValue placeholder="All statuses" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All statuses</SelectItem>
+                      {statusOptions.map((option) => (
+                        <SelectItem key={option.key} value={option.key}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -976,18 +963,29 @@ export default function ClinicalSchedules() {
                   const postingId = windows[0]?.postingId ?? postingName;
                   const status = windows[0]?.status || "default";
                   const meta = statusMetadata[status] ?? statusMetadata.default;
+                  const nowMs = Date.now();
+                  const isActive = windows.some(
+                    (w) =>
+                      new Date(w.startDate).getTime() <= nowMs &&
+                      nowMs <= new Date(w.endDate).getTime(),
+                  );
                   return (
                     <button
                       key={postingName}
                       type="button"
                       onClick={() => setSelectedPostingId(postingId)}
-                      className={`group w-full rounded-md border bg-card p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg ${selectedPostingId === postingId ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/80"}`}
+                      className={`group w-full rounded-md border bg-card p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-lg ${isActive ? "border-emerald-500/70 ring-1 ring-emerald-500/40" : ""} ${selectedPostingId === postingId ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/80"}`}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-foreground">
                             {postingName}
                           </p>
+                          {isActive && (
+                            <span className="inline-flex w-fit items-center rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                              Active now
+                            </span>
+                          )}
                           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                             <span>
                               {windows.length} window
@@ -1023,40 +1021,6 @@ export default function ClinicalSchedules() {
                 })}
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden rounded-3xl border border-border shadow-sm">
-          <CardHeader>
-            <CardTitle>Legend</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            {statusOptions.map((option) => {
-              const meta = statusMetadata[option.key] ?? statusMetadata.default;
-              return (
-                <div
-                  key={option.key}
-                  className="flex items-center gap-3 rounded-2xl border border-border bg-background p-3"
-                >
-                  <span
-                    className={`inline-block h-3 w-3 rounded-full ${meta.dotClass}`}
-                  ></span>
-                  <div>
-                    <p className="text-sm font-medium">{option.label}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {statusCounts[option.key] ?? 0} windows
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-            <div className="rounded-2xl border border-border bg-background p-3">
-              <p className="text-sm font-medium">Tip</p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Click a posting to filter the calendar. Click any day in month
-                view to jump into day details.
-              </p>
-            </div>
           </CardContent>
         </Card>
 
@@ -1110,9 +1074,39 @@ export default function ClinicalSchedules() {
               </Button>
             </div>
           </CardHeader>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+            <span className="font-semibold uppercase tracking-[0.14em]">
+              Legend
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-sky-500" />
+              Lecture
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-indigo-500" />
+              Other activity
+            </span>
+            {(() => {
+              const present = Object.entries(statusCounts).filter(
+                ([key]) => (statusCounts[key] ?? 0) > 0,
+              );
+              const keys = present.length
+                ? present.map(([key]) => key)
+                : ["planned", "ongoing", "completed"];
+              return keys.map((key) => {
+                const meta = statusMetadata[key] ?? statusMetadata.default;
+                return (
+                  <span key={key} className="inline-flex items-center gap-1">
+                    <span className={`h-2 w-2 rounded-full ${meta.dotClass}`} />
+                    {meta.label} ({statusCounts[key] ?? 0})
+                  </span>
+                );
+              });
+            })()}
+          </div>
           <CardContent className="p-0">
             <div className="min-h-[520px] overflow-hidden bg-background md:min-h-[700px] lg:min-h-[760px]">
-              <div ref={dayViewContainerRef} className="h-full relative">
+              <div className="h-full relative">
                 {view === "day" ? (
                   <>
                     <div className="border-b border-border">
@@ -1134,9 +1128,15 @@ export default function ClinicalSchedules() {
                       />
                     </div>
                     <DayTimetable
-                    events={filteredEvents}
+                    events={[...filteredEvents, ...dayTimetableEvents]}
                     date={currentDate}
                     onEventClick={(ev) => {
+                      if (!ev.id || ev.id.startsWith("tt-")) {
+                        toast.info(
+                          "Timetable periods come from the class timetable.",
+                        );
+                        return;
+                      }
                       setSelectedEvent({
                         id: ev.id || "",
                         title: ev.postingName || "Clinical activity",
@@ -1155,6 +1155,12 @@ export default function ClinicalSchedules() {
                       setOpenDetails(true);
                     }}
                     onEventDrop={async (ev, newStartISO, newEndISO) => {
+                      if (!ev.id || ev.id.startsWith("tt-")) {
+                        toast.info(
+                          "Timetable periods are fixed in the class timetable.",
+                        );
+                        return;
+                      }
                       try {
                         const eid = ev.id as string;
                         const parts = eid.split("-");
@@ -1205,6 +1211,10 @@ export default function ClinicalSchedules() {
                         currentDate={new Date(currentDate)}
                         dayLineItems={monthDayLineItems}
                         onDateSelect={(date) => {
+                          setCurrentDate(date.toISOString());
+                          setView("day");
+                        }}
+                        onMonthNavigate={(date) => {
                           setCurrentDate(date.toISOString());
                         }}
                         onDayHover={(
@@ -1265,8 +1275,8 @@ export default function ClinicalSchedules() {
 
                         {day.isWeekend && (
                           <div className="mt-4 rounded-3xl border border-emerald-500/20 bg-emerald-950/80 p-4 text-sm text-emerald-100">
-                            Merry weekend! Rest is important for academic
-                            optimal performance.
+                            Weekend — lectures are not scheduled. Clinical
+                            postings below still follow the posting schedule.
                           </div>
                         )}
 
@@ -1398,158 +1408,6 @@ export default function ClinicalSchedules() {
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <FullCalendar
-                    ref={calendarRef}
-                    plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}
-                    initialView={
-                      view === "week" ? "timeGridWeek" : "timeGridDay"
-                    }
-                    headerToolbar={false}
-                    height="100%"
-                    contentHeight="auto"
-                    aspectRatio={1.4}
-                    dayMaxEvents={true}
-                    eventDisplay="block"
-                    selectable
-                    nowIndicator
-                    stickyHeaderDates={true}
-                    firstDay={1}
-                    views={{
-                      timeGridDay: {
-                        titleFormat: {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                        },
-                        dayHeaderFormat: {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                        },
-                        slotLabelFormat: {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          omitZeroMinute: true,
-                          hour12: false,
-                        },
-                        slotDuration: "00:30:00",
-                        slotMinTime: "06:00:00",
-                        slotMaxTime: "22:00:00",
-                        allDaySlot: false,
-                      },
-                      timeGridWeek: {
-                        titleFormat: { month: "short", year: "numeric" },
-                        dayHeaderFormat: { weekday: "short", day: "numeric" },
-                        slotLabelFormat: {
-                          hour: "numeric",
-                          minute: "2-digit",
-                          omitZeroMinute: true,
-                          hour12: false,
-                        },
-                        slotDuration: "00:30:00",
-                        slotMinTime: "06:00:00",
-                        slotMaxTime: "22:00:00",
-                        allDaySlot: true,
-                      },
-                    }}
-                    events={filteredEvents.map((e) => ({
-                      id: e.id,
-                      title: e.postingName || "Clinical posting",
-                      start: e.startDate,
-                      end: e.endDate,
-                      extendedProps: {
-                        status: e.status,
-                        scheduleId: e.scheduleId,
-                      },
-                    }))}
-                    eventContent={(info) => {
-                      const status =
-                        info.event.extendedProps.status || "default";
-                      const meta =
-                        statusMetadata[status] ?? statusMetadata.default;
-                      return (
-                        <div
-                          className={`flex flex-col gap-1 rounded-md border bg-card p-2.5 shadow-sm text-[11px] leading-tight ${meta.borderClass}`}
-                        >
-                          <span
-                            className={`inline-flex max-w-full items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.badgeClasses}`}
-                          >
-                            {meta.label}
-                          </span>
-                          <div className="truncate font-medium">
-                            {info.event.title}
-                          </div>
-                          {info.timeText && (
-                            <div className="text-[10px] text-muted-foreground">
-                              {info.timeText}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }}
-                    eventDidMount={(info) => {
-                      const status =
-                        info.event.extendedProps.status || "default";
-                      const meta =
-                        statusMetadata[status] ?? statusMetadata.default;
-                      info.el.setAttribute(
-                        "title",
-                        `${info.event.title} — ${meta.label}${info.timeText ? ` (${info.timeText})` : ""}`,
-                      );
-                    }}
-                    datesSet={(arg) => setCurrentDate(arg.startStr)}
-                    dateClick={(info) => {
-                      setCurrentDate(info.dateStr);
-                      setView("day");
-                    }}
-                    eventClick={(info) => {
-                      setSelectedEvent({
-                        id: info.event.id,
-                        title: info.event.title,
-                        start: info.event.start,
-                        end: info.event.end,
-                        scheduleId: info.event.extendedProps?.scheduleId,
-                        extendedProps: info.event.extendedProps,
-                      });
-                      setOpenDetails(true);
-                    }}
-                    eventDrop={async (info) => {
-                      try {
-                        const eid = info.event.id as string;
-                        const parts = eid.split("-");
-                        const idx = Number(parts.pop());
-                        const scheduleId = parts.join("-");
-                        if (!scheduleId || isNaN(idx))
-                          throw new Error("Invalid event id");
-                        const startDate = info.event.start?.toISOString();
-                        const endDate = info.event.end?.toISOString();
-                        if (!startDate || !endDate)
-                          throw new Error("Invalid event dates");
-                        const payload = { startDate, endDate };
-                        await api.patch(
-                          `/rotation-schedules/${scheduleId}/windows/${idx}`,
-                          payload,
-                        );
-                        setEvents((prev) =>
-                          prev.map((ev) =>
-                            ev.id === eid ? { ...ev, startDate, endDate } : ev,
-                          ),
-                        );
-                        invalidateAdminData("rotation-schedules");
-                        toast.success("Posting window rescheduled");
-                      } catch (err) {
-                        console.error("Reschedule failed", err);
-                        toast.error("Failed to reschedule posting window");
-                        if (
-                          "revert" in info &&
-                          typeof info.revert === "function"
-                        ) {
-                          info.revert();
-                        }
-                      }
-                    }}
-                  />
                 )}
               </div>
             </div>
