@@ -5,6 +5,7 @@ import Course from "../models/courses";
 import Class from "../models/classes";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createMistral } from "@ai-sdk/mistral";
+import { createGroq } from "@ai-sdk/groq";
 import { generateText, tool } from "ai"; // Vercel AI SDK — PR M1 agentic tool flow
 import { z } from "zod";
 import { inngest } from "../inngest/client";
@@ -19,6 +20,7 @@ import {
   checkAndIncrementMordredUsage,
   executeMordredTool,
   getGoogleApiKeys,
+  getGroqApiKeys,
   getMistralApiKeys,
   resolveMordredProvider,
 } from "../services/mordredEngine";
@@ -198,9 +200,10 @@ export const getCourseSummary = async (req: Request, res: Response) => {
         .join("\n");
     };
 
+    const groqKeys = getGroqApiKeys();
     const mistralKeys = getMistralApiKeys();
     const googleKeys = getGoogleApiKeys();
-    if (mistralKeys.length === 0 && googleKeys.length === 0) {
+    if (groqKeys.length === 0 && mistralKeys.length === 0 && googleKeys.length === 0) {
       console.warn("⚠️ DALE Configuration Warning: AI credentials are missing. Using course-summary fallback.");
       return res.status(200).json({
         _id: `mordred-course-summary-fallback-${Date.now()}`,
@@ -213,7 +216,20 @@ export const getCourseSummary = async (req: Request, res: Response) => {
     const summaryPrompt = `You are DALE, a concise academic assistant for medical students. Provide a 5-6 line summary explaining why the course ${courseTitle} is important for students in ${studentClassName}${departmentName ? ` of the ${departmentName} department` : ""}.${semesterLabel} Keep the tone supportive, clear, and focused on student relevance. Start the response with "DALE AI says:" and do not exceed six lines.`;
 
     const runSummary = async () => {
-      // Key pools: try each Mistral key in order, then each Google key.
+      // Key pools: try each Groq key in order, then each Mistral key, then each Google key.
+      for (const apiKey of groqKeys) {
+        try {
+          const groq = createGroq({ apiKey });
+          const { text } = await generateText({
+            model: groq(process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+            prompt: summaryPrompt,
+            temperature: 0.4,
+          });
+          return String(text ?? "").trim();
+        } catch (groqError) {
+          console.warn(`⚠️ DALE Groq course summary failed (key ${groqKeys.indexOf(apiKey) + 1}/${groqKeys.length}), trying next key.`, groqError);
+        }
+      }
       for (const apiKey of mistralKeys) {
         try {
           const mistral = createMistral({ apiKey });
@@ -326,6 +342,7 @@ export const mordredsWords = async (req: Request, res: Response) => {
     const { daleTools, toolsUsed } = buildDaleTools(userRole, user?._id, user?.name);
 
     const runDale = async () => {
+      const groqKeys = getGroqApiKeys();
       const mistralKeys = getMistralApiKeys();
       const googleKeys = getGoogleApiKeys();
 
@@ -348,7 +365,19 @@ export const mordredsWords = async (req: Request, res: Response) => {
         temperature: 0.4,
       };
 
-      // Key pools: try each Mistral key in order, then each Google key.
+      // Key pools: try each Groq key in order, then each Mistral key, then each Google key.
+      for (const apiKey of groqKeys) {
+        try {
+          const groq = createGroq({ apiKey });
+          const result = await generateText({
+            ...commonParams,
+            model: groq(process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+          });
+          return { text: result.text, provider: "groq" as const };
+        } catch (groqError) {
+          console.warn(`⚠️ DALE Groq request failed (key ${groqKeys.indexOf(apiKey) + 1}/${groqKeys.length}), trying next key.`, groqError);
+        }
+      }
       for (const apiKey of mistralKeys) {
         try {
           const mistral = createMistral({ apiKey });

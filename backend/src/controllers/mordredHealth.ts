@@ -2,8 +2,10 @@ import { type Request, type Response } from "express";
 import { generateText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createMistral } from "@ai-sdk/mistral";
+import { createGroq } from "@ai-sdk/groq";
 import {
   getGoogleApiKeys,
+  getGroqApiKeys,
   getMistralApiKeys,
   resolveMordredProvider,
 } from "../services/mordredEngine";
@@ -20,10 +22,15 @@ const maskError = (err: any) =>
 
 export const getProviderHealth = async (req: Request, res: Response) => {
   const startedAt = Date.now();
+  const groqKeys = getGroqApiKeys();
   const mistralKeys = getMistralApiKeys();
   const googleKeys = getGoogleApiKeys();
 
   const configured = {
+    groq: {
+      GROQ_API_KEY: keyConfigured("GROQ_API_KEY"),
+      GROQ_API_KEY_2: keyConfigured("GROQ_API_KEY_2"),
+    },
     mistral: {
       MISTRAL_API_KEY: keyConfigured("MISTRAL_API_KEY"),
       MISTRAL_API_KEY_2: keyConfigured("MISTRAL_API_KEY_2"),
@@ -37,6 +44,34 @@ export const getProviderHealth = async (req: Request, res: Response) => {
   };
 
   const liveTests: Record<string, any>[] = [];
+
+  for (let i = 0; i < groqKeys.length; i++) {
+    const started = Date.now();
+    try {
+      const groq = createGroq({ apiKey: groqKeys[i] });
+      const { text } = await generateText({
+        model: groq(process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+        prompt: "Reply with the single word: healthy",
+        maxOutputTokens: 16,
+      });
+      liveTests.push({
+        provider: "groq",
+        keyIndex: i + 1,
+        ok: true,
+        sample: String(text ?? "").slice(0, 40),
+        ms: Date.now() - started,
+      });
+    } catch (err: any) {
+      liveTests.push({
+        provider: "groq",
+        keyIndex: i + 1,
+        ok: false,
+        errorName: err?.name ?? "Error",
+        error: maskError(err),
+        ms: Date.now() - started,
+      });
+    }
+  }
 
   for (let i = 0; i < mistralKeys.length; i++) {
     const started = Date.now();
@@ -96,13 +131,15 @@ export const getProviderHealth = async (req: Request, res: Response) => {
 
   const anyOk = liveTests.some((t) => t.ok);
   const modelVersions = {
+    groqModel: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
     mistralModel: process.env.MORDRED_MISTRAL_MODEL || "mistral-small-latest",
     googleModel: process.env.MORDRED_MODEL || "gemini-3.8-flash",
   };
 
   return res.status(200).json({
-    status: anyOk ? "healthy" : mistralKeys.length + googleKeys.length === 0 ? "no-keys-configured" : "all-keys-failing",
+    status: anyOk ? "healthy" : groqKeys.length + mistralKeys.length + googleKeys.length === 0 ? "no-keys-configured" : "all-keys-failing",
     resolvedProvider: resolveMordredProvider(),
+    groqKeyCount: groqKeys.length,
     mistralKeyCount: mistralKeys.length,
     googleKeyCount: googleKeys.length,
     configured,
@@ -110,7 +147,7 @@ export const getProviderHealth = async (req: Request, res: Response) => {
     liveTests,
     diagnosis: anyOk
       ? "At least one provider responded — DALE chat should work."
-      : mistralKeys.length + googleKeys.length === 0
+      : groqKeys.length + mistralKeys.length + googleKeys.length === 0
         ? "NO provider keys are visible to the backend process. The AI keys were probably set on Vercel (frontend) but NOT on the Render backend service — add them in Render → Service → Environment, then redeploy."
         : "Keys are configured but every live test call failed. Read liveTests[].error: 401/403 = invalid or expired key; model errors = wrong key type for this provider (e.g. an AI-gateway key used directly against Gemini); timeouts/network = outbound issue on the host.",
     totalMs: Date.now() - startedAt,

@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.71",
+    "@ai-sdk/groq": "^2.0.0",
     "@ai-sdk/mistral": "^2.0.0",
     "ai": "^6.0.177",
     "bcryptjs": "^3.0.3",

@@ -66,6 +66,11 @@ export const getMistralApiKeys = (): string[] =>
     .map((key) => String(key ?? "").trim())
     .filter(Boolean);
 
+export const getGroqApiKeys = (): string[] =>
+  [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2]
+    .map((key) => String(key ?? "").trim())
+    .filter(Boolean);
+
 export const getGoogleApiKeys = (): string[] =>
   [
     process.env.AI_GATEWAY_API_KEY,
@@ -76,7 +81,9 @@ export const getGoogleApiKeys = (): string[] =>
     .map((key) => String(key ?? "").trim())
     .filter(Boolean);
 
-export const resolveMordredProvider = (): "mistral" | "gemini" | "none" => {
+export const resolveMordredProvider = (): "groq" | "mistral" | "gemini" | "none" => {
+  // Groq first: fastest + freshest keys; Mistral keys are rate-limited.
+  if (getGroqApiKeys().length > 0) return "groq";
   if (getMistralApiKeys().length > 0) return "mistral";
   if (getGoogleApiKeys().length > 0) return "gemini";
   return "none";
