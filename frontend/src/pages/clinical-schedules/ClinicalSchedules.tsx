@@ -991,7 +991,7 @@ export default function ClinicalSchedules() {
                               {windows.length} window
                               {windows.length === 1 ? "" : "s"}
                             </span>
-                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.color}">
+                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.badgeClasses}">
                               {meta.label}
                             </span>
                           </div>
@@ -1408,7 +1408,7 @@ export default function ClinicalSchedules() {
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </CardContent>
