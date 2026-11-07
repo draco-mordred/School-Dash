@@ -1,6 +1,4 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 interface Activity {
@@ -39,7 +37,7 @@ interface Props {
     date: Date,
     lineItems: MonthDayLineItems | null,
     activities: Activity[],
-    anchorRect?: DOMRect,
+    anchorEl?: HTMLElement,
   ) => void;
   onDayLeave?: () => void;
   isLoading?: boolean;
@@ -127,18 +125,6 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
     });
   }, [monthDays, events, dayLineItems]);
 
-  const handlePrevMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() - 1);
-    (onMonthNavigate ?? onDateSelect)(newDate);
-  };
-
-  const handleNextMonth = () => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(newDate.getMonth() + 1);
-    (onMonthNavigate ?? onDateSelect)(newDate);
-  };
-
   const handleDayClick = (day: DayData) => {
     onDateSelect(day.date);
   };
@@ -147,10 +133,12 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
     if (!day) return;
     const dateKey = day.date.toISOString().split("T")[0];
     setHoveredDate(dateKey);
-    const rect = e?.currentTarget
-      ? (e.currentTarget as HTMLElement).getBoundingClientRect()
-      : undefined;
-    onDayHover?.(day.date, day.lineItems ?? null, day.activities, rect);
+    onDayHover?.(
+      day.date,
+      day.lineItems ?? null,
+      day.activities,
+      e?.currentTarget as HTMLElement | undefined,
+    );
   };
 
   const handleDayLeave = () => {
@@ -178,20 +166,8 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{monthLabel}</h2>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={handlePrevMonth}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleNextMonth}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Calendar Grid */}
+      {/* Calendar Grid — month label + Prev/Today/Next navigation live in
+          the page's calendar card header, so they are not duplicated here. */}
       <div className="space-y-2 rounded-lg border border-border bg-background/50 p-4 backdrop-blur-sm">
         {/* Day headers */}
         <div className="mb-4 grid grid-cols-7 gap-2">
@@ -321,12 +297,6 @@ export default function MonthViewCalendar({ events, currentDate, dayLineItems, o
                           </div>
                         )}
 
-                      {/* Activity preview on hover */}
-                      {isHovered && hasActivities && (
-                        <div className="text-[10px] text-muted-foreground truncate">
-                          {day.activities[0].title}
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
