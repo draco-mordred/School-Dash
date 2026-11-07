@@ -9,6 +9,7 @@ export interface DmConversation {
   partnerName: string;
   partnerEmail?: string;
   partnerRole: string;
+  partnerImage?: string | null;
   lastMessage: string;
   lastAt: string;
 }

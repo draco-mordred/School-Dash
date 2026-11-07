@@ -460,8 +460,8 @@ export const getMyConversations = async (userId: any) => {
   })
     .sort({ createdAt: -1 })
     .limit(300)
-    .populate("sender", "name email role")
-    .populate("recipient", "name email role")
+    .populate("sender", "name email role profileImage")
+    .populate("recipient", "name email role profileImage")
     .lean();
   const byPartner = new Map<string, any>();
   for (const dm of dms) {
@@ -473,6 +473,7 @@ export const getMyConversations = async (userId: any) => {
       partnerName: partner?.name ?? "Unknown",
       partnerEmail: partner?.email ?? "",
       partnerRole: partner?.role ?? "",
+      partnerImage: partner?.profileImage ?? null,
       lastMessage: String(dm.text ?? "").slice(0, 120),
       lastAt: dm.createdAt,
     });
