@@ -5,6 +5,9 @@ import {
   sendDmFromMention,
   getMyConversations,
   getThread,
+  setTyping,
+  togglePinMessage,
+  togglePreserveMessage,
   getMyModerationStatus,
   submitAppeal,
   adminListCases,
@@ -40,8 +43,8 @@ export const sendDmController = async (req: Request, res: Response) => {
 export const listConversations = async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const conversations = await getMyConversations(user?._id);
-    return res.status(200).json({ conversations });
+    const { conversations, typingFrom } = await getMyConversations(user?._id);
+    return res.status(200).json({ conversations, typingFrom });
   } catch (error: any) {
     return res.status(500).json({ message: error?.message || "Unable to load conversations." });
   }
@@ -111,6 +114,43 @@ export const myChatEnabled = async (req: Request, res: Response) => {
     return res.status(200).json({ chatEnabled: enabled });
   } catch (error: any) {
     return res.status(500).json({ message: error?.message || "Unable to load the setting." });
+  }
+};
+
+// ─── Instant-feel: typing indicator + message pin/save ──────────────
+export const typingIndicator = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const recipientId = String(req.body?.recipientId ?? "").trim();
+    if (!recipientId) return res.status(400).json({ message: "recipientId is required." });
+    setTyping(user?._id, recipientId);
+    return res.status(200).json({ ok: true });
+  } catch (error: any) {
+    return res.status(500).json({ message: error?.message || "Unable to record typing." });
+  }
+};
+
+export const pinMessageController = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const messageId = String(req.params.messageId ?? "");
+    const pinned = req.body?.pinned === true;
+    const result = await togglePinMessage(user?._id, messageId, pinned);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    return res.status(400).json({ message: error?.message || "Unable to update the pin." });
+  }
+};
+
+export const preserveMessageController = async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const messageId = String(req.params.messageId ?? "");
+    const preserve = req.body?.preserve === true;
+    const result = await togglePreserveMessage(user?._id, messageId, preserve);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    return res.status(400).json({ message: error?.message || "Unable to update the saved state." });
   }
 };
 

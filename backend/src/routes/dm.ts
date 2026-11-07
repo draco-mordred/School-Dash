@@ -8,6 +8,9 @@ import {
   appealCase,
   updateChatEnabled,
   myChatEnabled,
+  typingIndicator,
+  pinMessageController,
+  preserveMessageController,
   adminCases,
   adminCaseDetail,
   adminCaseResolve,
@@ -24,6 +27,9 @@ dmRouter.get("/moderation/me", protect, myModerationStatus);
 dmRouter.post("/moderation/appeal", protect, appealCase);
 dmRouter.get("/chat-enabled", protect, myChatEnabled);
 dmRouter.put("/chat-enabled", protect, updateChatEnabled);
+dmRouter.post("/typing", protect, typingIndicator);
+dmRouter.patch("/messages/:messageId/pin", protect, pinMessageController);
+dmRouter.patch("/messages/:messageId/preserve", protect, preserveMessageController);
 
 // ─── Admin moderation queue + transparency ───────────────────────────
 dmRouter.get("/admin/cases", protect, authorize(["admin"]), adminCases);
