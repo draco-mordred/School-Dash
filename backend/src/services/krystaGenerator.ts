@@ -12,6 +12,7 @@ import {
   distributeStudentsRoundRobin,
   rotateLeft,
   findStudentWindowOverlaps,
+  pickUnusedCandidate,
 } from '../utils/clinicalGrouping';
 
 // KRYSTA clinical posting generator (department/unit rotation model).
@@ -33,7 +34,11 @@ import {
 //   the units each unit-window (unitDurationDays, from the phase
 //   config; default 1 week).
 // - Supervisors: ONE unique supervisor per department group and ONE
-//   unique supervisor per unit, per generation run.
+//   unique supervisor per unit, per generation run. Uniqueness is hard:
+//   when a department's lecturer pool is exhausted the window is left
+//   UNASSIGNED (admins get an alert) — a supervisor is never duplicated
+//   across groups, and unit windows never silently re-use the department
+//   supervisor.
 // - postings[].groups[] = one group per DEPARTMENT (named by the
 //   department name + code); departmentGroupIndex in timeline windows
 //   indexes this array. The timeline windows carry the per-window
@@ -275,8 +280,11 @@ const findUnitSupervisor = async (unit: any, departmentDoc: any, assignedSet?: S
   }
 
   const ranked = rankSupervisorCandidates(candidates);
-  const pick = ranked.find((r: any) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
-  return pick ? String(pick._id) : null;
+  // Uniqueness guard: never fall back to an already-assigned supervisor —
+  // when the pool is exhausted the department window stays unassigned
+  // (the caller records it and alerts admins).
+  const pick = pickUnusedCandidate(ranked.map((r: any) => String(r._id)), assignedSet ?? new Set<string>());
+  return pick ?? null;
 };
 
 const findBestDepartmentSupervisor = async (departmentDoc: any, assignedSet?: Set<string>) => {
@@ -292,8 +300,11 @@ const findBestDepartmentSupervisor = async (departmentDoc: any, assignedSet?: Se
   }
 
   const ranked = rankSupervisorCandidates(candidates);
-  const pick = ranked.find((r: any) => !(assignedSet && assignedSet.has(String(r._id)))) || ranked[0];
-  return pick ? String(pick._id) : null;
+  // Uniqueness guard: never fall back to an already-assigned supervisor —
+  // when the pool is exhausted the department window stays unassigned
+  // (the caller records it and alerts admins).
+  const pick = pickUnusedCandidate(ranked.map((r: any) => String(r._id)), assignedSet ?? new Set<string>());
+  return pick ?? null;
 };
 
 const markSupervisor = async (supervisorId: string | null) => {
@@ -360,16 +371,13 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
     const unitPool = unitPools[d];
     if (unitPool.length > 0) {
       // Rank the department's lecturers ONCE and distribute them across the
-      // department's units. Previously each unit ran its own per-unit
-      // supervisor-pool lookup — every per-unit pool starts at pointer 0, so
-      // every unit picked the same first candidate, and when a department
-      // had one or fewer matching lecturers every unit window fell back to
-      // the DEPARTMENT supervisor. The result was that all unit groups in a
-      // department shared one supervisor. Now: a unit's designated supervisor
-      // — unit.supervisor — is honored first; otherwise the next
+      // department's units. A unit's designated supervisor —
+      // unit.supervisor — is honored first; otherwise the next
       // not-yet-used candidate is picked, unique across the whole run and
-      // excluding the department group supervisor; the ranked list is
-      // cycled only when there are fewer candidates than units.
+      // excluding the department group supervisor. When the pool runs out
+      // the unit group is left WITHOUT a supervisor (window recorded as
+      // unassigned + admin alert) — cycling/re-using supervisors across
+      // unit groups is not allowed.
       const candidates = await findDepartmentSupervisors(deptDocs[d]);
       const ranked = rankSupervisorCandidates(candidates).map((c: any) => String(c._id));
       const deptSupId = deptSupervisors[d]?.id ? String(deptSupervisors[d].id) : null;
@@ -383,7 +391,7 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
         if (designated && !assignedSupervisorIds.has(designated)) {
           picked = designated;
         } else if (fallbackPool.length > 0) {
-          picked = fallbackPool.find((id: string) => !assignedSupervisorIds.has(id)) ?? fallbackPool[u % fallbackPool.length];
+          picked = pickUnusedCandidate(fallbackPool, assignedSupervisorIds);
         }
         if (picked) assignedSupervisorIds.add(picked);
         await markSupervisor(picked);
@@ -442,8 +450,11 @@ export async function generateKrystaSchedule(opts: GenerateOpts) {
             const unitId = groupAssignedUnits[g][w] ?? unitPool[g % unitPool.length] ?? null;
             const unitDoc = unitId ? unitMap.get(unitId) || null : null;
             const unitSup = unitId ? unitSupervisors[deptSlot].get(unitId) || null : null;
-            const supervisorId = unitSup?.id || deptSup.id || null;
-            const supervisorName = unitSup?.name || deptSup.name || null;
+            // Uniqueness: a unit window never re-uses the department group
+            // supervisor — if no unique unit supervisor exists the window is
+            // left unassigned (alerted below) instead of duplicated.
+            const supervisorId = unitSup?.id || null;
+            const supervisorName = unitSup?.name || null;
 
             timeline.push({
               phaseIndex: blockIndex,
