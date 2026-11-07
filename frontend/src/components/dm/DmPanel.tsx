@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useDirectMessages, DmSendResult, DmConversation } from "../../hooks/useDirectMessages";
-import { getPinnedPartnerIds, togglePinPartner } from "../../utils/daleSettings";
+import { getPinnedPartnerIds, togglePinPartner, getAccent } from "../../utils/daleSettings";
 
 // PR M3 — DM panel: conversation list + thread + composer + moderation
 // banners/appeal (PR M2) now with h-full layout, a pinned DALE/AI row at the
@@ -52,6 +52,10 @@ export function DmPanel({
   const partnerTyping = Boolean(
     activePartner && typingFrom.includes(activePartner.partnerId)
   );
+
+  // Read receipts + pinned-message rings follow the user's chat settings
+  // accent color (Chat Settings -> Accent) instead of the global primary.
+  const accentColor = getAccent().color;
 
   // Instant-feel: keep the thread pinned to the newest message/bubble.
   useEffect(() => {
@@ -182,7 +186,12 @@ export function DmPanel({
                   msg.fromMe
                     ? "bg-primary text-primary-foreground rounded-tr-sm"
                     : "bg-muted text-foreground rounded-bl-sm"
-                } ${msg.verdict === "soft_flagged" ? "ring-1 ring-amber-400" : ""} ${msg.pinned ? "ring-1 ring-primary/60" : ""}`}
+                } ${msg.verdict === "soft_flagged" ? "ring-1 ring-amber-400" : ""}`}
+                style={
+                  msg.pinned
+                    ? { boxShadow: `0 0 0 1.5px ${accentColor}` }
+                    : undefined
+                }
               >
                 {msg.text}
               </div>
@@ -219,8 +228,9 @@ export function DmPanel({
                       msg.readAt ? "Read" : msg.deliveredAt ? "Delivered" : "Sent"
                     }
                     className={`text-[10px] font-bold ml-1 ${
-                      msg.readAt ? "text-primary" : "text-muted-foreground/60"
+                      msg.readAt ? "" : "text-muted-foreground/60"
                     }`}
+                    style={msg.readAt ? { color: accentColor } : undefined}
                   >
                     {msg.readAt || msg.deliveredAt ? "✓✓" : "✓"}
                   </span>
