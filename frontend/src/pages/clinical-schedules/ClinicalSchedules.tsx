@@ -250,10 +250,12 @@ export default function ClinicalSchedules() {
     };
   }, [openDetails]);
 
-  // Day view: full posting layout (department groups -> unit groups) for
-  // the selected class, from GET /rotation-schedules/class/:classId/posting-layout.
+  // Full posting layout (department groups -> unit groups) for the
+  // selected class, from GET /rotation-schedules/class/:classId/posting-layout.
+  // Loaded in EVERY view — the day board AND the posting list's current
+  // posting / active groups strip both read it.
   useEffect(() => {
-    if (view !== "day" || !selectedClass) return;
+    if (!selectedClass) return;
     let cancelled = false;
     setPostingLayoutLoading(true);
     api
@@ -314,7 +316,7 @@ export default function ClinicalSchedules() {
 
   // Popup & timetable state
   const [hoveredDay, setHoveredDay] = useState<Date | null>(null);
-  const [popupAnchorRect, setPopupAnchorRect] = useState<DOMRect | null>(null);
+  const [popupAnchorEl, setPopupAnchorEl] = useState<HTMLElement | null>(null);
   const [isDayHovered, setIsDayHovered] = useState(false);
   const [isPopupHovered, setIsPopupHovered] = useState(false);
 
@@ -734,6 +736,74 @@ export default function ClinicalSchedules() {
     });
   }, [currentDate, filteredEvents, timetableSchedule]);
 
+  // The class's CURRENT posting + the unit groups whose windows occur
+  // within the 4-week window that today falls into (2 weeks back, 2
+  // weeks ahead) — powers the "Current posting" strip in the posting
+  // list card.
+  const currentPostingInfo = useMemo(() => {
+    const postings = postingLayout?.postings ?? [];
+    const nowMs = Date.now();
+    const windowStartMs = nowMs - 14 * 24 * 60 * 60 * 1000;
+    const windowEndMs = nowMs + 14 * 24 * 60 * 60 * 1000;
+    const current =
+      postings.find(
+        (p: any) =>
+          p?.startDate &&
+          p?.endDate &&
+          new Date(p.startDate).getTime() <= nowMs &&
+          nowMs <= new Date(p.endDate).getTime(),
+      ) ?? null;
+    if (!current) return null;
+    const groups: Array<{
+      key: string;
+      label: string;
+      deptName: string;
+      supervisorName: string;
+      studentCount: number;
+      rangeLabel: string;
+      activeNow: boolean;
+      startMs: number;
+    }> = [];
+    for (const dept of current.departments ?? []) {
+      for (const ug of dept.unitGroups ?? []) {
+        for (const w of ug.windows ?? []) {
+          if (!w?.startDate || !w?.endDate) continue;
+          const sMs = new Date(w.startDate).getTime();
+          const eMs = new Date(w.endDate).getTime();
+          if (eMs < windowStartMs || sMs > windowEndMs) continue;
+          groups.push({
+            key:
+              dept.departmentGroupIndex +
+              "-" +
+              ug.unitGroupIndex +
+              "-" +
+              w.startDate,
+            label: ug.label || w.unitName || "Unit group",
+            deptName: dept.name || "Department",
+            supervisorName: w.supervisorName || "Supervisor unassigned",
+            studentCount: Array.isArray(w.studentIds)
+              ? w.studentIds.length
+              : 0,
+            rangeLabel:
+              new Date(w.startDate).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              }) +
+              " \u2013 " +
+              new Date(w.endDate).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+              }),
+            activeNow: sMs <= nowMs && nowMs <= eMs,
+            startMs: sMs,
+          });
+        }
+      }
+    }
+    groups.sort((a, b) => a.startMs - b.startMs);
+    return { current, groups: groups.slice(0, 12) };
+  }, [postingLayout]);
+
   const groupedByPosting = useMemo(() => {
     const map = new Map<string, PostingWindow[]>();
     for (const e of filteredEvents) {
@@ -958,6 +1028,78 @@ export default function ClinicalSchedules() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
+            {currentPostingInfo && (
+              <div className="space-y-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-emerald-700">
+                      Current posting
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {currentPostingInfo.current?.postingName ??
+                        "No active posting covers today"}
+                    </p>
+                  </div>
+                  {currentPostingInfo.current?.startDate &&
+                    currentPostingInfo.current?.endDate && (
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(
+                          currentPostingInfo.current.startDate,
+                        ).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                        {" \u2013 "}
+                        {new Date(
+                          currentPostingInfo.current.endDate,
+                        ).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                    )}
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Active groups (4-week window around today)
+                  </p>
+                  {currentPostingInfo.groups.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      No unit groups occur within the current 4-week window.
+                    </p>
+                  ) : (
+                    currentPostingInfo.groups.map((g) => (
+                      <div
+                        key={g.key}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs font-semibold text-foreground">
+                            {g.label}
+                          </p>
+                          <span className="text-[11px] text-muted-foreground">
+                            {g.deptName}
+                          </span>
+                          {g.activeNow && (
+                            <span className="rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              Active now
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>{g.studentCount} students</span>
+                          <span>\u00b7</span>
+                          <span>{g.supervisorName}</span>
+                          <span>\u00b7</span>
+                          <span>{g.rangeLabel}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
             {groupedByPosting.length === 0 ? (
               <div className="text-sm text-muted-foreground">
                 No postings match these filters.
@@ -996,14 +1138,11 @@ export default function ClinicalSchedules() {
                               {windows.length} window
                               {windows.length === 1 ? "" : "s"}
                             </span>
-                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold ${meta.badgeClasses}">
+                            <span className={"inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold " + meta.badgeClasses}>
                               {meta.label}
                             </span>
                           </div>
                         </div>
-                        <Badge variant="secondary">
-                          {statusCounts[status] ?? windows.length}
-                        </Badge>
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <div className="rounded-2xl border border-border bg-card p-3 text-[11px] text-muted-foreground">
@@ -1194,10 +1333,10 @@ export default function ClinicalSchedules() {
                           date,
                           _lineItems,
                           _activities,
-                          anchorRect,
+                          anchorEl,
                         ) => {
                           setHoveredDay(date);
-                          setPopupAnchorRect(anchorRect ?? null);
+                          setPopupAnchorEl(anchorEl ?? null);
                           setIsDayHovered(true);
                         }}
                         onDayLeave={() => {
@@ -1213,7 +1352,7 @@ export default function ClinicalSchedules() {
                       isVisible={
                         !!hoveredDay && (isDayHovered || isPopupHovered)
                       }
-                      anchorRect={popupAnchorRect}
+                      anchorEl={popupAnchorEl}
                       onClose={() => {
                         setHoveredDay(null);
                         setIsDayHovered(false);

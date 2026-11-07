@@ -24,6 +24,7 @@ interface Props {
   isVisible: boolean;
   position?: "top" | "bottom" | "auto";
   anchorRect?: DOMRect | null;
+  anchorEl?: HTMLElement | null;
   onClose?: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -46,12 +47,14 @@ export default function DayPopupBubble({
   isVisible,
   position = "auto",
   anchorRect,
+  anchorEl,
   onClose,
   onMouseEnter,
   onMouseLeave,
 }: Props) {
   const bubbleRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState(380);
+  const [, setAnchorTick] = useState(0);
 
   useLayoutEffect(() => {
     if (!isVisible) return;
@@ -59,6 +62,21 @@ export default function DayPopupBubble({
       setMeasuredHeight(bubbleRef.current.offsetHeight);
     }
   }, [isVisible, lectures, optionalLectures, clinicalPostings]);
+
+  // A captured DOMRect goes stale the moment the page scrolls or the
+  // viewport resizes — the popup then floats where the day cell USED to
+  // be. When we have the live cell element we re-measure on every
+  // scroll/resize so the popup stays glued on top of the hovered day.
+  useEffect(() => {
+    if (!isVisible || !anchorEl) return;
+    const refresh = () => setAnchorTick((t) => t + 1);
+    window.addEventListener("scroll", refresh, true);
+    window.addEventListener("resize", refresh);
+    return () => {
+      window.removeEventListener("scroll", refresh, true);
+      window.removeEventListener("resize", refresh);
+    };
+  }, [isVisible, anchorEl]);
 
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
@@ -89,24 +107,28 @@ export default function DayPopupBubble({
   // Tooltip placement: the popup sits directly ABOVE the hovered day
   // cell, centered on it and clamped to the viewport; it only falls
   // below the cell when there is not enough room above.
+  const liveAnchorRect = anchorEl
+    ? anchorEl.getBoundingClientRect()
+    : (anchorRect ?? null);
+
   let placement: { top: number; left: number; above: boolean } | null = null;
-  if (anchorRect) {
+  if (liveAnchorRect) {
     const bubbleWidth = 320;
     const margin = 8;
     const gap = 10;
     const left = Math.min(
       Math.max(
         margin,
-        anchorRect.left + anchorRect.width / 2 - bubbleWidth / 2,
+        liveAnchorRect.left + liveAnchorRect.width / 2 - bubbleWidth / 2,
       ),
       window.innerWidth - bubbleWidth - margin,
     );
-    const spaceAbove = anchorRect.top - gap - margin;
+    const spaceAbove = liveAnchorRect.top - gap - margin;
     const above = spaceAbove >= measuredHeight;
     const top = above
-      ? anchorRect.top - measuredHeight - gap
+      ? liveAnchorRect.top - measuredHeight - gap
       : Math.min(
-          anchorRect.bottom + gap,
+          liveAnchorRect.bottom + gap,
           Math.max(margin, window.innerHeight - measuredHeight - margin),
         );
     placement = { top: Math.max(margin, top), left, above };
