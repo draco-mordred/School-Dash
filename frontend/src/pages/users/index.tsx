@@ -576,6 +576,35 @@ export default function UserManagementPage({
               />
             </TabsContent>
           </Tabs>
+
+          <UserDialog
+            editingUser={editingUser}
+            role={((editingUser as user | null)?.role as UserRole) ?? role}
+            open={isFormOpen}
+            setOpen={setIsFormOpen}
+            onSuccess={fetchUsers}
+          />
+
+          <UserDetailsDialog
+            open={isDetailsOpen}
+            setOpen={(open) => {
+              setIsDetailsOpen(open);
+              if (!open) {
+                setViewingUser(null);
+                setIsDetailsLoading(false);
+              }
+            }}
+            user={viewingUser}
+            loading={isDetailsLoading}
+          />
+
+          <CustomAlert
+            isOpen={isDeleteOpen}
+            setIsOpen={setIsDeleteOpen}
+            handleDelete={handleDelete}
+            title="Delete User?"
+            description="This will permanently delete this user from the system."
+          />
         </>
       )}
 
