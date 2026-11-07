@@ -32,6 +32,7 @@ import type { user, Class } from "@/types";
 import { cn } from "@/lib/utils";
 import { useInstitution } from "@/lib/useInstitution";
 import { getClassLevelPhasePlan } from "@/lib/academicClock";
+import { MASCOT_AVATARS, getMascotEmoji, isMascotProfile } from "@/lib/mascots";
 
 // ─── Types ─────────────────────────────────────────────────────
 type NavItemId = "profile" | "photo" | "academic" | "linked" | "password";
@@ -97,6 +98,7 @@ const Account = () => {
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [savingMascot, setSavingMascot] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -360,6 +362,38 @@ const Account = () => {
     return name.slice(0, 2).toUpperCase();
   };
 
+  // Renders the user's avatar: uploaded photo, selected mascot emoji, or
+  // initials fallback. Used across every avatar on the Account page.
+  const AccountAvatar = ({
+    className = "h-16 w-16",
+    fallbackTextClass = "text-lg",
+  }: {
+    className?: string;
+    fallbackTextClass?: string;
+  }) => {
+    const img = imagePreview ?? profileImage ?? "";
+    const mascot = getMascotEmoji(img);
+    if (mascot) {
+      return (
+        <div
+          className={cn(
+            "rounded-full bg-muted/60 border border-border flex items-center justify-center select-none",
+            className
+          )}
+          title="Mascot avatar"
+        >
+          <span className={cn("leading-none", fallbackTextClass)}>{mascot}</span>
+        </div>
+      );
+    }
+    return (
+      <Avatar className={className}>
+        <AvatarImage src={img} alt={user?.name} />
+        <AvatarFallback className={fallbackTextClass}>{getInitials(user?.name)}</AvatarFallback>
+      </Avatar>
+    );
+  };
+
   const institutionBackgroundUrl = institution?.backgroundImageUrl || institution?.logoUrl || null;
   const institutionDisplayName = institution?.name || institution?.shortName || "Institution";
   const institutionLogoUrl = institution?.logoUrl || null;
@@ -602,6 +636,26 @@ const Account = () => {
     }
   };
 
+  // Mascot selection — stored in the existing profileImage field as
+  // "mascot:<id>" via the same users/update endpoint as photo uploads.
+  const handleMascotSelect = async (mascotId: string) => {
+    if (!user) return;
+    try {
+      setSavingMascot(true);
+      await api.put(`/users/update/${user._id}`, { profileImage: `mascot:${mascotId}` });
+      const { data: profileData } = await api.get("/users/profile");
+      const refreshedUser = (profileData.user ?? profileData) as user;
+      setUser(refreshedUser);
+      setProfileImage(refreshedUser.profileImage ?? null);
+      setImagePreview(null);
+      toast.success("Mascot updated");
+    } catch (e) {
+      toast.error("Failed to update mascot");
+    } finally {
+      setSavingMascot(false);
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (!user) return;
     try {
@@ -669,10 +723,7 @@ const Account = () => {
     return (
     <div className="rounded-xl bg-card p-6 max-w-[1100px] mx-auto">
       <div className="flex flex-col sm:flex-row items-center gap-6">
-        <Avatar className="h-28 w-28">
-          <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-          <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
-        </Avatar>
+        <AccountAvatar className="h-28 w-28" fallbackTextClass="text-2xl" />
         <div className="flex-1 min-w-0">
           <p className="text-lg font-semibold truncate">{user?.name}</p>
           <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
@@ -717,10 +768,7 @@ const Account = () => {
                     <h3 className="mt-1 text-xl font-semibold tracking-tight">{institutionDisplayName}</h3>
                   </div>
                 </div>
-                <Avatar className="h-20 w-20 border-2 border-border/70 shadow-lg">
-                  <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-                  <AvatarFallback className="text-xl">{getInitials(user?.name)}</AvatarFallback>
-                </Avatar>
+                <AccountAvatar className="h-20 w-20 border-2 border-border/70 shadow-lg" fallbackTextClass="text-xl" />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
@@ -885,10 +933,7 @@ const Account = () => {
       <div className="rounded-xl border bg-card">
         <div className="px-6 py-5 space-y-5">
           <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16">
-              <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-              <AvatarFallback className="text-lg">{getInitials(user?.name)}</AvatarFallback>
-            </Avatar>
+            <AccountAvatar className="h-16 w-16" fallbackTextClass="text-lg" />
             <div>
               <p className="text-sm font-medium">{user?.name}</p>
               <p className="text-xs text-muted-foreground">{user?.email}</p>
@@ -929,10 +974,7 @@ const Account = () => {
       <div className="rounded-xl border bg-card">
         <div className="px-6 py-8 flex flex-col sm:flex-row items-center gap-6">
           <div className="relative">
-            <Avatar className="h-28 w-28">
-              <AvatarImage src={imagePreview ?? profileImage ?? ""} alt={user?.name} />
-              <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
-            </Avatar>
+            <AccountAvatar className="h-28 w-28" fallbackTextClass="text-2xl" />
             <button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Upload profile photo" title="Upload profile photo" className="absolute -bottom-1 -right-1 h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg border-2 border-background hover:scale-105 transition-transform">
               <Camera className="h-4 w-4" />
             </button>
@@ -949,6 +991,43 @@ const Account = () => {
               </>
             ) : <p className="text-sm text-muted-foreground">Click the camera icon to upload a photo</p>}
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card">
+        <div className="px-6 py-5">
+          <p className="text-sm font-semibold">Or choose a mascot</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Prefer not to use a real photo? Pick a mascot as your profile picture — it shows up
+            wherever your avatar appears, including the chat.
+          </p>
+          <div className="grid grid-cols-6 sm:grid-cols-10 gap-2 mt-4">
+            {MASCOT_AVATARS.map((m) => {
+              const selected = profileImage === `mascot:${m.id}` && !imagePreview;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  title={m.name}
+                  onClick={() => handleMascotSelect(m.id)}
+                  disabled={savingMascot}
+                  className={`h-10 w-10 rounded-full flex items-center justify-center text-xl transition ${
+                    selected
+                      ? "bg-primary/10 ring-2 ring-primary"
+                      : "bg-muted/60 hover:bg-muted"
+                  }`}
+                >
+                  {m.emoji}
+                </button>
+              );
+            })}
+          </div>
+          {isMascotProfile(profileImage) && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Current mascot: {getMascotEmoji(profileImage)} — click any mascot to change it, or
+              upload a photo above to replace it.
+            </p>
+          )}
         </div>
       </div>
     </div>

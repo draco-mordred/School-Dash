@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useDirectMessages, DmSendResult, DmConversation } from "../../hooks/useDirectMessages";
 import { getPinnedPartnerIds, togglePinPartner, getAccent } from "../../utils/daleSettings";
+import { getMascotEmoji } from "../../lib/mascots";
 
 // PR M3 — DM panel: conversation list + thread + composer + moderation
 // banners/appeal (PR M2) now with h-full layout, a pinned DALE/AI row at the
@@ -141,7 +142,12 @@ export function DmPanel({
             }`}
           >
             <div className="flex justify-between items-baseline gap-2">
-              <span className="font-semibold truncate">{conv.partnerName}</span>
+              <span className="font-semibold truncate flex items-center gap-1.5">
+                {conv.partnerImage && getMascotEmoji(conv.partnerImage) ? (
+                  <span className="text-base leading-none">{getMascotEmoji(conv.partnerImage)}</span>
+                ) : null}
+                {conv.partnerName}
+              </span>
               <span className="text-[10px] text-muted-foreground shrink-0">{fmtDate(conv.lastAt)}</span>
             </div>
             <p className="text-xs text-muted-foreground truncate">{conv.lastMessage}</p>
@@ -168,7 +174,10 @@ export function DmPanel({
         >
           ← Back
         </button>
-        <span className="font-bold truncate">
+        <span className="font-bold truncate flex items-center gap-1.5">
+          {activePartner.partnerImage && getMascotEmoji(activePartner.partnerImage) ? (
+            <span className="text-base leading-none">{getMascotEmoji(activePartner.partnerImage)}</span>
+          ) : null}
           {activePartner.partnerName}
           {activePartner.partnerRole ? (
             <span className="text-[10px] text-muted-foreground ml-1 uppercase">{activePartner.partnerRole}</span>
