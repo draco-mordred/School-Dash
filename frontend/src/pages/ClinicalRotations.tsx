@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { format } from "date-fns";
-import { MoreHorizontal, Plus, Pencil, Trash2, ClipboardList, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
+import { MoreHorizontal, Trash2, Stethoscope, CalendarDays, RefreshCw } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -723,11 +723,6 @@ export default function ClinicalRotations() {
   const [statusFilter, setStatusFilter] = useState<RotationStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<RotationType | "all">("all");
 
-  const [showForm, setShowForm] = useState(false);
-  const [editingRotation, setEditingRotation] = useState<Rotation | null>(null);
-  const [selectedRotation, setSelectedRotation] = useState<Rotation | null>(null);
-  const [showNotesModal, setShowNotesModal] = useState(false);
-  const [noteText, setNoteText] = useState("");
   const [schedulePostings, setSchedulePostings] = useState<PostingEntry[]>([]);
   const [postingsLoading, setPostingsLoading] = useState(false);
   const [savedSchedules, setSavedSchedules] = useState<Array<{ _id?: string; name?: string; createdAt?: string }>>([]);
@@ -1010,108 +1005,6 @@ export default function ClinicalRotations() {
     }
   }, [page, search, statusFilter, typeFilter, user]);
 
-  // Disabled initial data fetch on page load.
-  // useEffect(() => {
-  //   void fetchRotations();
-  // }, [fetchRotations]);
-
-  // Disabled selection-reset effect on page load.
-  // useEffect(() => {
-  //   setSelectedRotationIds(new Set());
-  // }, [search, statusFilter, typeFilter]);
-
-  // Disabled generated schedule postings load on page load.
-  // useEffect(() => {
-  //   let cancelled = false;
-  //   const load = async () => {
-  //     try {
-  //       setPostingsLoading(true);
-  //       // load recent schedules (global) as a fallback
-  //       const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 50 } });
-  //       const schedules = (data.schedules as RotationSchedule[]) || [];
-  //       // flatten postings from schedules, keep unique by name
-  //       const map = new Map<string, PostingEntry>();
-  //       for (const s of schedules) {
-  //         for (const p of s.postings || []) {
-  //           if (!p || !p.name) continue;
-  //           if (!map.has(p.name)) map.set(p.name, p);
-  //         }
-  //       }
-  //       if (!cancelled) setSchedulePostings(Array.from(map.values()));
-  //     } catch (e: unknown) {
-  //       console.error('Failed to load schedule postings', e);
-  //     } finally {
-  //       if (!cancelled) setPostingsLoading(false);
-  //     }
-  //   };
-  //   void load();
-  //   return () => { cancelled = true; };
-  // }, [user]);
-
-  // Disabled saved schedules load on page load.
-  // useEffect(() => {
-  //   let cancelled = false;
-  //   const load = async () => {
-  //     try {
-  //       setSchedulesLoading(true);
-  //       const { data } = await api.get('/rotation-schedules', { params: { page: 1, limit: 200 } });
-  //       if (cancelled) return;
-  //       setSavedSchedules(data.schedules || []);
-  //     } catch (e) {
-  //       console.error('Failed to load saved schedules', e);
-  //       setSavedSchedules([]);
-  //     } finally {
-  //       if (!cancelled) setSchedulesLoading(false);
-  //     }
-  //   };
-  //   void load();
-  //   return () => { cancelled = true; };
-  // }, []);
-
-  // For students, also load schedules scoped to their class(es) to show class schedule card
-  // Disabled student class schedule load on page load.
-  // useEffect(() => {
-  //   if (user?.role !== "student") return;
-  //   let cancelled = false;
-  //   const load = async () => {
-  //     try {
-  //       // attempt to derive class ids from user object; fallback to fetching profile if missing
-  //       let rawStudentClasses = (user as any)?.studentClasses ?? (user as any)?.studentClass ?? [];
-  //       if ((!rawStudentClasses || (Array.isArray(rawStudentClasses) && rawStudentClasses.length === 0)) ) {
-  //         try {
-  //           const { data: profileData } = await api.get('/users/profile');
-  //           rawStudentClasses = profileData.user?.studentClasses ?? profileData.user?.studentClass ?? rawStudentClasses;
-  //         } catch (pfErr) {
-  //           // ignore profile fetch errors and continue with whatever we have
-  //         }
-  //       }
-  //       const classIds = Array.isArray(rawStudentClasses)
-  //         ? rawStudentClasses.map((c: any) => (typeof c === 'string' ? c : c._id))
-  //         : rawStudentClasses
-  //           ? [ (typeof rawStudentClasses === 'string' ? rawStudentClasses : rawStudentClasses._id) ]
-  //           : [];
-
-  //       const params: any = { page: 1, limit: 50 };
-  //       if (classIds.length) params.classId = classIds[0];
-
-  //       const { data } = await api.get('/rotation-schedules', { params });
-  //       const schedules = (data.schedules as RotationSchedule[]) || [];
-  //       const map = new Map<string, PostingEntry>();
-  //       for (const s of schedules) {
-  //         for (const p of s.postings || []) {
-  //           if (!p || !p.name) continue;
-  //           if (!map.has(p.name)) map.set(p.name, p);
-  //         }
-  //       }
-  //       if (!cancelled) setClassPostings(Array.from(map.values()));
-  //     } catch (e) {
-  //       console.error('Failed to load class schedule postings', e);
-  //     }
-  //   };
-  //   void load();
-  //   return () => { cancelled = true; };
-  // }, [user]);
-
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this clinical rotation?")) return;
     try {
@@ -1166,39 +1059,6 @@ export default function ClinicalRotations() {
     } catch (error) {
       console.error("Failed to delete all rotations", error);
       toast.error("Failed to delete all rotations");
-    }
-  };
-
-  const openForm = (rotation?: Rotation) => {
-    setEditingRotation(rotation ?? null);
-    setShowForm(true);
-  };
-
-  const handleFormSubmit = async (payload: Record<string, unknown>) => {
-    try {
-      if (editingRotation) {
-        const { data } = await api.put(`/clinical-rotations/${editingRotation._id}`, payload);
-        setRotations((prev) => prev.map((r) => (r._id === editingRotation._id ? data : r)));
-      } else {
-        const { data } = await api.post("/clinical-rotations", payload);
-        setRotations((prev) => [data, ...prev]);
-      }
-      setShowForm(false);
-    } catch (error) {
-      console.error("Failed to save rotation", error);
-    }
-  };
-
-  const handleAddNote = async () => {
-    if (!selectedRotation || !noteText.trim()) return;
-    try {
-      const { data } = await api.post(`/clinical-rotations/${selectedRotation._id}/notes`, { note: noteText });
-      setSelectedRotation(data);
-      setRotations((prev) => prev.map((r) => (r._id === selectedRotation._id ? data : r)));
-      setNoteText("");
-      setShowNotesModal(false);
-    } catch (error) {
-      console.error("Failed to add note", error);
     }
   };
 
@@ -1829,21 +1689,13 @@ export default function ClinicalRotations() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setSelectedRotation(rot); setShowNotesModal(true); }}>
-                          View Notes
-                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => openGroupsForRotation(rot)}>
                           Groups
                         </DropdownMenuItem>
                         {(isAdmin || isTeacher || isConsultant || user?._id === rot.student?._id) && (
-                          <>
-                            <DropdownMenuItem onClick={() => openForm(rot)}>
-                              <Pencil className="h-3 w-3 mr-2" /> Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
-                              <Trash2 className="h-3 w-3 mr-2" /> Delete
-                            </DropdownMenuItem>
-                          </>
+                          <DropdownMenuItem onClick={() => handleDelete(rot._id)} className="text-red-600">
+                            <Trash2 className="h-3 w-3 mr-2" /> Delete
+                          </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -3192,124 +3044,5 @@ export default function ClinicalRotations() {
         </Dialog>
       </div>
     </div>
-  );
-}
-
-function RotationForm({ rotation, onSubmit, onClose }: RotationFormProps) {
-  const { year: currentYear } = useAuth();
-  const [form, setForm] = useState({
-    rotationName: rotation?.rotationName ?? "",
-    rotationDescription: rotation?.rotationDescription ?? "",
-    rotationType: rotation?.rotationType ?? "medicine",
-    rotationStartDate: rotation?.rotationStartDate?.split("T")[0] ?? "",
-    rotationEndDate: rotation?.rotationEndDate?.split("T")[0] ?? "",
-    rotationUnit: rotation?.rotationUnit ?? "",
-    rotationSupervisor: rotation?.rotationSupervisor?._id ?? "",
-    rotationStatus: rotation?.rotationStatus ?? "upcoming",
-    rotationNotes: rotation?.rotationNotes ?? "",
-    rotationTutorialPersonal: rotation?.rotationTutorialPersonal ?? "",
-    academicYear: rotation?.academicYear?._id ?? currentYear?._id ?? "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [supervisors, setSupervisors] = useState<Array<{ _id: string; name: string }>>([]);
-  const [academicYears, setAcademicYears] = useState<Array<{ _id: string; name: string }>>([]);
-
-  useEffect(() => {
-    api.get("/users?role=teacher&limit=100").then(({ data }) => {
-      setSupervisors(data.users ?? []);
-    });
-    api.get("/academic-years").then(({ data }) => {
-      const years = Array.isArray(data) ? data : (data?.years ?? []);
-      setAcademicYears(years);
-    });
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    await onSubmit({
-      ...form,
-      rotationStartDate: new Date(form.rotationStartDate).toISOString(),
-      rotationEndDate: new Date(form.rotationEndDate).toISOString(),
-      academicYear: form.academicYear,
-    });
-    setSubmitting(false);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="sm:col-span-2">
-          <label className="text-xs font-medium mb-1 block">Rotation Name</label>
-          <Input required placeholder="e.g., Internal Medicine Posting" value={form.rotationName} onChange={(e) => setForm({ ...form, rotationName: e.target.value })} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="text-xs font-medium mb-1 block">Description</label>
-          <Input placeholder="Brief description..." value={form.rotationDescription} onChange={(e) => setForm({ ...form, rotationDescription: e.target.value })} />
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Type</label>
-          <Select value={form.rotationType} onValueChange={(v) => setForm({ ...form, rotationType: v as RotationType })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {ROTATION_TYPES.map((t) => <SelectItem key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Unit</label>
-          <Input required placeholder="e.g., Medicine" value={form.rotationUnit} onChange={(e) => setForm({ ...form, rotationUnit: e.target.value })} />
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Start Date</label>
-          <Input type="date" required value={form.rotationStartDate} onChange={(e) => setForm({ ...form, rotationStartDate: e.target.value })} />
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">End Date</label>
-          <Input type="date" required value={form.rotationEndDate} onChange={(e) => setForm({ ...form, rotationEndDate: e.target.value })} />
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Supervisor / Consultant</label>
-          <Select value={form.rotationSupervisor} onValueChange={(v) => setForm({ ...form, rotationSupervisor: v })}>
-            <SelectTrigger><SelectValue placeholder="Select supervisor" /></SelectTrigger>
-            <SelectContent>
-              {supervisors.map((s) => (
-                <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Status</label>
-          <Select value={form.rotationStatus} onValueChange={(v) => setForm({ ...form, rotationStatus: v as RotationStatus })}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="upcoming">Upcoming</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="text-xs font-medium mb-1 block">Academic Year</label>
-          <Select value={form.academicYear} onValueChange={(v) => setForm({ ...form, academicYear: v })}>
-            <SelectTrigger><SelectValue placeholder="Select academic year" /></SelectTrigger>
-            <SelectContent>
-              {academicYears.map((y) => (
-                <SelectItem key={y._id} value={y._id}>{y.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="sm:col-span-2">
-          <label className="text-xs font-medium mb-1 block">Personal Tutorial Note</label>
-          <Input placeholder="Personal tutorial note..." value={form.rotationTutorialPersonal} onChange={(e) => setForm({ ...form, rotationTutorialPersonal: e.target.value })} />
-        </div>
-      </div>
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : rotation ? "Update" : "Create"}</Button>
-      </DialogFooter>
-    </form>
   );
 }

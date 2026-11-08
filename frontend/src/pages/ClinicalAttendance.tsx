@@ -34,7 +34,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Clock, Plus, CheckCircle2, AlertCircle } from "lucide-react";
+import { Clock, Plus, Users, Stethoscope, Scissors, Moon, Syringe, FlaskConical } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -46,7 +46,7 @@ import {
 import { doesPhaseRequirePostingSchedule } from "@/lib/academicClock";
 
 interface AttendanceRecord {
-  student: { firstName?: string; lastName?: string; _id?: string } | null;
+  student: { firstName?: string; lastName?: string; name?: string; _id?: string } | null;
   status: "present" | "absent" | "late" | "excused";
   checkInTime?: Date;
   checkOutTime?: Date;
@@ -61,7 +61,7 @@ interface ClinicalSession {
   startTime: Date;
   endTime?: Date;
   unit?: { _id?: string; name?: string } | null;
-  supervisor?: { firstName?: string; lastName?: string } | null;
+  supervisor?: { firstName?: string; lastName?: string; name?: string } | null;
   status: "planned" | "ongoing" | "completed" | "cancelled";
   attendees: AttendanceRecord[];
   presentCount: number;
@@ -81,6 +81,11 @@ export const ClinicalAttendanceDashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSession, setSelectedSession] = useState<ClinicalSession | null>(
     null
+  );
+  const { user } = useAuth();
+  const canCreateSession = Boolean(
+    (user as { isSupervisor?: boolean } | null)?.isSupervisor ||
+      (user as { role?: string } | null)?.role === "admin"
   );
 
   const fetchSessions = async () => {
@@ -148,14 +153,17 @@ export const ClinicalAttendanceDashboard = () => {
     return variants[status] || "bg-gray-100 text-gray-800";
   };
 
+  const getPersonName = (person?: { firstName?: string; lastName?: string; name?: string } | null) =>
+    person?.name || [person?.firstName, person?.lastName].filter(Boolean).join(" ") || "N/A";
+
   const getActivityIcon = (type: string) => {
     const icons: Record<string, ReactNode> = {
-      ward_round: <Clock className="w-4 h-4" />,
-      clinic: <CheckCircle2 className="w-4 h-4" />,
-      theatre: <AlertCircle className="w-4 h-4" />,
-      call_duty: <Clock className="w-4 h-4" />,
-      procedure: <CheckCircle2 className="w-4 h-4" />,
-      simulation: <AlertCircle className="w-4 h-4" />,
+      ward_round: <Users className="w-4 h-4" />,
+      clinic: <Stethoscope className="w-4 h-4" />,
+      theatre: <Scissors className="w-4 h-4" />,
+      call_duty: <Moon className="w-4 h-4" />,
+      procedure: <Syringe className="w-4 h-4" />,
+      simulation: <FlaskConical className="w-4 h-4" />,
     };
     return icons[type] || <Clock className="w-4 h-4" />;
   };
@@ -170,6 +178,7 @@ export const ClinicalAttendanceDashboard = () => {
             Track and manage clinical activity attendance
           </p>
         </div>
+        {canCreateSession && (
         <Dialog>
           <DialogTrigger asChild>
             <Button>
@@ -188,14 +197,11 @@ export const ClinicalAttendanceDashboard = () => {
             <CreateSessionForm onSuccess={fetchSessions} />
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Filters</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
             placeholder="Search by title or activity type..."
             value={searchTerm}
@@ -229,8 +235,7 @@ export const ClinicalAttendanceDashboard = () => {
           <Button variant="outline" onClick={fetchSessions}>
             Refresh
           </Button>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Sessions Table */}
       <Card>
@@ -292,8 +297,7 @@ export const ClinicalAttendanceDashboard = () => {
                       <TableCell>{session.unit?.name || "N/A"}</TableCell>
                       <TableCell>
                         <p className="text-sm">
-                          {session.supervisor?.firstName}{" "}
-                          {session.supervisor?.lastName}
+                          {getPersonName(session.supervisor)}
                         </p>
                       </TableCell>
                       <TableCell>
@@ -335,7 +339,6 @@ export const ClinicalAttendanceDashboard = () => {
         <SessionDetailsDialog
           session={selectedSession}
           onClose={() => setSelectedSession(null)}
-          onUpdate={fetchSessions}
         />
       )}
     </div>
@@ -780,6 +783,27 @@ const CreateSessionForm = ({
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">Date</label>
+          <Input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            required
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Start time</label>
+          <Input
+            type="time"
+            value={formData.startTime}
+            onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+            required
+          />
+        </div>
+      </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium mb-1">Class</label>
@@ -909,7 +933,6 @@ const SessionDetailsDialog = ({
 }: {
   session: ClinicalSession;
   onClose: () => void;
-  onUpdate: () => void;
 }) => {
   return (
     <Dialog open={!!session} onOpenChange={onClose}>
@@ -939,7 +962,7 @@ const SessionDetailsDialog = ({
               </CardHeader>
               <CardContent>
                 <p className="text-lg font-semibold">
-                  {session.supervisor?.firstName} {session.supervisor?.lastName}
+                  {getPersonName(session.supervisor)}
                 </p>
               </CardContent>
             </Card>
@@ -999,8 +1022,7 @@ const SessionDetailsDialog = ({
                   >
                     <div>
                       <p className="font-medium">
-                        {attendee.student?.firstName}{" "}
-                        {attendee.student?.lastName}
+                        {getPersonName(attendee.student)}
                       </p>
                       <p className="text-xs text-gray-500">
                         {attendee.checkInTime &&
