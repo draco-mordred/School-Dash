@@ -113,6 +113,7 @@ export const sidebardata = {
         { title: "Clinical Assessments", url: "/lms/exams/clinical", roles: ["admin"] },
         { title: "Course Grades", url: "/grades/courses", roles: ["admin"] }, // PR A1 (G1)
         { title: "Grading Policy", url: "/grades/policy", roles: ["admin"] }, // PR A1 (G1)
+        { title: "Eligibility & Clearance", url: "/grades/eligibility", roles: ["admin"] }, // PR A2 (G2)
       ],
     },
     {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, Send, Undo2 } from "lucide-react";
+import { Loader2, RefreshCw, Send, ShieldCheck, Undo2 } from "lucide-react"; // PR A2 (G2)
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,7 @@ interface CourseOption {
 
 interface ResultRow {
   _id: string;
-  student?: { name?: string; idNumber?: string; email?: string };
+  student?: { _id?: string; name?: string; idNumber?: string; email?: string };
   class?: { name?: string } | null;
   caTestCount: number;
   caAveragePercent: number;
@@ -40,6 +40,8 @@ interface ResultRow {
   passed: boolean;
   released?: boolean;
   withheld?: boolean;
+  withheldReasons?: string[];
+  adminOverride?: boolean;
 }
 
 const CourseResults = () => {
@@ -50,6 +52,7 @@ const CourseResults = () => {
   const [resultsLoading, setResultsLoading] = useState(false);
   const [results, setResults] = useState<ResultRow[]>([]);
   const [recomputing, setRecomputing] = useState(false);
+  const [overridingId, setOverridingId] = useState<string | null>(null); // PR A2 (G2)
 
   const { user } = useAuth();
   const role = (user as any)?.role ?? "";
@@ -128,6 +131,21 @@ const CourseResults = () => {
     }
   };
 
+  // PR A2 (G2) — per-student release-gate override (admin only).
+  const toggleOverride = async (gradeId: string, sId: string, override: boolean) => {
+    if (!courseId) return;
+    setOverridingId(gradeId);
+    try {
+      await api.post("/eligibility/grades/" + courseId + "/students/" + sId + "/override", { override });
+      toast.success(override ? "Release override enabled" : "Release override removed");
+      await loadResults(courseId);
+    } catch {
+      toast.error("Failed to update release override");
+    } finally {
+      setOverridingId(null);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return courses;
@@ -138,6 +156,7 @@ const CourseResults = () => {
 
   const selectedCourse = courses.find((c) => c._id === courseId);
   const isTeacherRole = role === "teacher" || role === "unitconsultant" || role === "unitresident";
+  const isAdmin = role === "admin"; // PR A2 (G2)
 
   return (
     <div className="space-y-6">
@@ -282,9 +301,33 @@ const CourseResults = () => {
                         <td className="px-3 py-3">{r.creditUnits}</td>
                         <td className="px-3 py-3">
                           {r.withheld ? (
-                            <Badge className="bg-amber-500/15 text-amber-600">Withheld</Badge>
+                            <div className="space-y-1">
+                              <Badge className="bg-amber-500/15 text-amber-600">Withheld</Badge>
+                              {(r.withheldReasons ?? []).length > 0 && (
+                                <div className="max-w-[220px] text-xs text-muted-foreground">
+                                  {(r.withheldReasons ?? []).join(", ")}
+                                </div>
+                              )}
+                              {isAdmin && r.student?._id && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={overridingId === r._id}
+                                  onClick={() => void toggleOverride(r._id, r.student!._id!, !r.adminOverride)}
+                                >
+                                  {overridingId === r._id ? (
+                                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <ShieldCheck className="mr-1 h-3 w-3" />
+                                  )}
+                                  {r.adminOverride ? "Remove override" : "Override release"}
+                                </Button>
+                              )}
+                            </div>
                           ) : r.released ? (
-                            <Badge className="bg-emerald-500/15 text-emerald-600">Released</Badge>
+                            <Badge className="bg-emerald-500/15 text-emerald-600">
+                              Released{r.adminOverride ? " (override)" : ""}
+                            </Badge>
                           ) : (
                             <Badge variant="secondary">Not released</Badge>
                           )}
