@@ -1,5 +1,6 @@
 import express from 'express';
 import { createRotationSchedule, listRotationSchedules, listMyStudentRotationSchedules, getRotationScheduleById, deleteRotationSchedule, updateRotationSchedule, updatePostingInSchedule, deletePostingFromSchedule, getStudentAssignments, assignSupervisorToWindow, getStudentCurrentSchedule, getStudentUpcomingSchedule, getStudentScheduleHistory, runRotationRunner, listScheduleSupervisors, listScheduleEvents, updateWindowInSchedule, getClassActivePhaseSchedule, updatePostingLogbookSettings } from '../controllers/rotationSchedules';
+import { getGeneratorOptions } from '../controllers/generatorOptions';
 import { getClassPostingLayout } from '../controllers/postingLayout';
 import { protect, authorize } from '../middleware/auth';
 
@@ -9,6 +10,9 @@ router.post('/', protect, authorize(['admin','teacher']), createRotationSchedule
 router.get('/', protect, listRotationSchedules);
 router.get('/student/me/schedules', protect, authorize(['student']), listMyStudentRotationSchedules);
 router.get('/events', protect, listScheduleEvents);
+// PR C2 — catalog for the custom posting-generation wizard (MUST stay
+// registered BEFORE '/:id' or the catch-all swallows this path).
+router.get('/generator-options', protect, authorize(['admin','teacher']), getGeneratorOptions);
 router.get('/class/:classId/active-phase', protect, getClassActivePhaseSchedule);
 router.get('/class/:classId/posting-layout', protect, authorize(['admin', 'teacher']), getClassPostingLayout);
 router.patch('/:id/windows/:index', protect, authorize(['admin','teacher']), updateWindowInSchedule);
