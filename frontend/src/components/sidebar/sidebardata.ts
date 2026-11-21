@@ -111,6 +111,8 @@ export const sidebardata = {
         { title: "C.A. Tests", url: "/lms/exams", roles: ["admin"] },
         { title: "Examinations", url: "/lms/exams/main", roles: ["admin"] },
         { title: "Clinical Assessments", url: "/lms/exams/clinical", roles: ["admin"] },
+        { title: "Course Grades", url: "/grades/courses", roles: ["admin"] }, // PR A1 (G1)
+        { title: "Grading Policy", url: "/grades/policy", roles: ["admin"] }, // PR A1 (G1)
       ],
     },
     {
@@ -210,6 +212,7 @@ export const sidebardata = {
         { title: "Timetable", url: "/timetable" },
         { title: "Attendance", url: "/attendance" },
         { title: "Exams", url: "/lms/exams" },
+        { title: "Course Grades", url: "/grades/courses" }, // PR A1 (G1)
         { title: "Study Materials", url: "/lms/materials" },
         { title: "Assignments", url: "/lms/assignments" },
       ],
@@ -226,6 +229,7 @@ export const sidebardata = {
         { title: "Learning Materials", url: "/lms/materials" },
         { title: "Assessments", url: "/lms/assignments" },
         { title: "Results", url: "/lms/exams" },
+        { title: "Course Results & GPA", url: "/grades/my", roles: ["student"] }, // PR A1 (G1)
       ],
     },
     {

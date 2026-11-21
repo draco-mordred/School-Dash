@@ -44,6 +44,9 @@ import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
 import PostingLogbookSettings from "@/pages/PostingLogbookSettings";
 import PostingGenerationWizard from "@/pages/PostingGenerationWizard"; // PR C2
+import MyResults from "@/pages/grades/MyResults"; // PR A1 (G1)
+import CourseResults from "@/pages/grades/CourseResults"; // PR A1 (G1)
+import GradingPolicySettings from "@/pages/grades/GradingPolicySettings"; // PR A1 (G1)
 import ClinicalSchedules from "@/pages/clinical-schedules/ClinicalSchedules";
 import RotationSchedules from "@/pages/rotation-schedules/RotationSchedules";
 import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleDetail";
@@ -111,6 +114,28 @@ const DmModerationQueueRoute = () => {
   const { user } = useAuth();
   if (user?.role !== "admin") return <NotFound />;
   return <DmModerationQueue />;
+};
+
+// PR A1 (G1) — course results for staff (admin/teacher/unit roles); others 404
+const CourseResultsRoute = () => {
+  const { user } = useAuth();
+  const role = user?.role ?? "";
+  if (["admin", "teacher", "unitconsultant", "unitresident"].indexOf(role) < 0) return <NotFound />;
+  return <CourseResults />;
+};
+
+// PR A1 (G1) — grading policy settings are admin-only
+const GradingPolicyRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <NotFound />;
+  return <GradingPolicySettings />;
+};
+
+// PR A1 (G1) — student results are student-only
+const MyResultsRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "student") return <NotFound />;
+  return <MyResults />;
 };
 
 // PR E2 — dashboard consolidation: /dashboard is the students' home and
@@ -344,6 +369,18 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations/posting-wizard",
             element: <PostingGenerationWizard />, // PR C2
+          {
+            path: "grades/courses",
+            element: <CourseResultsRoute />,
+          }, // PR A1 (G1)
+          {
+            path: "grades/policy",
+            element: <GradingPolicyRoute />,
+          }, // PR A1 (G1)
+          {
+            path: "grades/my",
+            element: <MyResultsRoute />,
+          }, // PR A1 (G1)
           },
           {
             path: "rotation-teams",
