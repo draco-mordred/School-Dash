@@ -43,6 +43,7 @@ import LogbookEntries from "@/pages/LogbookEntries";
 import Procedures from "@/pages/Procedures";
 import ClinicalRotations from "@/pages/ClinicalRotations";
 import PostingLogbookSettings from "@/pages/PostingLogbookSettings";
+import PostingGenerationWizard from "@/pages/PostingGenerationWizard"; // PR C2
 import ClinicalSchedules from "@/pages/clinical-schedules/ClinicalSchedules";
 import RotationSchedules from "@/pages/rotation-schedules/RotationSchedules";
 import RotationScheduleDetail from "@/pages/rotation-schedules/RotationScheduleDetail";
@@ -339,6 +340,10 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations/logbook-settings",
             element: <PostingLogbookSettings />,
+          },
+          {
+            path: "clinical-rotations/posting-wizard",
+            element: <PostingGenerationWizard />, // PR C2
           },
           {
             path: "rotation-teams",

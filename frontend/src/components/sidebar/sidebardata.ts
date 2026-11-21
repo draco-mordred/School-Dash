@@ -88,6 +88,7 @@ export const sidebardata = {
         { title: "Postings", url: "/clinical-rotations", roles: ["admin"] },
         { title: "Rotation Teams", url: "/rotation-teams", roles: ["admin"] },
         { title: "Clinical Calendar", url: "/rotation-schedules", roles: ["admin"] },
+        { title: "Posting Wizard", url: "/clinical-rotations/posting-wizard", roles: ["admin"] }, // PR C2
       ],
     },
     {
@@ -234,6 +235,7 @@ export const sidebardata = {
       roles: ["teacher", "admin", "unitconsultant", "unitresident", "parent"],
       items: [
         { title: "Clinical Rotations", url: "/clinical-rotations" },
+        { title: "Posting Wizard", url: "/clinical-rotations/posting-wizard", roles: ["teacher", "admin"] }, // PR C2
         { title: "Clinical Activities", url: "/clinical-activities", roles: ["student", "unitconsultant", "unitresident"] },
         { title: "Activity Approvals", url: "/staff-approvals", roles: ["unitconsultant", "unitresident"] },
         { title: "Logbook Entries", url: "/logbook-entries" },

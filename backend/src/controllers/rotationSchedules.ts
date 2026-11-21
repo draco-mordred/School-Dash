@@ -690,7 +690,7 @@ export const listScheduleEvents = async (req: Request, res: Response) => {
         }
 
         events.push({
-          id: `${p._id}-${i}`,
+          id: p._id + '-' + i,
           scheduleId: p._id,
           postingId: p.postings?.[0]?.postingId || null,
           postingName: p.postings?.[0]?.name || p.name,
