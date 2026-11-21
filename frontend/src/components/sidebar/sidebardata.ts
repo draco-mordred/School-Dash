@@ -114,6 +114,7 @@ export const sidebardata = {
         { title: "Course Grades", url: "/grades/courses", roles: ["admin"] }, // PR A1 (G1)
         { title: "Grading Policy", url: "/grades/policy", roles: ["admin"] }, // PR A1 (G1)
         { title: "Eligibility & Clearance", url: "/grades/eligibility", roles: ["admin"] }, // PR A2 (G2)
+        { title: "Progression", url: "/grades/progression", roles: ["admin"] }, // PR A3 (G3)
       ],
     },
     {

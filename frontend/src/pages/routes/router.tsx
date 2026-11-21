@@ -46,6 +46,7 @@ import PostingLogbookSettings from "@/pages/PostingLogbookSettings";
 import PostingGenerationWizard from "@/pages/PostingGenerationWizard"; // PR C2
 import MyResults from "@/pages/grades/MyResults"; // PR A1 (G1)
 import EligibilityAdmin from "@/pages/grades/EligibilityAdmin"; // PR A2 (G2)
+import ProgressionAdmin from "@/pages/grades/ProgressionAdmin"; // PR A3 (G3)
 import CourseResults from "@/pages/grades/CourseResults"; // PR A1 (G1)
 import GradingPolicySettings from "@/pages/grades/GradingPolicySettings"; // PR A1 (G1)
 import ClinicalSchedules from "@/pages/clinical-schedules/ClinicalSchedules";
@@ -144,6 +145,13 @@ const EligibilityAdminRoute = () => {
   const { user } = useAuth();
   if (user?.role !== "admin") return <NotFound />;
   return <EligibilityAdmin />;
+};
+
+// PR A3 (G3) — progression & clock-sync management is admin-only
+const ProgressionAdminRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <NotFound />;
+  return <ProgressionAdmin />;
 };
 
 // PR E2 — dashboard consolidation: /dashboard is the students' home and
@@ -394,6 +402,10 @@ export const router = createBrowserRouter([
             path: "grades/eligibility",
             element: <EligibilityAdminRoute />,
           }, // PR A2 (G2)
+          {
+            path: "grades/progression",
+            element: <ProgressionAdminRoute />,
+          }, // PR A3 (G3)
           {
             path: "rotation-teams",
             element: <ClinicalRotations />,

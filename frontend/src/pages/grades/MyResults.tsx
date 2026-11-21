@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { Award, BookOpen, Loader2, Lock, RefreshCw, ShieldCheck } from "lucide-react";
+import { Award, BookOpen, Clock, Loader2, Lock, RefreshCw, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +50,16 @@ interface EligibilityInfo {
   caAveragePercent: number | null;
 }
 
+interface ProgressionInfo {
+  studentName: string;
+  className: string | null;
+  currentStep: { id: string; label: string } | null;
+  nextStep: { id: string; label: string } | null;
+  clockPhase: { phaseName: string | null; configured: boolean } | null;
+  clockSynced: boolean;
+  evaluation: { pendingCount: number; blockers: string[] };
+}
+
 interface WithheldRow {
   _id: string;
   course: { name?: string; code?: string };
@@ -64,14 +74,16 @@ const MyResults = () => {
   const [gpaScale, setGpaScale] = useState(5);
   const [bands, setBands] = useState<GradeBand[]>([]);
   const [elig, setElig] = useState<EligibilityInfo | null>(null); // PR A2 (G2)
+  const [prog, setProg] = useState<ProgressionInfo | null>(null); // PR A3 (G3)
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [res, polRes, eligRes] = await Promise.all([
+      const [res, polRes, eligRes, progRes] = await Promise.all([
         api.get("/grades/my"),
         api.get("/grades/policy").catch(() => null),
         api.get("/eligibility/me").catch(() => null), // PR A2 (G2)
+        api.get("/progression/my").catch(() => null), // PR A3 (G3)
       ]);
       const data = res.data ?? {};
       setResults(Array.isArray(data.results) ? data.results : []);
@@ -80,6 +92,7 @@ const MyResults = () => {
       if (typeof data.gpaScale === "number") setGpaScale(data.gpaScale);
       const ev = eligRes?.data?.evaluation ?? null;
       setElig(ev); // PR A2 (G2)
+      setProg(progRes?.data?.progression ?? null); // PR A3 (G3)
       const pol = polRes?.data?.policy;
       if (pol && Array.isArray(pol.gradeBands)) setBands(pol.gradeBands);
     } catch {
@@ -255,6 +268,47 @@ const MyResults = () => {
               )}
             </CardContent>
           </Card>
+
+          {prog && prog.currentStep && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Clock className="h-4 w-4 text-primary" />
+                  My progression
+                </CardTitle>
+                <CardDescription>
+                  Your position on the exam-cycle ladder
+                  {prog.className ? " (class: " + prog.className + ")" : ""} and academic-clock sync.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Badge variant="secondary">{prog.currentStep.id}</Badge>
+                  {prog.nextStep ? (
+                    <Badge>{prog.nextStep.id} next</Badge>
+                  ) : (
+                    <Badge className="bg-emerald-500/15 text-emerald-600">Graduation next</Badge>
+                  )}
+                  {prog.clockPhase && (
+                    <Badge variant="secondary">
+                      {prog.clockPhase.phaseName ?? "unknown phase"}
+                      {prog.clockSynced ? " (synced)" : " (not synced)"}
+                    </Badge>
+                  )}
+                </div>
+                {prog.currentStep.label && prog.currentStep.label !== prog.currentStep.id && (
+                  <p className="mt-2 text-xs text-muted-foreground">{prog.currentStep.label}</p>
+                )}
+                {prog.evaluation.blockers.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                    {prog.evaluation.blockers.map((b, i) => (
+                      <li key={i}>• {b}</li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {elig && (
             <Card>
