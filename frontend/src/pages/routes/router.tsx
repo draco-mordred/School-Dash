@@ -369,6 +369,7 @@ export const router = createBrowserRouter([
           {
             path: "clinical-rotations/posting-wizard",
             element: <PostingGenerationWizard />, // PR C2
+          },
           {
             path: "grades/courses",
             element: <CourseResultsRoute />,
@@ -381,7 +382,6 @@ export const router = createBrowserRouter([
             path: "grades/my",
             element: <MyResultsRoute />,
           }, // PR A1 (G1)
-          },
           {
             path: "rotation-teams",
             element: <ClinicalRotations />,
