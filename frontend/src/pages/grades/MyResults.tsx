@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { Award, BookOpen, Loader2, Lock, RefreshCw } from "lucide-react";
+import { Award, BookOpen, Loader2, Lock, RefreshCw, ShieldCheck } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,17 @@ interface CourseGradeRow {
   hasExam: boolean;
 }
 
+interface EligibilityInfo {
+  eligible: boolean;
+  issues: string[];
+  feesPaid: boolean;
+  clearancePaid: boolean;
+  attendancePercent: number | null;
+  attendanceTracked: boolean;
+  hasCa: boolean;
+  caAveragePercent: number | null;
+}
+
 interface WithheldRow {
   _id: string;
   course: { name?: string; code?: string };
@@ -52,19 +63,23 @@ const MyResults = () => {
   const [gpa, setGpa] = useState<number | null>(null);
   const [gpaScale, setGpaScale] = useState(5);
   const [bands, setBands] = useState<GradeBand[]>([]);
+  const [elig, setElig] = useState<EligibilityInfo | null>(null); // PR A2 (G2)
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [res, polRes] = await Promise.all([
+      const [res, polRes, eligRes] = await Promise.all([
         api.get("/grades/my"),
         api.get("/grades/policy").catch(() => null),
+        api.get("/eligibility/me").catch(() => null), // PR A2 (G2)
       ]);
       const data = res.data ?? {};
       setResults(Array.isArray(data.results) ? data.results : []);
       setWithheld(Array.isArray(data.withheldResults) ? data.withheldResults : []);
       setGpa(typeof data.gpa === "number" ? data.gpa : null);
       if (typeof data.gpaScale === "number") setGpaScale(data.gpaScale);
+      const ev = eligRes?.data?.evaluation ?? null;
+      setElig(ev); // PR A2 (G2)
       const pol = polRes?.data?.policy;
       if (pol && Array.isArray(pol.gradeBands)) setBands(pol.gradeBands);
     } catch {
@@ -240,6 +255,39 @@ const MyResults = () => {
               )}
             </CardContent>
           </Card>
+
+          {elig && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ShieldCheck className={"h-4 w-4 " + (elig.eligible ? "text-emerald-600" : "text-amber-500")} />
+                  Exam eligibility
+                </CardTitle>
+                <CardDescription>
+                  {elig.eligible
+                    ? "You are currently clear to sit exams and receive results."
+                    : "The outstanding items below withhold your results until cleared (or an admin override is set)."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">School fees {elig.feesPaid ? "paid" : "unpaid"}</Badge>
+                  <Badge variant="secondary">Clearance {elig.clearancePaid ? "complete" : "missing"}</Badge>
+                  <Badge variant="secondary">
+                    Attendance {elig.attendanceTracked ? elig.attendancePercent + "%" : "not tracked"}
+                  </Badge>
+                  <Badge variant="secondary">CA {elig.hasCa ? elig.caAveragePercent + "%" : "no record"}</Badge>
+                </div>
+                {elig.issues.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm text-muted-foreground">
+                    {elig.issues.map((issue, idx) => (
+                      <li key={idx}>• {issue}</li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex gap-4">
             <Link to="/lms/exams" className="text-sm text-primary underline-offset-4 hover:underline">

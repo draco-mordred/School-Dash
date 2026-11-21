@@ -45,6 +45,7 @@ import ClinicalRotations from "@/pages/ClinicalRotations";
 import PostingLogbookSettings from "@/pages/PostingLogbookSettings";
 import PostingGenerationWizard from "@/pages/PostingGenerationWizard"; // PR C2
 import MyResults from "@/pages/grades/MyResults"; // PR A1 (G1)
+import EligibilityAdmin from "@/pages/grades/EligibilityAdmin"; // PR A2 (G2)
 import CourseResults from "@/pages/grades/CourseResults"; // PR A1 (G1)
 import GradingPolicySettings from "@/pages/grades/GradingPolicySettings"; // PR A1 (G1)
 import ClinicalSchedules from "@/pages/clinical-schedules/ClinicalSchedules";
@@ -136,6 +137,13 @@ const MyResultsRoute = () => {
   const { user } = useAuth();
   if (user?.role !== "student") return <NotFound />;
   return <MyResults />;
+};
+
+// PR A2 (G2) — eligibility & clearance management is admin-only
+const EligibilityAdminRoute = () => {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <NotFound />;
+  return <EligibilityAdmin />;
 };
 
 // PR E2 — dashboard consolidation: /dashboard is the students' home and
@@ -382,6 +390,10 @@ export const router = createBrowserRouter([
             path: "grades/my",
             element: <MyResultsRoute />,
           }, // PR A1 (G1)
+          {
+            path: "grades/eligibility",
+            element: <EligibilityAdminRoute />,
+          }, // PR A2 (G2)
           {
             path: "rotation-teams",
             element: <ClinicalRotations />,
